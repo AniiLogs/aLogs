@@ -1,0 +1,23 @@
+{
+  "name": "alogs-app",
+  "private": true,
+  "version": "0.1.28",
+  "scripts": {
+    "ocr:build": "cargo build --release --manifest-path ocr-helper/Cargo.toml && node -e \"require('fs').copyFileSync('ocr-helper/target/release/ocr-helper.exe', '../bossbar/ocr-helper.exe')\"",
+    "meter:build": "npm run ocr:build && python ../bossbar/build_meter.py",
+    "sanctum:build": "powershell -NoProfile -ExecutionPolicy Bypass -File build-sanctum.ps1",
+    "tauri": "tauri",
+    "build": "npm run version:bump && npm run notes && npm run meter:build && npm run sanctum:build && node tauri-build.mjs && npm run clean:installers",
+    "dev": "tauri dev",
+    "version:bump": "node bump-version.mjs",
+    "release": "node release.mjs",
+    "notes": "node patch-notes.mjs",
+    "clean:installers": "node clean-installers.mjs",
+    "build:rc": "npm run notes && npm run meter:build && npm run sanctum:build && node tauri-build.mjs && npm run clean:installers",
+    "share": "node share.mjs --test",
+    "beta": "node share.mjs --beta"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

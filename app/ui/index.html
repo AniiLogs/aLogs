@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>aLogs: Aniiloger's Companion App</title>
+    <link rel="stylesheet" href="app.css">
+    <script src="patch-notes.js" defer></script>
+    <script src="app.js" defer></script>
+    <script src="sanctum.js" defer></script>
+  </head>
+  <body>
+    <aside class="nav">
+      <div class="brand"><span class="mark">✦</span><span>aLogs<small class="brand-sub">Aniiloger's Companion App</small></span></div>
+      <button type="button" data-page="dashboard" class="is-active">Dashboard</button>
+      <button type="button" data-page="dps">DPS Meter</button>
+      <button type="button" data-page="sanctum">Sanctum Helper</button>
+      <button type="button" data-page="site">AniiLogs</button>
+      <button type="button" data-page="general">General Settings</button>
+      <button type="button" data-page="about">About</button>
+      <div class="nav-foot">
+        <div class="nav-meter"><span class="dot" data-meter-dot></span><span data-meter-state>Meter starting…</span></div>
+        <div class="nav-update" data-update-box hidden>
+          <div class="nav-update-title" data-update-title>Update available</div>
+          <div class="update-progress" data-update-progress hidden><span data-update-bar></span></div>
+          <div class="nav-update-actions">
+            <button type="button" class="primary" data-install-update>Install now</button>
+            <button type="button" data-install-later>Next time aLogs opens</button>
+          </div>
+        </div>
+        <!-- your AniiLogs account, always in sight: sign in here, or see who you're signed in as -->
+        <button type="button" class="discord-button nav-discord" data-nav-sign-in hidden title="Sign in to sync your progress and send scores"><svg class="discord-logo" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg><span>Sign in with Discord</span></button>
+        <button type="button" class="nav-account is-signed-in" data-nav-account hidden></button>
+      </div>
+    </aside>
+
+    <main>
+      <!-- Dashboard -->
+      <section class="page is-active" data-page-body="dashboard">
+        <header class="page-head">
+          <h1>Dashboard</h1>
+        </header>
+        <div class="cards">
+          <article class="card"><h2>Game</h2><p data-s="game">—</p><small data-s="capture"></small></article>
+          <article class="card"><h2>Boss bar</h2><p data-s="bar">—</p><small data-s="status"></small></article>
+          <article class="card wide"><h2>Current fight</h2><p data-s="fight">No fight in progress.</p><small data-s="fight-detail"></small></article>
+          <article class="card"><h2>Your character</h2><p data-s="character">Not detected yet</p><small>Your UID comes from the game log, your name from your first result screen.</small></article>
+          <article class="card"><h2>Leaderboards</h2><p data-s="lb">Off</p><small data-s="lb-detail"></small></article>
+        </div>
+        <div class="row">
+          <button type="button" data-open="logs">Open logs folder</button>
+          <button type="button" data-open="meter_log">Open meter.log</button>
+          <button type="button" data-open="data">Open data folder</button>
+        </div>
+        <p class="hint">If something goes wrong, share <strong>meter.log</strong>: it records what the meter saw and why.</p>
+      </section>
+
+      <!-- DPS Meter: its sections as tabs across the top, like Sanctum Helper -->
+      <section class="page page-wide" data-page-body="dps">
+        <header class="page-head"><h1>DPS Meter</h1></header>
+        <div class="tabs" role="tablist" aria-label="DPS Meter">
+          <button type="button" role="tab" data-tab="meter" aria-selected="true">Meter</button>
+          <button type="button" role="tab" data-tab="overlay" aria-selected="false">Overlay</button>
+          <button type="button" role="tab" data-tab="results" aria-selected="false">Results</button>
+          <button type="button" role="tab" data-tab="captures" aria-selected="false">Captures &amp; logs</button>
+          <button type="button" role="tab" data-tab="leaderboard" aria-selected="false">Leaderboards &amp; account</button>
+        </div>
+      <div class="dps-panel is-active" data-panel="meter">
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="meter.enabled"><span></span>
+            <div><strong>Run the DPS meter</strong><small>When off, aLogs doesn't watch the game at all: no overlay, no saved results or Battle Data, nothing sent to the leaderboards. Sanctum Helper and the AniiLogs pages still work.</small></div></label>
+        </div>
+        <div class="group">
+          <label class="field"><span>How often the meter looks for a boss bar between fights</span>
+            <select data-k="capture.look_interval" data-type="number">
+              <option value="0.05">20 times a second (default)</option><option value="0.1">10 times a second</option><option value="0.25">4 times a second (lightest)</option>
+            </select></label>
+          <p class="hint">During a fight it reads 30 times a second whatever this is set to. Sanctum Helper keeps its own pace, so this only affects the meter.</p>
+        </div>
+      </div>
+
+      <!-- Overlay: what shows over the game and where -->
+      <div class="dps-panel" data-panel="overlay">
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="overlay.show"><span></span>
+            <div><strong>Show the overlay</strong><small>When off, the meter still runs and saves your records, but shows nothing over the game.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="overlay.dps_window"><span></span>
+            <div><strong>DPS window</strong><small>Team DPS, DPS over the last 5 seconds, team damage and fight time. Shows up with the boss bar, where Placement below puts it.</small></div></label>
+          <div class="field backdrop-field">
+            <label for="backdropRange">Background behind the DPS window: <output data-backdrop-value>0%</output></label>
+            <input id="backdropRange" type="range" min="0" max="100" step="5" data-k="overlay.backdrop" data-type="number">
+            <div class="backdrop-preview" aria-hidden="true">
+              <img src="img/backdrop-scene.jpg" alt=""><div class="backdrop-card" data-backdrop-card><img src="img/backdrop-text.png" alt=""></div>
+            </div>
+            <small class="hint">0% is text only, like the game's HUD. The card fades toward the right like Interlink's stars and timer panel; around 70% looks like it.</small>
+          </div>
+          <label class="toggle"><input type="checkbox" data-k="overlay.hp_labels"><span></span>
+            <div><strong>HP labels on the boss bar</strong><small>HP left in % in the middle of the bar, the current bar's HP next to the xN box (Interlink), and the HP left and the BREAK gauge under the bar on the right. Drag a label to move it, double-click to put it back.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Placement</h2>
+          <p class="hint">Where the DPS window sits in each mode. You can also drag it anywhere; it remembers that per mode.</p>
+          <h3 class="mode-head">Overworld</h3>
+          <div class="picks">
+            <label class="pick"><input type="radio" name="world_position" value="map" data-k="overlay.world_position">
+              <img src="img/world-map.jpg" alt="DPS window right of the minimap"><span>Right of the minimap</span></label>
+            <label class="pick"><input type="radio" name="world_position" value="quests" data-k="overlay.world_position">
+              <img src="img/world-quests.jpg" alt="DPS window under the quest list"><span>Under the quest list</span></label>
+          </div>
+          <h3 class="mode-head">Interlink</h3>
+          <div class="picks">
+            <label class="pick"><input type="radio" name="rush_position" value="corner" data-k="overlay.rush_position">
+              <img src="img/rush-corner.jpg" alt="DPS window in the top-left corner, next to Esc"><span>Top-left corner, next to Esc</span></label>
+            <label class="pick"><input type="radio" name="rush_position" value="panel" data-k="overlay.rush_position">
+              <img src="img/rush-panel.jpg" alt="DPS window under the stars and timer"><span>Under the stars and timer</span></label>
+          </div>
+        </div>
+        <div class="group">
+          <h2>After an overworld boss fight</h2>
+          <label class="field"><span>Keep the result up for</span>
+            <select data-k="overlay.result_seconds" data-type="number">
+              <option value="0">No time (hide it with the boss bar)</option><option value="5">5 seconds</option><option value="10">10 seconds (default)</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option>
+            </select></label>
+          <p class="hint">When the boss goes down, the DPS window shows the fight's final numbers for this long.</p>
+        </div>
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="overlay.hide_from_capture"><span></span>
+            <div><strong>Hide the overlay from screenshots and recordings</strong><small>Off by default, so your screenshots and clips include the meter.</small></div></label>
+        </div>
+      </div>
+      <!-- Results -->
+      <div class="dps-panel" data-panel="results">
+        <p class="lead">After an Interlink fight the game shows its result screen, and each player's stats are one click away under <em>View Battle Data</em>. The meter saves both.</p>
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="results.auto_open_battle_data"><span></span>
+            <div><strong>Open View Battle Data automatically</strong><small>Clicks the button as soon as the result screen appears (only while the game is the active window), then puts your cursor back.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="results.hold_inputs"><span></span>
+            <div><strong>Block keyboard and mouse buttons until Battle Data opens</strong><small>So mashing buttons can't skip past the result screen. You can still move the mouse. Stops when Battle Data opens or the screen changes; Ctrl+Shift+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
+          <label class="field"><span>Block for at most (seconds)</span><input type="number" min="5" max="120" step="5" data-k="results.hold_seconds" data-type="number"></label>
+          <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
+            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses (and your controller, if blocked below) from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Needs Sanctum Helper running (it tells the meter you're in a run). A loading screen lets go 5 s after the picture comes back. Ctrl+Shift+F12 stops it right away. Off by default; experimental.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Controller</h2>
+          <p class="hint" data-hidhide-state>Checking controller blocking…</p>
+          <p class="hint">Press a button on a controller: its row lights up, so you can tell which one is which.</p>
+          <ul class="pads" data-pads></ul>
+          <label class="toggle"><input type="checkbox" data-k="results.hold_controller"><span></span>
+            <div><strong>Block the controller too</strong><small>Hides your controller from the game while it waits (HidHide's driver by Nefarius, built in). Needs a one-time setup below. Off by default; experimental.</small></div></label>
+          <div class="row">
+            <button type="button" data-hidhide-setup>Set up controller blocking…</button>
+            <button type="button" data-hidhide-test>Test blocking</button>
+          </div>
+          <p class="hint" data-hidhide-result hidden></p>
+        </div>
+      </div>
+
+      <!-- Captures & logs -->
+      <div class="dps-panel" data-panel="captures">
+        <p class="lead">The meter always keeps your records: each fight's readings, results, Battle Data numbers, your scores (from Challenge Stats and the battle prep screens) and <strong>meter.log</strong>. The diagnostics below save extra pictures to check the meter's accuracy and fix problems; they're off unless you're chasing a problem, and they take a lot of space.</p>
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="capture.debug_frames"><span></span>
+            <div><strong>Boss bar snapshots during fights (diagnostics)</strong><small>Two small pictures of the boss's HP bar each second, to check what the meter read.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="capture.end_screens"><span></span>
+            <div><strong>Screens after each fight (diagnostics)</strong><small>A screenshot every 3 seconds for 45 seconds after a fight, so the result screen is kept even if the meter misses it.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="capture.nobar_frames"><span></span>
+            <div><strong>Screenshots when the meter can't find the boss bar (diagnostics)</strong><small>In dungeons such as Interlink, if no boss bar shows up, a screenshot every 5 seconds (at most 30 each time the meter starts), so we can see what it missed.</small></div></label>
+        </div>
+        <div class="group">
+          <label class="field"><span>Keep screenshots</span>
+            <select data-k="capture.keep_hours" data-type="number">
+              <option value="0">Only until their data is saved (default)</option>
+              <option value="6">For 6 hours</option><option value="24">For 1 day</option><option value="48">For 2 days</option>
+              <option value="72">For 3 days</option><option value="96">For 4 days</option><option value="120">For 5 days</option>
+              <option value="144">For 6 days</option><option value="168">For 7 days</option>
+              <option value="-1">Keep everything (don't delete)</option>
+            </select></label>
+          <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Anything left over is cleared every hour. Your records are kept either way.</p>
+        </div>
+        <div class="row">
+          <button type="button" data-open="logs">Open logs folder</button>
+          <button type="button" data-open="meter_log">Open meter.log</button>
+        </div>
+      </div>
+
+      <!-- Leaderboards & account -->
+      <div class="dps-panel" data-panel="leaderboard">
+        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink and Sim). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on.</p>
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="leaderboard.submit"><span></span>
+            <div><strong>Submit my records</strong><small>Each fight's result (score, stars, time, team DPS), every player's Battle Data, the meter's numbers, and your weekly and per-boss best scores.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="leaderboard.include_screenshots"><span></span>
+            <div><strong>Attach the result screenshot</strong><small>Proof for your run: a small picture of the result screen (1280×720). Anyone can open it from the camera next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
+            <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Your AniiLogs account</h2>
+          <p class="hint" data-account-state>Not signed in.</p>
+          <div class="row">
+            <button type="button" class="discord-button" data-sign-in><svg class="discord-logo" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg><span>Sign in with Discord</span></button>
+            <button type="button" data-sign-out hidden>Sign out</button>
+          </div>
+          <p class="hint">Discord's sign-in opens in your normal web browser (you're usually signed in there already): approve it, then come back here. Your password is never typed into aLogs.</p>
+          <p class="hint">Your records then appear on the <button type="button" class="link" data-open="https://aniilogs.github.io/leaderboard/">AniiLogs leaderboards</button>.</p>
+          <details>
+            <summary>Advanced</summary>
+            <label class="field"><span>Desktop token (instead of signing in: create one in your AniiLogs settings, Desktop app tab)</span>
+              <span class="inline"><input type="password" placeholder="alb_…" autocomplete="off" spellcheck="false" data-k="leaderboard.token" data-validate="token"><button type="button" data-reveal>Show</button></span></label>
+            <p class="hint" data-token-hint></p>
+            <label class="field"><span>Leaderboard API</span><input type="url" data-k="leaderboard.api_url"></label>
+          </details>
+        </div>
+        <div class="group">
+          <h2>Detected character</h2>
+          <p data-s="character-full">Not detected yet. Your UID appears once the game is running, and your name after your first result screen.</p>
+          <p class="hint" data-s="character-proof"></p>
+          <p class="hint">Your name is read from the game: from the menu you open with Esc or Start, where your UID is shown right under it, and until then from your result screens. The menu is also your proof for the leaderboards.</p>
+          <div class="notice" data-dispute hidden>
+            <p data-dispute-text></p>
+            <label class="field"><span>Anything a developer should know (optional)</span><input type="text" maxlength="500" data-dispute-note></label>
+            <div class="row"><button type="button" class="primary" data-dispute-send>Send a dispute</button></div>
+          </div>
+        </div>
+      </div>
+
+      </section>
+
+      <!-- Sanctum Helper: tabs across the top, built by sanctum.js -->
+      <section class="page page-wide" data-page-body="sanctum">
+        <header class="page-head"><h1>Sanctum Helper</h1></header>
+        <div data-sanctum></div>
+      </section>
+
+      <!-- AniiLogs: the live website (site.rs lays it over the frame below), its pages as tabs -->
+      <section class="page page-site" data-page-body="site">
+        <div class="tabs" role="tablist" aria-label="AniiLogs">
+          <button type="button" role="tab" data-site-tab="/leaderboard/" aria-selected="true">Leaderboards</button>
+          <button type="button" role="tab" data-site-tab="/explorer/" aria-selected="false">Map</button>
+          <button type="button" role="tab" data-site-tab="/explorer/?view=aniilog" aria-selected="false">Aniilog</button>
+          <button type="button" role="tab" data-site-tab="/explorer/?view=itemlog" aria-selected="false">Item-log</button>
+          <button type="button" role="tab" data-site-tab="/explorer/?view=team" aria-selected="false">Team Builder</button>
+          <button type="button" role="tab" data-site-tab="/?view=profile" aria-selected="false">Profiles</button>
+        </div>
+        <div class="site-frame" data-site-frame><p class="hint">Loading AniiLogs…</p></div>
+      </section>
+
+      <!-- General Settings: tabs across the top -->
+      <section class="page page-wide" data-page-body="general">
+        <header class="page-head"><h1>General Settings</h1></header>
+        <div class="tabs" role="tablist" aria-label="General Settings">
+          <button type="button" role="tab" data-tab="general" aria-selected="true">General</button>
+          <button type="button" role="tab" data-tab="themes" aria-selected="false">Themes</button>
+        </div>
+      <div class="dps-panel is-active" data-panel="general">
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="app.start_with_windows"><span></span>
+            <div><strong>Start aLogs with Windows</strong><small>Starts in the tray, out of the way.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="app.close_to_tray"><span></span>
+            <div><strong>Closing the window keeps aLogs in the tray</strong><small>When off, closing the window quits aLogs and stops the meter.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Updates</h2>
+          <label class="toggle"><input type="checkbox" data-k="app.auto_download"><span></span>
+            <div><strong>Download updates automatically</strong><small>New versions download in the background, so updating is just a restart. When off, aLogs still tells you about updates and downloads one only when you click.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="app.beta_updates"><span></span>
+            <div><strong>Get beta updates</strong><small>Public betas of the next version, before it's released. They may have rough edges. While you're on a beta, betas keep coming either way until the release catches up.</small></div></label>
+          <div class="row"><button type="button" data-check-update>Check for updates</button><span class="hint" data-update-note></span></div>
+          <p class="hint">aLogs always checks for updates and shows them in the sidebar. Nothing installs until you choose: <strong>Install now</strong> closes aLogs, shows a progress bar while it installs and opens the new version; <strong>Next time aLogs opens</strong> installs it then. No installer to click through either way.</p>
+        </div>
+        <div class="group">
+          <h2>Setup guide</h2>
+          <label class="toggle"><input type="checkbox" data-k="app.show_guide"><span></span>
+            <div><strong>Show the setup guide when aLogs starts</strong><small>Signing in, leaderboards and result screens, step by step. Turns itself off once you finish or skip it.</small></div></label>
+          <div class="row"><button type="button" data-guide-open>Open the setup guide</button></div>
+        </div>
+        <div class="group">
+          <h2>Game</h2>
+          <label class="field"><span>Game window title</span><input type="text" data-k="game.window_title"></label>
+          <label class="field"><span>Game log (Player.log): leave empty to use the usual location</span><input type="text" data-k="game.player_log" placeholder="%USERPROFILE%\AppData\LocalLow\Aniimo\Aniimo\Player.log"></label>
+        </div>
+      </div>
+
+      <!-- Themes: the AniiLogs site's themes, for this window only -->
+      <div class="dps-panel" data-panel="themes">
+        <p class="lead">The same themes as the AniiLogs website. They change how this window looks; the overlay in the game stays the same.</p>
+        <div class="group">
+          <div class="theme-grid" data-themes></div>
+        </div>
+        <div class="group" data-theme-custom hidden>
+          <h2>Custom colours</h2>
+          <div class="theme-colors" data-theme-colors></div>
+          <div class="row"><button type="button" data-theme-reset>Start again from Night</button></div>
+        </div>
+      </div>
+      </section>
+
+      <!-- About -->
+      <section class="page" data-page-body="about">
+        <header class="page-head"><h1>About</h1></header>
+        <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
+        <div class="group">
+          <p>The meter only reads the screen (built-in Windows capture, no yellow border) and the game's own text log. It never touches the game's memory or files.</p>
+          <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
+          <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
+          <p class="hint">Includes Sanctum Helper by sargeeva (MIT License).</p>
+        </div>
+        <div class="group">
+          <h2>Source code</h2>
+          <div class="row">
+            <button type="button" data-open="https://github.com/AniiLogs/aniilogs.github.io">AniiLogs site</button>
+            <button type="button" data-open="https://github.com/sargeeva/SanctumHelper">Sanctum Helper</button>
+            <button type="button" data-open="https://github.com/nefarius/HidHide">HidHide</button>
+          </div>
+          <p class="hint">The aLogs app and DPS meter will get their own repository once the suite has its name.</p>
+        </div>
+        <div class="group">
+          <div class="group-head"><h2>Patch notes</h2>
+            <button type="button" class="primary" data-update data-open="https://github.com/AniiLogs/aniilogs.github.io/releases/latest" hidden>Update</button></div>
+          <div class="notes" data-patch-notes></div>
+          <div class="row">
+            <button type="button" data-open="https://github.com/AniiLogs/aniilogs.github.io/releases">All releases</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" data-toast hidden></div>
+
+    <!-- First run -->
+    <div class="modal" data-guide hidden>
+      <section class="modal-card guide" role="dialog" aria-modal="true" aria-labelledby="guideTitle">
+        <ol class="guide-dots" aria-hidden="true" data-guide-dots></ol>
+        <div class="guide-step" data-step="1">
+          <h1 id="guideTitle">Welcome to aLogs</h1>
+          <p>A DPS meter for boss fights, your result and Battle Data screens kept for you, Sanctum Helper for Egg Heist, and the AniiLogs website, all in one app.</p>
+          <p>Three quick steps set it up. You can change everything later.</p>
+        </div>
+        <div class="guide-step" data-step="2" hidden>
+          <h1>Your AniiLogs account</h1>
+          <p>Sign in to sync your map and checklists for each character, and to put your scores on the AniiLogs leaderboards. Discord opens in your normal browser: approve it there, then come back.</p>
+          <p class="guide-state" data-guide-account>Not signed in.</p>
+          <div class="row"><button type="button" class="discord-button" data-guide-sign-in><svg class="discord-logo" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg><span>Sign in with Discord</span></button></div>
+          <small class="hint">Optional. Without it the meter still works and keeps your records on this PC.</small>
+        </div>
+        <div class="guide-step" data-step="3" hidden>
+          <h1>Leaderboards</h1>
+          <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.submit"><span></span>
+            <div><strong>Send my records to the leaderboards</strong><small>Your best Interlink runs and Egg Heist matches, under your in-game name.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.include_screenshots"><span></span>
+            <div><strong>Attach the result screenshot as proof</strong><small>A small picture of the end screen. Your PC keeps no copy once it's sent.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.link_character"><span></span>
+            <div><strong>Link my character to my account</strong><small>Each UID belongs to one account.</small></div></label>
+        </div>
+        <div class="guide-step" data-step="4" hidden>
+          <h1>Result screens</h1>
+          <label class="toggle"><input type="checkbox" data-guide-k="results.auto_open_battle_data"><span></span>
+            <div><strong>Open View Battle Data automatically</strong><small>So every player's stats get read too.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-guide-k="results.hold_inputs"><span></span>
+            <div><strong>Block button presses until it opens</strong><small>So mashing can't skip the result screen. Ctrl+Shift+F12 stops it right away.</small></div></label>
+          <small class="hint">Controller blocking and the Egg Heist options are in DPS Meter › Results.</small>
+        </div>
+        <div class="guide-step" data-step="5" hidden>
+          <h1>You're set</h1>
+          <p>Start a boss fight and the meter appears over the game. Your records are in DPS Meter, Sanctum Helper has its own page, and AniiLogs shows the website.</p>
+          <p>This guide is in General Settings if you want it again.</p>
+        </div>
+        <div class="row guide-nav">
+          <button type="button" class="link" data-guide-skip>Skip</button>
+          <span class="guide-spacer"></span>
+          <button type="button" data-guide-back hidden>Back</button>
+          <button type="button" class="primary" data-guide-next>Next</button>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

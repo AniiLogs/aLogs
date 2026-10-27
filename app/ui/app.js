@@ -1,0 +1,707 @@
+(() => {
+  const invoke = window.__TAURI__.core.invoke;
+  // Same defaults as bossbar/settings.py (the meter fills in anything missing the same way).
+  const DEFAULTS = {
+    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, auto_download: true, beta_updates: false },
+    meter: { enabled: true },
+    game: { window_title: "Aniimo", player_log: "" },
+    overlay: { show: true, dps_window: true, hp_labels: true, hide_from_capture: false, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
+    capture: { look_interval: 0.05, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
+    results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
+    leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
+  };
+  let settings = structuredClone(DEFAULTS);
+  let status = {};
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const get = (path) => path.split(".").reduce((value, key) => value?.[key], settings);
+  const set = (path, value) => {
+    const keys = path.split(".");
+    const last = keys.pop();
+    keys.reduce((value, key) => value[key], settings)[last] = value;
+  };
+  function merge(base, extra) {
+    const out = structuredClone(base);
+    for (const [key, value] of Object.entries(extra || {})) {
+      if (out[key] && typeof out[key] === "object" && value && typeof value === "object") out[key] = merge(out[key], value);
+      else if (key in out) out[key] = value;
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------- toast
+  let toastTimer = 0;
+  function toast(text, bad = false) {
+    const node = $("[data-toast]");
+    node.textContent = text;
+    node.classList.toggle("bad", bad);
+    node.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { node.hidden = true; }, 3200);
+  }
+
+  // ---------------------------------------------------------------- navigation
+  $$("[data-page]").forEach((button) => button.addEventListener("click", () => {
+    $$("[data-page]").forEach((b) => b.classList.toggle("is-active", b === button));
+    $$("[data-page-body]").forEach((page) => page.classList.toggle("is-active", page.dataset.pageBody === button.dataset.page));
+    placeSite();
+  }));
+
+  // ---------------------------------------------------------------- the AniiLogs website
+  // The live site in a second webview (site.rs) laid exactly over the frame under the tabs, so it is always the same as
+  // aniilogs.github.io. It is hidden whenever another page is open, and follows the frame when the window is resized.
+  let sitePage = "/leaderboard/";
+  let siteSignedIn = false;   // the site view got its one-time sign-in from the app's account
+  async function siteHandoff() {
+    const token = get("leaderboard.token");
+    if (!token || siteSignedIn) return null;
+    try {
+      const response = await fetch(`${api()}/auth/app/site-handoff`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+      if (!response.ok) return null;
+      siteSignedIn = true;
+      return (await response.json()).handoff || null;
+    } catch { return null; }
+  }
+  async function placeSite() {
+    const page = $('[data-page-body="site"]');
+    const open = page.classList.contains("is-active");
+    const frame = $("[data-site-frame]").getBoundingClientRect();
+    const theme = (() => { try { return JSON.parse(localStorage.getItem("alogs:theme:v1") || "{}").theme; } catch { return null; } })();
+    const auth = open ? await siteHandoff() : null;
+    invoke("site_view", open
+      ? { path: sitePage, theme: theme && theme !== "custom" ? theme : null, uid: status.character?.uid || null, auth,
+          x: frame.left, y: frame.top, w: frame.width, h: frame.height }
+      : { path: null, theme: null, uid: null, auth: null, x: 0, y: 0, w: 0, h: 0 }).catch((error) => toast(String(error), true));
+  }
+  $$("[data-site-tab]").forEach((tab) => tab.addEventListener("click", () => {
+    sitePage = tab.dataset.siteTab;
+    $$("[data-site-tab]").forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
+    placeSite();
+  }));
+  new ResizeObserver(() => { if ($('[data-page-body="site"]').classList.contains("is-active")) placeSite(); }).observe($("[data-site-frame]"));
+  // DPS Meter: its sections are tabs across the top of the page
+  // Tabs across the top of a page (DPS Meter, General Settings): each page switches only its own panels.
+  function showTab(page, name) {
+    const body = $(`[data-page-body="${page}"]`);
+    $$("[data-tab]", body).forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
+    $$("[data-panel]", body).forEach((panel) => panel.classList.toggle("is-active", panel.dataset.panel === name));
+  }
+  const showDpsTab = (name) => showTab("dps", name);
+  $$("[data-tab]").forEach((tab) => tab.addEventListener("click", () => showTab(tab.closest("[data-page-body]").dataset.pageBody, tab.dataset.tab)));
+
+  // ---------------------------------------------------------------- themes
+  // The AniiLogs site's themes (public/theme-shell.js): same presets, same colours, plus Custom. Only this window's
+  // look changes, never the overlay. Kept in this window's own storage, not settings.json: it's this window's
+  // look only, nothing the meter needs.
+  const THEME_KEY = "alogs:theme:v1";
+  const THEMES = {
+    default: { label: "Night", colors: { background: "#0b1215", backgroundAlt: "#10242a", surface: "#121d21", surfaceRaised: "#1a2a2f",
+      border: "#315057", text: "#f4f4e9", muted: "#9bb5b2", primary: "#62d9b3", secondary: "#2d9d82", highlight: "#f4bd4f" },
+      accentText: "#79e5c2", coral: "#f48972" },
+    meadow: { label: "Meadow", colors: { background: "#f8f2d7", backgroundAlt: "#ccebe4", surface: "#fffaf0", surfaceRaised: "#f3edd8",
+      border: "#b7d2c7", text: "#24473f", muted: "#506a62", primary: "#4fcda5", secondary: "#258c76", highlight: "#f4bd4f" },
+      accentText: "#1c756b", coral: "#b84c3b" },
+    emberpup: { label: "Emberpup", colors: { background: "#111218", backgroundAlt: "#2b1815", surface: "#1c1d27", surfaceRaised: "#292a36",
+      border: "#4b4650", text: "#fff4e8", muted: "#bdb4b5", primary: "#ff742e", secondary: "#d9471d", highlight: "#ffc857" },
+      accentText: "#ffad82", coral: "#ff742e" },
+    pawney: { label: "Pawney", colors: { background: "#0e1120", backgroundAlt: "#171b3a", surface: "#171b2d", surfaceRaised: "#232844",
+      border: "#444d76", text: "#f5f4ff", muted: "#aeb3cf", primary: "#7a84f7", secondary: "#4d57bc", highlight: "#ee8bd4" },
+      accentText: "#adb5ff", coral: "#ee8bd4" },
+  };
+  const COLOR_LABELS = { background: "Background", backgroundAlt: "Background glow", surface: "Panels", surfaceRaised: "Raised panels",
+    border: "Borders", text: "Text", muted: "Secondary text", primary: "Accent", secondary: "Second accent", highlight: "Highlight" };
+  const hex = (value, fallback) => (/^#[0-9a-f]{6}$/iu.test(String(value || "")) ? String(value).toLowerCase() : fallback);
+  const luminance = (color) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const readable = (background) => (contrast("#08110f", background) >= contrast("#fffdf3", background) ? "#08110f" : "#fffdf3");
+  function savedTheme() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(THEME_KEY) || "{}");
+      return { theme: saved.theme === "custom" || THEMES[saved.theme] ? saved.theme : "default", custom: saved.custom || {} };
+    } catch {
+      return { theme: "default", custom: {} };
+    }
+  }
+  function customColors(custom) {
+    return Object.fromEntries(Object.entries(THEMES.default.colors).map(([key, fallback]) => [key, hex(custom[key], fallback)]));
+  }
+  function applyTheme(theme, custom) {
+    const preset = THEMES[theme];
+    const c = preset ? preset.colors : customColors(custom);
+    const light = luminance(c.background) > 0.4;
+    // accent as text: the preset's own readable shade; for Custom, the accent itself when it reads on the panels
+    const accentText = preset ? preset.accentText : (contrast(c.primary, c.surface) >= 3 ? c.primary : c.text);
+    const vars = { "--bg": c.background, "--bg-2": c.backgroundAlt, "--panel": c.surface, "--panel-2": c.surfaceRaised, "--line": c.border,
+      "--text": c.text, "--muted": c.muted, "--accent": c.primary, "--accent-2": c.secondary, "--gold": c.highlight,
+      "--coral": preset ? preset.coral : "#f48972", "--accent-text": accentText, "--on-accent": readable(c.primary) };
+    Object.entries(vars).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
+    document.documentElement.style.colorScheme = light ? "light" : "dark";
+  }
+  function saveTheme(theme, custom) {
+    try { localStorage.setItem(THEME_KEY, JSON.stringify({ theme, custom })); } catch { /* the theme still applies now */ }
+    applyTheme(theme, custom);
+    renderThemes();
+  }
+  function renderThemes() {
+    const { theme, custom } = savedTheme();
+    const box = $("[data-themes]");
+    const swatch = (colors) => {
+      const strip = document.createElement("span");
+      strip.className = "theme-swatch";
+      strip.style.background = colors.background;
+      for (const key of ["surface", "primary", "highlight", "text"]) {
+        const dot = document.createElement("i");
+        dot.style.background = colors[key];
+        strip.append(dot);
+      }
+      return strip;
+    };
+    const cards = [...Object.entries(THEMES).map(([id, preset]) => [id, preset.label, preset.colors]), ["custom", "Custom", customColors(custom)]]
+      .map(([id, label, colors]) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = `theme-card${id === theme ? " is-active" : ""}`;
+        card.setAttribute("aria-pressed", String(id === theme));
+        card.append(swatch(colors), Object.assign(document.createElement("span"), { textContent: label }));
+        card.addEventListener("click", () => saveTheme(id, id === "custom" && !Object.keys(custom).length
+          ? { ...THEMES[theme]?.colors ?? customColors(custom) } : custom));   // Custom starts from the theme you had
+        return card;
+      });
+    box.replaceChildren(...cards);
+    const editor = $("[data-theme-custom]");
+    editor.hidden = theme !== "custom";
+    if (theme !== "custom") return;
+    const colors = customColors(custom);
+    editor.querySelector("[data-theme-colors]").replaceChildren(...Object.entries(COLOR_LABELS).map(([key, label]) => {
+      const row = document.createElement("label");
+      row.className = "theme-color";
+      const input = Object.assign(document.createElement("input"), { type: "color", value: colors[key] });
+      input.addEventListener("input", () => applyTheme("custom", { ...colors, [key]: input.value }));
+      input.addEventListener("change", () => saveTheme("custom", { ...customColors(savedTheme().custom), [key]: input.value }));
+      row.append(input, Object.assign(document.createElement("span"), { textContent: label }));
+      return row;
+    }));
+  }
+  $("[data-theme-reset]").addEventListener("click", () => saveTheme("custom", { ...THEMES.default.colors }));
+  applyTheme(savedTheme().theme, savedTheme().custom);
+  renderThemes();
+
+  // ---------------------------------------------------------------- settings form
+  function fill() {
+    for (const input of $$("[data-k]")) {
+      const value = get(input.dataset.k);
+      if (input.type === "checkbox") input.checked = Boolean(value);
+      else if (input.type === "radio") input.checked = input.value === String(value);
+      else input.value = value ?? "";
+    }
+    backdropPreview();
+    tokenHint();
+  }
+  // DPS Meter › Overlay: the background slider's preview follows the slider while it moves (saved on release)
+  function backdropPreview(value = get("overlay.backdrop") || 0) {
+    $("[data-backdrop-value]").textContent = `${value}%`;
+    const a = value / 100;     // like the overlay's card: darkest on the left, easing to 40% of that on the right
+    $("[data-backdrop-card]").style.background = `linear-gradient(to right, rgba(22, 24, 34, ${a}), rgba(22, 24, 34, ${a * 0.4}))`;
+  }
+  $("#backdropRange").addEventListener("input", (event) => backdropPreview(Number(event.target.value)));
+  function tokenHint() {
+    const token = get("leaderboard.token");
+    const hint = $("[data-token-hint]");
+    void showAccount();
+    if (!token) hint.textContent = get("leaderboard.submit") ? "Sign in with Discord (or add a desktop token) to start sending records." : "";
+    else hint.textContent = token.startsWith("alb_") ? "Token saved on this PC." : "That doesn't look like a desktop token (they start with alb_).";
+  }
+  // ---------------------------------------------------------------- Sign in with Discord
+  // Discord's page opens in the player's own browser; the API sends that browser back to the app on 127.0.0.1 with a
+  // one-time code (auth.rs), which only redeems together with the secret made here (PKCE) for a desktop token.
+  const api = () => String(get("leaderboard.api_url") || DEFAULTS.leaderboard.api_url).replace(/\/+$/u, "");
+  const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+  let accountShown = null;
+  // the sidebar: "Sign in to sync" while signed out, your name (opens the account settings) once signed in
+  function showNavAccount(name) {
+    $("[data-nav-sign-in]").hidden = Boolean(name);
+    const nav = $("[data-nav-account]");
+    nav.hidden = !name;
+    nav.textContent = name ? `Signed in as ${name}` : "";
+  }
+  $("[data-nav-sign-in]").addEventListener("click", () => $("[data-sign-in]").click());
+  $("[data-nav-account]").addEventListener("click", () => { $('[data-page="dps"]').click(); showDpsTab("leaderboard"); });
+  async function showAccount() {
+    const token = get("leaderboard.token") || "";
+    const state = $("[data-account-state]");
+    if (!state || accountShown === token) return;
+    accountShown = token;
+    showNavAccount(null);
+    $("[data-sign-in]").hidden = Boolean(token); $("[data-sign-out]").hidden = !token;
+    if (!token) { state.textContent = "Not signed in."; return; }
+    state.textContent = "Checking your account…";
+    try {
+      const response = await fetch(`${api()}/auth/app/account`, { headers: { authorization: `Bearer ${token}` } });
+      const body = await response.json().catch(() => ({}));
+      state.textContent = response.ok ? `Signed in as ${body.account?.name || "your Discord account"}.`
+        : "This sign-in no longer works (signed out or revoked). Sign in again.";
+      showNavAccount(response.ok ? body.account?.name || "Discord" : null);
+      if (!response.ok) { $("[data-sign-in]").hidden = false; }
+    } catch {
+      state.textContent = "Signed in (couldn't reach AniiLogs to check right now).";
+      showNavAccount("Discord");
+    }
+  }
+  $("[data-sign-in]").addEventListener("click", async (event) => {
+    const button = event.currentTarget; const state = $("[data-account-state]");
+    button.disabled = true;
+    try {
+      const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+      const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+      const port = await invoke("auth_listen_start");
+      await invoke("open_target", { target: `${api()}/auth/discord/start?app_port=${port}&app_challenge=${challenge}` });
+      state.textContent = "Finish signing in in your browser, then come back here…";
+      const code = await invoke("auth_listen_wait");
+      const response = await fetch(`${api()}/auth/app/exchange`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, verifier, device: "this PC" }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.token) throw new Error(body.error || `Sign-in failed (${response.status}).`);
+      set("leaderboard.token", body.token);
+      fill(); scheduleSave(`Signed in as ${body.account?.name || "your Discord account"}`);
+      siteSignedIn = false; placeSite();
+    } catch (error) {
+      accountShown = null; void showAccount();
+      toast(String(error.message || error), true);
+    }
+    button.disabled = false;
+  });
+  $("[data-sign-out]").addEventListener("click", async () => {
+    const token = get("leaderboard.token");
+    if (token) {
+      try { await fetch(`${api()}/auth/app/sign-out`, { method: "POST", headers: { authorization: `Bearer ${token}` } }); } catch { /* signed out here anyway */ }
+    }
+    set("leaderboard.token", ""); fill(); scheduleSave("Signed out");
+  });
+
+  let saveTimer = 0;
+  function scheduleSave(message = "Saved") {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        await invoke("save_settings", { settings });
+        toast(message);
+      } catch (error) {
+        toast(`Could not save: ${error}`, true);
+      }
+    }, 500);
+  }
+  for (const input of $$("[data-k]")) {
+    input.addEventListener("change", () => {
+      let value = input.type === "checkbox" ? input.checked : input.value.trim();
+      if (input.dataset.type === "number") value = Number(value);
+      if (input.dataset.validate === "token" && value && !value.startsWith("alb_")) {
+        tokenHint();
+        $("[data-token-hint]").textContent = "That doesn't look like a desktop token (they start with alb_). Not saved.";
+        return;
+      }
+      set(input.dataset.k, value);
+      tokenHint();
+      scheduleSave();
+    });
+  }
+  $("[data-reveal]").addEventListener("click", (event) => {
+    const field = $('[data-k="leaderboard.token"]');
+    field.type = field.type === "password" ? "text" : "password";
+    event.currentTarget.textContent = field.type === "password" ? "Show" : "Hide";
+  });
+
+  // ---------------------------------------------------------------- buttons
+  $$("[data-open]").forEach((button) => button.addEventListener("click", async () => {
+    if (button.dataset.install !== undefined) return;            // a downloaded update: installUpdate handles it
+    try {
+      await invoke("open_target", { target: button.dataset.open });
+    } catch (error) {
+      toast(String(error), true);
+    }
+  }));
+  $("[data-dispute-send]").addEventListener("click", async () => {
+    try {
+      await invoke("send_character_dispute", { note: $("[data-dispute-note]").value.trim() });
+      toast("Dispute queued: it goes out with the game-menu proof");
+    } catch (error) {
+      toast(String(error), true);
+    }
+  });
+  $("[data-hidhide-setup]").addEventListener("click", async () => {
+    try {
+      const found = await invoke("setup_controller_blocking");
+      void showPads();
+      toast(found ? `Set up: ${found === 1 ? "1 controller device" : `${found} controller devices`} will be blocked. If it doesn't block yet, unplug and replug the controller once.`
+        : "Controller blocking is installed, but no controller is connected. Connect it and press the button again.", !found);
+    } catch (error) {
+      toast(String(error), true);
+    }
+  });
+
+  $("[data-hidhide-test]").addEventListener("click", async (event) => {
+    const button = event.currentTarget; const out = $("[data-hidhide-result]");
+    button.disabled = true; out.hidden = false; out.dataset.from = "test"; out.textContent = "Testing: your controller disappears for a second…";
+    try {
+      out.textContent = (await invoke("test_controller_blocking")).join(" · ");
+    } catch (error) {
+      out.textContent = String(error);
+    }
+    button.disabled = false; void showPads();
+  });
+  // What controller blocking sees: each connected controller by name and whether it is on the block list
+  async function showPads() {
+    let info;
+    try { info = await invoke("controller_status"); } catch { return; }
+    const list = $("[data-pads]");
+    const rows = (info.controllers || []).map((pad) => {
+      const li = document.createElement("li");
+      // lights up while you press a button on this controller, so you can tell which one it is
+      const light = document.createElement("span"); light.className = "pad-light" + (pad.pressedMsAgo != null && pad.pressedMsAgo < 700 ? " on" : "");
+      light.title = "Lights up while you press a button on this controller";
+      const name = document.createElement("strong"); name.textContent = pad.name;
+      const kind = document.createElement("span"); kind.className = "tag"; kind.textContent = pad.xinput ? "XInput" : "DirectInput";
+      const state = document.createElement("span");
+      const ready = info.installed && info.filters && pad.attached && pad.blocked;
+      state.className = "tag " + (!info.installed ? "" : ready ? "ok" : "warn");
+      state.textContent = !info.installed ? "detected"
+        : !info.filters ? "detected · driver not attached: press Set up"
+        : !pad.hidAttached ? "detected · turn it off and on (or press Set up)"
+        : !pad.attached ? "detected · XInput side not attached yet: re-apply it in reWASD, turn it off and on, or restart Windows"
+        : pad.blocked ? "detected · ready to block" : "detected · not set up yet";
+      li.append(light, name, kind, state);
+      if (info.installed && info.filters) {
+        // its own Block switch: with several controllers, block only the ones you play with
+        const toggle = document.createElement("label"); toggle.className = "pad-block";
+        const box = document.createElement("input"); box.type = "checkbox"; box.checked = Boolean(pad.blocked);
+        box.addEventListener("change", async () => {
+          try { await invoke("set_controller_blocked", { id: pad.id, on: box.checked }); } catch (error) { toast(String(error), true); }
+          void showPads();
+        });
+        toggle.append(box, document.createTextNode(" Block"));
+        li.append(toggle);
+      }
+      return li;
+    });
+    if (!rows.length) {
+      const li = document.createElement("li"); li.className = "none";
+      li.textContent = "No controller connected. Plug it in (or turn it on) and it shows up here.";
+      rows.push(li);
+    }
+    list.replaceChildren(...rows);
+    const pads = info.controllers || [];
+    const testable = info.installed && pads.some((pad) => pad.blocked && pad.attached);
+    const test = $("[data-hidhide-test]");
+    test.disabled = !testable;
+    // a greyed-out button says why
+    test.title = testable ? "Hides your controller for a second to prove the game would lose it"
+      : !info.installed || !info.filters ? "Press Set up controller blocking first"
+      : !pads.length ? "Connect your controller first"
+      : pads.some((pad) => !pad.attached) ? "Turn the controller off and on (re-apply it in reWASD for a virtual one), or restart Windows once"
+      : "Press Set up controller blocking first";
+    const why = $("[data-hidhide-result]");
+    if (!testable && why.dataset.from !== "test") { why.hidden = false; why.textContent = "Test blocking: " + test.title.toLowerCase() + "."; why.dataset.from = "hint"; }
+    if (testable && why.dataset.from === "hint") { why.hidden = true; why.dataset.from = ""; }
+    if (info.hiding) $("[data-hidhide-state]").textContent = "Your controller is hidden from the game right now (the meter is holding inputs).";
+  }
+  // refreshed while the Results tab is open (often, so the "which one is it" light follows your presses)
+  setInterval(() => { if ($('[data-hidhide-test]').offsetParent) void showPads(); }, 400);
+
+  // ---------------------------------------------------------------- status
+  const n = (value) => (value === null || value === undefined ? "—" : Number(value).toLocaleString());
+  function text(key, value) {
+    for (const node of $$(`[data-s="${key}"]`)) node.textContent = value;
+  }
+  let siteUid = null;
+  function render() {
+    if ((status.character?.uid || null) !== siteUid) {               // the game switched characters: their checklists
+      siteUid = status.character?.uid || null;
+      if ($('[data-page-body="site"]').classList.contains("is-active")) placeSite();
+    }
+    const running = Boolean(status.running);
+    $("[data-meter-dot]").classList.toggle("on", running);
+    // the meter always runs while aLogs is open; a gap only means it is (re)starting
+    const meterOn = get("meter.enabled") !== false;
+    $("[data-meter-state]").textContent = !meterOn ? "Meter off" : running ? "Meter running" : "Meter starting…";
+    const fresh = running && status.time && Date.now() / 1000 - status.time < 5;
+    text("game", !meterOn ? "Meter off (DPS Meter › Meter)" : !running ? "Meter starting…" : !fresh ? "Starting…"
+      : status.game_window ? "Game window found" : "Waiting for the game");
+    text("capture", fresh && status.frame ? `${status.frame[0]}×${status.frame[1]} via ${status.capture}` : "");
+    text("bar", fresh ? (status.boss_bar ? "Boss bar on screen" : "No boss bar") : "—");
+    text("status", fresh ? status.status || "" : "");
+    const fight = fresh ? status.fight : null;
+    text("fight", fight ? `${fight.boss} Lv ${fight.level}${fight.segment ? ` · x${fight.segment}` : ""} — ${n(fight.avg_dps)} DPS` : "No fight in progress.");
+    text("fight-detail", fight ? `Team damage ${n(fight.damage)} of ${n(fight.max_hp)} HP · ${fight.seconds}s · ${n(fight.recent_dps)} DPS over the last 5 s` : "");
+    const character = status.character || {};
+    const who = character.uid ? `${character.name || "Name appears after your first result screen"} · UID ${character.uid}` : "Waiting for the game log…";
+    text("character", who);
+    text("character-full", character.uid ? who : "Waiting for the game log: your UID shows once you load into the world (it's read fresh each session, so the right character on the right server), then your name.");
+    text("character-proof", !character.uid ? "" : character.verified
+      ? "Proven: read from the game menu, right above your UID."
+      : "Not proven yet: open the game menu (Esc or Start) once while aLogs is running.");
+    const dispute = character.dispute;
+    $("[data-dispute]").hidden = !dispute;
+    if (dispute) $("[data-dispute-text]").textContent = `Another AniiLogs account already proved UID ${dispute.gameUid} as its character. `
+      + `If "${dispute.name}" is yours, send a dispute: a developer compares both game-menu proofs and moves the character to the right account.`;
+    const lb = status.leaderboard || {};
+    text("lb", !get("leaderboard.submit") ? "Off" : !get("leaderboard.token") ? "On — needs a desktop token" : lb.on ? "On" : "On (starts with the meter)");
+    text("lb-detail", lb.on ? `${lb.pending || 0} waiting to send${lb.last ? ` · last: ${lb.last[1]}` : ""}` : "");
+    text("data-dir", status.data_dir || "…");
+    $("[data-hidhide-state]").textContent = status.hidhide_installed
+      ? "Controller blocking is installed. Press the setup button again whenever you use a different controller."
+      : "Setting it up installs a small driver (Windows asks for admin approval once). Without it, only the keyboard and mouse can be blocked.";
+    $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed;
+  }
+  async function refresh() {
+    try {
+      status = await invoke("get_status");
+    } catch {
+      status = {};
+    }
+    render();
+  }
+
+  // ---------------------------------------------------------------- first run
+  // ---------------------------------------------------------------- setup guide
+  // Shown when aLogs starts while General Settings › "Show the setup guide" is on (new installs and after this
+  // update); finishing or skipping it turns that off. Its switches are the same settings as the pages behind them.
+  const guide = $("[data-guide]");
+  const guideSteps = $$("[data-step]", guide);
+  let guideAt = 1;
+  function guideShow(step) {
+    guideAt = Math.max(1, Math.min(guideSteps.length, step));
+    for (const el of guideSteps) el.hidden = Number(el.dataset.step) !== guideAt;
+    $("[data-guide-dots]").replaceChildren(...guideSteps.map((_, i) => {
+      const dot = document.createElement("li"); dot.classList.toggle("on", i + 1 === guideAt); return dot;
+    }));
+    $("[data-guide-back]").hidden = guideAt === 1;
+    $("[data-guide-next]").textContent = guideAt === guideSteps.length ? "Done" : "Next";
+    $("[data-guide-skip]").hidden = guideAt === guideSteps.length;
+    for (const box of $$("[data-guide-k]", guide)) box.checked = Boolean(get(box.dataset.guideK));
+    guideAccount();
+  }
+  function guideAccount() {
+    const token = get("leaderboard.token");
+    $("[data-guide-account]").textContent = token ? ($("[data-account-state]")?.textContent || "Signed in.") : "Not signed in.";
+    $("[data-guide-sign-in]").hidden = Boolean(token);
+  }
+  function openGuide() { guide.hidden = false; guideShow(1); }
+  async function closeGuide() {
+    guide.hidden = true;
+    set("app.show_guide", false);
+    set("app.welcome_done", true);
+    fill();
+    try { await invoke("save_settings", { settings }); } catch (error) { toast(String(error), true); }
+    refresh();
+  }
+  for (const box of $$("[data-guide-k]", guide)) {
+    box.addEventListener("change", () => { set(box.dataset.guideK, box.checked); fill(); scheduleSave(); });
+  }
+  $("[data-guide-next]").addEventListener("click", () => (guideAt === guideSteps.length ? closeGuide() : guideShow(guideAt + 1)));
+  $("[data-guide-back]").addEventListener("click", () => guideShow(guideAt - 1));
+  $("[data-guide-skip]").addEventListener("click", closeGuide);
+  $("[data-guide-open]").addEventListener("click", openGuide);
+  // the account step uses the same sign-in as DPS Meter › Leaderboards & account, and follows it
+  $("[data-guide-sign-in]").addEventListener("click", () => $("[data-sign-in]").click());
+  new MutationObserver(() => { if (!guide.hidden) guideAccount(); }).observe($("[data-account-state]"), { childList: true, characterData: true, subtree: true });
+
+  // About: the last five updates' notes, from the GitHub Releases (loadReleases); the copy built into the app
+  // (ui/patch-notes.js, from CHANGELOG.md) shows until they load, or when GitHub can't be reached. **bold** is the only markup.
+  function renderPatchNotes(current, releases = window.PATCH_NOTES || []) {
+    const box = $("[data-patch-notes]");
+    const rich = (text) => {
+      const node = document.createElement("span");
+      text.split(/\*\*(.+?)\*\*/u).forEach((part, i) => {
+        node.append(i % 2 ? Object.assign(document.createElement("strong"), { textContent: part }) : part);
+      });
+      return node;
+    };
+    const shown = releases.slice(0, 5);
+    // A 6th slot when the installed version is older than all five: how far behind it is, with its own notes if known.
+    const behind = current ? releases.filter((release) => newer(release.version, current)).length : 0;
+    if (current && behind && !shown.some((release) => release.version === current)) {
+      const own = releases.find((release) => release.version === current) || (window.PATCH_NOTES || []).find((release) => release.version === current);
+      shown.push({ version: current, outdated: behind, intro: own?.intro || "", sections: own?.sections || [] });
+    }
+    box.replaceChildren(...shown.map((release) => {
+      if (release.outdated) {
+        const item = document.createElement("details");
+        item.className = "note is-outdated";
+        const plural = release.outdated === 1 ? "" : "s";
+        item.append(Object.assign(document.createElement("summary"), { textContent: `${release.version} (installed, ${release.outdated} update${plural} behind)` }),
+          Object.assign(document.createElement("p"), { className: "note-warn",
+            textContent: `Your version is very out of date: ${release.outdated} update${plural} came out since. Update to get everything listed above.` }));
+        if (release.intro) item.append(Object.assign(document.createElement("p"), { textContent: release.intro }));
+        for (const section of release.sections) {
+          item.append(Object.assign(document.createElement("h3"), { textContent: section.heading }));
+          const list = document.createElement("ul");
+          for (const text of section.items) {
+            const li = document.createElement("li");
+            li.append(rich(text));
+            list.append(li);
+          }
+          item.append(list);
+        }
+        return item;
+      }
+      const isNew = Boolean(current) && newer(release.version, current);
+      const item = document.createElement("details");
+      item.className = `note${isNew ? " is-new" : ""}`;
+      const summary = document.createElement("summary");
+      summary.textContent = release.version === current ? `${release.version} (installed)`
+        : isNew ? `${release.version} (new, not installed yet)` : release.version;
+      item.append(summary);
+      if (release.intro) item.append(Object.assign(document.createElement("p"), { textContent: release.intro }));
+      for (const section of release.sections) {
+        item.append(Object.assign(document.createElement("h3"), { textContent: section.heading }));
+        const list = document.createElement("ul");
+        for (const text of section.items) {
+          const li = document.createElement("li");
+          li.append(rich(text));
+          list.append(li);
+        }
+        item.append(list);
+      }
+      return item;
+    }));
+  }
+
+  // ---------------------------------------------------------------- updates
+  // The GitHub Releases (the newest is what the Companion page's Download button gives): the last five fill Patch notes,
+  // and when the newest is newer than this install there is an update button next to Patch notes and a dot on About.
+  const RELEASES_API = "https://api.github.com/repos/AniiLogs/aniilogs.github.io/releases?per_page=20";
+  const newer = (a, b) => {
+    const [x, y] = [a, b].map((v) => String(v).split(".").map((part) => Number.parseInt(part, 10) || 0));
+    for (let i = 0; i < 3; i += 1) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  };
+  // A release's notes (CHANGELOG.md format) as {intro, sections}; the Install part is for the website only.
+  function parseNotes(body) {
+    const notes = { intro: "", sections: [] };
+    let section = null;
+    for (const line of String(body || "").replace(/\r\n/gu, "\n").split("\n")) {
+      if (/^## /u.test(line)) break;
+      const heading = /^### (.+)$/u.exec(line);
+      if (heading) { section = { heading: heading[1].trim(), items: [] }; notes.sections.push(section); }
+      else if (line.startsWith("- ") && section) section.items.push(line.slice(2).trim());
+      else if (line.trim() && !section) notes.intro = `${notes.intro} ${line.trim()}`.trim();
+    }
+    return notes;
+  }
+  async function loadReleases(current) {
+    try {
+      const response = await fetch(RELEASES_API, { headers: { accept: "application/vnd.github+json" } });
+      if (!response.ok) return;
+      const releases = (await response.json())
+        .filter((release) => !release.draft && !release.prerelease && /^companion-v\d+\.\d+\.\d+$/u.test(release.tag_name || ""))
+        .map((release) => ({ version: release.tag_name.slice("companion-v".length), url: release.html_url, ...parseNotes(release.body) }))
+        .sort((a, b) => (newer(a.version, b.version) ? -1 : newer(b.version, a.version) ? 1 : 0));
+      if (!releases.length) return;
+      const update = current && newer(releases[0].version, current) ? releases[0] : null;
+      const button = $("[data-update]");
+      if (button.dataset.install !== undefined) { renderPatchNotes(current, releases); return; }   // a downloaded update wins
+      button.hidden = !update;
+      if (update) {
+        button.textContent = `Update to ${update.version}`;
+        button.dataset.open = update.url;
+      }
+      $('[data-page="about"]').classList.toggle("has-update", Boolean(update));
+      $('[data-page="about"]').title = update ? `aLogs ${update.version} is out` : "";
+      renderPatchNotes(current, releases);
+    } catch {
+      // offline or GitHub unreachable: try again at the next check
+    }
+  }
+
+  // Self-update (update.rs): the app downloads a newer build in the background; then the sidebar button and About's
+  // update button restart aLogs into it. Before that, About's button still links to the download page.
+  function showUpdate(info) {
+    if (!info) return;
+    const label = `aLogs ${info.version}${info.rc ? ` (build ${info.rc})` : ""}`;
+    $("[data-update-box]").hidden = false;
+    $("[data-update-progress]").hidden = true;
+    $("[data-update-title]").textContent = info.next_start ? `${label} installs next time aLogs opens`
+      : info.downloaded ? `${label} is ready to install` : `${label} is available`;
+    $("[data-install-later]").hidden = Boolean(info.next_start);
+    for (const button of $$("[data-update-box] button")) button.disabled = false;
+    const about = $("[data-update]");
+    about.hidden = false; about.textContent = `Install ${label}`; about.dataset.install = "";
+    $('[data-page="about"]').classList.add("has-update");
+    $("[data-update-note]").textContent = $("[data-update-title]").textContent + ".";
+  }
+  function showProgress(p) {                         // the download, from update.rs (update-progress)
+    $("[data-update-box]").hidden = false;
+    $("[data-update-progress]").hidden = false;
+    $("[data-update-bar]").style.width = `${Math.max(2, p.percent)}%`;
+    $("[data-update-title]").textContent = p.percent >= 0 ? `Downloading the update · ${p.percent}%` : "Downloading the update…";
+  }
+  async function installUpdate() {
+    for (const button of $$("[data-update-box] button")) button.disabled = true;
+    try {
+      await invoke("install_update");                  // downloads if needed; then aLogs closes and the installer runs
+    } catch (error) {
+      toast(String(error), true);
+      for (const button of $$("[data-update-box] button")) button.disabled = false;
+    }
+  }
+  $("[data-install-update]").addEventListener("click", installUpdate);
+  $("[data-install-later]").addEventListener("click", async () => {
+    for (const button of $$("[data-update-box] button")) button.disabled = true;
+    try {
+      showUpdate(await invoke("install_update_later"));
+      toast("The update installs next time aLogs opens");
+    } catch (error) {
+      toast(String(error), true);
+      for (const button of $$("[data-update-box] button")) button.disabled = false;
+    }
+  });
+  $("[data-update]").addEventListener("click", () => { if ($("[data-update]").dataset.install !== undefined) void installUpdate(); });
+  $("[data-check-update]").addEventListener("click", async () => {
+    const note = $("[data-update-note]");
+    note.textContent = "Checking…";
+    try {
+      const info = await invoke("check_update");
+      if (info) showUpdate(info);
+      else note.textContent = "aLogs is up to date.";
+    } catch (error) {
+      note.textContent = `Couldn't check: ${error}`;
+    }
+  });
+
+  async function start() {
+    let version = "";
+    try {
+      version = await window.__TAURI__.app.getVersion();
+      const rc = await invoke("build_number").catch(() => 0);
+      $("[data-app-version]").textContent = rc ? `${version} · RC${rc}` : version;
+    } catch {
+      // version is cosmetic
+    }
+    renderPatchNotes(version);
+    void loadReleases(version);
+    setInterval(() => loadReleases(version), 6 * 3600 * 1000);
+    try {
+      settings = merge(DEFAULTS, await invoke("get_settings"));
+    } catch {
+      settings = structuredClone(DEFAULTS);
+    }
+    fill();
+    await refresh();
+    try {
+      showUpdate(await invoke("update_state"));
+      await window.__TAURI__.event.listen("update-ready", (event) => showUpdate(event.payload));
+      await window.__TAURI__.event.listen("update-progress", (event) => showProgress(event.payload));
+    } catch {
+      // older app without the updater
+    }
+    if (settings.app.show_guide !== false) openGuide();
+    // once a second while the window is up; nothing while it sits in the tray, and fresh the moment it's shown
+    setInterval(() => { if (!document.hidden) void refresh(); }, 1000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh(); });
+  }
+  start();
+})();

@@ -1,0 +1,38 @@
+# aLogs: Aniiloger's Companion App — what never goes in the repository
+
+# Sanctum Helper is its own project (github.com/sargeeva/SanctumHelper), checked out next to this one
+/SanctumHelper/
+
+# built output and downloads
+node_modules/
+target/
+/builds/
+/release/
+/app/src-tauri/resources/
+/app/src-tauri/build.json
+/bossbar/build/
+/bossbar/dist/
+/bossbar/ocr-helper.exe
+__pycache__/
+*.pyc
+
+# your own data: logs, records, captures, settings and state (they live in %LOCALAPPDATA%\aLogs when installed)
+/bossbar/logs/
+/real-logs/
+/notes/
+/bossbar/status.json
+/bossbar/bar_spot.json
+/bossbar/game_cycles.json
+/bossbar/game_cycles.uploaded
+/bossbar/settings.json
+/bossbar/overlay_positions.json
+*.local.json
+
+# material from the game itself: screenshots, extracted data, the game's font (read from your own install)
+/bossbar/test_shots/
+/bossbar/gamefont/
+/bossbar/end_frames.png
+/aniimo_data/
+
+# helper scripts for one PC
+/*.cmd

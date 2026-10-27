@@ -1,0 +1,16 @@
+[package]
+name = "ocr-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Windows' built-in OCR for the boss meter: grey images in on stdin, text out on stdout"
+
+[dependencies.windows]
+version = "0.62"
+features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Globalization", "Foundation", "Foundation_Collections"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
