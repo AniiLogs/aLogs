@@ -16,7 +16,7 @@ button, input, select { font: inherit; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; padding: 18px 12px; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 70%, transparent); }
 .brand { display: flex; align-items: center; gap: 8px; margin: 0 8px 18px; font-size: 18px; font-weight: 700; }
-.brand .mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.brand .mark { width: 34px; height: 34px; flex: none; }
 .nav button { padding: 9px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
 .nav button:hover { background: var(--panel-2); color: var(--text); }
 .nav button.is-active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); font-weight: 650; }

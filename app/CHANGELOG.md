@@ -8,6 +8,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ### New
 - **A name:** the app is now **aLogs: Aniiloger's Companion App** (aLogs for short), in its window, the sidebar,
   About, the installer and the tray. Your settings, records and install stay where they were.
+- **A new icon:** Eklue's emblem inside an HP dial and a break bar, ringed by six of the game's biggest buffs, on the
+  desktop, the taskbar, the tray, the installer and the sidebar.
 - **aLogs updates itself:** it checks for new versions on its own and shows them in the sidebar, with a progress
   bar while one downloads. **Install now** closes aLogs, installs with just a progress bar (no installer to click
   through) and opens the new version; **Next time aLogs opens** installs it then. Updates download in the background
