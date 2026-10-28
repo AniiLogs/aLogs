@@ -208,6 +208,8 @@
             <div><strong>Attach the result screenshot</strong><small>Proof for your run: a small picture of the result screen (1280×720). Anyone can open it from the camera next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
             <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
+          <label class="toggle"><input type="checkbox" checked data-presence-toggle><span></span>
+            <div><strong>Show my online status</strong><small>Your profile shows Online while Aniimo and aLogs run, AFK after 20 minutes away from the game (not the window in front, or no keyboard, mouse or controller input), and Offline otherwise. The same setting as the website's Edit profile: change it in either. Needs you signed in.</small></div></label>
           <p class="hint">Leaderboards: <strong data-s="lb">Off</strong> <span data-s="lb-detail"></span></p>
         </div>
         <div class="group">
@@ -307,7 +309,7 @@
 
       <!-- Themes: the AniiLogs site's themes, for this window only -->
       <div class="dps-panel" data-panel="themes">
-        <p class="lead">The same themes as the AniiLogs website. They change how this window looks; the overlay in the game stays the same.</p>
+        <p class="lead">The same themes as the AniiLogs website. They change how this window looks; the overlay in the game stays the same. Signed in, your theme follows your account: pick it here or on the site and both change.</p>
         <div class="group">
           <div class="theme-grid" data-themes></div>
         </div>
@@ -354,8 +356,17 @@
     <div class="modal" data-report hidden>
       <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
         <h1 id="reportTitle">Report a problem</h1>
-        <p>Sends your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time and which build you have. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
+        <p>Sends your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time, which build you have and any screenshots you add. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
         <label class="field"><span>What went wrong (optional)</span><textarea rows="4" maxlength="2000" data-logs-note placeholder="For example: the HP number stopped going down partway through the fight"></textarea></label>
+        <div class="field">
+          <span>Screenshots (optional)</span>
+          <div class="report-shots" data-logs-shots></div>
+          <div class="row">
+            <button type="button" data-logs-shots-add>Add screenshots</button>
+            <input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden data-logs-shots-file>
+          </div>
+          <p class="hint">Up to 5, or paste one with Ctrl+V (a Win+Shift+S snip works). They're sent as they are, so crop out anything private.</p>
+        </div>
         <p class="hint" data-logs-uid></p>
         <div class="row end">
           <button type="button" data-report-close>Cancel</button>

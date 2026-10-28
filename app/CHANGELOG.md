@@ -47,13 +47,19 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   shows wherever your profile shows: only to you while it's private, to everyone once it's public. Uploaded as
   high-quality WebP (up to 2560 px), and you can remove any of them again.
 - **Your collection on your profile:** open your Profile in Aniimo (menu › Profile) and your AniiLogs profile gets its
-  Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points and Prismana Aniimo) with the game's icons. Only
-  your own Profile counts (it shows your UID); a friend's is never sent.
+  Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points and Prismana Aniimo) with the game's icons, and
+  your character's gender. Only your own Profile counts (it shows your UID); a friend's is never sent. Your level
+  (from the EXP card) and your server (Aniimo-Americas, ...) show beside your character's name too.
+- **Online on your profile:** while Aniimo and aLogs are running, your AniiLogs profile shows **Online** with a green
+  dot, and **AFK** once Aniimo hasn't been the window in front, or nobody has touched the keyboard, mouse or
+  controller, for 20 minutes, and **Offline** (red) when either isn't running. Don't want it shown? Turn it off on
+  your profile: Edit profile › Show my online status.
 - **Report a problem** (Dashboard): something wrong with aLogs? Send your logs to the AniiLogs developers in one
   click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
   20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in),
-  with your game UID, the time and which build you have. Reports are kept
-  privately and cleared once the problem is fixed, after 30 days at most.
+  with your game UID, the time and which build you have. Add up to 5 screenshots if they help: pick them or paste
+  one (a Win+Shift+S snip works). Reports are kept privately and cleared once the problem is fixed, after 30 days at
+  most.
 - **Profile notes:** the meter notes your **catches** ("Irisal Lv 55") and your **level and current EXP** each time
   the EXP card shows, for your AniiLogs profile. It keeps the card's final numbers (not ones caught mid-animation),
   and never notes EXP going backwards.

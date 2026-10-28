@@ -127,13 +127,32 @@ class Submitter(threading.Thread):
 
 
     def character_stats(self, uid, stats):
-        """Your character's Collection Progress from the game's Profile screen (live.profile_stats), for your profile.
-        Sent after the character's link (queue files go in name order), and only for a character you proved."""
+        """Your character's Collection Progress from the game's Profile screen (live.profile_stats), or its level (from
+        the EXP card), for your profile. Sent after the character's link (queue files go in name order), and only for a
+        character you proved. The two queue separately, so a level doesn't replace numbers still waiting to go."""
         if not self.config or not self.config['link_character'] or not uid: return
-        with open(os.path.join(QUEUE, _safe(f'stats__{uid}') + '.json'), 'w', encoding='utf-8') as f:
+        name = f'level__{uid}' if 'level' in stats else f'stats__{uid}'
+        with open(os.path.join(QUEUE, _safe(name) + '.json'), 'w', encoding='utf-8') as f:
             json.dump({'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()}, f)
         log.info(f'leaderboard: queued profile numbers for UID {uid}')
         self.wake.set()
+
+    def presence(self, uid, state, wait=False):
+        """Online / AFK / offline for your profile (presence.py), sent straight away, not queued: an old one is no use.
+        Only for a linked character. The site counts it for 5 minutes, and keeps none if the player turned it off on
+        their profile (Edit profile > Show my online status)."""
+        if not self.config or not self.config['link_character'] or not uid: return
+        def go():
+            body = json.dumps({'gameUid': uid, 'state': state}).encode()
+            req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/characters/presence", data=body, method='POST',
+                                         headers={'authorization': f"Bearer {self.config['token']}", 'content-type': 'application/json',
+                                                  'user-agent': CLIENT_VERSION})
+            try:
+                with urllib.request.urlopen(req, timeout=10): pass
+            except (OSError, ValueError) as e:
+                log.debug(f'presence: {state} not sent: {e!r}')
+        if wait: go()
+        else: threading.Thread(target=go, daemon=True, name='presence').start()
 
     def drop_proof(self, item):
         """A proof picture is only kept until it's sent (Captures & logs > Keep screenshots: until their data is saved)."""

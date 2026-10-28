@@ -155,10 +155,11 @@
     Object.entries(vars).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
     document.documentElement.style.colorScheme = light ? "light" : "dark";
   }
-  function saveTheme(theme, custom) {
+  function saveTheme(theme, custom, share = true) {
     try { localStorage.setItem(THEME_KEY, JSON.stringify({ theme, custom })); } catch { /* the theme still applies now */ }
     applyTheme(theme, custom);
     renderThemes();
+    if (share) void shareTheme(theme, custom);           // signed in: the website follows (shared with the website, below)
   }
   function renderThemes() {
     const { theme, custom } = savedTheme();
@@ -280,6 +281,7 @@
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.token) throw new Error(body.error || `Sign-in failed (${response.status}).`);
       set("leaderboard.token", body.token);
+      setTimeout(() => void syncAccountPrefs(), 0);
       fill(); scheduleSave(`Signed in as ${body.account?.name || "your Discord account"}`);
       siteSignedIn = false; placeSite();
     } catch (error) {
@@ -308,6 +310,51 @@
       }
     }, 500);
   }
+  // ---------------------------------------------------------------- shared with the website
+  // Settings the website has too, kept with your AniiLogs account so changing one changes both: the theme and "Show my
+  // online status" (also the site's Edit profile). Read when aLogs opens, after signing in and whenever this window
+  // comes back to the front (you may have changed them on the site); sent when you change them here.
+  async function accountPrefs(body) {
+    if (!get("leaderboard.token")) return null;
+    const response = await fetch(`${api()}/account/preferences`, body
+      ? { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify(body) }
+      : { headers: authHeaders() });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `The server answered ${response.status}.`);
+    return response.json();
+  }
+  async function shareTheme(theme, custom) {
+    try {
+      await accountPrefs({ theme: theme === "custom" ? { id: "custom", custom: customColors(custom) } : { id: theme } });
+    } catch {
+      // offline: it's shared the next time it changes
+    }
+  }
+  async function syncAccountPrefs() {
+    const box = $("[data-presence-toggle]");
+    box.disabled = !get("leaderboard.token");
+    let prefs;
+    try { prefs = await accountPrefs(); } catch { return; }
+    if (!prefs) return;
+    box.checked = prefs.showPresence;
+    const { theme, custom } = savedTheme();
+    const shared = prefs.theme;
+    if (!shared) { void shareTheme(theme, custom); return; }       // nothing on the account yet: this window's theme
+    if ((shared.id === "custom" || THEMES[shared.id])
+      && (shared.id !== theme || (shared.id === "custom" && JSON.stringify(customColors(shared.custom || {})) !== JSON.stringify(customColors(custom))))) {
+      saveTheme(shared.id, shared.custom || {}, false);
+    }
+  }
+  $("[data-presence-toggle]").addEventListener("change", async (event) => {
+    const box = event.target;
+    try {
+      box.checked = (await accountPrefs({ showPresence: box.checked })).showPresence;
+    } catch (error) {
+      box.checked = !box.checked;
+      toast(`Couldn't change it: ${error.message || error}`, true);
+    }
+  });
+  window.addEventListener("focus", () => void syncAccountPrefs());
+
   // ---------------------------------------------------------------- Photos
   // The game's photos (photos.rs finds them and lets this page show them) and which are on the profile already
   // (the API). Picked ones are made into WebP here, up to 2560 px wide, and uploaded with what the game recorded.
@@ -512,6 +559,66 @@
     $("[data-logs-note]").focus();
   });
   $("[data-report-close]").addEventListener("click", closeReport);
+
+  // Screenshots for the report (optional, up to 5): picked from files or pasted from the clipboard. Big ones (a 4K
+  // PNG is 6-13 MB) are made into WebP, at most 2560 px wide, to fit the API's 4 MB a picture.
+  const reportShots = [];
+  const SHOT_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  async function shotBlob(file) {
+    if (SHOT_TYPES.includes(file.type) && file.size <= 3.8 * 1024 * 1024) return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2560 / bitmap.width);
+    const canvas = new OffscreenCanvas(Math.round(bitmap.width * scale), Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    let blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.9 });
+    if (blob.size > 3.8 * 1024 * 1024) blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.7 });
+    return blob;
+  }
+  function renderShots() {
+    $("[data-logs-shots]").replaceChildren(...reportShots.map((shot, index) => {
+      const item = document.createElement("div");
+      item.className = "report-shot";
+      const img = document.createElement("img");
+      img.src = shot.url; img.alt = `Screenshot ${index + 1}`;
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.className = "report-shot-remove"; remove.textContent = "×"; remove.title = "Remove";
+      remove.addEventListener("click", () => { URL.revokeObjectURL(shot.url); reportShots.splice(index, 1); renderShots(); });
+      item.append(img, remove);
+      return item;
+    }));
+    $("[data-logs-shots-add]").disabled = reportShots.length >= 5;
+  }
+  async function addShots(files) {
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue;
+      if (reportShots.length >= 5) { toast("Up to 5 screenshots per report.", true); break; }
+      try {
+        const blob = await shotBlob(file);
+        reportShots.push({ blob, url: URL.createObjectURL(blob) });
+      } catch {
+        toast("That picture couldn't be read.", true);
+      }
+    }
+    renderShots();
+  }
+  function clearShots() {
+    for (const shot of reportShots) URL.revokeObjectURL(shot.url);
+    reportShots.length = 0;
+    renderShots();
+  }
+  $("[data-logs-shots-add]").addEventListener("click", () => $("[data-logs-shots-file]").click());
+  $("[data-logs-shots-file]").addEventListener("change", (event) => {
+    void addShots([...event.target.files]);
+    event.target.value = "";
+  });
+  document.addEventListener("paste", (event) => {
+    if (report.hidden) return;
+    const files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
+    if (!files.length) return;
+    event.preventDefault();
+    void addShots(files);
+  });
   report.addEventListener("click", (event) => { if (event.target === report) closeReport(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !report.hidden) closeReport(); });
   $("[data-logs-send]").addEventListener("click", async () => {
@@ -532,12 +639,15 @@
       form.set("note", $("[data-logs-note]").value.trim());
       form.set("app_version", rc ? `${version}+rc.${rc}` : version);
       form.set("logs", new Blob([zip], { type: "application/zip" }), "logs.zip");
+      reportShots.forEach((shot, index) => form.append("screenshot", shot.blob, `screenshot-${index + 1}`));
       const response = await fetch(`${api()}/logs/reports`, { method: "POST", body: form });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
       $("[data-logs-note]").value = "";
+      const shots = reportShots.length;
+      clearShots();
       closeReport();
-      toast("Logs sent. Thanks!");
+      toast(shots ? `Logs and ${shots === 1 ? "a screenshot" : `${shots} screenshots`} sent. Thanks!` : "Logs sent. Thanks!");
     } catch (error) {
       toast(`Couldn't send the logs: ${error.message || error}`, true);
     } finally {
@@ -946,6 +1056,7 @@
     }
     fill();
     await refresh();
+    void syncAccountPrefs();
     try {
       showUpdate(await invoke("update_state"));
       await window.__TAURI__.event.listen("update-ready", (event) => showUpdate(event.payload));

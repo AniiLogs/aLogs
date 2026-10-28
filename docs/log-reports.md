@@ -25,9 +25,10 @@ Never commit the token or paste it into a chat, issue or PR. Revoke it on the sa
 
 ```
 node tools/log-reports.mjs list                 # open reports, newest first: id, UID, time (UTC), size, app build,
-                                                # the player's note and every developer's notes
+                                                # screenshots, the player's note and every developer's notes
 node tools/log-reports.mjs list --all           # cleared reports too (their notes stay; their logs are gone)
-node tools/log-reports.mjs get <id> [folder]    # download and unzip (default ./log-reports/<id>, which git ignores)
+node tools/log-reports.mjs get <id> [folder]    # download and unzip (default ./log-reports/<id>, which git ignores),
+                                                # with the player's screenshots (screenshot-1.png, ...)
 node tools/log-reports.mjs note <id> "<text>"   # leave a note on it (see below)
 node tools/log-reports.mjs clear <id>           # maintainer only: delete its logs once the fix is in
 ```
@@ -36,8 +37,10 @@ A report's logs are deleted automatically after 30 days; its line and notes stay
 
 ## What's in a report
 
-Everything is text. Private data is scrubbed by the app before sending: no Discord sign-in, Windows user or PC name,
+The logs are text. Private data is scrubbed by the app before sending: no Discord sign-in, Windows user or PC name,
 tokens, Discord IDs or emails. The game UID and in-game name stay, since the report is about that character.
+A player may add up to 5 screenshots of their own (PNG, JPEG or WebP); those are sent as they chose them, so treat
+them like the logs: private, never copied into code, commits, issues or PRs.
 
 | File | What it is |
 |---|---|

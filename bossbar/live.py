@@ -17,6 +17,7 @@ from inputblock import InputBlock
 import controller as CT
 import eggheist as E
 import submit as S
+from presence import Presence
 
 import settings as C
 HERE = C.DATA                     # everything the meter writes (logs, records, positions)
@@ -762,6 +763,11 @@ class Meter:
             key = ev[:4]
             if now - seen.get(key, -1e9) >= 60: self.profile_note(ev)
             seen[key] = now
+            # a new level goes on the profile, beside the character (sent once per level, not with every EXP gain)
+            if ev[0] == 'exp' and self.submitter and self.uid and getattr(self, 'level_sent', None) != (self.uid, ev[1]):
+                self.level_sent = (self.uid, ev[1])
+                server = S.game_server()
+                self.submitter.character_stats(self.uid, {'level': int(ev[1]), **({'server': server} if server else {})})
         self.profile_seen = {k: t for k, t in seen.items() if now - t < 120}
 
     def exp_settled(self, now):
@@ -1735,7 +1741,8 @@ class Meter:
     def profile_stats(self, im, u, ux, H):
         """Your own Profile's Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points, Prismana Aniimo), for
         your AniiLogs profile: white numbers on grey, matched digit by digit against the game's font (OCR, after a
-        drawn label, when that isn't sure), kept when two reads in a row agree, and sent when they changed."""
+        drawn label, when that isn't sure), kept when two reads in a row agree, and sent when they changed. With them
+        go your character's gender (the mark after your name) and server (the game's settings name it)."""
         import namereader
         reader, stats, unsure = self.name_reader(), {}, {}
         for key, b in self.PROFILE_STATS.items():
@@ -1752,6 +1759,10 @@ class Meter:
                 if len(digits) != 1: return                                   # all four or nothing
                 stats[key] = int(digits[0].replace(',', ''))
         stats = {key: stats[key] for key in self.PROFILE_STATS}
+        gender = namereader.gender_mark(im, (ux + u * 0.092, H * 0.139, ux + u * 0.272, H * 0.185))   # the name card
+        if gender: stats['gender'] = gender
+        server = S.game_server()
+        if server: stats['server'] = server
         seen, self.stats_candidate = getattr(self, 'stats_candidate', None), (self.uid, stats)
         if seen != (self.uid, stats) or getattr(self, 'stats_sent', None) == (self.uid, stats): return
         self.stats_sent = (self.uid, stats)
@@ -2076,11 +2087,28 @@ class Meter:
                 self.stop = True; return True
         return False
 
+    def presence_tick(self, now):
+        """Online / AFK on your profile while the game runs (presence.py): sent when it changes and every 2 minutes
+        (the site forgets it after 5), and "offline" once the game closes."""
+        if self.args.replay is not None or not self.submitter or not self.uid: return
+        last = getattr(self, 'presence_sent', None)
+        if not (self.hwnd and ctypes.windll.user32.IsWindow(self.hwnd)):
+            if last and last[1] != 'offline':
+                self.presence_sent = (self.uid, 'offline', now); self.submitter.presence(self.uid, 'offline')
+            return
+        if not hasattr(self, 'presence'): self.presence = Presence()
+        state = self.presence.state(now, wc.is_foreground(self.hwnd))
+        if last and last[:2] == (self.uid, state) and now - last[2] < 120: return
+        if not last or last[:2] != (self.uid, state): log.info(f'presence: {state}')
+        self.presence_sent = (self.uid, state, now)
+        self.submitter.presence(self.uid, state)
+
     def write_status(self, now):
         """status.json for the desktop app's dashboard, about once a second."""
         if now - self.last_status < 1.0: return
         self.last_status = now; f = self.fight; sub = self.submitter
         self.link_poll(now)
+        self.presence_tick(now)
         C.write_status({
             'time': now, 'pid': os.getpid(), 'status': self.status_text,
             'game_window': bool(self.hwnd), 'capture': 'screen copy' if self.use_screen else 'PrintWindow',
@@ -2112,6 +2140,8 @@ class Meter:
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
             time.sleep(max(0, interval - (time.time() - t)))
         self.end_auto('meter closed'); self.hold.stop(); self.end_fight('meter closed'); self.ocr.close()
+        if self.submitter and getattr(self, 'presence_sent', None) and self.presence_sent[1] != 'offline':
+            self.submitter.presence(self.presence_sent[0], 'offline', wait=True)     # aLogs closing: you're offline
         if self.ocr_bg: self.ocr_bg.close()
         if self.screen_bg: self.screen_bg.close()
         if self.submitter: self.submitter.stop = True

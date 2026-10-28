@@ -13,7 +13,7 @@ Pillow only (the packaged meter has no numpy). Checked on a real 4K menu (and it
 the name read exactly at each size; the UID's digits, every zero included, at 4K and 1440p.
 """
 import string
-from PIL import Image, ImageChops, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 CHARS = string.ascii_uppercase + string.ascii_lowercase + string.digits
 NAME_PX_4K = 50        # the menu name's font size on a 3840-wide 16:9 screen (scales with it)
@@ -65,6 +65,46 @@ def drop_icon(mask):
         rest = mask.crop((nx0, 0, mask.width, mask.height)); bbox = rest.getbbox()
         return rest.crop(bbox) if bbox else mask
     return mask
+
+
+def gender_mark(img, box, far=60):
+    """'female', 'male' or None: the Profile name card's mark after the name (♀ or ♂). The game tints one white sprite
+    per gender, so it's told by shape, not colour: the mark is the card's last coloured shape (neither the card nor
+    the name's ink) wide enough to be one, and its ring's hole sits up-right of the mark's middle on ♀ (the cross hangs
+    down-left) and down-left on ♂ (the arrow points up-right)."""
+    ink, bg = ink_colour(img, box)
+    if not ink: return None
+    c = img.crop(tuple(int(v) for v in box)).convert('RGB')
+    def away(colour):
+        d = [ImageChops.difference(band, Image.new('L', c.size, v)) for band, v in zip(c.split(), colour)]
+        return ImageChops.lighter(ImageChops.lighter(d[0], d[1]), d[2]).point(lambda v: 255 if v > far else 0)
+    mark = ImageChops.multiply(away(bg), away(ink))
+    runs, start, last = [], None, None                   # runs of inked columns
+    for x in range(mark.width):
+        if mark.crop((x, 0, x + 1, mark.height)).getbbox():
+            if start is None or x - last > 2: runs.append([x, x]); start = x
+            runs[-1][1] = last = x
+    runs = [r for r in runs if r[1] - r[0] + 1 >= max(4, mark.height * 0.2)]
+    if not runs: return None
+    part = mark.crop((runs[-1][0], 0, runs[-1][1] + 1, mark.height))
+    bbox = part.getbbox()
+    part = part.crop(bbox)
+    w, h = part.size
+    if h < 8 or not 0.5 <= w / h <= 1.6: return None
+    # the hole: background the outside can't reach (flood the outside from a 1 px border)
+    room = Image.new('L', (w + 2, h + 2), 0)
+    room.paste(part, (1, 1))
+    ImageDraw.floodfill(room, (0, 0), 128)
+    hole = room.crop((1, 1, w + 1, h + 1)).point(lambda v: 255 if v == 0 else 0)
+    px, n, sx, sy = hole.load(), 0, 0, 0
+    for y in range(h):
+        for x in range(w):
+            if px[x, y]: n += 1; sx += x; sy += y
+    if n < w * h * 0.02: return None
+    dx, dy = sx / n - w / 2, sy / n - h / 2
+    if dx > 0 and dy < 0: return 'female'
+    if dx < 0 and dy > 0: return 'male'
+    return None
 
 
 def characters_at(mask):

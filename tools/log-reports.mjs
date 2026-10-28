@@ -4,7 +4,8 @@
 //
 //   node tools/log-reports.mjs list [--all]           newest first: id, UID, when (UTC), size, app build, the player's
 //                                                     note and developers' notes (--all: cleared reports too)
-//   node tools/log-reports.mjs get <id> [folder]      download a report and unzip it (default: ./log-reports/<id>)
+//   node tools/log-reports.mjs get <id> [folder]      download a report and unzip it (default: ./log-reports/<id>),
+//                                                     with the player's screenshots (screenshot-1.png, ...)
 //   node tools/log-reports.mjs note <id> "<text>"     leave a note: what you found, what you changed, the PR
 //   node tools/log-reports.mjs clear <id> | all       administrators only: delete the logs once the fix is in
 //                                                     (the report's line and notes stay)
@@ -50,7 +51,8 @@ if (action === "list") {
   if (!reports.length) console.log("No log reports.");
   for (const r of reports) {
     const cleared = r.clearedAt ? `  [cleared ${when(r.clearedAt)}]` : "";
-    console.log(`${r.id}  UID ${r.gameUid}  ${when(r.createdAt)}  ${(r.sizeBytes / 1024).toFixed(0)} KB  ${r.appVersion || "?"}${cleared}`);
+    const shots = r.screenshots ? `  ${r.screenshots} screenshot${r.screenshots === 1 ? "" : "s"}` : "";
+    console.log(`${r.id}  UID ${r.gameUid}  ${when(r.createdAt)}  ${(r.sizeBytes / 1024).toFixed(0)} KB  ${r.appVersion || "?"}${shots}${cleared}`);
     if (r.note) console.log(`    player: "${r.note}"`);
     for (const n of r.notes || []) console.log(`    ${n.author}, ${when(n.createdAt)}: ${n.note}`);
   }
@@ -62,6 +64,13 @@ if (action === "list") {
   mkdirSync(out, { recursive: true });
   const zip = join(out, "report.zip");
   writeFileSync(zip, Buffer.from(await (await call(`/admin/log-reports/${arg}`)).arrayBuffer()));
+  // the player's screenshots, numbered from 1 until there are no more
+  const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+  for (let n = 1; n <= 5; n += 1) {
+    const shot = await fetch(`${API}/admin/log-reports/${arg}/screenshots/${n}`, { headers: { authorization: `Bearer ${token}` } });
+    if (!shot.ok) break;
+    writeFileSync(join(out, `screenshot-${n}.${EXT[shot.headers.get("content-type")] || "img"}`), Buffer.from(await shot.arrayBuffer()));
+  }
   try {
     execFileSync(tar, ["-xf", zip, "-C", out], { stdio: "ignore" });     // bsdtar unzips (Windows 10+, macOS, Linux)
     console.log(out);
