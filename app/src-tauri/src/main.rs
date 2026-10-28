@@ -320,6 +320,7 @@ fn get_status(meter: State<Meter>) -> Value {
     status["running"] = json!(running);
     status["data_dir"] = json!(data_dir().to_string_lossy());
     status["hidhide_installed"] = json!(hidhide::installed());
+    status["borderless_capture"] = json!(capture::borderless_capture());
     status
 }
 

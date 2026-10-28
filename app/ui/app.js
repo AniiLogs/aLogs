@@ -887,6 +887,8 @@
       ? "Controller blocking is installed. Press the setup button again whenever you use a different controller."
       : "Setting it up installs a small driver (Windows asks for admin approval once). Without it, only the keyboard and mouse can be blocked.";
     $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed;
+    // Windows 10 can't capture the game window without a yellow border: About explains what that means for streams
+    $("[data-win10-capture]").hidden = status.borderless_capture !== false;
   }
   // Link character: the meter reads your Profile screen (three reads that agree) and you confirm what it read.
   let linkShown = false;      // a request from this window, so a finished one shows "Linked" once and then clears

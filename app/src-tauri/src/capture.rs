@@ -259,6 +259,17 @@ unsafe extern "system" fn each_window(hwnd: HWND, lparam: LPARAM) -> i32 {
 /// The game's window: visible, a Unity player, titled as General Settings › Game window title says (read each time, so
 /// a change applies at once; trimmed, any case, "Aniimo" when empty, like the meter's find_window), the largest.
 pub(crate) fn find_game() -> HWND {
+    find_game_titled()
+}
+
+/// Whether this PC's Windows can capture the game window without the yellow border (Windows 11 and later). Without
+/// it (Windows 10) aLogs uses Desktop Duplication and keeps its overlays out of screen captures: About says so.
+pub(crate) fn borderless_capture() -> bool {
+    static KNOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *KNOWN.get_or_init(WindowCapture::borderless_supported)
+}
+
+fn find_game_titled() -> HWND {
     let mut search = Search { title: crate::game_title().to_lowercase(), found: null_mut(), area: 0 };
     unsafe { EnumWindows(Some(each_window), &mut search as *mut Search as LPARAM) };
     search.found
