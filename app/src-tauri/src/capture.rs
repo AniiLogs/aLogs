@@ -5,14 +5,19 @@
 //! named shared-memory block. The meter, Sanctum Helper and anything later read the latest frame
 //! from there instead of each copying the window themselves.
 //!
+//! On some PCs PrintWindow only ever gives a black image. Then the app copies that part of the
+//! screen instead (flag bit 1), still once for every module: before, each module made its own 4K
+//! screen copies. Readers hide their overlays from capture while frames are screen copies, so the
+//! overlays don't end up in the pictures they read. PrintWindow is tried again once a minute.
+//!
 //! Layout of `Local\aLogs.Capture.v1` (little-endian), see `docs/shared-capture.md`:
 //!   0  u32 magic "ALCP"      4  u32 version (1)
 //!   8  u64 seq: odd while a frame is being written, even when it is complete
 //!   16 u32 width   20 u32 height   24 u32 stride (bytes per row, width * 4)
-//!   28 u32 flags (bit 0: the frame is a valid image of the game)
+//!   28 u32 flags (bit 0: the frame is a valid image of the game; bit 1: a screen copy, not PrintWindow)
 //!   32 u64 frame time (unix ms)   40 u64 game window handle
 //!   48 i32 client x   52 i32 client y (screen position of the client area)
-//!   56 u32 capture count (wraps)   60 u32 reserved
+//!   56 u32 capture count (wraps)   60 u32 how long the copy took (microseconds)
 //!   64 request slots: SLOTS x { u64 wanted until (unix ms), u32 interval ms, u32 process id }
 //!   4096 pixels: BGRA, top row first, up to MAX_W x MAX_H
 //!
@@ -27,14 +32,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, INVALID_HANDLE_VALUE, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    ClientToScreen, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC,
+    BitBlt, ClientToScreen, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC, SRCCOPY,
 };
 use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows_sys::Win32::System::Memory::{CreateFileMappingW, MapViewOfFile, FILE_MAP_ALL_ACCESS, PAGE_READWRITE};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetClientRect, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible,
+    EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible,
 };
 
 pub const NAME: &str = "Local\\aLogs.Capture.v1";
@@ -48,6 +53,10 @@ const MAX_H: usize = 2160;
 const SIZE: usize = HEADER + MAX_W * MAX_H * 4;
 const PW_CLIENTONLY: u32 = 1;
 const PW_RENDERFULLCONTENT: u32 = 2;
+/// Black PrintWindow frames in a row before switching to screen copies (a fade or loading screen is a few).
+const BLACK_FRAMES: u32 = 8;
+/// While on screen copies, how often PrintWindow is tried again.
+const RETRY_PRINT_MS: u64 = 60_000;
 
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
@@ -194,8 +203,10 @@ impl Drop for Canvas {
     }
 }
 
-/// One frame into shared memory. Returns false when the window gave no usable image.
-fn capture(shared: &Shared, canvas: &mut Option<Canvas>, hwnd: HWND) -> bool {
+/// One frame into shared memory: PrintWindow, or (`screen`) a copy of the screen where the client
+/// area is. Returns false when that gave no usable image.
+fn capture(shared: &Shared, canvas: &mut Option<Canvas>, hwnd: HWND, screen: bool) -> bool {
+    let started = std::time::Instant::now();
     unsafe {
         let mut rect: RECT = std::mem::zeroed();
         if GetClientRect(hwnd, &mut rect) == 0 {
@@ -209,11 +220,22 @@ fn capture(shared: &Shared, canvas: &mut Option<Canvas>, hwnd: HWND) -> bool {
             *canvas = Canvas::new(width, height);
         }
         let Some(canvas) = canvas.as_ref() else { return false };
-        if PrintWindow(hwnd, canvas.dc, PW_CLIENTONLY | PW_RENDERFULLCONTENT) == 0 {
-            return false;
-        }
         let mut origin = POINT { x: 0, y: 0 };
         ClientToScreen(hwnd, &mut origin);
+        if screen {
+            // the screen shows whatever is in front: only the game itself counts
+            if GetForegroundWindow() != hwnd {
+                return false;
+            }
+            let desktop = GetDC(null_mut());
+            let ok = BitBlt(canvas.dc, 0, 0, width, height, desktop, origin.x, origin.y, SRCCOPY) != 0;
+            ReleaseDC(null_mut(), desktop);
+            if !ok {
+                return false;
+            }
+        } else if PrintWindow(hwnd, canvas.dc, PW_CLIENTONLY | PW_RENDERFULLCONTENT) == 0 {
+            return false;
+        }
 
         let mut info: BITMAPINFO = std::mem::zeroed();
         info.bmiHeader = BITMAPINFOHEADER {
@@ -242,12 +264,13 @@ fn capture(shared: &Shared, canvas: &mut Option<Canvas>, hwnd: HWND) -> bool {
         shared.put_u32(16, width as u32);
         shared.put_u32(20, height as u32);
         shared.put_u32(24, width as u32 * 4);
-        shared.put_u32(28, painted as u32);
+        shared.put_u32(28, painted as u32 | (screen as u32) << 1);
         shared.put_u64(32, now_ms());
         shared.put_u64(40, hwnd as u64);
         shared.put_u32(48, origin.x as u32);
         shared.put_u32(52, origin.y as u32);
         shared.put_u32(56, shared.get_u32(56).wrapping_add(1));
+        shared.put_u32(60, started.elapsed().as_micros().min(u32::MAX as u128) as u32);
         fence(Ordering::Release);
         seq.store(start + 1, Ordering::Release);
         painted
@@ -278,6 +301,10 @@ pub fn start(title: String) {
             let mut hwnd: HWND = null_mut();
             let mut last_find = 0u64;
             let mut last_frame = 0u64;
+            // PrintWindow giving black frames: count them, then copy the screen instead (see the top).
+            let mut black = 0u32;
+            let mut screen = false;
+            let mut retry_print = 0u64;
             loop {
                 let now = now_ms();
                 let Some(interval) = shared.wanted_interval(now) else {
@@ -294,12 +321,37 @@ pub fn start(title: String) {
                 if !alive && now > last_find + 1000 {
                     hwnd = find_game(&title);
                     last_find = now;
+                    (black, screen) = (0, false);     // a new game window: PrintWindow first again
                 }
                 let usable = unsafe { !hwnd.is_null() && IsWindow(hwnd) != 0 && IsIconic(hwnd) == 0 };
-                if !usable || !capture(&shared, &mut canvas, hwnd) {
+                if !usable {
                     mark_invalid(&shared);
-                    if !usable {
-                        hwnd = null_mut();
+                    hwnd = null_mut();
+                    continue;
+                }
+                // On screen copies, PrintWindow once a minute: back to it as soon as it gives a picture.
+                if screen && now >= retry_print {
+                    retry_print = now + RETRY_PRINT_MS;
+                    if capture(&shared, &mut canvas, hwnd, false) {
+                        screen = false;
+                        black = 0;
+                        eprintln!("shared capture: the game window gives pictures again; back to PrintWindow");
+                        continue;
+                    }
+                }
+                if capture(&shared, &mut canvas, hwnd, screen) {
+                    black = 0;
+                } else if screen && unsafe { GetForegroundWindow() } != hwnd {
+                    mark_invalid(&shared);                    // another window in front: no frame, not a failure
+                } else {
+                    mark_invalid(&shared);
+                    if !screen {
+                        black += 1;
+                        if black >= BLACK_FRAMES {
+                            screen = true;
+                            retry_print = now + RETRY_PRINT_MS;
+                            eprintln!("shared capture: the game window gives no picture; copying the screen instead");
+                        }
                     }
                 }
             }

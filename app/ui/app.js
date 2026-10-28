@@ -662,8 +662,9 @@
     text("character", who);
     $("[data-logs-uid]").textContent = character.uid ? `Sent as UID ${character.uid}.` : "Waiting for your game UID: open Aniimo with the meter running.";
     text("character-proof", !character.uid ? "" : character.verified
-      ? "Proven: read from the game menu, right above your UID."
-      : "Not proven yet: open the game menu (Esc or Start) once while aLogs is running.");
+      ? "Proven: read from the game, right with your UID."
+      : "Not proven yet: open the game menu (Esc or Start) or your Profile once while aLogs is running.");
+    renderLink(fresh ? character.link : null);
     const dispute = character.dispute;
     $("[data-dispute]").hidden = !dispute;
     if (dispute) $("[data-dispute-text]").textContent = `Another AniiLogs account already proved UID ${dispute.gameUid} as its character. `
@@ -677,6 +678,39 @@
       : "Setting it up installs a small driver (Windows asks for admin approval once). Without it, only the keyboard and mouse can be blocked.";
     $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed;
   }
+  // Link character: the meter reads your Profile screen (three reads that agree) and you confirm what it read.
+  let linkShown = false;      // a request from this window, so a finished one shows "Linked" once and then clears
+  function renderLink(link) {
+    const box = $("[data-link]");
+    box.hidden = !linkShown || !link;
+    $("[data-link-start]").disabled = Boolean(linkShown && link && link.state !== "done" && link.state !== "timeout");
+    if (box.hidden) return;
+    const found = link.state === "found";
+    $("[data-link-text]").textContent = link.state === "waiting"
+      ? "Open your Profile in Aniimo (Esc › Profile) and leave it on screen for a few seconds."
+      : found ? `Read from your Profile: “${link.name}” with UID ${link.uid}. Link this name to your character?`
+      : link.state === "done" ? `Linked: ${link.name} is your character's name now.`
+      : "Your Profile didn't show up within 2 minutes.";
+    $("[data-link-confirm]").hidden = !found;
+    $("[data-link-retry]").hidden = link.state !== "timeout";
+    $("[data-link-cancel]").textContent = link.state === "done" ? "Close" : "Cancel";
+  }
+  async function linkAction(action, extra = {}) {
+    try {
+      await invoke("character_link", { action, uid: null, name: null, ...extra });
+    } catch (error) {
+      toast(`Couldn't link your character: ${error}`, true);
+    }
+  }
+  $("[data-link-start]").addEventListener("click", async () => { linkShown = true; await linkAction("request"); refresh(); });
+  $("[data-link-retry]").addEventListener("click", async () => { await linkAction("request"); refresh(); });
+  $("[data-link-confirm]").addEventListener("click", async () => {
+    const link = status.character?.link;
+    if (link?.state === "found") await linkAction("confirm", { uid: link.uid, name: link.name });
+    refresh();
+  });
+  $("[data-link-cancel]").addEventListener("click", async () => { linkShown = false; await linkAction("cancel"); refresh(); });
+
   async function refresh() {
     try {
       status = await invoke("get_status");

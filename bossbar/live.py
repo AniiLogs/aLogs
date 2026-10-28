@@ -604,6 +604,7 @@ class Meter:
         # your in-game name, only ever from the game: saved for this UID (the Esc menu's is checked against the UID)
         self.character_name = known_characters().get(self.uid) if self.uid else None
         self.menu_proven = None      # (uid, name) proven from the game menu during this run of the meter
+        self.link = None             # Link character in progress (link_poll)
         self.prep_boss = None        # (time, catalog row) of the boss the battle prep screen showed last
         self.rush_level = last_rush_level()   # Interlink bosses' level (the same for every boss of a season)
         if self.uid: log.info(f'player uid {self.uid} (from the game log)')
@@ -631,7 +632,14 @@ class Meter:
             log.info(f'game window found: hwnd {self.hwnd}, client {wc.client_rect(self.hwnd)}')
         x, y, w, h = wc.client_rect(self.hwnd)
         self.origin = (x, y); self.frame_size = (w, h)       # where the frame sits on screen (for the HP labels)
-        if not self.use_screen:
+        t0 = time.perf_counter()
+        if wc.shared.app_present():
+            # the app's shared capture, for every module (it copies the screen itself when the window can't be)
+            im = wc.grab_window(self.hwnd, part)
+            self.capture_stats(t0, im, 'shared screen copy' if wc.shared.screen_copy else 'shared PrintWindow')
+            if im is None: return None
+            self.use_screen = wc.shared.screen_copy
+        elif not self.use_screen:
             im = wc.grab_window(self.hwnd, part)
             self.frames += 1
             # a failing PrintWindow gives flat frames; checking costs time, so full frames and every 20th
@@ -643,6 +651,7 @@ class Meter:
             self.blank = 0
         else:
             im = wc.grab_screen(x, y, w, int(h * part) if part else h)
+        if not wc.shared.base: self.capture_stats(t0, im, 'own screen copy' if self.use_screen else 'own PrintWindow')
         if (w, h) != self.last_size:
             log.info(f'frame size {w}x{h} ({"screen copy" if self.use_screen else "PrintWindow"})')
             self.last_size = (w, h)
@@ -651,6 +660,25 @@ class Meter:
             if canvas is None or canvas.size != (w, h): canvas = self.canvas = Image.new('RGB', (w, h))
             canvas.paste(im, (0, 0)); return canvas
         return im
+
+    def capture_stats(self, t0, im, source):
+        """Once a minute, one line on how the game is captured: where frames come from, how many arrived and how
+        long getting one took here (and the app's own copy time) - so a report shows whether capture is slow."""
+        st = getattr(self, 'cap_stats', None)
+        now = time.time(); ms = (time.perf_counter() - t0) * 1000
+        if st is None or st['source'] != source:
+            log.info(f'capture: {source}')
+            st = self.cap_stats = {'source': source, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
+        if im is None: st['none'] += 1
+        else:
+            st['n'] += 1; st['ms'] += ms; st['max'] = max(st['max'], ms)
+            if source.startswith('shared'): st['app_us'] += wc.shared.copy_us
+        if now - st['since'] >= 60:
+            n = st['n'] or 1
+            log.info(f"capture: {source}, {st['n'] / (now - st['since']):.1f} frames/s, {st['ms'] / n:.1f} ms each "
+                     f"(max {st['max']:.0f})" + (f", the app's copy {st['app_us'] / n / 1000:.1f} ms" if st['app_us'] else '')
+                     + (f", {st['none']} without a picture" if st['none'] else ''))
+            self.cap_stats = {**st, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
 
     def snapshot(self, now, **d):
         """Once a second: one line of what the meter currently sees."""
@@ -1553,15 +1581,18 @@ class Meter:
                     if self.fight and self.fight.bossrush: self.fight.scene_ok = True
             elif kind == 'uid': self.set_uid(sid)
 
-    def game_menu(self, name, uid_text, im=None, u=0, ux=0, H=0, where='menu'):
+    def game_menu(self, name, uid_text, im=None, u=0, ux=0, H=0, where='menu', sure=True):
         """The menu opened with Esc or Start shows your name with your UID right under it (and the Profile screen
-        shows both too, see profile_screen). When that UID is the one from the game log, the name is certainly yours:
-        it replaces any earlier guess and is what the leaderboards use. Every Interlink run starts from this menu, so
-        a wrong name can't last."""
+        shows both too, see profile_screen). When that UID is the one from the game log, the name is yours: the first
+        one becomes your character's name for the leaderboards. Once a name is proven, a different read never replaces
+        it here (a menu sliding in or an overlay over the card can read "1" or "44inMax"); a renamed character is
+        linked again with Link character in the app (link_poll), which the player confirms.
+        `sure`: the read is trustworthy on its own (a short name only when the game's font matched it)."""
         digits = re.sub(r'\D', '', (uid_text or '').replace('O', '0'))
         name = re.sub(r'\s+', ' ', (name or '').strip(' /|.'))
         if where == 'menu' and self.uid and self.uid in digits and len(name) <= 2 and im is not None and u:
-            name = self.short_name(im, u, ux, H) or name             # "0", "Ab": too short for a plain read
+            name, sure = self.short_name(im, u, ux, H)                  # "0", "Ab": too short for a plain read
+            name = name or ''
         # the UID under it vouches for the name, so a one-character name counts too ("0" is a real one); just not a
         # lone bit of punctuation, which is OCR noise
         if not self.uid or self.uid not in digits or not 1 <= len(name) <= 40 or (len(name) == 1 and not name.isalnum()):
@@ -1570,32 +1601,87 @@ class Meter:
                 self.menu_miss_logged = time.time()
                 log.info(f'game {where}: UID {self.uid} on screen but its name was not read (OCR {name!r})')
             return
+        if not name[0].isalnum(): sure = False                          # "'MinMax", "-MinMax": a stray mark read too
+        if where == 'profile' and self.link and self.link['state'] == 'waiting':
+            self.link_read(name, im, u, ux, H); return
+        if not sure: return
+        known = known_characters().get(self.uid) if character_verified(self.uid) else None
+        if known and known != name:
+            if time.time() - getattr(self, 'other_name_logged', 0) > 60:
+                self.other_name_logged = time.time()
+                log.info(f'game {where}: read {name!r} with UID {self.uid}, but your proven name is {known!r} - '
+                         'left as it is (to change it: Link character in the app, with your Profile open)')
+            return
         if self.menu_proven == (self.uid, name): return                  # once per run of the meter
-        # the same name twice in a row first: while the menu slides in, one read can be off ("44inMax")
+        # the same name twice in a row first: while the menu slides in, one read can be off
         seen, self.menu_candidate = getattr(self, 'menu_candidate', None), (self.uid, name)
         if seen != (self.uid, name): return
+        self.prove_name(name, where, self.proof_crop(im, u, ux, H, where))
+
+    def proof_crop(self, im, u, ux, H, where, suffix=''):
+        """The proof the site keeps, saved in logs/characters: the top of the menu (your picture, name and UID), or the
+        Profile screen's left column from the name card down to the UID - and nothing else."""
+        if im is None or not u: return None
+        d = os.path.join(HERE, 'logs', 'characters'); os.makedirs(d, exist_ok=True)
+        proof = os.path.join(d, f'{self.uid}{suffix}.png')
+        box = (0.6, 0.045, 0.8, 0.14) if where == 'menu' else (0.015, 0.06, 0.28, 0.95)
+        im.crop((int(ux + u * box[0]), int(H * box[1]), int(ux + u * box[2]), int(H * box[3]))).save(proof)
+        return proof
+
+    def prove_name(self, name, where, proof, force=False):
         self.menu_proven = (self.uid, name)
         log.info(f'game {where}: {name} with UID {self.uid} - this is your character')
         self.character_name = name
         remember_character(self.uid, name, verified=True)
-        proof = None
-        if im is not None and u:
-            # the proof the site keeps: the top of the menu - your picture, name and UID - and nothing else
-            d = os.path.join(HERE, 'logs', 'characters'); os.makedirs(d, exist_ok=True)
-            proof = os.path.join(d, f'{self.uid}.png')
-            # (on the Profile screen: its left column, from the name card down to the UID)
-            box = (0.6, 0.045, 0.8, 0.14) if where == 'menu' else (0.015, 0.06, 0.28, 0.95)
-            im.crop((int(ux + u * box[0]), int(H * box[1]), int(ux + u * box[2]), int(H * box[3]))).save(proof)
-        if self.submitter: self.submitter.link_character(self.uid, name, proof=proof)
+        if self.submitter:
+            if force: self.submitter.linked = None                        # sent again even if it matches the last
+            self.submitter.link_character(self.uid, name, proof=proof)
+
+    # ---- Link character (the app's button): read the Profile screen, then send the name once the player confirms.
+    # The app writes character_link.json - {"request": time}, then {"request": time, "confirm": {"uid", "name"}} - and
+    # deletes it to cancel. What the meter sees goes in status.json's character.link: waiting / found / done / timeout.
+    LINK_FILE = 'character_link.json'
+    LINK_SECONDS = 120          # how long a request waits for the Profile screen
+    LINK_READS = 3              # Profile reads in a row that must agree
+
+    def link_poll(self, now):
+        try:
+            with open(os.path.join(HERE, self.LINK_FILE), encoding='utf-8') as fh: req = json.load(fh)
+        except (OSError, ValueError):
+            req = None
+        if not isinstance(req, dict) or not isinstance(req.get('request'), (int, float)):
+            if self.link and self.link['state'] in ('waiting', 'found'): log.info('link character: cancelled')
+            self.link = None; return
+        if not self.link or self.link['request'] != req['request']:
+            self.link = {'request': req['request'], 'state': 'waiting', 'reads': [], 'name': None, 'uid': self.uid}
+            log.info('link character: asked - waiting for the Profile screen')
+        link = self.link
+        if link['state'] == 'waiting' and now - req['request'] > self.LINK_SECONDS:
+            link['state'] = 'timeout'; log.info('link character: the Profile screen did not show up in time')
+        confirm = req.get('confirm')
+        if link['state'] == 'found' and isinstance(confirm, dict) and confirm.get('uid') == link['uid'] \
+                and confirm.get('name') == link['name'] and link['uid'] == self.uid:
+            link['state'] = 'done'
+            log.info(f"link character: {link['name']} confirmed by the player")
+            self.prove_name(link['name'], 'profile', link['proof'], force=True)
+
+    def link_read(self, name, im, u, ux, H):
+        """One Profile screen read while Link character waits: found once LINK_READS reads in a row agree."""
+        link = self.link
+        link['reads'] = (link['reads'] + [name])[-self.LINK_READS:]
+        if len(link['reads']) == self.LINK_READS and len(set(link['reads'])) == 1:
+            link.update(state='found', name=name, uid=self.uid, proof=self.proof_crop(im, u, ux, H, 'profile', '-link'))
+            log.info(f'link character: read {name!r} with UID {self.uid} - waiting for the player to confirm')
 
     def short_name(self, im, u, ux, H):
-        """A name of one or two characters (e.g. "0"): Windows OCR drops so short a word, so it's matched against the
-        game's own font (namereader). When that isn't sure, OCR reads it after a drawn label ("Player name: 0") at two
-        sizes, and a lone round character is told apart by its shape (a zero is narrow, an O round)."""
+        """(name, sure) for a name of one or two characters (e.g. "0"): Windows OCR drops so short a word, so it's
+        matched against the game's own font (namereader) - sure. When that isn't sure, OCR reads it after a drawn
+        label ("Player name: 0") at two sizes, and a lone round character is told apart by its shape (a zero is
+        narrow, an O round) - not sure: OCR once read a "0" as "1", so that read alone never proves a name."""
         box = (ux + u * 0.657, H * 0.068, ux + u * 0.86, H * 0.104); k = u / 2000
         reader = self.name_reader()
         name = reader.read(im, box, u) if reader else None
-        if name: return name
+        if name: return name, True
         r = self.ocr.read({'a': R.prep_labelled(im, box, k, 'Player name:', size=3),
                            'b': R.prep_labelled(im, box, k, 'Player name:', size=4)})
         a, b = R.after_label(r.get('a'), 'Player name:'), R.after_label(r.get('b'), 'Player name:')
@@ -1603,7 +1689,7 @@ class Meter:
         if name and len(name) == 1 and name in '0Oo':
             aspect = R.ink_aspect(im, box)
             if aspect is not None: name = '0' if aspect < 0.78 else ('o' if name == 'o' else 'O')
-        return name
+        return name, False
 
     def name_reader(self):
         """The game-font name reader (namereader.py), with the font gamefont.py keeps in the data folder; None when
@@ -1633,11 +1719,12 @@ class Meter:
             reads['n'] = ImageOps.expand(text, border=40, fill=255)
         r = self.ocr.read(reads)
         name = re.sub(r'\s+', ' ', r.get('n', '')).strip(' /|.')
+        sure = len(name) > 3                    # a long name: OCR; a short one only when the game's font matched it
         reader = self.name_reader() if mask is not None and len(name) <= 3 else None
-        if reader:
-            name = reader.read(im, name_box, u, px_4k=namereader.PROFILE_PX_4K, mask=mask) or name
+        matched = reader.read(im, name_box, u, px_4k=namereader.PROFILE_PX_4K, mask=mask) if reader else None
+        if matched: name, sure = matched, True
         if not name and mask is not None: log.info(f'profile: name not read ({mask.width}x{mask.height} px of text)')
-        self.game_menu(name, r.get('u', ''), im, u, ux, H, where='profile')
+        self.game_menu(name, r.get('u', ''), im, u, ux, H, where='profile', sure=sure)
         if self.uid and self.uid in re.sub(r'\D', '', r.get('u', '').replace('O', '0')):
             self.profile_stats(im, u, ux, H)
 
@@ -1993,6 +2080,7 @@ class Meter:
         """status.json for the desktop app's dashboard, about once a second."""
         if now - self.last_status < 1.0: return
         self.last_status = now; f = self.fight; sub = self.submitter
+        self.link_poll(now)
         C.write_status({
             'time': now, 'pid': os.getpid(), 'status': self.status_text,
             'game_window': bool(self.hwnd), 'capture': 'screen copy' if self.use_screen else 'PrintWindow',
@@ -2000,7 +2088,8 @@ class Meter:
             'fight': f and {'boss': f.title, 'level': f.level, 'segment': f.seg, 'damage': f.damage, 'max_hp': f.max_hp,
                             'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent)},
             'character': {'uid': self.uid, 'name': self.character_name, 'verified': character_verified(self.uid),
-                          'dispute': self.submitter.dispute if self.submitter else None},
+                          'dispute': self.submitter.dispute if self.submitter else None,
+                          'link': self.link and {k: self.link[k] for k in ('request', 'state', 'name', 'uid')}},
             'auto_battle_data': bool(self.auto_until),
             'leaderboard': {'on': bool(sub and sub.config), 'pending': sub.pending() if sub else 0,
                             'last': sub.last_result if sub else None},
@@ -2058,7 +2147,7 @@ def console_out(kind, data):
             print('\n' + time.strftime('%H:%M:%S'), data, flush=True); log.info(data)
         _last_status[0] = data
     elif kind == 'fight':                             # the overlay's other messages (fight_end, end_hide) aren't printed
-        s = f"x{data['xn']}" if data['xn'] else ''
+        s = f"x{data['xn']}" if data.get('xn') else ''
         print(f"\r{data['title']} Lv{data['level']} {s} fill {data['fill'] * 100:5.1f}% | dmg {fmt(data['damage'])} | "
               f"avg {fmt(data['avg'])}/s | 5s {fmt(data['recent'])}/s | {data['elapsed']:.0f}s   ", end='', flush=True)
 

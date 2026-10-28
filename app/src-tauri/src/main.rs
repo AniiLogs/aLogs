@@ -411,6 +411,30 @@ fn send_character_dispute(note: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Link character (Dashboard): asks the meter to read your name and UID from the game's Profile screen
+/// (character_link.json; the meter shows what it read in status.json's character.link), then sends it once you confirm.
+/// A proven name only changes this way: the meter never replaces it on its own.
+#[tauri::command]
+fn character_link(action: String, uid: Option<String>, name: Option<String>) -> Result<(), String> {
+    let path = data_dir().join("character_link.json");
+    match action.as_str() {
+        "request" => {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+            fs::write(&path, serde_json::json!({ "request": now }).to_string()).map_err(|e| e.to_string())
+        }
+        "confirm" => {
+            let text = fs::read_to_string(&path).map_err(|_| "Ask again: the link request is gone.".to_string())?;
+            let mut req: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            req["confirm"] = serde_json::json!({ "uid": uid.unwrap_or_default(), "name": name.unwrap_or_default() });
+            fs::write(&path, req.to_string()).map_err(|e| e.to_string())
+        }
+        _ => {
+            let _ = fs::remove_file(&path);
+            Ok(())
+        }
+    }
+}
+
 /// Controller blocking: installs the HidHide driver if needed and attaches it to the controller classes (Windows asks
 /// for admin; also repairs an install that never attached), then puts every connected game controller on its block
 /// list. Returns how many controllers were found.
@@ -473,7 +497,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target,
-            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, collect_logs, photos::game_photos, site::site_view,
+            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,

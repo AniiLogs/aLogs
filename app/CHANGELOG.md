@@ -89,6 +89,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **One game capture for all of aLogs, on every PC:** on PCs where the game window can't be captured (it comes back
+  black), the meter and Sanctum Helper each fell back to copying the whole screen themselves, which could make
+  Sanctum Helper's map lag. aLogs now copies the screen once for both, only while the game is in front, and Sanctum
+  Helper then keeps its map out of recordings so it never reads itself. The logs now say how the game is captured and
+  how long it takes, and how sure Sanctum Helper is about the run timer, so a report shows what slows things down.
 - **Closing aLogs is instant:** it used to hang for about 10 seconds while it waited on the meter and Sanctum
   Helper. They now finish up on their own (an open fight is still saved) and close within a fraction of a second.
 - **No more filling up your drive:** the meter's text reader left a small picture behind for nearly every read, in
@@ -104,8 +109,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   against the game's own font, and the **Profile** screen (menu › Profile) confirms your name too: your name card and
   UID together, whatever picture your card has. Opening either one is enough.
 - **No more misread names on your profile:** while the game menu slid open, one blurred read could become your
-  character's name ("44inMax"), and a correct read right after it could be lost on the way to the site. A name now has
-  to read the same twice in a row, and the newest one is always the one sent.
+  character's name ("44inMax", or "1" for "0"), and a correct read right after it could be lost on the way to the
+  site. Now your first name is still linked on its own, but once it's proven nothing read later replaces it. Renamed
+  your character? **Link character** on the Dashboard reads your Profile (Esc › Profile) and asks you to confirm the
+  name before it's sent.
 - **Egg Heist rank always has its season:** when Rank Info's season title hadn't appeared yet, the rank was filed
   without a season, as a separate entry; it now takes the current season.
 - **Egg Heist matches reach the leaderboards:** in Team Mode the end screen's Loot This Match and Total Defeats sit

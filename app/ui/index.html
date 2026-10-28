@@ -47,7 +47,16 @@
           <article class="card wide"><h2>Current fight</h2><p data-s="fight">No fight in progress.</p><small data-s="fight-detail"></small></article>
           <article class="card wide"><h2>Your character</h2><p data-s="character">Not detected yet</p>
             <small data-s="character-proof"></small>
-            <small class="block">Your UID comes from the game log each session (so the right character on the right server). Your name is read from the menu you open with Esc or Start, right above your UID, and until then from your result screens. The menu is also your proof for the leaderboards.</small>
+            <small class="block">Your UID comes from the game log each session (so the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, right with your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</small>
+            <div class="row"><button type="button" data-link-start>Link character</button></div>
+            <div class="notice" data-link hidden>
+              <p data-link-text></p>
+              <div class="row">
+                <button type="button" class="primary" data-link-confirm hidden>Link this name</button>
+                <button type="button" data-link-retry hidden>Try again</button>
+                <button type="button" data-link-cancel>Cancel</button>
+              </div>
+            </div>
             <div class="notice" data-dispute hidden>
               <p data-dispute-text></p>
               <label class="field"><span>Anything a developer should know (optional)</span><input type="text" maxlength="500" data-dispute-note></label>

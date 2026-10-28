@@ -72,6 +72,7 @@ class SharedCapture:
 
     def __init__(self):
         self.base = None; self.slot = None; self.next_open = 0.0; self.last_call = 0.0; self.interval = 250.0
+        self.screen_copy = False; self.copy_us = 0     # the last frame's source (bit 1 of its flags) and copy time
         k = self.k = ctypes.windll.kernel32
         k.OpenFileMappingW.restype = W.HANDLE; k.OpenFileMappingW.argtypes = [W.DWORD, W.BOOL, W.LPCWSTR]
         k.MapViewOfFile.restype = ctypes.c_void_p
@@ -123,6 +124,7 @@ class SharedCapture:
             w, h, stride, flags = (self._u32(base, at) for at in (16, 20, 24, 28))
             frame_ms, frame_hwnd = self._u64(base, 32), self._u64(base, 40)
             if not flags & 1 or frame_hwnd != (hwnd or 0) or now_ms - frame_ms > max(150, 2 * self.interval): return None
+            self.screen_copy, self.copy_us = bool(flags & 2), self._u32(base, 60)
             rows = h if not top_fraction else min(h, int(h * top_fraction))
             # converted straight out of the shared memory into the image's own pixels (no extra copy of the raw
             # frame first); a frame written meanwhile shows in the sequence number and is read again
@@ -132,6 +134,11 @@ class SharedCapture:
             if self._u64(base, 8) == seq:
                 return im
         return None
+
+    def app_present(self):
+        """The aLogs app is running and sharing its capture: then the meter never copies the game itself."""
+        import time
+        return bool(self._open(time.time()))
 
 shared = SharedCapture()
 
@@ -173,11 +180,11 @@ class SharedAudio:
 audio = SharedAudio()
 
 def grab_window(hwnd, top_fraction=None):
-    """The game's client area (or just its top part) as a PIL image, or None: the app's shared frame when it is
-    fresh, else our own PrintWindow capture."""
+    """The game's client area (or just its top part) as a PIL image, or None: the app's shared frame while the app
+    runs (one capture for all of aLogs: None until it has a fresh one), else our own PrintWindow capture (the meter
+    on its own, e.g. from source)."""
     try:
-        im = shared.read(hwnd, top_fraction)
-        if im is not None: return im
+        if shared.app_present(): return shared.read(hwnd, top_fraction)
     except Exception:
         pass
     _, _, w, h = client_rect(hwnd)
