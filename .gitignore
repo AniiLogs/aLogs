@@ -36,3 +36,6 @@ __pycache__/
 
 # helper scripts for one PC
 /*.cmd
+
+# log reports downloaded with tools/log-reports.mjs (players' logs: never committed)
+/log-reports/

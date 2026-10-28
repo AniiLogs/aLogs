@@ -30,6 +30,13 @@ npm run build:rc      # a test build: meter, OCR helper, Sanctum Helper, app and
 
 Builds are signed for the self-updater with a key kept outside the project (see `app/tauri-build.mjs`).
 
+## Fixing reported problems
+
+Players send their logs from the app (DPS Meter › Captures & logs › Send logs). Developers read them with
+`node tools/log-reports.mjs` and fix the cause in a pull request: see [docs/log-reports.md](docs/log-reports.md),
+including the rules that report contents never go into the repository, issues or PRs, and that every report you work
+on gets a note.
+
 ## License
 
 [MIT](LICENSE), except the third-party parts named in it.
