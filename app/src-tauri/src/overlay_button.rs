@@ -536,16 +536,20 @@ fn icon_row(w: u32, h: u32, px: &[u8]) -> Option<(f64, f64)> {
         if !(45.0..=110.0).contains(&width) || !(0.2..=0.8).contains(&fill) {
             return;
         }
-        // its key label under it: mostly light grey (a pill) or dark (a controller button)
-        let (mut label, mut n) = (0u32, 0u32);
+        // its key label under it: a light grey pill, or a dark controller button with its white ring and letter (a
+        // menu's dark background alone isn't one: the Shop's white tab names on dark nearly passed)
+        let (mut light, mut dark, mut n) = (0u32, 0u32, 0u32);
         for y in label_top..h {
             for x in a..=b {
                 let (lo, hi) = pixel(x, y);
-                label += ((lo >= 185 && hi - lo < 30) || hi < 110) as u32;
+                light += (lo >= 185 && hi - lo < 30) as u32;
+                dark += (hi < 110) as u32;
                 n += 1;
             }
         }
-        if n > 0 && label * 4 >= n {
+        let pill = light * 100 >= n * 25;
+        let pad_button = dark * 100 >= n * 30 && light * 100 >= n * 4;
+        if n > 0 && (pill || pad_button) {
             icons.push((a as f64 / sx, b as f64 / sx));
         }
     };
