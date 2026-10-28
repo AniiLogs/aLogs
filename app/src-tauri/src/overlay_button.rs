@@ -49,16 +49,16 @@ const VK_INSERT: u32 = 0x2D;
 // The game's icon row at 4K (3840x2160 UI area), measured on its HUD: Chat, Photo and Emoticon at x 378 / 505 / 632,
 // 127 px apart, icons ~84 px, centred 133 px above the bottom; their key labels are 40 px high pills centred 59 px
 // above the bottom, light grey (227) with dark text (37, 44, 53), radius ~8, at least 42 px wide.
-const ROW_X: f64 = 632.0 + 127.0; // our slot: right after the Emoticon icon (where it was first seen)
 const ROW_STEP: f64 = 127.0; // from one icon to the next with a keyboard (a controller's row: ~164)
-/// The game's icon row changes: which icons it has depends on where you are and on keyboard or controller (on
-/// 2026-10-28 at 4K: Chat / Photo / Emoticon at x 125 / 251 / 379 with a keyboard, Chat / Emoticon at 125 / 289
-/// with a controller), so the row is found in the picture: (x of the last icon, the row's step), in 4K units, and
-/// the button goes one step after it. x 0: not found yet (ROW_X then).
-static ROW_LAST: Mutex<(f64, f64)> = Mutex::new((0.0, ROW_STEP));
+const ROW_CHAT: f64 = 377.0; // where Chat is until the row has been seen (with the item widget at the far left)
+/// The game's icon row moves: Chat is at x 125 at 4K, or 377 with the item widget at the far left (the cube with its
+/// count), and the icons after it change with keyboard or controller. The button sits one step left of Chat, wherever
+/// Chat is (where the player wanted it), so the row is found in the picture: (x of Chat in 4K units, a controller's
+/// row). None: not seen yet.
+static ROW: Mutex<Option<(f64, bool)>> = Mutex::new(None);
 /// A different row seen once: the button moves only when the next check agrees, so it doesn't follow the icons
 /// while the game slides them over (switching between keyboard and controller).
-static ROW_NEXT: Mutex<Option<(f64, f64)>> = Mutex::new(None);
+static ROW_NEXT: Mutex<Option<(f64, bool)>> = Mutex::new(None);
 const ROW_ICON: f64 = 84.0;
 const ROW_ICON_UP: f64 = 133.0;
 const ROW_PILL_UP: f64 = 59.0;
@@ -71,13 +71,6 @@ const WM_REFRESH: u32 = WM_APP + 1;
 const TIMER_FOLLOW: usize = 1;
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
-
-const MENU_CAPTURE: usize = 1;
-const MENU_LOCK: usize = 2;
-const MENU_ICON: usize = 3;
-const MENU_DEFAULT_ICON: usize = 4;
-const MENU_HIDE: usize = 5;
-const MENU_ROW: usize = 6;
 
 /// The default picture: the app's own icon.
 const APP_ICON: &[u8] = include_bytes!("../icons/128x128@2x.png");
@@ -315,7 +308,7 @@ fn ui_box(w: i32, h: i32) -> (f64, f64) {
 
 /// The hotkey under the button: the controller's while the game shows its controller icons (wider apart), else the key.
 fn label() -> Option<String> {
-    let controller = ROW_LAST.lock().unwrap().1 > 145.0;
+    let controller = ROW.lock().unwrap().is_some_and(|r| r.1);
     STATE.lock().unwrap().as_ref().and_then(|s| {
         if controller && s.pad_buttons != 0 && !s.pad_label.is_empty() {
             Some(s.pad_label.clone())
@@ -346,25 +339,24 @@ unsafe fn layout(hwnd: HWND, game: HWND) -> Option<Layout> {
         !MonitorFromPoint(POINT { x: x + BASE_SIZE / 2, y: y + BASE_SIZE / 2 }, MONITOR_DEFAULTTONULL).is_invalid()
     });
     let text = label();
+    // the game's icon size wherever the button is (dragged, it was drawn at 44 px x display scale: far smaller)
+    let mut rect = RECT::default();
+    let game_k = (!game.is_invalid() && GetClientRect(game, &mut rect).is_ok() && rect.bottom >= 100)
+        .then(|| ui_box(rect.right, rect.bottom));
     let (k, icon, x0, y_icon) = match saved {
         None => {
-            let mut rect = RECT::default();
-            if game.is_invalid() || GetClientRect(game, &mut rect).is_err() || rect.bottom < 100 {
-                return None;
-            }
+            let (bx, k) = game_k?;
             let mut p = POINT::default();
             let _ = ClientToScreen(game, &mut p);
-            let (bx, k) = ui_box(rect.right, rect.bottom);
             let icon = (ROW_ICON * k).round() as i32;
-            let (last, step) = *ROW_LAST.lock().unwrap();
-            let cx = p.x as f64 + bx + (if last > 0.0 { last + step } else { ROW_X }) * k;
+            let chat = ROW.lock().unwrap().map_or(ROW_CHAT, |r| r.0);
+            let cx = p.x as f64 + bx + (chat - ROW_STEP) * k;
             let cy = p.y as f64 + rect.bottom as f64 - ROW_ICON_UP * k;
             (k, icon, cx, cy)
         }
         Some((x, y)) => {
-            let dpi = GetDpiForWindow(hwnd).max(96) as f64;
-            let icon = (BASE_SIZE as f64 * dpi / 96.0).round() as i32;
-            let k = icon as f64 / ROW_ICON;
+            let k = game_k.map_or_else(|| GetDpiForWindow(hwnd).max(96) as f64 / 96.0 * BASE_SIZE as f64 / ROW_ICON, |g| g.1);
+            let icon = (ROW_ICON * k).round() as i32;
             (k, icon, x as f64 + icon as f64 / 2.0, y as f64 + icon as f64 / 2.0)
         }
     };
@@ -491,13 +483,17 @@ fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<boo
     let share = |v: f64, size: f64| ((v / size).clamp(0.0, 1.0) * 65535.0) as u16;
     let area = [share(x0, cw), share(y0, ch), share(x1, cw), share(y1, ch)];
     let (w, h, px) = reader.read(game.0 as isize, area, 250)?;
-    let row = icon_row(w, h, &px);
+    // the button itself can be in the picture (Desktop Duplication): its own icon isn't one of the game's
+    let mut p = POINT::default();
+    let _ = unsafe { ClientToScreen(game, &mut p) };
+    let skip = LAST_LAYOUT.lock().unwrap().map(|l| (((l.x - p.x) as f64 - bx) / k, ((l.x + l.w - p.x) as f64 - bx) / k));
+    let row = icon_row(w, h, &px, skip);
     if let Some(r) = row {
-        let close = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 6.0 && (a.1 - b.1).abs() < 6.0;
-        let mut last = ROW_LAST.lock().unwrap();
+        let close = |a: (f64, bool), b: (f64, bool)| (a.0 - b.0).abs() < 6.0 && a.1 == b.1;
+        let mut seen = ROW.lock().unwrap();
         let mut next = ROW_NEXT.lock().unwrap();
-        if last.0 == 0.0 || close(*last, r) || next.is_some_and(|n| close(n, r)) {
-            *last = r; // the first sighting, the same spot, or a new spot seen twice in a row
+        if seen.is_none() || seen.is_some_and(|s| close(s, r)) || next.is_some_and(|n| close(n, r)) {
+            *seen = Some(r); // the first sighting, the same row, or a new one seen twice in a row
             *next = None;
         } else {
             *next = Some(r);
@@ -512,10 +508,11 @@ const ROW_SCAN_LABELS: f64 = 2082.0; // key labels (pills or controller buttons)
 const ROW_SCAN_BOTTOM: f64 = 2120.0;
 
 /// The game's icon row in a picture of the bottom left (BGRA, ROW_SCAN_W x ROW_SCAN_TOP-ROW_SCAN_BOTTOM in 4K units):
-/// (x of the last icon, the step between icons) in 4K units, or None when it isn't there. The icons are white
+/// (x of Chat, its first icon, in 4K units; a controller's row), or None when it isn't there. The icons are white
 /// shapes (the same with a keyboard or a controller), each with its key label under it: a light grey pill with dark
-/// text, or a dark controller button. Two or more of them from the left edge, evenly apart.
-fn icon_row(w: u32, h: u32, px: &[u8]) -> Option<(f64, f64)> {
+/// text, or a dark controller button. Two or more of them from the left edge, evenly apart. `skip`: the button's own
+/// spot (4K units), left out.
+fn icon_row(w: u32, h: u32, px: &[u8], skip: Option<(f64, f64)>) -> Option<(f64, bool)> {
     let sx = w as f64 / ROW_SCAN_W;
     let to_y = |v: f64| (((v - ROW_SCAN_TOP) / (ROW_SCAN_BOTTOM - ROW_SCAN_TOP) * h as f64) as u32).min(h);
     let (icon_top, icon_bottom, label_top) = (0, to_y(ROW_SCAN_TOP + 84.0), to_y(ROW_SCAN_LABELS));
@@ -527,7 +524,7 @@ fn icon_row(w: u32, h: u32, px: &[u8]) -> Option<(f64, f64)> {
     let white = |x: u32| (icon_top..icon_bottom).filter(|&y| { let (lo, hi) = pixel(x, y); lo >= 225 && hi - lo < 25 }).count() as u32;
     // runs of columns with some white (an icon), letting small gaps inside one icon join up
     let gap = (12.0 * sx).max(1.0) as u32;
-    let mut icons: Vec<(f64, f64)> = Vec::new(); // (left, right) in 4K units
+    let mut icons: Vec<(f64, f64, bool)> = Vec::new(); // (left, right) in 4K units, a controller button under it
     let mut run: Option<(u32, u32, u32)> = None;
     let mut keep = |(a, b, sum): (u32, u32, u32)| {
         let width = (b - a + 1) as f64 / sx;
@@ -549,8 +546,12 @@ fn icon_row(w: u32, h: u32, px: &[u8]) -> Option<(f64, f64)> {
         }
         let pill = light * 100 >= n * 25;
         let pad_button = dark * 100 >= n * 30 && light * 100 >= n * 4;
+        let (left, right) = (a as f64 / sx, b as f64 / sx);
+        if skip.is_some_and(|(s0, s1)| left < s1 && right > s0) {
+            return;
+        }
         if n > 0 && (pill || pad_button) {
-            icons.push((a as f64 / sx, b as f64 / sx));
+            icons.push((left, right, pad_button && !pill));
         }
     };
     for x in 0..w {
@@ -569,15 +570,12 @@ fn icon_row(w: u32, h: u32, px: &[u8]) -> Option<(f64, f64)> {
         keep(r);
     }
     // the row starts near the left edge; it ends at the first wider gap (the round menu buttons further right)
-    let centers: Vec<f64> = icons.iter().map(|(a, b)| (a + b) / 2.0).collect();
+    let centers: Vec<f64> = icons.iter().map(|(a, b, _)| (a + b) / 2.0).collect();
     if centers.first().map_or(true, |&c| c > 600.0) {
         return None;
     }
-    let mut end = 0;
-    while end + 1 < centers.len() && (100.0..=200.0).contains(&(centers[end + 1] - centers[end])) {
-        end += 1;
-    }
-    (end >= 1).then(|| (centers[end], centers[end] - centers[end - 1]))
+    let row = centers.len() >= 2 && (100.0..=200.0).contains(&(centers[1] - centers[0]));
+    row.then(|| (centers[0], icons[0].2))
 }
 
 struct Press {
@@ -596,46 +594,10 @@ fn set_press(p: Option<Press>) {
     *PRESS.lock().unwrap() = p.map(|p| (p.start.x, p.start.y, p.window.x, p.window.y, p.dragging));
 }
 
-unsafe fn menu(hwnd: HWND) {
-    let s = STATE.lock().unwrap().clone().unwrap_or_else(load);
-    let Ok(m) = CreatePopupMenu() else { return };
-    let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
-    let _ = AppendMenuW(m, MF_STRING | check(CAPTURE_ON.load(Ordering::SeqCst)), MENU_CAPTURE, w!("Screen capture"));
-    let _ = AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = AppendMenuW(m, MF_STRING | check(s.locked), MENU_LOCK, w!("Lock in place"));
-    let _ = AppendMenuW(m, MF_STRING, MENU_ICON, w!("Use my own picture…"));
-    let row_flags = if s.x.is_some() { MF_STRING } else { MF_STRING | MF_GRAYED };
-    let _ = AppendMenuW(m, row_flags, MENU_ROW, w!("Put back in the game's icon row"));
-    let default_flags = if s.icon.is_some() { MF_STRING } else { MF_STRING | MF_GRAYED };
-    let _ = AppendMenuW(m, default_flags, MENU_DEFAULT_ICON, w!("Use the aLogs icon"));
-    let _ = AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = AppendMenuW(m, MF_STRING, MENU_HIDE, w!("Hide this button (aLogs › General Settings › Screen capture shows it again)"));
-    let mut at = POINT::default();
-    let _ = GetCursorPos(&mut at);
-    // a popup menu only closes properly when its window is in front; give the game the focus back afterwards
-    let previous = GetForegroundWindow();
-    let _ = SetForegroundWindow(hwnd);
-    let picked = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, at.x, at.y, None, hwnd, None);
-    let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
-    let _ = DestroyMenu(m);
-    if !previous.is_invalid() {
-        let _ = SetForegroundWindow(previous);
-    }
-    match picked.0 as usize {
-        MENU_CAPTURE => set_capture(!CAPTURE_ON.load(Ordering::SeqCst)),
-        MENU_LOCK => set_locked(!s.locked),
-        MENU_ICON => {
-            if let Some(file) = pick_image(hwnd) {
-                use_icon(&file);
-            }
-            if !previous.is_invalid() {
-                let _ = SetForegroundWindow(previous);
-            }
-        }
-        MENU_DEFAULT_ICON => use_default_icon(),
-        MENU_HIDE => set_shown(false),
-        MENU_ROW => reset_position(),
-        _ => {}
+/// General Settings › Screen capture › Use your own picture: a file dialog, then that picture on the button.
+pub fn choose_icon() {
+    if let Some(file) = unsafe { pick_image(HWND::default()) } {
+        use_icon(&file);
     }
 }
 
@@ -713,10 +675,6 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             set_press(None); // the press is over even without a button-up (it kept the button showing everywhere)
             LRESULT(0)
         }
-        WM_RBUTTONUP => {
-            menu(hwnd);
-            LRESULT(0)
-        }
         WM_HOTKEY if wparam.0 as i32 == HOTKEY_ID => {
             set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
             LRESULT(0)
@@ -763,7 +721,7 @@ unsafe fn run() {
     let mut drawn: Option<(Layout, bool, Option<String>, Option<PathBuf>)> = None;
     let mut hotkey: Option<(u32, u32)> = None; // (key, modifiers), registered while the game is in front
     let mut reader = crate::capture::AppReader::new();
-    let mut row_seen = 0u64; // when the game's icon row was last seen (hidden after half a second without it)
+    let mut row_seen = 0u64; // when the game's icon row was last seen (hidden 1.5 s without it: a bright scene can hide it a frame or two)
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
         if msg.message == WM_TIMER && msg.hwnd == hwnd && msg.wParam.0 == TIMER_PAD {
@@ -792,17 +750,20 @@ unsafe fn run() {
             }
             // in the icon row: only while the game shows it (capture off: we can't see it, so while in front)
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-            let row = if s.x.is_some() {
-                true
-            } else if !(s.show && in_front) {
-                false // no need to look (and no capture asked for) while it can't show anyway
-            } else {
+            // the row is checked dragged or not: it also tells keyboard from controller (the label under the button)
+            if s.show && in_front {
                 if let Some(r) = reader.as_mut() {
                     if row_visible(r, game) == Some(true) {
                         row_seen = now;
                     }
                 }
-                now.saturating_sub(row_seen) < 500 || press().is_some()
+            }
+            let row = if s.x.is_some() {
+                true
+            } else if !(s.show && in_front) {
+                false // no need to look (and no capture asked for) while it can't show anyway
+            } else {
+                now.saturating_sub(row_seen) < 1500 || press().is_some()
             };
             let wanted = s.show && in_front && row;
             if wanted {
@@ -833,22 +794,19 @@ mod tests {
     use super::*;
 
     /// The icon row found in pictures of the game's bottom left (x 0-1400, y 1985-2120 at 4K, scaled to a screen size),
-    /// saved as `<width u32><height u32>` + BGRA in the folder ALOGS_ROW_SAMPLES; names with "_ctrl" are a
-    /// controller's row: `ALOGS_ROW_SAMPLES=<dir> cargo test --bin alogs-app icon_row_in_samples -- --ignored --nocapture`
+    /// saved as `<width u32><height u32>` + BGRA in the folder ALOGS_ROW_SAMPLES (printed: Chat's x, a controller's row): `ALOGS_ROW_SAMPLES=<dir> cargo test --bin alogs-app icon_row_in_samples -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn icon_row_in_samples() {
         let dir = std::env::var("ALOGS_ROW_SAMPLES").expect("ALOGS_ROW_SAMPLES");
-        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "bgra")).collect();
         names.sort();
         for path in names {
             let data = std::fs::read(&path).unwrap();
             let (w, h) = (u32::from_le_bytes(data[0..4].try_into().unwrap()), u32::from_le_bytes(data[4..8].try_into().unwrap()));
-            let row = icon_row(w, h, &data[8..]);
+            // the button sat left of Chat in some recordings (x 215-300 at 4K): skipped, as the app skips it
+            let row = icon_row(w, h, &data[8..], Some((215.0, 300.0)));
             println!("{}: {:?}", path.file_name().unwrap().to_string_lossy(), row);
-            let (last, step) = row.expect("row not found");
-            let want = if path.to_string_lossy().contains("_ctrl") { (289.0, 164.0) } else { (379.0, 127.0) };
-            assert!((last - want.0).abs() < 8.0 && (step - want.1).abs() < 8.0, "{last} {step}");
         }
     }
 

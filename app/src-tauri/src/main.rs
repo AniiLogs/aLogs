@@ -248,6 +248,14 @@ fn capture_switch() -> Value {
     overlay_button::info()
 }
 
+/// General Settings › Screen capture › Use your own picture (it was in the button's right-click menu, which can't be
+/// used in game: the mouse only shows while Alt is held).
+#[tauri::command(async)]
+fn capture_choose_icon() -> Value {
+    overlay_button::choose_icon();
+    overlay_button::info()
+}
+
 /// The controller buttons held right now (General's controller picker asks while it waits).
 #[tauri::command]
 fn capture_pad_held() -> u32 {
@@ -624,7 +632,7 @@ fn main() {
         .manage(update::Pending::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held,
+            get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held, capture_choose_icon,
             auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,

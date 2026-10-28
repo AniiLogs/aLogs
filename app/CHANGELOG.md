@@ -6,16 +6,15 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ## 0.1.28
 
 ### New
-- **An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits at the end of the game's
-  Chat, Photo and Emoticon icons at the bottom left (it follows the row as its icons change, with a keyboard or a
-  controller), drawn like them, with its hotkey under it (Insert by default, a key the game doesn't use; change it,
-  make it a combination like Ctrl+Ins, or turn it off in General Settings › Screen capture). A controller works too:
-  pick any buttons held together, the Xbox button included, and the button shows them under it while the game shows
-  its controller icons. Bright while aLogs is watching, dim while it's off; one click or the hotkey turns screen
-  capture off (no DPS meter, no Sanctum Helper, nothing read or sent; only the game's icon row is checked, so the
-  button can hide with the icons) or back on. It shows only when the game shows those icons, and clicking it never
-  takes you out of the game. Drag it anywhere else if you like; right-click it to lock it, use a picture of your own
-  or put it back in the row.
+- **An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits just left of the game's
+  Chat icon at the bottom left (it follows Chat when the row moves), drawn like the game's icons, with its hotkey
+  under it: Insert by default, a key the game doesn't use; change it, make it a combination like Ctrl+Ins, or turn it
+  off in General Settings › Screen capture. A controller works too: pick any buttons held together, the Xbox button
+  included, and the button shows them while you play with a controller. Bright while aLogs is watching, dim while it's
+  off; one click or the hotkey turns screen capture off (no DPS meter, no Sanctum Helper, nothing read or sent; only
+  the game's icon row is checked, so the button can hide with the icons) or back on. It shows only when the game shows
+  its icons, and clicking it never takes you out of the game. Hold Alt and drag it anywhere else if you like; lock it,
+  use a picture of your own or put it back in the row in General Settings › Screen capture.
 - **60 readings a second in fights** (DPS Meter › Meter): each drop of HP and the kill are timed to 1/60 s (was 30 a
   second). 30 is still there for a lighter meter; damage totals are the same either way.
 - **Sanctum Helper's map over the game's minimap** (Sanctum Helper › On-screen map › Position, experimental): the

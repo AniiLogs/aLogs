@@ -251,6 +251,7 @@
   $("[data-capture-lock]").addEventListener("change", (event) => setSwitch({ locked: event.target.checked }));
   $("[data-capture-reset]").addEventListener("click", () => setSwitch({ resetPosition: true }));
   $("[data-capture-default-icon]").addEventListener("click", () => setSwitch({ defaultIcon: true }));
+  $("[data-capture-choose-icon]").addEventListener("click", async () => showCaptureSwitch(await invoke("capture_choose_icon")));
 
   // The hotkey: the next key pressed, shown under the button the way the game labels its own keys. Keys the game
   // uses by default get a warning (they'd do both); the hotkey only works while the game is in front.
