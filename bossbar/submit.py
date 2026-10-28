@@ -255,9 +255,12 @@ def egg_match_payload(match, season, uid, played_at=None):
             'defeats': match.get('defeats'), 'playedAt': at,
             'extra': {k: match.get(k) for k in ('mode', 'objective', 'chests_today') if match.get(k)}}
 
-def eggheist_payload(standing, season, uid):
-    """eggheist_season: the Rank Info standing as seen - one entry per season, updated as it changes."""
+def eggheist_payload(standing, season, uid, profile=None):
+    """eggheist_season: the season standing as seen (Rank Info, or the rank screen after a match) - one entry per
+    season, updated as it changes. The rank goes on the season's ladder; `profile` is for the player's profile:
+    nextRankAt (Rank Info's "1319/2370"), and the last match's gain and bar ("1337/1350 +18")."""
     s = season or time.strftime('%Y')
     return {'kind': 'eggheist_season', 'clientRunId': _safe(f'eggheist-{s}'), 'gameUid': uid, 'cycle': season,
             'rank': {'tier': standing['tier'], 'subtier': standing['subtier'], 'name': standing['name'][:40]},
-            'score': standing['points'], 'stars': standing['stars'], 'playedAt': int(time.time())}
+            'score': standing['points'], 'stars': standing['stars'], 'playedAt': int(time.time()),
+            'extra': {k: v for k, v in (profile or {}).items() if v is not None}}

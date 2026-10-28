@@ -797,7 +797,11 @@ class Meter:
                     ('uid', 'text', (0.657, 0.104, 0.745, 0.134)), ('eh', 'bright', (0.03, 0.08, 0.52, 0.17)),
                     # profile notes (overworld): the EXP card at the top and the catch card on the left
                     ('pl', 'bright', (0.455, 0.118, 0.545, 0.195)), ('pe', 'bright', (0.44, 0.222, 0.56, 0.278)),
-                    ('pc', 'bright', (0.055, 0.485, 0.16, 0.555)), ('pb', 'bright', (0.05, 0.555, 0.17, 0.595)))
+                    ('pc', 'bright', (0.055, 0.485, 0.16, 0.555)), ('pb', 'bright', (0.05, 0.555, 0.17, 0.595)),
+                    # Egg Heist's rank screen after a match: "1337/1350" right of the badge (then "+18" next to it)
+                    ('ep', 'text', (0.72, 0.555, 0.83, 0.605)),
+                    # ...and at Egg Emperor, which has no points bar: the egg count "x57" under the badge
+                    ('es', 'text', (0.465, 0.73, 0.55, 0.80)))
     QUICK_BOXES = ('h', 'cs', 'lbl', 'cc')   # while a fight's bar is hidden: Catch Countdown and the result screens
 
     def screen_crops(self, im, quick):
@@ -877,6 +881,8 @@ class Meter:
         if 'challenge' in heads.get('cs', '').lower(): self.challenge_stats(im, now, u, ux, H); return
         if 'score' in heads.get('bs', '').lower(): self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.egg_rank_info(im, now, u, ux, H); return
+        if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
+        elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
         if 'adventure' in heads.get('eh', '').lower(): self.egg_result(im, now, u, ux, H, heads['eh']); return
         if not is_bd: return
         self.end_auto('Battle Data is open')
@@ -1012,11 +1018,18 @@ class Meter:
             'mode': R.prep_text(im, box(0.09, 0.2, 0.235, 0.232), k),
             'time': R.prep_short(im, box(0.262, 0.2, 0.31, 0.235), k),
             'goal': R.prep_text(im, box(0.05, 0.258, 0.26, 0.292), k),
-            'loot': R.prep_text(im, box(0.03, 0.345, 0.15, 0.42), k),
-            'defeats': R.prep_labelled(im, box(0.03, 0.465, 0.075, 0.535), k, 'Defeats:'),
-            'defeats2': R.prep_labelled(im, box(0.03, 0.465, 0.075, 0.535), k, 'Defeats:', size=3),
-            'defeats3': R.prep_labelled(im, box(0.03, 0.465, 0.075, 0.535), k, 'Defeats:', size=5),   # 720p
             'chests': R.prep_bright(im, box(0.18, 0.81, 0.305, 0.84), k)})
+        # Loot This Match and Total Defeats sit 4% higher when there's no objective line above them (Team Mode has
+        # none): read them where this screen's layout puts them, and the other way if that gives no number.
+        def numbers(dy):
+            return self.ocr.read({
+                'loot': R.prep_text(im, box(0.03, 0.345 + dy, 0.15, 0.42 + dy), k),
+                'defeats': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:'),
+                'defeats2': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=3),
+                'defeats3': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=5)})   # 720p
+        shifts = (0.0, -0.04) if (t.get('goal') or '').strip() else (-0.04, 0.0)
+        t.update(numbers(shifts[0]))
+        if first_num((t.get('loot') or '').replace(',', '').replace(' ', '')) is None: t.update(numbers(shifts[1]))
         low = title.lower()
         outcome = 'success' if 'success' in low else 'failed' if ('fail' in low or 'unsuccess' in low) else title.strip()
         m = re.search(r'(\d{1,2})\s*:\s*(\d{2})', t.get('time', ''))
@@ -1095,7 +1108,73 @@ class Meter:
                  + (f" - {st['points']:,} rank points" if st['points'] is not None else '')
                  + (f" - {st['stars']:,} stars" if st['stars'] is not None else ''))
         if self.submitter:
-            self.submitter.enqueue(S.eggheist_payload(st, season, self.uid), os.path.relpath(shot, HERE) if shot else None)
+            self.submitter.enqueue(S.eggheist_payload(st, season, self.uid, self.egg_profile(season, nextRankAt=next_start)),
+                                   os.path.relpath(shot, HERE) if shot else None)
+
+    def egg_profile(self, season, **values):
+        """The season's numbers for the player's profile, kept in logs/egg_profile.json so the rank screens add to them
+        (Rank Info's threshold, the post-match screen's gain and bar) instead of each sending only its own."""
+        path = os.path.join(HERE, 'logs', 'egg_profile.json')
+        try:
+            with open(path, encoding='utf-8') as f: kept = json.load(f)
+        except (OSError, ValueError): kept = {}
+        mine = kept.setdefault(f'{self.uid}|{season}', {})
+        mine.update({k: v for k, v in values.items() if v is not None})
+        try:
+            with open(path, 'w', encoding='utf-8') as f: json.dump(kept, f)
+        except OSError: pass
+        return dict(mine)
+
+    def egg_rank_gain(self, im, now, u, ux, H, points_text):
+        """Egg Heist's rank screen after a match: the rank title over the badge, the Rank Points bar "1337/1350" (the
+        total and where the next egg fills) and what the match added ("+18"). The total updates the season's ladder
+        entry; the bar and the gain go to the player's profile. The match's grade (B) is left out on purpose."""
+        if now - getattr(self, 'egg_gain_seen', 0) < 5: return
+        self.egg_gain_seen = now
+        k = u / 2000
+        box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
+        t = self.ocr.read({'title': R.prep_bright(im, box(0.38, 0.215, 0.62, 0.265), k),
+                           'title2': R.prep_text(im, box(0.37, 0.20, 0.63, 0.275), k, thr=230),
+                           'gain': R.prep_text(im, box(0.85, 0.555, 0.90, 0.605), k)})
+        points, bar_end = E.parse_points(points_text)
+        gain = E.parse_gain(t.get('gain'))
+        title = t.get('title') if E.tier_of(t.get('title')) else t.get('title2')
+        st = E.standing(title, points)
+        season = getattr(self, 'egg_season', None) or E.current_season()
+        log.info(f'Egg Heist rank after a match: OCR {t!r}, {points_text!r} -> {st}, +{gain}, bar to {bar_end}, season {season}')
+        if not st or points is None or gain is None: return
+        key = (season, points, gain)
+        if self.last_scores.get('egg_gain') == key: return
+        self.last_scores['egg_gain'] = key
+        self.out('status', f"Egg Heist: +{gain} rank points ({st['name']}, {points:,})")
+        if self.submitter:
+            profile = self.egg_profile(season, lastGain=gain, bar=[points, bar_end], barAt=int(time.time()))
+            self.submitter.enqueue(S.eggheist_payload(st, season, self.uid, profile), None)
+
+    def egg_emperor_count(self, im, now, u, ux, H, count_text):
+        """The same post-match screen at Egg Emperor, the top rank: no points bar, just the eggs collected ("x57"),
+        which keep adding up as you play. They're the season's standing at that rank (the ladder sorts by rank, then
+        eggs)."""
+        if now - getattr(self, 'egg_gain_seen', 0) < 5: return
+        self.egg_gain_seen = now
+        k = u / 2000
+        box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
+        t = self.ocr.read({'title': R.prep_text(im, box(0.37, 0.20, 0.63, 0.275), k, thr=230),
+                           'title2': R.prep_bright(im, box(0.38, 0.215, 0.62, 0.265), k)})
+        title = t.get('title') if E.tier_of(t.get('title')) else t.get('title2')
+        eggs = first_num(count_text)
+        st = E.standing(title, None, eggs) if E.tier_of(title) == E.TOP_TIER else None
+        season = getattr(self, 'egg_season', None) or E.current_season()
+        log.info(f'Egg Heist rank after a match (Egg Emperor): OCR {t!r}, {count_text!r} -> {st}, season {season}')
+        if not st or eggs is None: return
+        key = (season, 'emperor', eggs)
+        if self.last_scores.get('egg_gain') == key: return
+        self.last_scores['egg_gain'] = key
+        self.out('status', f"Egg Heist: Egg Emperor, {eggs:,} eggs")
+        if self.submitter:
+            # at the top rank there's no bar or next rank any more: the eggs (stars) are the whole standing
+            profile = {k: v for k, v in self.egg_profile(season).items() if k not in ('bar', 'barAt', 'lastGain', 'nextRankAt')}
+            self.submitter.enqueue(S.eggheist_payload(st, season, self.uid, profile), None)
 
     def challenge_stats(self, im, now, u, ux, H):
         """Esc menu in boss rush: 'Challenge Stats' with this week's Best Score (sum of the best score on each boss)

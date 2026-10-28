@@ -38,6 +38,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on
   your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds
   before the Catch Countdown, as before.
+- **Egg Heist after each match:** the rank screen that follows a match updates your season standing on the
+  leaderboard, and your profile gets the Rank Points the match added and your progress bar ("1337/1350 +18"); at Egg
+  Emperor, your egg count. Rank Info also sends where your next rank starts, for your profile.
 - **Report a problem** (Dashboard): something wrong with aLogs? Send your logs to the AniiLogs developers in one
   click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
   20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in),
@@ -87,6 +90,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the
   boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.
+- **Egg Heist matches reach the leaderboards:** in Team Mode the end screen's Loot This Match and Total Defeats sit
+  higher than in solo, and the meter read neither, so matches were sent without their score and never showed.
 - **Out in the world fights end at the kill:** the meter ran each fight about 2.5 seconds past the killing blow,
   through the slow-motion kill-cam to the Catch Countdown, so your DPS showed 12-17% low.
 - **The last-5-seconds DPS no longer spikes after a BREAK:** while BREAK hides the boss's HP, its damage shows all at

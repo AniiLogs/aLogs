@@ -66,6 +66,18 @@ def parse_points(text):
 # Season start dates (MM/DD/YYYY as shown under the season title) -> the game's season badge
 KNOWN_SEASONS = {'2026-09-15': 'S1'}
 
+def current_season(today=None):
+    """The season running today, from the known start dates (for screens that don't name it)."""
+    import datetime
+    today = (today or datetime.date.today()).isoformat()
+    started = [(start, name) for start, name in KNOWN_SEASONS.items() if start <= today]
+    return max(started)[1] if started else None
+
+def parse_gain(text):
+    """'+18' (the Rank Points a match added, on the post-match rank screen) -> 18."""
+    m = re.search(r'\+\s*(\d{1,4})', (text or '').replace('O', '0'))
+    return int(m.group(1)) if m else None
+
 def parse_season(badge, header=''):
     """'S1' from the season badge; the stylised badge rarely OCRs, so the date range under the season title is the
     usual source: a known start date gives its badge name, an unknown one 'season-YYYY-MM-DD'."""
