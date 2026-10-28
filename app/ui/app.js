@@ -325,6 +325,37 @@
       toast(String(error), true);
     }
   }));
+  // Send logs: the meter's logs zipped by the app, with the game UID it last saw and an optional note.
+  $("[data-logs-send]").addEventListener("click", async () => {
+    const button = $("[data-logs-send]");
+    const uid = status.character?.uid;
+    if (!uid) {
+      toast("aLogs hasn't seen your game UID yet: open Aniimo with the meter running, then try again.", true);
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Sending…";
+    try {
+      const zip = Uint8Array.from(atob(await invoke("collect_logs")), (c) => c.charCodeAt(0));
+      const version = await window.__TAURI__.app.getVersion();
+      const rc = await invoke("build_number").catch(() => 0);
+      const form = new FormData();
+      form.set("uid", uid);
+      form.set("note", $("[data-logs-note]").value.trim());
+      form.set("app_version", rc ? `${version}+rc.${rc}` : version);
+      form.set("logs", new Blob([zip], { type: "application/zip" }), "logs.zip");
+      const response = await fetch(`${api()}/logs/reports`, { method: "POST", body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
+      $("[data-logs-note]").value = "";
+      toast("Logs sent. Thanks!");
+    } catch (error) {
+      toast(`Couldn't send the logs: ${error.message || error}`, true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Send logs";
+    }
+  });
   $("[data-dispute-send]").addEventListener("click", async () => {
     try {
       await invoke("send_character_dispute", { note: $("[data-dispute-note]").value.trim() });
@@ -440,6 +471,7 @@
     const character = status.character || {};
     const who = character.uid ? `${character.name || "Name appears after your first result screen"} · UID ${character.uid}` : "Waiting for the game log…";
     text("character", who);
+    $("[data-logs-uid]").textContent = character.uid ? `Sent as UID ${character.uid}` : "Waiting for your game UID…";
     text("character-full", character.uid ? who : "Waiting for the game log: your UID shows once you load into the world (it's read fresh each session, so the right character on the right server), then your name.");
     text("character-proof", !character.uid ? "" : character.verified
       ? "Proven: read from the game menu, right above your UID."

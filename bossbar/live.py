@@ -2365,7 +2365,8 @@ def main():
     args = ap.parse_args()
     args.cfg = cfg
     setup_log()
-    log.info(f'data folder {C.DATA}; settings {json.dumps(cfg)}'.replace(cfg['leaderboard']['token'] or '\0', 'alb_***'))
+    shown = {k: ({kk: vv for kk, vv in v.items() if kk != 'token'} if k == 'leaderboard' else v) for k, v in cfg.items()}
+    log.info(f'data folder {C.DATA}; settings {json.dumps(shown)}')     # the Discord sign-in (token) is never logged
     meter = Meter(args, console_out); _meter[0] = meter
     if args.no_overlay or args.replay:
         try: meter.run()

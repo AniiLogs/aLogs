@@ -38,6 +38,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on
   your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds
   before the Catch Countdown, as before.
+- **Send logs** (DPS Meter › Captures & logs): something wrong with aLogs? Send your logs to the AniiLogs developers
+  in one click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
+  20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in),
+  with your game UID, the time and which build you have. Reports are kept
+  privately and cleared once the problem is fixed, after 30 days at most.
 - **Profile notes:** the meter notes your **catches** ("Irisal Lv 55") and your **level and current EXP** each time
   the EXP card shows, for your AniiLogs profile. It keeps the card's final numbers (not ones caught mid-animation),
   and never notes EXP going backwards.

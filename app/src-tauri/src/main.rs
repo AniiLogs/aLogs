@@ -248,6 +248,144 @@ fn open_target(target: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Keeps private data out of a "Send logs" report: every file is text, and before it's zipped the Windows user and PC
+/// names (in paths like C:\Users\<name>\AppData) become <user>/<pc>, and anything shaped like a sign-in token, a
+/// Bearer header, a Discord ID or an email address is masked. The game UID (12 digits) and in-game name stay: they're
+/// what a report is about.
+struct Scrubber {
+    rules: Vec<(regex::Regex, &'static str)>,
+    names: Vec<(regex::Regex, &'static str)>,
+}
+
+impl Scrubber {
+    fn new() -> Scrubber {
+        let rule = |pattern: &str, with: &'static str| (regex::Regex::new(pattern).expect("scrub pattern"), with);
+        let mut names = Vec::new();
+        for (var, with) in [("USERNAME", "<user>"), ("COMPUTERNAME", "<pc>")] {
+            if let Ok(name) = std::env::var(var) {
+                if name.chars().count() >= 3 {
+                    names.push(rule(&format!(r"(?i)\b{}\b", regex::escape(&name)), with));
+                }
+            }
+        }
+        Scrubber {
+            rules: vec![
+                rule(r#"(?i)([A-Z]:[\\/]+Users[\\/]+)[^\\/\s"']+"#, "${1}<user>"),
+                rule(r"alb_[A-Za-z0-9_*-]+", "alb_***"),
+                rule(r"(?i)\bBearer\s+\S+", "Bearer ***"),
+                rule(r"[A-Za-z0-9_-]{32,}", "***"),
+                rule(r"\b\d{17,20}\b", "***"),
+                rule(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "***@***"),
+            ],
+            names,
+        }
+    }
+
+    fn clean(&self, text: &str) -> String {
+        let mut out = text.to_string();
+        for (pattern, with) in self.rules.iter().chain(&self.names) {
+            out = pattern.replace_all(&out, *with).into_owned();
+        }
+        out
+    }
+}
+
+/// The logs for a "Send logs" report, as a zip (base64), one for the whole app: which build, the meter (meter.log, the
+/// newest fight logs, profile notes, status, settings without the leaderboard token) and Sanctum Helper (its log,
+/// settings and state). Most useful first; whatever would take it past ~7.5 MB is left out.
+#[tauri::command]
+fn collect_logs(app: AppHandle) -> Result<String, String> {
+    collect_logs_inner(&app.package_info().version.to_string(), meter_running(&app.state::<Meter>()))
+}
+
+fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
+    use std::io::Write;
+    use base64::Engine;
+    const LIMIT: u64 = 7_500_000;
+    let data = data_dir();
+    let logs = data.join("logs");
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    fn add(files: &mut Vec<(String, Vec<u8>)>, name: &str, path: PathBuf) {
+        if let Ok(bytes) = fs::read(&path) {
+            files.push((name.to_string(), bytes));
+        }
+    }
+    let info = format!(
+        "aLogs {version} (RC {})\nmeter running: {meter_on}\nsent: {}\n",
+        update::build_number(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+    );
+    files.push(("app.txt".into(), info.into_bytes()));
+    add(&mut files, "meter.log", logs.join("meter.log"));
+    let mut fights: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&logs)
+        .map(|dir| {
+            dir.flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    name.starts_with('2') && name.ends_with(".csv")     // one per fight: 20261027_185320_AlphaIrisal.csv
+                })
+                .filter_map(|p| Some((fs::metadata(&p).ok()?.modified().ok()?, p)))
+                .collect()
+        })
+        .unwrap_or_default();
+    fights.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in fights.into_iter().take(20) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("fight.csv").to_string();
+        add(&mut files, &format!("fights/{name}"), path);
+    }
+    for name in ["profile_events.csv", "time_check.csv", "egg_matches.csv"] {
+        add(&mut files, name, logs.join(name));
+    }
+    add(&mut files, "status.json", data.join("status.json"));
+    let mut settings = read_settings();
+    if let Some(board) = settings.get_mut("leaderboard").and_then(Value::as_object_mut) {
+        board.remove("token");                               // the Discord sign-in
+    }
+    if let Some(game) = settings.get_mut("game").and_then(Value::as_object_mut) {
+        game.remove("player_log");                           // a path on this PC
+    }
+    files.push(("settings.json".into(), serde_json::to_vec_pretty(&settings).unwrap_or_default()));
+    let sh = sanctum::sh_dir();
+    add(&mut files, "sanctum/log.txt", sh.join("log.txt"));
+    add(&mut files, "sanctum/settings.json", sh.join("settings.json"));
+    add(&mut files, "sanctum/status.json", sh.join("hosted").join("status.json"));
+    add(&mut files, "sanctum/info.json", sh.join("hosted").join("info.json"));
+    add(&mut files, "meter.log.1", logs.join("meter.log.1"));
+
+    // the zip's size so far, kept by its buffer (the writer doesn't tell)
+    struct Sized(std::io::Cursor<Vec<u8>>, std::rc::Rc<std::cell::Cell<u64>>);
+    impl Write for Sized {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let n = self.0.write(buf)?;
+            self.1.set(self.0.get_ref().len() as u64);
+            Ok(n)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0.flush()
+        }
+    }
+    impl std::io::Seek for Sized {
+        fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+            self.0.seek(to)
+        }
+    }
+    let scrub = Scrubber::new();
+    let size = std::rc::Rc::new(std::cell::Cell::new(0u64));
+    let mut zip = zip::ZipWriter::new(Sized(std::io::Cursor::new(Vec::new()), size.clone()));
+    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, bytes) in files {
+        zip.start_file(name, options).map_err(|e| e.to_string())?;
+        zip.write_all(scrub.clean(&String::from_utf8_lossy(&bytes)).as_bytes()).map_err(|e| e.to_string())?;
+        zip.flush().map_err(|e| e.to_string())?;
+        if size.get() > LIMIT {
+            zip.abort_file().map_err(|e| e.to_string())?;
+        }
+    }
+    let bytes = zip.finish().map_err(|e| e.to_string())?.0.into_inner();
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 /// Another account proved this player's UID first (the meter saved what a dispute would send in
 /// character_dispute.json): queue the dispute, with the player's note, for the meter to send with the game menu proof.
 #[tauri::command]
@@ -333,7 +471,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target,
-            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, site::site_view,
+            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, collect_logs, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
@@ -400,3 +538,4 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running the app");
 }
+

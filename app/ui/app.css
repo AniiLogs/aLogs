@@ -62,8 +62,8 @@ button.link { padding: 0 4px; border: 0; background: none; color: var(--accent-t
 .toggle small { display: block; color: var(--muted); font-size: 12.5px; }
 
 .field { display: grid; gap: 5px; color: var(--muted); font-size: 12.5px; }
-.field input, .field select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); }
-.field input:focus, .field select:focus { border-color: var(--accent); outline: none; }
+.field input, .field select, .field textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; }
 .inline { display: flex; gap: 8px; }
 .inline input { flex: 1; }
 .steps { margin: 0; padding-left: 20px; color: var(--muted); }
@@ -221,3 +221,4 @@ button.capturing { border-color: var(--gold); color: var(--gold); }
 .backdrop-preview > img { width: 100%; display: block; }
 .backdrop-card { position: absolute; left: 5.77%; top: 13.33%; width: 46.92%; border-radius: 9px; line-height: 0; }
 .backdrop-card img { width: 100%; }
+.field textarea { font: inherit; resize: vertical; min-height: 64px; }

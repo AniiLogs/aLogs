@@ -186,6 +186,12 @@
           <button type="button" data-open="logs">Open logs folder</button>
           <button type="button" data-open="meter_log">Open meter.log</button>
         </div>
+        <div class="group">
+          <h2>Send logs</h2>
+          <p class="hint">Something wrong with aLogs? Send your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time and which build you have. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
+          <label class="field"><span>What went wrong (optional)</span><textarea rows="3" maxlength="2000" data-logs-note placeholder="For example: the HP number stopped going down partway through the fight"></textarea></label>
+          <div class="row"><button type="button" class="primary" data-logs-send>Send logs</button><span class="hint" data-logs-uid></span></div>
+        </div>
       </div>
 
       <!-- Leaderboards & account -->
