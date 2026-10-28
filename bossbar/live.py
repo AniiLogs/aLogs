@@ -357,6 +357,29 @@ def screenshot_cleanup(meter):
             if meter.stop: return
             time.sleep(1)
 
+PROOF_BYTES = 1800 * 1000         # the site takes a character proof of at most 1.9 MB (its database row's limit is 2 MB)
+
+def save_proof(pic, base):
+    """A character proof as `base`.png, or as a JPEG (shrunk as needed) when the PNG is over the site's limit: the
+    Profile screen's column at 4K came to 0.5-1.5 MB, over the site's old 512 KB, and links were turned down ("Request body is too
+    large"). Returns the path."""
+    import io
+    for ext in ('.png', '.jpg'):
+        try: os.remove(base + ext)
+        except OSError: pass
+    buf = io.BytesIO(); pic.save(buf, 'PNG', optimize=True)
+    if buf.tell() <= PROOF_BYTES:
+        with open(base + '.png', 'wb') as f: f.write(buf.getvalue())
+        return base + '.png'
+    quality = 90
+    while True:
+        buf = io.BytesIO(); pic.save(buf, 'JPEG', quality=quality)
+        if buf.tell() <= PROOF_BYTES or pic.height < 400: break
+        if quality > 75: quality -= 5
+        else: pic = pic.resize((pic.width * 4 // 5, pic.height * 4 // 5), Image.LANCZOS)
+    with open(base + '.jpg', 'wb') as f: f.write(buf.getvalue())
+    return base + '.jpg'
+
 def save_picture(im, folder, name):
     """A screen kept as a picture: a JPEG at most 1920 px wide (about 0.3 MB; a 4K PNG is about 5 MB)."""
     d = os.path.join(HERE, 'logs', folder); os.makedirs(d, exist_ok=True)
@@ -1690,10 +1713,9 @@ class Meter:
         Profile screen's left column from the name card down to the UID - and nothing else."""
         if im is None or not u: return None
         d = os.path.join(HERE, 'logs', 'characters'); os.makedirs(d, exist_ok=True)
-        proof = os.path.join(d, f'{self.uid}{suffix}.png')
         box = (0.6, 0.045, 0.8, 0.14) if where == 'menu' else (0.015, 0.06, 0.28, 0.95)
-        im.crop((int(ux + u * box[0]), int(H * box[1]), int(ux + u * box[2]), int(H * box[3]))).save(proof)
-        return proof
+        pic = im.crop((int(ux + u * box[0]), int(H * box[1]), int(ux + u * box[2]), int(H * box[3]))).convert('RGB')
+        return save_proof(pic, os.path.join(d, f'{self.uid}{suffix}'))
 
     def prove_name(self, name, where, proof, force=False):
         self.menu_proven = (self.uid, name)
@@ -1949,6 +1971,17 @@ class Meter:
             picture = f"a picture from {wc.shared.source or '?'}" + (' (black)' if hi < 20 else '')
         log.info(f'tabbed out mid-fight ({self.fight.title}): {picture}, boss bar seen {now - self.bar_seen:.1f} s ago'
                  + (' - alert can show' if now - self.bar_seen < 3 else ' - too long ago for the alert'))
+        # the bar gone from the picture while the fight goes on (seen on Windows 11's window capture): once a fight, the
+        # colours along the row it was on and the picture's average, to tell a hidden HUD, a dimmed or blurred screen
+        # and a shifted picture apart
+        geom = getattr(self.fight, 'bar_geom', None)
+        if im is not None and geom and now - self.bar_seen > 1 and getattr(self, 'away_colours', None) is not self.fight:
+            self.away_colours = self.fight
+            span, yc = geom; x0 = im.width / 2 - span / 2
+            row = [im.getpixel((int(x0 + span * k / 8), min(im.height - 1, int(yc)))) for k in range(9)]
+            mean = im.convert('RGB').reduce(max(1, im.width // 32)).resize((1, 1), Image.BOX).getpixel((0, 0))
+            log.info(f"tabbed out, no bar: colours along its row (y {yc:.0f}) {' '.join('%02x%02x%02x' % p[:3] for p in row)}; "
+                     f"picture {im.width}x{im.height}, average {'%02x%02x%02x' % mean[:3]}")
 
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
@@ -2705,7 +2738,7 @@ def run_overlay(meter, hide):
         if t < ALERT_SHOW:
             if not alert['shown'] or alert['screen'] != screen: draw_alert_text(ox, oy, W, H, hud)
             alert['shown'] = True
-        elif alert['shown']: aw.geometry(OFF); alert['shown'] = False
+        elif alert['shown']: aw.geometry(OFF); layered.park(layered.top_hwnd(aw)); alert['shown'] = False
         if alert['screen'] != screen:                     # the flash's picture, once per game screen size
             hw = layered.top_hwnd(ew); layered.show(hw, edge_image(int(W), int(H)), int(ox), int(oy))
             layered.click_through(hw); alert['alpha'] = 255
@@ -2714,7 +2747,7 @@ def run_overlay(meter, hide):
         if a != alert['alpha']: layered.set_alpha(layered.top_hwnd(ew), a); alert['alpha'] = a
     def hide_alert():
         if alert['since'] is None: return
-        aw.geometry(OFF); alert['shown'] = False; alert['since'] = None
+        aw.geometry(OFF); layered.park(layered.top_hwnd(aw)); alert['shown'] = False; alert['since'] = None
         if alert['screen'] is not None: layered.set_alpha(layered.top_hwnd(ew), 0); alert['alpha'] = 0
 
     ours = set()
@@ -2730,8 +2763,16 @@ def run_overlay(meter, hide):
         if show_dps_window: show_dps(d['screen'], d['bossrush'], stat_lines(d))
         if time.time() - meter.bar_seen < BAR_HIDDEN: show_hp(d); dps_at['hp_up'] = True
 
+    poll_error = {'at': 0.0}
     def poll():
         if not th.is_alive(): root.destroy(); return          # the meter stopped (asked to, or closed): exit
+        # an error in one tick is logged (once a minute) and the next tick runs anyway: it used to end the loop with
+        # everything frozen as it was ("You're being attacked" stuck over other windows for minutes)
+        try: poll_tick()
+        except Exception:
+            if time.time() - poll_error['at'] > 60: poll_error['at'] = time.time(); log.exception('overlay: error (it keeps going)')
+        root.after(15, poll)    # tabbing in/out and new readings show within a frame or two
+    def poll_tick():
         # the app's picture is of the screen (Desktop Duplication): keep our windows out of it, or the meter would
         # read its own HP labels on the boss bar
         if meter.use_screen and not hidden['on']: log.info('overlay hidden from capture (the picture is of the screen)')
@@ -2777,8 +2818,13 @@ def run_overlay(meter, hide):
         if latest is not None: show_fight(latest)
         if meter.fight and time.time() - meter.bar_seen >= BAR_HIDDEN and dps_at.get('hp_up'): hide_hp(); dps_at['hp_up'] = False
         if dps_at['hide_at'] and time.time() > dps_at['hide_at'] and not meter.fight: hide_dps(); dps_at['hide_at'] = None
-        root.after(15, poll)    # tabbing in/out and new readings show within a frame or two
-    th = threading.Thread(target=meter.run, daemon=True); th.start(); poll(); root.mainloop()
+    th = threading.Thread(target=meter.run, daemon=True); th.start()
+    def backstop():
+        # the meter stopped (aLogs closed or turned it off) but the window loop didn't end: never stay behind with
+        # an overlay frozen on screen (the alert stayed up after aLogs was closed)
+        th.join(); time.sleep(3); log.info('meter stopped but the overlay hung: exiting'); os._exit(0)
+    threading.Thread(target=backstop, daemon=True).start()
+    poll(); root.mainloop()
     meter.stop = True; th.join(3)
 
 def font_test(out_dir):

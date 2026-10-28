@@ -199,7 +199,8 @@ class Submitter(threading.Thread):
                 with open(os.path.join(HERE, item['proof']), 'rb') as f: proof = f.read()
             except OSError: proof = None
             if proof:
-                body, ctype = _form(item['payload'], [('proof', 'menu.png', 'image/png', proof)])
+                jpeg = item['proof'].lower().endswith('.jpg')                 # large proofs are JPEGs (live.save_proof)
+                body, ctype = _form(item['payload'], [('proof', 'menu.jpg' if jpeg else 'menu.png', 'image/jpeg' if jpeg else 'image/png', proof)])
                 path = 'characters/disputes' if item['endpoint'] == 'disputes' else 'characters'
                 req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/{path}", data=body, method='POST',
                                              headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,

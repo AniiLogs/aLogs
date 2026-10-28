@@ -26,12 +26,19 @@ user32.UpdateLayeredWindow.argtypes = [W.HWND, W.HDC, ctypes.POINTER(W.POINT), c
                                        ctypes.POINTER(W.POINT), W.DWORD, ctypes.POINTER(BLENDFUNCTION), W.DWORD]
 gdi32.CreateDIBSection.restype = W.HBITMAP
 gdi32.CreateDIBSection.argtypes = [W.HDC, ctypes.c_void_p, W.UINT, ctypes.POINTER(ctypes.c_void_p), W.HANDLE, W.DWORD]
+# every handle typed: an untyped one above 2**31 raised OverflowError inside show(), which stopped the overlay's
+# loop with whatever it showed frozen on screen
 gdi32.CreateCompatibleDC.restype = W.HDC
+gdi32.CreateCompatibleDC.argtypes = [W.HDC]
 gdi32.SelectObject.restype = W.HGDIOBJ
 gdi32.SelectObject.argtypes = [W.HDC, W.HGDIOBJ]
 gdi32.DeleteObject.argtypes = [W.HGDIOBJ]
 gdi32.DeleteDC.argtypes = [W.HDC]
 user32.GetDC.restype = W.HDC
+user32.GetDC.argtypes = [W.HWND]
+user32.GetParent.restype = W.HWND
+user32.GetParent.argtypes = [W.HWND]
+user32.SetWindowPos.argtypes = [W.HWND, W.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
 user32.ReleaseDC.argtypes = [W.HWND, W.HDC]
 
 _ready = set()
@@ -72,6 +79,13 @@ def set_alpha(hwnd, alpha):
     """Fades the whole window (0-255) without sending its bitmap again: cheap enough to animate every frame."""
     blend = BLENDFUNCTION(0, 0, max(0, min(255, int(alpha))), AC_SRC_ALPHA)
     return bool(user32.UpdateLayeredWindow(hwnd, None, None, None, None, None, 0, ctypes.byref(blend), ULW_ALPHA))
+
+def park(hwnd):
+    """Moves the window off screen through Windows itself. A window that show() placed must be hidden this way: Tk
+    never saw that move, so Tk's own geometry() can think the window is already off screen and do nothing (the
+    "You're being attacked" text stayed up for minutes after the fight)."""
+    # SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+    return bool(user32.SetWindowPos(hwnd, None, -32000, -32000, 0, 0, 0x0001 | 0x0004 | 0x0010))
 
 WS_EX_TRANSPARENT, WS_EX_NOACTIVATE = 0x20, 0x08000000
 def click_through(hwnd):
