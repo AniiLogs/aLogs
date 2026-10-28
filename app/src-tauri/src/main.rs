@@ -17,6 +17,7 @@ use tauri::{AppHandle, Manager, State, WindowEvent};
 mod audio;
 mod auth;
 mod capture;
+mod gamepad;
 mod gpu_capture;
 mod photos;
 mod hidhide;
@@ -247,9 +248,15 @@ fn capture_switch() -> Value {
     overlay_button::info()
 }
 
+/// The controller buttons held right now (General's controller picker asks while it waits).
+#[tauri::command]
+fn capture_pad_held() -> u32 {
+    overlay_button::pad_held()
+}
+
 /// The screen-capture switch and its overlay button, from the app's settings page.
 #[tauri::command]
-fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<bool>, locked: Option<bool>, reset_position: Option<bool>, default_icon: Option<bool>, hotkey: Option<Value>) -> Value {
+fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<bool>, locked: Option<bool>, reset_position: Option<bool>, default_icon: Option<bool>, hotkey: Option<Value>, pad: Option<Value>) -> Value {
     if let Some(on) = capture_on {
         overlay_button::set_capture(on);
         sanctum::ensure(&app, &read_settings());
@@ -266,10 +273,16 @@ fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<boo
     if default_icon == Some(true) {
         overlay_button::use_default_icon();
     }
-    // {vk, label} from General's key picker; vk 0 (or null) clears it: no hotkey, no label under the button
+    // {vk, mods, label} from General's key picker; vk 0 (or null) clears it: no hotkey, no label under the button
     if let Some(h) = hotkey {
         let vk = h.get("vk").and_then(Value::as_u64).unwrap_or(0) as u32;
-        overlay_button::set_hotkey(vk, h.get("label").and_then(Value::as_str).unwrap_or(""));
+        let mods = h.get("mods").and_then(Value::as_u64).unwrap_or(0) as u32;
+        overlay_button::set_hotkey(vk, mods, h.get("label").and_then(Value::as_str).unwrap_or(""));
+    }
+    // {buttons, label} from the controller picker; 0 clears it
+    if let Some(p) = pad {
+        let buttons = p.get("buttons").and_then(Value::as_u64).unwrap_or(0) as u32;
+        overlay_button::set_pad(buttons, p.get("label").and_then(Value::as_str).unwrap_or(""));
     }
     overlay_button::info()
 }
@@ -611,7 +624,7 @@ fn main() {
         .manage(update::Pending::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch,
+            get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held,
             auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,

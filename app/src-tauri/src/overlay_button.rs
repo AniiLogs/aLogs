@@ -39,7 +39,7 @@ use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPRO
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OPENFILENAMEW};
 use windows::Win32::UI::HiDpi::{GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, MOD_NOREPEAT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const BASE_SIZE: i32 = 44; // the button at 100% display scale (px), when dragged off the icon row
@@ -69,6 +69,7 @@ const PILL_BG: [u8; 3] = [227, 227, 227];
 const PILL_TEXT: [u8; 3] = [37, 44, 53];
 const WM_REFRESH: u32 = WM_APP + 1;
 const TIMER_FOLLOW: usize = 1;
+const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 
 const MENU_CAPTURE: usize = 1;
@@ -93,9 +94,15 @@ struct State {
     y: Option<i32>,
     locked: bool,
     icon: Option<PathBuf>,
-    /// Virtual-key code of the hotkey (0: none) and how its label reads ("Ins").
+    /// Virtual-key code of the hotkey (0: none), its modifiers (MOD_ALT 1, MOD_CONTROL 2, MOD_SHIFT 4) and how its
+    /// label reads ("Ins", "Ctrl+Ins").
     hotkey_vk: u32,
+    hotkey_mods: u32,
     hotkey_label: String,
+    /// The controller's hotkey: the buttons held together (gamepad.rs bits, the Xbox button too; 0: none) and its
+    /// label ("LB+RB+Y"), shown under the button while the game shows its controller icons.
+    pad_buttons: u32,
+    pad_label: String,
 }
 
 fn state_path() -> PathBuf {
@@ -112,7 +119,10 @@ fn load() -> State {
         locked: v["locked"].as_bool().unwrap_or(false),
         icon: v["icon"].as_str().map(PathBuf::from).filter(|p| p.is_file()),
         hotkey_vk: v["hotkey_vk"].as_u64().map_or(VK_INSERT, |n| n as u32),
+        hotkey_mods: v["hotkey_mods"].as_u64().unwrap_or(0) as u32,
         hotkey_label: v["hotkey_label"].as_str().unwrap_or("Ins").to_string(),
+        pad_buttons: v["pad_buttons"].as_u64().unwrap_or(0) as u32,
+        pad_label: v["pad_label"].as_str().unwrap_or("").to_string(),
     }
 }
 
@@ -120,7 +130,8 @@ fn save(s: &State) {
     let v = json!({
         "capture_on": CAPTURE_ON.load(Ordering::SeqCst), "show": s.show, "x": s.x, "y": s.y, "locked": s.locked,
         "icon": s.icon.as_ref().map(|p| p.to_string_lossy().to_string()),
-        "hotkey_vk": s.hotkey_vk, "hotkey_label": s.hotkey_label,
+        "hotkey_vk": s.hotkey_vk, "hotkey_mods": s.hotkey_mods, "hotkey_label": s.hotkey_label,
+        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label,
     });
     let path = state_path();
     let tmp = path.with_extension("json.tmp");
@@ -147,7 +158,8 @@ pub fn capture_on() -> bool {
 pub fn info() -> Value {
     let s = STATE.lock().unwrap().get_or_insert_with(load).clone();
     json!({ "capture_on": capture_on(), "show": s.show, "locked": s.locked, "custom_icon": s.icon.is_some(),
-            "in_row": s.x.is_none(), "hotkey_vk": s.hotkey_vk, "hotkey_label": if s.hotkey_vk == 0 { "" } else { &s.hotkey_label } })
+            "in_row": s.x.is_none(), "hotkey_vk": s.hotkey_vk, "hotkey_label": if s.hotkey_vk == 0 { "" } else { &s.hotkey_label },
+            "pad_buttons": s.pad_buttons, "pad_label": if s.pad_buttons == 0 { "" } else { &s.pad_label } })
 }
 
 fn changed() {
@@ -179,9 +191,20 @@ pub fn set_locked(locked: bool) {
 }
 
 /// The hotkey (0: none) and its label under the button.
-pub fn set_hotkey(vk: u32, label: &str) {
-    with_state(|s| (s.hotkey_vk, s.hotkey_label) = (vk, label.chars().take(8).collect()));
+pub fn set_hotkey(vk: u32, mods: u32, label: &str) {
+    with_state(|s| (s.hotkey_vk, s.hotkey_mods, s.hotkey_label) = (vk, mods & 7, label.chars().take(14).collect()));
     changed();
+}
+
+/// The controller's hotkey: `buttons` held together (0 clears it).
+pub fn set_pad(buttons: u32, label: &str) {
+    with_state(|s| (s.pad_buttons, s.pad_label) = (buttons, label.chars().take(14).collect()));
+    changed();
+}
+
+/// The controller buttons held right now, for General's controller picker.
+pub fn pad_held() -> u32 {
+    crate::gamepad::held()
 }
 
 /// Back into the game's icon row (also for a button lost off screen).
@@ -290,8 +313,16 @@ fn ui_box(w: i32, h: i32) -> (f64, f64) {
     ((w as f64 - u) / 2.0, u * 9.0 / 16.0 / 2160.0)
 }
 
+/// The hotkey under the button: the controller's while the game shows its controller icons (wider apart), else the key.
 fn label() -> Option<String> {
-    STATE.lock().unwrap().as_ref().filter(|s| s.hotkey_vk != 0 && !s.hotkey_label.is_empty()).map(|s| s.hotkey_label.clone())
+    let controller = ROW_LAST.lock().unwrap().1 > 145.0;
+    STATE.lock().unwrap().as_ref().and_then(|s| {
+        if controller && s.pad_buttons != 0 && !s.pad_label.is_empty() {
+            Some(s.pad_label.clone())
+        } else {
+            (s.hotkey_vk != 0 && !s.hotkey_label.is_empty()).then(|| s.hotkey_label.clone())
+        }
+    })
 }
 
 /// The pill's width for `text` at `font` px (the game's pills fit their text with ~12 px each side at 4K).
@@ -721,23 +752,39 @@ unsafe fn run() {
     // kept out of screen captures, so the row check sees the game's own icons, not this button's pill
     let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
     let _ = SetTimer(Some(hwnd), TIMER_FOLLOW, 250, None);
+    let _ = SetTimer(Some(hwnd), TIMER_PAD, 33, None);
+    let mut pad_was = false; // the controller hotkey's buttons were all held at the last check
+    let mut game_in_front = false; // from the last 250 ms check (finding the game window is too slow for 30/s)
     let mut shown = false;
     let mut drawn: Option<(Layout, bool, Option<String>, Option<PathBuf>)> = None;
-    let mut hotkey: Option<u32> = None; // registered while the game is in front
+    let mut hotkey: Option<(u32, u32)> = None; // (key, modifiers), registered while the game is in front
     let mut reader = crate::capture::AppReader::new();
     let mut row_seen = 0u64; // when the game's icon row was last seen (hidden after half a second without it)
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        if msg.message == WM_TIMER && msg.hwnd == hwnd && msg.wParam.0 == TIMER_PAD {
+            let want = STATE.lock().unwrap().as_ref().map_or(0, |s| s.pad_buttons);
+            // all of the combo's buttons held (a press, not a hold: once until they're let go)
+            let down = want != 0 && game_in_front && crate::gamepad::held() & want == want;
+            if down && !pad_was {
+                set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
+            }
+            pad_was = down;
+            continue;
+        }
         if (msg.message == WM_TIMER && msg.hwnd == hwnd) || (msg.message == WM_REFRESH && msg.hwnd == hwnd) {
             let game = HWND(crate::capture::find_game() as _);
             let front = GetForegroundWindow();
             let in_front = !game.is_invalid() && (front == game || front == hwnd || press().is_some());
+            game_in_front = !game.is_invalid() && (front == game || front == hwnd);
             let s = STATE.lock().unwrap().clone().unwrap_or_else(load);
             // the hotkey works only while the game is in front, so the key keeps its normal use elsewhere
-            let want_key = (in_front && s.hotkey_vk != 0).then_some(s.hotkey_vk);
+            let want_key = (in_front && s.hotkey_vk != 0).then_some((s.hotkey_vk, s.hotkey_mods));
             if want_key != hotkey {
                 let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
-                hotkey = want_key.filter(|&vk| RegisterHotKey(Some(hwnd), HOTKEY_ID, MOD_NOREPEAT, vk).is_ok());
+                hotkey = want_key.filter(|&(vk, mods)| {
+                    RegisterHotKey(Some(hwnd), HOTKEY_ID, HOT_KEY_MODIFIERS(mods) | MOD_NOREPEAT, vk).is_ok()
+                });
             }
             // in the icon row: only while the game shows it (capture off: we can't see it, so while in front)
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
@@ -839,7 +886,7 @@ mod look {
     fn render_row_button() {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, icon: None, hotkey_vk: VK_INSERT, hotkey_label: "Ins".into() });
+            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new() });
             let k = 1.0;
             let icon = (ROW_ICON * k).round() as i32;
             let font = (ROW_FONT * k).round() as i32;

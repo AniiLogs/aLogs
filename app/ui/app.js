@@ -235,6 +235,7 @@
     $("[data-capture-default-icon]").disabled = !info.custom_icon;
     $("[data-capture-reset]").disabled = info.in_row !== false;
     if (!capturingKey) $("[data-capture-hotkey]").textContent = info.hotkey_label || "None";
+    if (!pickingPad) $("[data-capture-pad]").textContent = info.pad_label || "None";
   }
   async function captureSwitch() {
     try {
@@ -283,12 +284,45 @@
     if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;           // a modifier alone isn't a hotkey
     if (event.code === "Escape") { await stopPicking(); return; }
     capturingKey = false;
-    const label = keyLabel(event);
-    $("[data-capture-hotkey-note]").textContent = gameUses(event.code)
+    // with Ctrl, Alt or Shift held: a combination (RegisterHotKey's MOD_ALT 1, MOD_CONTROL 2, MOD_SHIFT 4)
+    const mods = (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.shiftKey ? 4 : 0);
+    const label = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", keyLabel(event)].filter(Boolean).join("+");
+    $("[data-capture-hotkey-note]").textContent = !mods && gameUses(event.code)
       ? `The game uses ${label} too: it would do both. A key like Ins, Home or Pause is safer.` : "";
-    await setSwitch({ hotkey: { vk: event.keyCode, label } });
+    await setSwitch({ hotkey: { vk: event.keyCode, mods, label } });
   }, true);
   $("[data-capture-hotkey-clear]").addEventListener("click", () => setSwitch({ hotkey: { vk: 0, label: "" } }));
+
+  // The controller hotkey: the buttons held together until they're let go (gamepad.rs bits; LT/RT past half way)
+  const PAD_NAMES = [[0x100, "LB"], [0x200, "RB"], [0x10000, "LT"], [0x20000, "RT"], [0x400, "Xbox"], [0x20, "View"],
+    [0x10, "Menu"], [0x40, "LS"], [0x80, "RS"], [0x1, "Up"], [0x2, "Down"], [0x4, "Left"], [0x8, "Right"], [0x1000, "A"],
+    [0x2000, "B"], [0x4000, "X"], [0x8000, "Y"]];
+  const padLabel = (buttons) => PAD_NAMES.filter(([bit]) => buttons & bit).map(([, name]) => name).join("+");
+  var pickingPad = false;   // var: showCaptureSwitch above reads it
+  $("[data-capture-pad]").addEventListener("click", async (event) => {
+    if (pickingPad) return;
+    pickingPad = true;
+    const button = event.currentTarget, note = $("[data-capture-pad-note]");
+    button.textContent = "Hold the buttons…"; note.textContent = "";
+    let most = 0;
+    const until = Date.now() + 10000;
+    try {
+      while (Date.now() < until) {
+        const held = await invoke("capture_pad_held");
+        if (held) most |= held;
+        else if (most) break;                                   // let go: that's the combination
+        button.textContent = most ? padLabel(most) : "Hold the buttons…";
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      pickingPad = false;
+      if (most) await setSwitch({ pad: { buttons: most, label: padLabel(most) } });
+      else { note.textContent = "No controller button pressed (is a controller connected?)"; showCaptureSwitch(await invoke("capture_switch")); }
+    } catch {
+      pickingPad = false;
+      showCaptureSwitch(await invoke("capture_switch"));
+    }
+  });
+  $("[data-capture-pad-clear]").addEventListener("click", () => setSwitch({ pad: { buttons: 0, label: "" } }));
 
   // ---------------------------------------------------------------- settings form
   function fill() {
