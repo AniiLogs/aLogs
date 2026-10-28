@@ -100,7 +100,12 @@ fn describe(app: &AppHandle) -> Option<Value> {
 
 /// Downloads the update found into the one fixed file (replacing an older one), with progress for the window.
 async fn download(app: &AppHandle) -> Result<(), String> {
-    let update = app.state::<Pending>().0.lock().unwrap().clone().ok_or("No update was found.")?;
+    let pending = app.state::<Pending>().0.lock().unwrap().clone();
+    let Some(update) = pending else {
+        // nothing found this session (offline, or the first check hasn't run): a newer one already downloaded is fine
+        let newer_on_disk = saved().and_then(|d| d["version"].as_str().and_then(rank)).is_some_and(|r| r > this_build(app));
+        return if newer_on_disk { Ok(()) } else { Err("No update was found.".into()) };
+    };
     if saved().is_some_and(|d| d["version"].as_str() == Some(update.version.as_str())) {
         return Ok(());
     }
@@ -162,7 +167,12 @@ pub async fn check(app: &AppHandle) -> Result<Option<Value>, String> {
     let opted_in = super::read_settings().pointer("/app/beta_updates").and_then(Value::as_bool).unwrap_or(false);
     let (from_release, release) = read_feed(app, RELEASE_FEED).await?;
     let ahead = release.map_or(true, |r| this_build(app) > r);
-    let found = if opted_in || ahead { read_feed(app, BETA_FEED).await?.0 } else { from_release };
+    let found = if opted_in || ahead {
+        let (from_beta, beta) = read_feed(app, BETA_FEED).await?;
+        if beta.is_some() && beta >= release { from_beta } else { from_release.or(from_beta) }
+    } else {
+        from_release
+    };
     *app.state::<Pending>().0.lock().unwrap() = found.clone();
     if found.is_none() {
         return Ok(describe(app));                        // a download kept for "next time" still counts
@@ -206,6 +216,9 @@ pub fn at_start(app: &AppHandle) {
     if !newer {
         let _ = std::fs::remove_dir_all(update_dir());   // installed (or older): the copy isn't needed any more
     } else if info["next_start"].as_bool() == Some(true) {
+        let mut once = info.clone();
+        once["next_start"] = json!(false);               // tried once: if the installer fails, aLogs still opens next time
+        save_info(&once);
         if let Err(e) = run_installer(app) {
             eprintln!("update at start: {e}");
         }

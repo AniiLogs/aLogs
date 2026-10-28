@@ -47,7 +47,7 @@
           <article class="card wide"><h2>Current fight</h2><p data-s="fight">No fight in progress.</p><small data-s="fight-detail"></small></article>
           <article class="card wide"><h2>Your character</h2><p data-s="character">Not detected yet</p>
             <small data-s="character-proof"></small>
-            <small class="block">Your UID comes from the game log each session (so the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, right with your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</small>
+            <small class="block">Your UID comes from the game log each session (so the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, next to your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</small>
             <div class="row"><button type="button" data-link-start>Link character</button></div>
             <div class="notice" data-link hidden>
               <p data-link-text></p>
@@ -95,9 +95,9 @@
             </select></label>
           <label class="field"><span>How often the meter reads the boss bar during a fight</span>
             <select data-k="capture.fight_rate" data-type="number">
-              <option value="30">30 times a second (default)</option><option value="60">60 times a second (finer timing, about twice the processor use)</option>
+              <option value="60">60 times a second (default: finest timing)</option><option value="30">30 times a second (half the processor use)</option>
             </select></label>
-          <p class="hint">Damage totals are the same either way; 60 times a second times each drop of HP and the kill to 1/60 s. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
+          <p class="hint">Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
           <!-- Read my damage numbers (experimental, bossbar/dmgnumbers.py): paused 2026-10-28, see the meter's DAMAGE_NUMBERS -->
         </div>
         <div class="group">
@@ -147,7 +147,7 @@
           <h2>After an overworld boss fight</h2>
           <label class="field"><span>Keep the result up for</span>
             <select data-k="overlay.result_seconds" data-type="number">
-              <option value="0">No time (hide it with the boss bar)</option><option value="5">5 seconds</option><option value="10">10 seconds (default)</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option>
+              <option value="0">Don't keep it (hide it with the boss bar)</option><option value="5">5 seconds</option><option value="10">10 seconds (default)</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option>
             </select></label>
           <p class="hint">When the boss goes down, the DPS window shows the fight's final numbers for this long.</p>
         </div>
@@ -157,12 +157,12 @@
         <p class="lead">After an Interlink fight the game shows its result screen, and each player's stats are one click away under <em>View Battle Data</em>. The meter saves both.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="results.auto_open_battle_data"><span></span>
-            <div><strong>Open View Battle Data automatically</strong><small>Clicks the button as soon as the result screen appears (only while the game is the active window), then puts your cursor back.</small></div></label>
+            <div><strong>Open Battle Data automatically</strong><small>Clicks the button as soon as the result screen appears (only while the game is the active window), then puts your cursor back.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="results.hold_inputs"><span></span>
             <div><strong>Block keyboard and mouse buttons until Battle Data opens</strong><small>So mashing buttons can't skip past the result screen. You can still move the mouse. Stops when Battle Data opens or the screen changes; Ctrl+Shift+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
           <label class="field"><span>Block for at most (seconds)</span><input type="number" min="5" max="120" step="5" data-k="results.hold_seconds" data-type="number"></label>
           <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
-            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses (and your controller, if blocked below) from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Needs Sanctum Helper running (it tells the meter you're in a run). A loading screen lets go 5 s after the picture comes back. Ctrl+Shift+F12 stops it right away. Off by default; experimental.</small></div></label>
+            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses (and your controller, if blocked below) from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Needs Sanctum Helper running (it tells the meter you're in a run). If a loading screen follows, the block ends 5 s after the picture comes back. Ctrl+Shift+F12 stops it right away. Off by default; experimental.</small></div></label>
         </div>
         <div class="group">
           <h2>Controller</h2>
@@ -170,7 +170,7 @@
           <p class="hint">Press a button on a controller: its row lights up, so you can tell which one is which.</p>
           <ul class="pads" data-pads></ul>
           <label class="toggle"><input type="checkbox" data-k="results.hold_controller"><span></span>
-            <div><strong>Block the controller too</strong><small>Hides your controller from the game while it waits (HidHide's driver by Nefarius, built in). Needs a one-time setup below. Off by default; experimental.</small></div></label>
+            <div><strong>Block the controller too</strong><small>Hides your controller from the game while inputs are blocked (HidHide's driver by Nefarius, built in). Needs a one-time setup below. Off by default; experimental.</small></div></label>
           <div class="row">
             <button type="button" data-hidhide-setup>Set up controller blocking…</button>
             <button type="button" data-hidhide-test>Test blocking</button>
@@ -188,14 +188,14 @@
           <label class="toggle"><input type="checkbox" data-k="capture.end_screens"><span></span>
             <div><strong>Screens after each fight (diagnostics)</strong><small>A screenshot every 3 seconds for 45 seconds after a fight, so the result screen is kept even if the meter misses it.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="capture.nobar_frames"><span></span>
-            <div><strong>Screenshots when the meter can't find the boss bar (diagnostics)</strong><small>In dungeons such as Interlink, if no boss bar shows up, a screenshot every 5 seconds (at most 30 each time the meter starts), so we can see what it missed.</small></div></label>
+            <div><strong>Screenshots when the meter can't find the boss bar (diagnostics)</strong><small>In Interlink, if no boss bar shows up, a screenshot every 5 seconds (at most 30 each time the meter starts), so we can see what it missed.</small></div></label>
         </div>
         <div class="group">
           <h2>Help test aLogs</h2>
           <label class="toggle"><input type="checkbox" data-k="capture.test_frames"><span></span>
             <div><strong>Save test pictures</strong><small>Full-size pictures at your screen's resolution, for checking that aLogs reads everything right on every screen size: one every 5 seconds during a boss fight, and each screen the meter reads (results, Battle Data, battle prep, Challenge Stats, Profile, Egg Heist). Up to 300 a day, for 3 hours after you turn it on. At 4K they take about 2 GB.</small></div></label>
           <div class="row"><button type="button" data-open="test_frames">Open the test pictures folder</button></div>
-          <p class="hint">They show your screen as it is, with your name, UID and teammates, and stay on this PC until you share them. Zip the folder and send it to the aLogs developers on Discord; they're used only to test the readers.</p>
+          <p class="hint">They show your screen as it is, with your name, UID and teammates, and stay on this PC until you share them. Zip the folder and send it to the AniiLogs developers on Discord; they're used only to test the readers.</p>
         </div>
         <div class="group">
           <label class="field"><span>Keep screenshots</span>
@@ -212,16 +212,16 @@
 
       <!-- Leaderboards & account -->
       <div class="dps-panel" data-panel="leaderboard">
-        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink and Sim). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on.</p>
+        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink, Holo-Battle Sim and Operation: Egg Heist). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="leaderboard.submit"><span></span>
             <div><strong>Submit my records</strong><small>Each fight's result (score, stars, time, team DPS), every player's Battle Data, the meter's numbers, and your weekly and per-boss best scores.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.include_screenshots"><span></span>
-            <div><strong>Attach the result screenshot</strong><small>Proof for your run: a small picture of the result screen (1280×720). Anyone can open it from the camera next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
+            <div><strong>Attach the result screenshot</strong><small>Proof for your run: a small picture of the result screen (1280×720). Anyone can open it from the camera icon next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
             <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
           <label class="toggle"><input type="checkbox" checked data-presence-toggle><span></span>
-            <div><strong>Show my online status</strong><small>Your profile shows Online while Aniimo and aLogs run, AFK after 20 minutes away from the game (not the window in front, or no keyboard, mouse or controller input), and Offline otherwise. The same setting as the website's Edit profile: change it in either. Needs you signed in.</small></div></label>
+            <div><strong>Show my online status</strong><small>Your profile shows Online while Aniimo and aLogs run, AFK after 20 minutes with the game not in front or no keyboard, mouse or controller input, and Offline otherwise. The same setting as the website's Edit profile: change it in either. You need to be signed in.</small></div></label>
           <p class="hint">Leaderboards: <strong data-s="lb">Off</strong> <span data-s="lb-detail"></span></p>
         </div>
         <div class="group">
@@ -295,7 +295,7 @@
           <label class="toggle"><input type="checkbox" data-k="app.close_to_tray"><span></span>
             <div><strong>Closing the window keeps aLogs in the tray</strong><small>When off, closing the window quits aLogs and stops the meter.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="overlay.in_recordings"><span></span>
-            <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them).</small></div></label>
+            <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them). On Windows 10 they're always kept out of full-screen captures, so the meter never reads itself.</small></div></label>
         </div>
         <div class="group">
           <h2>Screen capture</h2>
@@ -312,7 +312,8 @@
           <h2>Performance</h2>
           <label class="field"><span>Priority when your PC is busy (aLogs, the meter and Sanctum Helper)</span>
             <select data-k="app.priority">
-              <option value="low">Lower: the game and OBS always come first (recommended)</option>
+              <option value="">Not set (Windows decides)</option>
+              <option value="low">Lower: the game and OBS always come first</option>
               <option value="normal">Normal</option>
               <option value="high">Higher: the meter keeps up even when the PC is very busy</option>
             </select></label>
@@ -334,7 +335,7 @@
         </div>
         <div class="group">
           <h2>Game</h2>
-          <label class="field"><span>Game window title (the meter and Sanctum Helper)</span><input type="text" data-k="game.window_title"></label>
+          <label class="field"><span>Game window title (used by the meter and Sanctum Helper)</span><input type="text" data-k="game.window_title"></label>
           <label class="field"><span>Game log (Player.log): leave empty to use the usual location</span><input type="text" data-k="game.player_log" placeholder="%USERPROFILE%\AppData\LocalLow\Aniimo\Aniimo\Player.log"></label>
         </div>
       </div>
@@ -358,7 +359,7 @@
         <header class="page-head"><h1>About</h1></header>
         <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
         <div class="group">
-          <p>The meter only reads the screen (built-in Windows capture, no yellow border) and the game's own text log. It never touches the game's memory or files.</p>
+          <p>The meter only reads the game: its picture (built-in Windows capture), its sound during boss fights, its text log and its data files. It never changes the game's memory or files.</p>
           <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
           <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
           <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>
@@ -435,14 +436,14 @@
         <div class="guide-step" data-step="4" hidden>
           <h1>Result screens</h1>
           <label class="toggle"><input type="checkbox" data-guide-k="results.auto_open_battle_data"><span></span>
-            <div><strong>Open View Battle Data automatically</strong><small>So every player's stats get read too.</small></div></label>
+            <div><strong>Open Battle Data automatically</strong><small>So every player's stats get read too.</small></div></label>
           <label class="toggle"><input type="checkbox" data-guide-k="results.hold_inputs"><span></span>
             <div><strong>Block button presses until it opens</strong><small>So mashing can't skip the result screen. Ctrl+Shift+F12 stops it right away.</small></div></label>
-          <small class="hint">Controller blocking and the Egg Heist options are in DPS Meter › Results.</small>
+          <small class="hint">Controller blocking and the Egg Heist option is in DPS Meter › Results.</small>
         </div>
         <div class="guide-step" data-step="5" hidden>
           <h1>You're set</h1>
-          <p>Start a boss fight and the meter appears over the game. Your records are in DPS Meter, Sanctum Helper has its own page, and AniiLogs shows the website.</p>
+          <p>Start a boss fight and the meter appears over the game. The meter's settings are in DPS Meter, Sanctum Helper has its own page, and AniiLogs shows the website.</p>
           <p>This guide is in General Settings if you want it again.</p>
         </div>
         <div class="row guide-nav">

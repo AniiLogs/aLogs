@@ -72,7 +72,8 @@ pub fn dotnet_desktop_installed() -> bool {
 }
 
 /// Downloads Microsoft's .NET 9 Desktop Runtime installer and runs it (Windows asks for admin approval).
-#[tauri::command]
+// (async): on a worker thread, not the window's (it showed "Not responding" while this ran)
+#[tauri::command(async)]
 pub fn install_dotnet_desktop() -> Result<(), String> {
     let script = "$f = Join-Path $env:TEMP 'windowsdesktop-runtime-9-win-x64.exe'; \
         Invoke-WebRequest -UseBasicParsing 'https://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe' -OutFile $f; \
@@ -137,7 +138,8 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
 
 fn stop_child(child: &mut Child) {
     let pid = child.id().to_string();
-    let _ = Command::new("taskkill").args(["/PID", &pid, "/T"]).creation_flags(NO_WINDOW).status();
+    // asked to close (it saves first); a windowless hosted process ignores a plain taskkill, so that was always forced
+    let _ = write_command(Map::from_iter([("command".to_string(), json!("quit"))]));
     for _ in 0..30 {
         if let Ok(Some(_)) = child.try_wait() {
             return;
@@ -227,6 +229,11 @@ pub fn sanctum_command(command: String, args: Option<Value>) -> Result<(), Strin
         _ => Map::new(),
     };
     body.insert("command".into(), json!(command));
+    write_command(body)
+}
+
+/// A command for the running Sanctum Helper: a small file in its hosted folder, which it picks up and deletes.
+fn write_command(body: Map<String, Value>) -> Result<(), String> {
     let dir = hosted_dir();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let name = format!("cmd-{}-{}", now_ms(), std::process::id());

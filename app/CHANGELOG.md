@@ -1,4 +1,4 @@
-# AniiLogs Companion — patch notes
+# aLogs — patch notes
 
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
@@ -8,20 +8,21 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ### New
 - **An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits next to the game's Chat,
   Photo and Emoticon icons at the bottom left, drawn like them, with its hotkey under it (Insert by default, a key
-  the game doesn't use; change it or turn it off in General › Screen capture). Bright while aLogs is watching, dim
+  the game doesn't use; change it or turn it off in General Settings › Screen capture). Bright while aLogs is watching, dim
   while it's off; one click or the hotkey turns screen capture off (no DPS meter, no Sanctum Helper, nothing read or
-  sent) or back on. It shows only when the game shows those icons, and clicking it never takes you out of the game.
+  sent; only the small strip under the icon row is checked, so the button can hide with the icons) or back on. It shows only when the game shows those icons, and clicking it never takes you out of the game.
   Drag it anywhere else if you like; right-click it to lock it, use a picture of your own or put it back in the row.
-- **60 readings a second in fights** (DPS Meter › Meter, optional): times each drop of HP and the kill to 1/60 s.
-  30 stays the default; damage totals are the same either way.
+- **60 readings a second in fights** (DPS Meter › Meter): each drop of HP and the kill are timed to 1/60 s (was 30 a
+  second). 30 is still there for a lighter meter; damage totals are the same either way.
 - **Sanctum Helper's map over the game's minimap** (Sanctum Helper › On-screen map › Position, experimental): the
   corner or round map sits exactly on the game's minimap, solid, and the game's minimap is still read underneath.
   On Windows 10 the map is kept out of recordings while it's there.
 - **Help test aLogs** (DPS Meter › Captures & logs › Save test pictures): full-size pictures of boss fights and of
   every screen the meter reads, at your own resolution, so the developers can check aLogs reads everything right on
   every screen size. Up to 300 a day, for 3 hours after you turn it on; they stay on your PC until you share them.
-- **Priority** (General › Performance): how much of a busy PC aLogs, the meter and Sanctum Helper may take. Lower
-  (the default: the game and OBS always come first), Normal, or Higher for keeping the meter on pace no matter what.
+- **Priority** (General Settings › Performance): how much of a busy PC aLogs, the meter and Sanctum Helper may take. Not set
+  (the default: Windows decides), Lower (the game and OBS always come first), Normal, or Higher for keeping the meter on
+  pace no matter what.
 - **A name:** the app is now **aLogs: Aniiloger's Companion App** (aLogs for short), in its window, the sidebar,
   About, the installer and the tray. Your settings, records and install stay where they were.
 - **A new icon:** Eklue's emblem inside an HP dial and a break bar, ringed by six of the game's biggest buffs, on the
@@ -29,13 +30,13 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **aLogs updates itself:** it checks for new versions on its own and shows them in the sidebar, with a progress
   bar while one downloads. **Install now** closes aLogs, installs with just a progress bar (no installer to click
   through) and opens the new version; **Next time aLogs opens** installs it then. Updates download in the background
-  unless you turn that off (General › Updates), nothing installs without your choice, and only one downloaded update
-  is ever kept. Betas update the same way: General › Get beta updates, and anyone already on a beta keeps getting
+  unless you turn that off (General Settings › Updates), nothing installs without your choice, and only one downloaded update
+  is ever kept. Betas update the same way: General Settings › Updates › Get beta updates, and anyone already on a beta keeps getting
   betas until the release catches up. About shows exactly which build you have (for example "0.1.28 · RC10").
   (This version still installs the usual way.)
 - **Setup guide:** a few short steps when aLogs starts: sign in with Discord, choose what goes to the leaderboards,
-  and how result screens are handled. It turns itself off once you finish or skip it, and General can show it again.
-- **Sign in to sync** in the sidebar, under the meter's state: one click to sign in with Discord, and once signed in
+  and how result screens are handled. It turns itself off once you finish or skip it, and General Settings can show it again.
+- **Sign in with Discord** in the sidebar, under the meter's state: one click to sign in with Discord, and once signed in
   it shows who you are (click it for the account settings).
 - **DPS Meter › Overlay,** a tab of its own, with a picture of each spot the DPS window can sit in, per mode: out in
   the world right of the minimap (new, clear of the quest list and the rewards after a catch) or under the quest list;
@@ -53,7 +54,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Boss kill sound** (DPS Meter › Meter › Audio cues, on by default): out in the world, the sound the game plays with
   the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on
   your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds
-  before the Catch Countdown, as before.
+  before the Catch Countdown.
 - **Egg Heist after each match:** the rank screen that follows a match updates your season standing on the
   leaderboard, and your profile gets the Rank Points the match added and your progress bar ("1337/1350 +18"); at Egg
   Emperor, your egg count. Rank Info also sends where your next rank starts, for your profile.
@@ -62,14 +63,15 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   **Upload new photos automatically**. Each keeps its date, your character, the Aniimo in it and where you took it, and
   shows wherever your profile shows: only to you while it's private, to everyone once it's public. Uploaded as
   high-quality WebP (up to 2560 px), and you can remove any of them again.
-- **Your collection on your profile:** open your Profile in Aniimo (menu › Profile) and your AniiLogs profile gets its
+- **Your collection on your profile:** open your Profile in Aniimo (Esc › Profile) and your AniiLogs profile gets its
   Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points and Prismana Aniimo) with the game's icons, and
   your character's gender. Only your own Profile counts (it shows your UID); a friend's is never sent. Your level
-  (from the EXP card) and your server (Aniimo-Americas, ...) show beside your character's name too.
+  (from the EXP card) and your server (Aniimo-Americas, …) show beside your character's name too.
 - **Online on your profile:** while Aniimo and aLogs are running, your AniiLogs profile shows **Online** with a green
   dot, and **AFK** once Aniimo hasn't been the window in front, or nobody has touched the keyboard, mouse or
   controller, for 20 minutes, and **Offline** (red) when either isn't running. Don't want it shown? Turn it off on
-  your profile: Edit profile › Show my online status.
+  your profile (Edit profile › Show my online status) or in
+  DPS Meter › Leaderboards & account.
 - **Report a problem** (Dashboard): something wrong with aLogs? Send your logs to the AniiLogs developers in one
   click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
   20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in),
@@ -82,7 +84,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Improved
 - **New bosses without waiting for an aLogs update:** the meter reads the boss list (names and HP) from your own
-  game files after each game patch, like the Interlink weeks, so a boss a patch adds is recognised right away.
+  game files after each game patch, like the Interlink weeks, so a boss a patch adds is recognized right away.
 - **The meter reacts almost instantly:** it looks for a boss bar 20 times a second, anywhere on screen, and its full
   search is about ten times cheaper than before. During a fight it reads the bar 30 times a second (was 10).
   Result screens, Battle Data and the Catch Countdown are read without ever pausing the meter, and text is read
@@ -106,7 +108,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Sanctum Helper keeps up with you:** the view cone follows the cone's edges instead of its brightest part (bright
   floor and walls no longer pull it sideways), the cone and your character's arrow follow fast turns without
   trailing, your spot on the map moves with you (dashes show in about half the time), and the open full map follows
-  panning and zooming right away. Its map matching is 2-3 times faster, with the same results.
+  panning and zooming right away. Its map matching is 2–3 times faster, with the same results.
 - **Sanctum Helper uses far less memory:** it held about 600 MB from startup, even with no run, and grew run after
   run. Maps now load when you enter a Sanctum and are let go after the run.
 - Leaderboard records say which aLogs version and build sent them, so a future board that needs a newer aLogs can
@@ -141,10 +143,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Short names are read:** a name like "0" read from the game menu was taken for a misread and dropped, and Windows'
   text reader often couldn't read a name of one or two characters at all, so that player's character never got a
   name and the leaderboards (which list players by name) hid their records. Short names are now read letter by letter
-  against the game's own font, and the **Profile** screen (menu › Profile) confirms your name too: your name card and
+  against the game's own font, and the **Profile** screen (Esc › Profile) confirms your name too: your name card and
   UID together, whatever picture your card has. Opening either one is enough.
 - **No more misread names on your profile:** while the game menu slid open, one blurred read could become your
-  character's name ("44inMax", or "1" for "0"), and a correct read right after it could be lost on the way to the
+  character's name (a letter misread, or "1" for "0"), and a correct read right after it could be lost on the way to the
   site. Now your first name is still linked on its own, but once it's proven nothing read later replaces it. Renamed
   your character? **Link character** on the Dashboard reads your Profile (Esc › Profile) and asks you to confirm the
   name before it's sent.

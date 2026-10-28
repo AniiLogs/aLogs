@@ -28,7 +28,7 @@ DEFAULTS = {
         'show_guide': True,                  # the setup guide when aLogs starts (until finished or skipped)
         'start_with_windows': False,
         'close_to_tray': True,
-        'priority': 'low',                   # how much of a busy PC aLogs may take: low (the game and OBS first), normal, high
+        'priority': '',                      # how much of a busy PC aLogs may take: '' (not set: Windows decides), low, normal, high
         'auto_download': True,               # the app downloads updates in the background (General › Updates)
         'beta_updates': False,               # the app's self-update follows the beta feed too (General › Updates)
         'photos_auto': False,                # Photos: upload new in-game photos to the profile on their own
@@ -56,7 +56,7 @@ DEFAULTS = {
         'look_interval': 0.05,               # seconds between looks between fights
         'damage_numbers': False,             # experimental: read your own damage numbers (now: record fights)
         'test_frames': False,                # full-size pictures for the accuracy tests (Captures & logs)
-        'fight_rate': 30,                    # frames a second during a fight: 30, or 60 for finer timing
+        'fight_rate': 60,                    # frames a second during a fight: 60, or 30 for a lighter meter
         'debug_frames': False,               # bar crops per fight in logs/<fight>/ (diagnostics)
         'end_screens': False,                # frames after each fight in logs/end_screens/ (diagnostics)
         'nobar_frames': False,               # frames when no bar is found in a dungeon (diagnostics)

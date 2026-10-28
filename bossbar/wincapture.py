@@ -14,6 +14,7 @@ except Exception: pass
 def find_window(title='Aniimo'):
     """The game's window: visible, exactly this title, and a Unity player window (so a File Explorer folder or a
     browser tab called "Aniimo" is never taken for the game, like the app's own capture). Largest if several."""
+    want = (title or '').strip().casefold() or 'aniimo'    # like the app's find_game: trimmed, any case, never empty
     best = [(0, None)]
     @ctypes.WINFUNCTYPE(ctypes.c_bool, W.HWND, W.LPARAM)
     def cb(h, _):
@@ -21,7 +22,7 @@ def find_window(title='Aniimo'):
         if n and user32.IsWindowVisible(h):
             b = ctypes.create_unicode_buffer(n + 1); user32.GetWindowTextW(h, b, n + 1)
             c = ctypes.create_unicode_buffer(64); user32.GetClassNameW(h, c, 64)
-            if b.value == title and c.value == 'UnityWndClass':
+            if b.value.strip().casefold() == want and c.value == 'UnityWndClass':
                 r = W.RECT(); user32.GetClientRect(h, ctypes.byref(r))
                 area = r.right * r.bottom
                 if area > best[0][0]: best[0] = (area, h)

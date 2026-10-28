@@ -23,6 +23,12 @@ def load_config():
     return {'api_url': c['api_url'].rstrip('/'), 'token': c['token'], 'screenshots': bool(c.get('include_screenshots', True)),
             'link_character': bool(c.get('link_character', True))}
 
+def _write_json(path, data, **kw):
+    """Written whole or not at all (a crash mid-write left a truncated file that stopped the whole queue)."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f: json.dump(data, f, **kw)
+    os.replace(tmp, path)
+
 def _safe(name):
     return ''.join(ch if ch.isalnum() or ch in '-_.' else '_' for ch in name)[:120]
 
@@ -93,35 +99,49 @@ class Submitter(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True); self.stop = False; self.wake = threading.Event()
         os.makedirs(QUEUE, exist_ok=True)
-        self.config = load_config()
+        self.config = load_config(); self.config_stamp = self._stamp()
         self.linked = None                   # (uid, name, proven) last linked, so a character is sent once per change
         self.dispute = _read_json(DISPUTE)   # another account proved our UID first: what a dispute would send
         self.last_result = None              # shown in the app: (time, text)
         log.info('leaderboard submissions: ' + (f"on ({self.config['api_url']})" if self.config else 'off (opt in from the app)'))
 
+    @staticmethod
+    def _stamp():
+        try: return os.stat(C.SETTINGS_FILE).st_mtime
+        except OSError: return None
+
+    def refresh(self):
+        """The leaderboard settings again when settings.json changed: turning sending or linking off, or signing out
+        (or in with another account), applies at once (they were read once and kept until the meter restarted)."""
+        stamp = self._stamp()
+        if stamp != self.config_stamp:
+            self.config_stamp = stamp
+            try: self.config = load_config()
+            except Exception: pass                                           # a save in progress: next time
+
     # -- queueing (called from the meter thread)
     def enqueue(self, payload, evidence_path=None, battle=None):
         """Queue one record; the same kind + run id replaces an older queued copy. Nothing is queued while off."""
+        self.refresh()
         if not self.config: return
         payload = {**payload, 'clientVersion': CLIENT_VERSION}
         if 'server' not in payload: payload['server'] = game_server()      # read each time: you can switch servers
         name = _safe(f"{payload['kind']}__{payload['clientRunId']}") + '.json'
-        with open(os.path.join(QUEUE, name), 'w', encoding='utf-8') as f:
-            json.dump({'endpoint': 'submissions', 'payload': payload,
-                       'evidence': evidence_path if self.config['screenshots'] else None,
-                       'battle': battle if self.config['screenshots'] else None, 'queued_at': time.time()}, f, indent=1)
+        _write_json(os.path.join(QUEUE, name), {'endpoint': 'submissions', 'payload': payload,
+                    'evidence': evidence_path if self.config['screenshots'] else None,
+                    'battle': battle if self.config['screenshots'] else None, 'queued_at': time.time()}, indent=1)
         log.info(f"leaderboard: queued {payload['kind']} {payload['clientRunId']}")
         self.wake.set()
 
     def link_character(self, uid, name, proof=None):
         """Link your character: the UID from the game log and your name. With proof (the game menu's name and UID, see
         live.game_menu) the site trusts it; without, it only fills in until a proof arrives."""
+        self.refresh()
         if not self.config or not self.config['link_character'] or not uid or (uid, name, bool(proof)) == self.linked: return
         if self.linked and self.linked[:2] == (uid, name) and self.linked[2] and not proof: return
         self.linked = (uid, name, bool(proof))
-        with open(os.path.join(QUEUE, _safe(f'character__{uid}') + '.json'), 'w', encoding='utf-8') as f:
-            json.dump({'endpoint': 'characters', 'payload': {'gameUid': uid, 'name': name},
-                       'proof': os.path.relpath(proof, HERE) if proof else None, 'queued_at': time.time()}, f)
+        _write_json(os.path.join(QUEUE, _safe(f'character__{uid}') + '.json'), {'endpoint': 'characters', 'payload': {'gameUid': uid, 'name': name},
+                    'proof': os.path.relpath(proof, HERE) if proof else None, 'queued_at': time.time()})
         log.info(f'leaderboard: queued character link {name} (UID {uid}){" with the game menu as proof" if proof else ""}')
         self.wake.set()
 
@@ -130,10 +150,10 @@ class Submitter(threading.Thread):
         """Your character's Collection Progress from the game's Profile screen (live.profile_stats), or its level (from
         the EXP card), for your profile. Sent after the character's link (queue files go in name order), and only for a
         character you proved. The two queue separately, so a level doesn't replace numbers still waiting to go."""
+        self.refresh()
         if not self.config or not self.config['link_character'] or not uid: return
         name = f'level__{uid}' if 'level' in stats else f'stats__{uid}'
-        with open(os.path.join(QUEUE, _safe(name) + '.json'), 'w', encoding='utf-8') as f:
-            json.dump({'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()}, f)
+        _write_json(os.path.join(QUEUE, _safe(name) + '.json'), {'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()})
         log.info(f'leaderboard: queued profile numbers for UID {uid}')
         self.wake.set()
 
@@ -141,6 +161,7 @@ class Submitter(threading.Thread):
         """Online / AFK / offline for your profile (presence.py), sent straight away, not queued: an old one is no use.
         Only for a linked character. The site counts it for 5 minutes, and keeps none if the player turned it off on
         their profile (Edit profile > Show my online status)."""
+        self.refresh()
         if not self.config or not self.config['link_character'] or not uid: return
         def go():
             body = json.dumps({'gameUid': uid, 'state': state}).encode()
@@ -191,7 +212,7 @@ class Submitter(threading.Thread):
             except OSError: battle = None
         if evidence: body, ctype = _multipart(item['payload'], evidence, battle)
         else: body = json.dumps(item['payload']).encode()
-        endpoint = item['endpoint'] if item.get('endpoint') in ('characters', 'characters/stats') else 'submissions'
+        endpoint = item['endpoint'] if item.get('endpoint') in ('characters', 'characters/stats', 'disputes') else 'submissions'
         req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/{endpoint}", data=body, method='POST',
                                      headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,
                                               'user-agent': CLIENT_VERSION})
@@ -201,7 +222,7 @@ class Submitter(threading.Thread):
         delay = 5
         while not self.stop:
             self.wake.wait(delay); self.wake.clear()
-            if not self.config: self.config = load_config()          # picks up a config added while running
+            self.refresh()                                           # sending turned on or off, signed in or out
             if not self.config: delay = 60; continue
             os.makedirs(QUEUE, exist_ok=True)
             for name in sorted(os.listdir(QUEUE)):
@@ -209,7 +230,10 @@ class Submitter(threading.Thread):
                 path = os.path.join(QUEUE, name)
                 try:
                     with open(path, encoding='utf-8') as f: raw = f.read()
-                    item = json.loads(raw)
+                    try: item = json.loads(raw)
+                    except ValueError:                                       # unreadable: set aside, not a jam
+                        log.warning(f'leaderboard: {name} is unreadable, set aside'); os.replace(path, path + '.bad'); continue
+                    if not isinstance(item, dict): os.replace(path, path + '.bad'); continue
                     status, reply = self.send(item)
                     log.info(f"leaderboard: sent {name} -> {status} {reply.get('submissionId') or reply.get('gameUid') or reply.get('disputeId')}"
                              + (' (updated)' if reply.get('updated') else ''))
@@ -235,6 +259,8 @@ class Submitter(threading.Thread):
                         self.last_result = (time.time(), f'waiting: server said {e.code}'); break
                 except (OSError, ValueError) as e:
                     log.warning(f'leaderboard: {name} not sent yet: {e!r}'); break
+                except Exception as e:                                       # an odd reply: never stop the sender
+                    log.warning(f'leaderboard: {name} not sent ({e!r})'); break
             delay = 60 if any(n.endswith('.json') for n in os.listdir(QUEUE)) else 300
 
 # ---------------------------------------------------------------- payloads from the meter's records

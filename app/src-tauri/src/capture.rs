@@ -23,7 +23,8 @@
 //!      bits 4-7 the source (1 PrintWindow, 3 Desktop Duplication, 4 window capture)
 //!   32 u64 time of the newest picture (unix ms)   40 u64 game window handle
 //!   48 i32 client x   52 i32 client y (screen position of the client area)
-//!   56 u32 pictures taken (wraps)   60 u32 1 while the player has switched screen capture off (overlay_button.rs)
+//!   56 u32 pictures taken (wraps)   60 u32 1 while the player has switched screen capture off (overlay_button.rs):
+//!      then only the app's own icon-row check (slot 15) is served, nothing else
 //!   64 request slots: SLOTS x 16 { u64 wanted until (unix ms), u32 interval ms, u32 process id }
 //!   320 picture slots: SLOTS x 64, the reader's own picture:
 //!      0 u16 x0, y0, x1, y1: the area wanted, as a share of the client size (0-65535; x1 = 0: the whole frame)
@@ -255,8 +256,10 @@ unsafe extern "system" fn each_window(hwnd: HWND, lparam: LPARAM) -> i32 {
     1
 }
 
-pub(crate) fn find_game(title: &str) -> HWND {
-    let mut search = Search { title: title.to_lowercase(), found: null_mut(), area: 0 };
+/// The game's window: visible, a Unity player, titled as General Settings › Game window title says (read each time, so
+/// a change applies at once; trimmed, any case, "Aniimo" when empty, like the meter's find_window), the largest.
+pub(crate) fn find_game() -> HWND {
+    let mut search = Search { title: crate::game_title().to_lowercase(), found: null_mut(), area: 0 };
     unsafe { EnumWindows(Some(each_window), &mut search as *mut Search as LPARAM) };
     search.found
 }
@@ -541,7 +544,7 @@ fn place(readers: &[Reader; SLOTS], active: &[bool; SLOTS], slot: usize, bytes: 
 /// loading screen) and is handed to readers as valid; the window copy's black pictures mean it failed.
 fn serve(
     shared: &Shared, gpu: &mut dyn Picture, flags: u32, trust_black: bool, hwnd: HWND, image_origin: (i32, i32),
-    readers: &mut [Reader; SLOTS],
+    readers: &mut [Reader; SLOTS], only: Option<usize>,
 ) -> Option<bool> {
     let (width, height, origin) = client(hwnd)?;
     if !gpu.has_image() {
@@ -562,7 +565,7 @@ fn serve(
         shared.write(PICTURE_BASE + i * PICTURE_SIZE + 16, || shared.put_u32(PICTURE_BASE + i * PICTURE_SIZE + 12, 0));
     }
     let mut result = None;
-    for slot in (0..SLOTS).filter(|&i| active[i]) {
+    for slot in (0..SLOTS).filter(|&i| active[i] && only.map_or(true, |o| o == i)) {
         let r = readers[slot];
         if now < r.last + shared.interval(slot) {
             continue; // not due yet: it asks at its own pace
@@ -660,7 +663,7 @@ impl AppReader {
             }
             s.put_u32(pa + 8, self.request);
         }
-        if s.get_u32(60) == 1 || s.get_u64(40) != hwnd as u64 {
+        if s.get_u64(40) != hwnd as u64 {   // (served while switched off too: the one allowed area)
             return None;
         }
         for _ in 0..4 {
@@ -692,7 +695,7 @@ impl AppReader {
 }
 
 /// Starts the capture thread. `title` is the game window's title (matched case-insensitively).
-pub fn start(title: String) {
+pub fn start() {
     std::thread::Builder::new()
         .name("shared-capture".into())
         .spawn(move || {
@@ -728,14 +731,22 @@ pub fn start(title: String) {
                 if shared.get_u32(60) != off as u32 {
                     shared.write(8, || shared.put_u32(60, off as u32));
                 }
-                if off {
+                // Switched off: nothing is captured, with one exception (the allow-list): the app's own look at the
+                // small strip under the game's icon row (AppReader, slot SLOTS - 1), so the on/off button can still
+                // hide with those icons. It stays in the app, is never saved or sent, and only while the button can
+                // show; the meter and Sanctum Helper get nothing.
+                let only = off.then_some(SLOTS - 1);
+                if off && !shared.active(SLOTS - 1, now) {
                     source = None;
                     shared.mark_invalid();
                     std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
                 // the next reader due (each at its own pace), or nobody: sleep
-                let due = (0..SLOTS).filter(|&i| shared.active(i, now)).map(|i| readers[i].last + shared.interval(i)).min();
+                let due = (0..SLOTS)
+                    .filter(|&i| shared.active(i, now) && only.map_or(true, |o| o == i))
+                    .map(|i| readers[i].last + shared.interval(i))
+                    .min();
                 let Some(due) = due else {
                     source = None; // free the GPU textures while idle
                     std::thread::sleep(Duration::from_millis(50));
@@ -747,7 +758,7 @@ pub fn start(title: String) {
                 }
                 let alive = unsafe { !hwnd.is_null() && IsWindow(hwnd) != 0 };
                 if !alive && now > last_find + 1000 {
-                    hwnd = find_game(&title);
+                    hwnd = find_game();
                     last_find = now;
                     (kind, source, tries, black_since) = (best, None, 0, 0); // a new game window: the best way first again
                     (away_copy, away_window, away_border, away_black_since) = (None, None, false, 0);
@@ -793,7 +804,7 @@ pub fn start(title: String) {
                                 if c.take(hwnd) {
                                     // the copy is the client area itself: it starts where the client area does
                                     let origin = client(hwnd).map_or((0, 0), |(_, _, o)| (o.x, o.y));
-                                    serve(&shared, c, Kind::PRINT_FLAGS, false, hwnd, origin, &mut readers)
+                                    serve(&shared, c, Kind::PRINT_FLAGS, false, hwnd, origin, &mut readers, only)
                                 } else {
                                     Some(false)
                                 }
@@ -811,7 +822,7 @@ pub fn start(title: String) {
                             Some(w) => match w.update() {
                                 Ok(_) => {
                                     let origin = window_frame_origin(windows::Win32::Foundation::HWND(hwnd as _)).unwrap_or((0, 0));
-                                    serve(&shared, &mut w.gpu, Kind::Window.flags(), true, hwnd, origin, &mut readers)
+                                    serve(&shared, &mut w.gpu, Kind::Window.flags(), true, hwnd, origin, &mut readers, only)
                                 }
                                 Err(_) => {
                                     away_window = None;
@@ -868,7 +879,7 @@ pub fn start(title: String) {
                     Err(_) => None,
                     Ok(_) => {
                         let image_origin = s.origin(hwnd);
-                        serve(&shared, s.gpu(), kind.flags(), true, hwnd, image_origin, &mut readers).or(Some(false))
+                        serve(&shared, s.gpu(), kind.flags(), true, hwnd, image_origin, &mut readers, only).or(Some(false))
                     }
                 };
                 match result {
@@ -923,7 +934,7 @@ mod tests {
         meter_reader_beside_corner(hwnd, |shared, readers| {
             if source.update().is_ok() {
                 let origin = source.origin(hwnd);
-                serve(shared, source.gpu(), Kind::Duplication.flags(), true, hwnd, origin, readers);
+                serve(shared, source.gpu(), Kind::Duplication.flags(), true, hwnd, origin, readers, None);
             }
         });
     }
@@ -954,7 +965,7 @@ print(len(files), 'files compressed in', round(time.time() - t, 1), 's,', round(
         python_beside_corner(hwnd, script, |shared, readers| {
             if source.update().is_ok() {
                 let origin = source.origin(hwnd);
-                serve(shared, source.gpu(), Kind::Duplication.flags(), true, hwnd, origin, readers);
+                serve(shared, source.gpu(), Kind::Duplication.flags(), true, hwnd, origin, readers, None);
             }
         });
     }
@@ -976,7 +987,7 @@ print(len(files), 'files compressed in', round(time.time() - t, 1), 's,', round(
                 assert!(copy.take(hwnd), "PrintWindow");
                 let took = t.elapsed();
                 let origin = client(hwnd).map_or((0, 0), |(_, _, o)| (o.x, o.y));
-                let shown = serve(shared, &mut copy, Kind::PRINT_FLAGS, false, hwnd, origin, readers);
+                let shown = serve(shared, &mut copy, Kind::PRINT_FLAGS, false, hwnd, origin, readers, None);
                 println!("window copy {took:?}, painted {shown:?}");
             }
         });

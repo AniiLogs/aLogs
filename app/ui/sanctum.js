@@ -35,7 +35,7 @@
     ["mini", "On-screen map", "A live map that follows you while the in-game map is closed."],
     ["markers", "Markers", "Choose what's drawn on every map. Icons are the game's own."],
     ["detection", "Detection", "How the difficulty, the layout and your position are found."],
-    ["general", "General", "Language, recording and compatibility."],
+    ["general", "General", "Language and notifications."],
     ["layouts", "Layout browser", "Every Lost Sanctum layout with its doors, key rooms and nests."],
   ];
 
@@ -144,7 +144,7 @@
         settings.sanctum = { ...(settings.sanctum || {}), enabled: on };
         await invoke("save_settings", { settings });
         state.enabled = on;
-        toast(on ? "Sanctum Helper starting" : "Sanctum Helper stopped");
+        toast(on ? "Sanctum Helper is starting" : "Sanctum Helper stopped");
       } catch (error) {
         toast(String(error), true);
       }
@@ -165,7 +165,7 @@
     if (st.lastMatch) nodes.push(el("p", { class: "hint faint" }, `Last map match: ${st.lastMatch}`));
     nodes.push(group("How it works",
       el("p", { class: "hint" }, "1. Pick a difficulty: the party screen is read automatically before the run starts."),
-      el("p", { class: "hint" }, "2. Explore the Sanctum: the layout is recognised from your minimap. Opening the full map identifies it instantly."),
+      el("p", { class: "hint" }, "2. Explore the Sanctum: the layout is recognized from your minimap. Opening the full map identifies it instantly."),
       el("p", { class: "hint" }, `3. Hold ${st.keyName || "the overlay key"}: with the map open, the whole layout lined up on it; map closed, a big map that follows you.`),
     ));
     return nodes;
@@ -221,7 +221,7 @@
         el("div", { class: "setting" },
           el("div", {}, el("strong", { textContent: "Position" }), el("small", { textContent: "Pick a preset, or drag the map exactly where you want it on screen." })),
           el("div", { class: "row" },
-            select("MiniMapCorner", "", "", [["TopRight", "Top right"], ["TopCenter", "Top centre"], ["OverGame", "Over the game's minimap (experimental)"]]).lastChild,
+            select("MiniMapCorner", "", "", [["TopRight", "Top right"], ["TopCenter", "Top center"], ["OverGame", "Over the game's minimap (experimental)"]]).lastChild,
             el("button", { textContent: "Drag to position…", disabled: overlay || off || !state.running, onclick: () => command("position-map") }),
           ),
         ),
@@ -229,7 +229,7 @@
       group("Caption",
         select("CaptionPosition", "Caption", "A line above or below the map with the Sanctum number and difficulty (all styles but see-through).", [["Below", "Below the map"], ["Above", "Above the map"], ["Off", "Off"]]),
         toggle("CaptionLayout", "Sanctum number", "Which Sanctum layout this run is, e.g. Sanctum 53."),
-        toggle("CaptionDifficulty", "Difficulty", "Normal, Hard, Nightmare or Chaos, in its own colour."),
+        toggle("CaptionDifficulty", "Difficulty", "Normal, Hard, Nightmare or Chaos, in its own color."),
       ),
       group("Look",
         slider("MiniMapSize", "Size", "Width of the map panel (at 1080p; scales with your resolution).", 180, 520, 10, (v) => `${Math.round(v)} px`, overlay || off),
@@ -239,7 +239,7 @@
       group("Zoom map",
         el("p", { class: "hint" }, "Hold the overlay key with the in-game map closed (inside the Sanctum) for a big map that follows you."),
         slider("BigMapSize", "Zoom map size", "Height of the zoom map, as a share of the screen.", 0.4, 0.95, 0.05),
-        slider("BigMapZoom", "Zoom map zoom", "Higher shows more detail around you.", 0.4, 1.6, 0.05),
+        slider("BigMapZoom", "Zoom map detail", "Higher shows more detail around you.", 0.4, 1.6, 0.05),
       ),
     ];
   }
@@ -272,7 +272,7 @@
     return [
       group("Run",
         select("Difficulty", "Difficulty", "Auto reads the party goal from the party screen before the run.", [["Auto", "Auto"], ...difficulties]),
-        select("ForcedLayout", "Layout", "Auto recognises it from your minimap as you explore, or straight away from the full map's door icons.", [[0, "Auto (detect)"], ...layouts]),
+        select("ForcedLayout", "Layout", "Auto recognizes it from your minimap as you explore, or straight away from the full map's door icons.", [[0, "Auto (detect)"], ...layouts]),
       ),
       group("Tracking",
         toggle("TrackMinimap", "Track my position", "Follows you from the game's minimap. Needed for the on-screen and zoom maps."),
@@ -291,7 +291,7 @@
     return [
       group("Language",
         select("GameLanguage", "Game language", "The language you play Aniimo in, for reading the party screen. Auto reads it from the game's own settings.", [["Auto", "Auto"], ...languages]),
-        st.ocrMissingLanguage && el("p", { class: "hint warn" }, `Windows has no text recognition for the game's language (${st.ocrMissingLanguage}), so the party screen is read in English. Add it under Windows Settings > Time & language > Language (optional features), or set the difficulty by hand.`),
+        st.ocrMissingLanguage && el("p", { class: "hint warn" }, `Windows has no text recognition for the game's language (${st.ocrMissingLanguage}), so the party screen is read in English. Add it under Windows Settings › Time & language › Language (optional features), or set the difficulty by hand.`),
         select("Language", "Sanctum Helper language", "The language of the overlay and notices. Game terms use the game's own wording in that language.", [["Auto", `Same as the game${info().gameLanguage ? ` (${info().gameLanguage})` : ""}`], ...languages]),
       ),
       group("App",

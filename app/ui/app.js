@@ -2,13 +2,13 @@
   const invoke = window.__TAURI__.core.invoke;
   // Same defaults as bossbar/settings.py (the meter fills in anything missing the same way).
   const DEFAULTS = {
-    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, priority: "low", auto_download: true, beta_updates: false,
+    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, priority: "", auto_download: true, beta_updates: false,
       photos_auto: false, photos_auto_since: 0 },
     meter: { enabled: true },
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
-    capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
+    capture: { look_interval: 0.05, fight_rate: 60, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
   };
@@ -18,18 +18,35 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const get = (path) => path.split(".").reduce((value, key) => value?.[key], settings);
+  // What this window changed since its last save: only those are written over the file as it is then, so settings
+  // saved meanwhile by another page (Sanctum Helper's on/off) or the button over the game are never overwritten by
+  // this window's older copy (they were: turning Sanctum Helper off didn't stick past the next save).
+  const changed = new Set();
   const set = (path, value) => {
     const keys = path.split(".");
     const last = keys.pop();
-    keys.reduce((value, key) => value[key], settings)[last] = value;
+    keys.reduce((value, key) => (value[key] ??= {}), settings)[last] = value;
+    changed.add(path);
   };
+  // Defaults filled in under what was saved; keys this window doesn't know (another page's) are kept as they are.
   function merge(base, extra) {
     const out = structuredClone(base);
     for (const [key, value] of Object.entries(extra || {})) {
       if (out[key] && typeof out[key] === "object" && value && typeof value === "object") out[key] = merge(out[key], value);
-      else if (key in out) out[key] = value;
+      else out[key] = value;
     }
     return out;
+  }
+  async function saveChanges() {
+    const fresh = merge(DEFAULTS, await invoke("get_settings"));
+    for (const path of changed) {
+      const keys = path.split(".");
+      const last = keys.pop();
+      keys.reduce((value, key) => (value[key] ??= {}), fresh)[last] = get(path);
+    }
+    await invoke("save_settings", { settings: fresh });
+    changed.clear();
+    settings = fresh;
   }
 
   // ---------------------------------------------------------------- toast
@@ -332,15 +349,19 @@
     }
   }
   // Signing in starts from the sidebar (or the setup guide); the account tab shows the result and signs out.
+  let signingIn = null;   // the button of a sign-in waiting for the browser: clicking it again cancels
   async function signIn(button) {
     const state = $("[data-account-state]");
-    button.disabled = true;
+    if (signingIn) { void invoke("auth_listen_cancel"); return; }
+    signingIn = button;
+    const label = button.innerHTML;   // the Discord logo and text, put back after
     try {
       const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
       const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
       const port = await invoke("auth_listen_start");
       await invoke("open_target", { target: `${api()}/auth/discord/start?app_port=${port}&app_challenge=${challenge}` });
-      state.textContent = "Finish signing in in your browser, then come back here…";
+      state.textContent = "Finish signing in with your browser, then come back here…";
+      button.textContent = "Cancel sign-in";
       const code = await invoke("auth_listen_wait");
       const response = await fetch(`${api()}/auth/app/exchange`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, verifier, device: "this PC" }) });
@@ -352,15 +373,18 @@
       siteSignedIn = false; placeSite();
     } catch (error) {
       accountShown = null; void showAccount();
-      toast(String(error.message || error), true);
+      const text = String(error.message || error);
+      if (text !== "Sign-in cancelled.") toast(text, true);
     }
-    button.disabled = false;
+    button.innerHTML = label;
+    signingIn = null;
   }
   $("[data-sign-out]").addEventListener("click", async () => {
     const token = get("leaderboard.token");
     if (token) {
       try { await fetch(`${api()}/auth/app/sign-out`, { method: "POST", headers: { authorization: `Bearer ${token}` } }); } catch { /* signed out here anyway */ }
     }
+    siteSignedIn = false;   // signed out: the site view mustn't keep the old account's sign-in for the next one
     set("leaderboard.token", ""); fill(); scheduleSave("Signed out");
   });
 
@@ -369,10 +393,10 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
-        await invoke("save_settings", { settings });
+        await saveChanges();
         if (message) toast(message);
       } catch (error) {
-        toast(`Could not save: ${error}`, true);
+        toast(`Couldn't save: ${error}`, true);
       }
     }, 500);
   }
@@ -416,7 +440,7 @@
       box.checked = (await accountPrefs({ showPresence: box.checked })).showPresence;
     } catch (error) {
       box.checked = !box.checked;
-      toast(`Couldn't change it: ${error.message || error}`, true);
+      toast(`Couldn't change your online status: ${error.message || error}`, true);
     }
   });
   window.addEventListener("focus", () => void syncAccountPrefs());
@@ -424,14 +448,16 @@
   // ---------------------------------------------------------------- Photos
   // The game's photos (photos.rs finds them and lets this page show them) and which are on the profile already
   // (the API). Picked ones are made into WebP here, up to 2560 px wide, and uploaded with what the game recorded.
-  const photos = { list: [], folder: null, uploaded: new Map(), selected: new Set(), busy: false, loaded: false };
+  const photos = { list: [], folder: null, uploaded: new Map(), selected: new Set(), refused: new Set(), busy: false, loaded: false };
   const convertFileSrc = window.__TAURI__.core.convertFileSrc;
   const authHeaders = () => ({ authorization: `Bearer ${get("leaderboard.token")}` });
 
   async function loadPhotos() {
     try {
       const found = await invoke("game_photos");
-      photos.list = found.photos || [];
+      photos.list = (found.photos || []).map((p) => (p.localTime && p.takenAt
+        // a time from the file name is local time read as UTC: to real time (it was hours off away from UTC)
+        ? { ...p, takenAt: p.takenAt + new Date(p.takenAt * 1000).getTimezoneOffset() * 60, localTime: false } : p));
       photos.folder = found.folder;
     } catch {
       photos.list = [];
@@ -455,9 +481,9 @@
     const onProfile = photos.list.filter((p) => photos.uploaded.has(p.id)).length;
     $("[data-photos-state]").textContent = !photos.folder
       ? "Aniimo's photo folder wasn't found yet: start the game once with aLogs running."
-      : !photos.list.length ? "No photos yet. Take one in Aniimo (with Storage set to Local) and it shows up here."
-      : !signedIn ? `${photos.list.length} photos. Sign in with the Discord button in the sidebar to put them on your profile.`
-      : `${photos.list.length} photos · ${onProfile} on your profile. Click photos to pick them.`;
+      : !photos.list.length ? "No photos yet. Take one in Aniimo (with Storage set to Local, or Local and cloud) and it shows up here."
+      : !signedIn ? `${photos.list.length} ${photos.list.length === 1 ? "photo" : "photos"}. Sign in with the Discord button in the sidebar to put them on your profile.`
+      : `${photos.list.length} ${photos.list.length === 1 ? "photo" : "photos"} · ${onProfile} on your profile. Click photos to pick them.`;
     const upload = $("[data-photos-upload]");
     if (!photos.busy) upload.textContent = photos.selected.size ? `Upload ${photos.selected.size} selected` : "Upload selected";
     upload.disabled = photos.busy || !signedIn || !photos.selected.size;
@@ -573,14 +599,21 @@
     if (!get("app.photos_auto_since")) { set("app.photos_auto_since", Math.floor(Date.now() / 1000)); scheduleSave(""); return; }
     await loadPhotos();
     const since = get("app.photos_auto_since");
-    const fresh = photos.list.filter((p) => !photos.uploaded.has(p.id) && (p.takenAt || 0) >= since);
+    // only the character you're playing (other characters or accounts on this PC have their own photos), and not one
+    // the site already turned down (it blocked every photo after it, with the same error each minute)
+    const uid = status.character?.uid;
+    if (!uid) return;
+    const fresh = photos.list.filter((p) => !photos.uploaded.has(p.id) && !photos.refused.has(p.id) && p.gameUid === uid
+      && (p.takenAt || 0) >= since);
     if (!fresh.length) return;
     photos.busy = true;
+    let added = 0;
     try {
-      for (const photo of fresh) await uploadPhoto(photo);
-      toast(fresh.length === 1 ? "New photo added to your profile" : `${fresh.length} new photos added to your profile`);
-    } catch (error) {
-      toast(`Couldn't upload a new photo: ${error.message || error}`, true);
+      for (const photo of fresh) {
+        try { await uploadPhoto(photo); added += 1; }
+        catch (error) { photos.refused.add(photo.id); toast(`Couldn't upload a new photo: ${error.message || error}`, true); }
+      }
+      if (added) toast(added === 1 ? "New photo added to your profile" : `${added} new photos added to your profile`);
     } finally {
       photos.busy = false;
       renderPhotos();
@@ -801,7 +834,7 @@
       : pads.some((pad) => !pad.attached) ? "Turn the controller off and on (re-apply it in reWASD for a virtual one), or restart Windows once"
       : "Press Set up controller blocking first";
     const why = $("[data-hidhide-result]");
-    if (!testable && why.dataset.from !== "test") { why.hidden = false; why.textContent = "Test blocking: " + test.title.toLowerCase() + "."; why.dataset.from = "hint"; }
+    if (!testable && why.dataset.from !== "test") { why.hidden = false; why.textContent = "Test blocking: " + test.title.charAt(0).toLowerCase() + test.title.slice(1) + "."; why.dataset.from = "hint"; }
     if (testable && why.dataset.from === "hint") { why.hidden = true; why.dataset.from = ""; }
     if (info.hiding) $("[data-hidhide-state]").textContent = "Your controller is hidden from the game right now (the meter is holding inputs).";
   }
@@ -829,16 +862,17 @@
       : status.game_window ? "Game window found" : "Waiting for the game");
     text("capture", fresh && status.frame ? `${status.frame[0]}×${status.frame[1]} via ${status.capture}` : "");
     text("bar", fresh ? (status.boss_bar ? "Boss bar on screen" : "No boss bar") : "—");
-    text("status", fresh ? status.status || "" : "");
+    const line = fresh ? String(status.status || "").replace("...", "…") : "";
+    text("status", line.charAt(0).toUpperCase() + line.slice(1));   // the meter writes some lines lowercase
     const fight = fresh ? status.fight : null;
     text("fight", fight ? `${fight.boss} Lv ${fight.level}${fight.segment ? ` · x${fight.segment}` : ""} — ${n(fight.avg_dps)} DPS` : "No fight in progress.");
     text("fight-detail", fight ? `Team damage ${n(fight.damage)} of ${n(fight.max_hp)} HP · ${fight.seconds}s · ${n(fight.recent_dps)} DPS over the last 5 s` : "");
     const character = status.character || {};
-    const who = character.uid ? `${character.name || "Name appears after your first result screen"} · UID ${character.uid}` : "Waiting for the game log…";
+    const who = character.uid ? `${character.name || "Name appears once you open the game menu (Esc) or your Profile"} · UID ${character.uid}` : "Waiting for the game log…";
     text("character", who);
     $("[data-logs-uid]").textContent = character.uid ? `Sent as UID ${character.uid}.` : "Waiting for your game UID: open Aniimo with the meter running.";
     text("character-proof", !character.uid ? "" : character.verified
-      ? "Proven: read from the game, right with your UID."
+      ? "Proven: read from the game, next to your UID."
       : "Not proven yet: open the game menu (Esc or Start) or your Profile once while aLogs is running.");
     renderLink(fresh ? character.link : null);
     const dispute = character.dispute;
@@ -926,7 +960,7 @@
     set("app.show_guide", false);
     set("app.welcome_done", true);
     fill();
-    try { await invoke("save_settings", { settings }); } catch (error) { toast(String(error), true); }
+    try { await saveChanges(); } catch (error) { toast(String(error), true); }
     refresh();
   }
   for (const box of $$("[data-guide-k]", guide)) {
@@ -965,7 +999,7 @@
         const plural = release.outdated === 1 ? "" : "s";
         item.append(Object.assign(document.createElement("summary"), { textContent: `${release.version} (installed, ${release.outdated} update${plural} behind)` }),
           Object.assign(document.createElement("p"), { className: "note-warn",
-            textContent: `Your version is very out of date: ${release.outdated} update${plural} came out since. Update to get everything listed above.` }));
+            textContent: `Your version is very out of date: ${release.outdated} update${plural} have come out since. Update to get everything listed above.` }));
         if (release.intro) item.append(Object.assign(document.createElement("p"), { textContent: release.intro }));
         for (const section of release.sections) {
           item.append(Object.assign(document.createElement("h3"), { textContent: section.heading }));

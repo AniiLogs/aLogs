@@ -45,9 +45,13 @@ class InputBlock:
 
     def stop(self): self.stop_at = 0.0
 
+    # releases always go through: a key or button held when the hold began would otherwise stay down in the game
+    KEY_UPS = (0x101, 0x105)                       # WM_KEYUP, WM_SYSKEYUP
+    BUTTON_UPS = (0x202, 0x205, 0x208, 0x20C)      # left, right, middle, X button up
+
     def _run(self):
         def kb(code, wp, lp):
-            if code == 0:
+            if code == 0 and wp not in self.KEY_UPS:
                 k = ctypes.cast(lp, ctypes.POINTER(KBD)).contents
                 if k.vkCode == VK_F12 and user32.GetAsyncKeyState(VK_CONTROL) & 0x8000 and user32.GetAsyncKeyState(VK_SHIFT) & 0x8000:
                     self.stop_at = 0.0; return 1
@@ -55,7 +59,7 @@ class InputBlock:
                     self.swallowed += 1; return 1
             return user32.CallNextHookEx(None, code, wp, lp)
         def ms(code, wp, lp):
-            if code == 0 and wp != WM_MOUSEMOVE:
+            if code == 0 and wp != WM_MOUSEMOVE and wp not in self.BUTTON_UPS:
                 m = ctypes.cast(lp, ctypes.POINTER(MSE)).contents
                 if not m.flags & LLMHF_INJECTED: self.swallowed += 1; return 1
             return user32.CallNextHookEx(None, code, wp, lp)

@@ -33,7 +33,14 @@ fn player_log_dirs(settings: &Value) -> Vec<PathBuf> {
 fn install_from_logs(settings: &Value) -> Option<PathBuf> {
     for dir in player_log_dirs(settings) {
         for name in ["Player.log", "Player-prev.log"] {
-            let Ok(text) = fs::read_to_string(dir.join(name)) else { continue };
+            // only the start of the log (it can be hundreds of MB), read leniently (it isn't always clean UTF-8)
+            let Ok(file) = fs::File::open(dir.join(name)) else { continue };
+            let mut head = Vec::new();
+            use std::io::Read;
+            if file.take(256 * 1024).read_to_end(&mut head).is_err() {
+                continue;
+            }
+            let text = String::from_utf8_lossy(&head);
             for line in text.lines().take(200) {
                 if let Some(at) = line.find("Aniimo_Data") {
                     let start = line[..at].rfind(|c: char| c == ' ' || c == '[' || c == '\'').map_or(0, |i| i + 1);
@@ -49,12 +56,11 @@ fn install_from_logs(settings: &Value) -> Option<PathBuf> {
 }
 
 /// The running game's own folder (its window's process), when the log doesn't say.
-fn install_from_process(settings: &Value) -> Option<PathBuf> {
+fn install_from_process() -> Option<PathBuf> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
     use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
-    let title = settings.pointer("/game/window_title").and_then(Value::as_str).unwrap_or("Aniimo");
-    let hwnd = crate::capture::find_game(title);
+    let hwnd = crate::capture::find_game();
     if hwnd.is_null() {
         return None;
     }
@@ -92,7 +98,8 @@ fn from_file_name(path: &Path) -> Option<(String, Option<i64>)> {
 }
 
 /// The game's photos, newest first: {folder, photos: [{id, file, gameUid, takenAt, sceneId, pos, aniimo}]}.
-#[tauri::command]
+// (async): on a worker thread, not the window's (it showed "Not responding" while this ran)
+#[tauri::command(async)]
 pub fn game_photos(app: AppHandle) -> Value {
     let (folder, found) = scan(&crate::read_settings());
     if let Some(folder) = folder.filter(|f| f.is_dir()) {
@@ -102,7 +109,7 @@ pub fn game_photos(app: AppHandle) -> Value {
 }
 
 fn scan(settings: &Value) -> (Option<PathBuf>, Value) {
-    let Some(install) = install_from_logs(settings).or_else(|| install_from_process(settings)) else {
+    let Some(install) = install_from_logs(settings).or_else(install_from_process) else {
         return (None, json!({ "folder": null, "photos": [] }));
     };
     let folder = install.join("Pictures");
@@ -122,8 +129,10 @@ fn scan(settings: &Value) -> (Option<PathBuf>, Value) {
                 continue;
             }
             let Some((id, taken)) = from_file_name(&path) else { continue };
+            // localTime: the time is the file name's, the game's local time read as if it were UTC (the page
+            // corrects it); the game's own record below gives the real time and clears it
             photos.insert(id.clone(), json!({ "id": id, "file": path.to_string_lossy(), "gameUid": null, "takenAt": taken,
-                "sceneId": null, "pos": null, "aniimo": [] }));
+                "localTime": true, "sceneId": null, "pos": null, "aniimo": [] }));
         }
     }
     // what the game recorded for them, by UID; a photo is listed under each Aniimo in it, so entries repeat
@@ -136,6 +145,7 @@ fn scan(settings: &Value) -> (Option<PathBuf>, Value) {
                 photo["gameUid"] = json!(uid);
                 if let Some(ts) = entry["ts"].as_i64() {
                     photo["takenAt"] = json!(ts);
+                    photo["localTime"] = json!(false);
                 }
                 photo["sceneId"] = entry["sceneId"].clone();
                 photo["pos"] = entry["pos"].clone();

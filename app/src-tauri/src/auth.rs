@@ -5,20 +5,30 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 static LISTENER: Mutex<Option<TcpListener>> = Mutex::new(None);
+/// Set by "Cancel sign-in": the wait stops (it held the sign-in button for up to 5 minutes after a closed tab).
+static CANCELLED: AtomicBool = AtomicBool::new(false);
 const WAIT: Duration = Duration::from_secs(5 * 60);
 
 /// Starts listening on a free local port (only reachable from this PC); returns the port for the sign-in link.
 #[tauri::command]
 pub fn auth_listen_start() -> Result<u16, String> {
+    CANCELLED.store(false, Ordering::SeqCst);
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     *LISTENER.lock().unwrap_or_else(|e| e.into_inner()) = Some(listener);
     Ok(port)
+}
+
+/// Stops a sign-in that's waiting for the browser.
+#[tauri::command]
+pub fn auth_listen_cancel() {
+    CANCELLED.store(true, Ordering::SeqCst);
 }
 
 /// Waits (up to 5 minutes) for the browser to come back, answers it with a "you can go back to aLogs" page, and
@@ -28,6 +38,9 @@ pub async fn auth_listen_wait() -> Result<String, String> {
     let listener = LISTENER.lock().unwrap_or_else(|e| e.into_inner()).take().ok_or("Sign-in wasn't started.")?;
     let started = Instant::now();
     while started.elapsed() < WAIT {
+        if CANCELLED.load(Ordering::SeqCst) {
+            return Err("Sign-in cancelled.".into());
+        }
         let (mut stream, _) = match listener.accept() {
             Ok(connection) => connection,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {

@@ -197,11 +197,11 @@ fn use_icon(file: &std::path::Path) {
 }
 
 /// Starts the button's thread.
-pub fn start(app: AppHandle, game_title: String) {
+pub fn start(app: AppHandle) {
     let _ = APP.set(app);
     std::thread::Builder::new()
         .name("overlay-button".into())
-        .spawn(move || unsafe { run(game_title) })
+        .spawn(move || unsafe { run() })
         .ok();
 }
 
@@ -245,24 +245,9 @@ fn picture(size: u32) -> Vec<u8> {
     let icon = STATE.lock().unwrap().as_ref().and_then(|s| s.icon.clone());
     let own = icon.and_then(|p| std::fs::read(p).ok()).and_then(|b| decode(&b, size));
     let mut px = match own {
-        Some(px) => px, // the player's own picture keeps its colours
-        // the aLogs icon drawn like the game's own row icons: white, with the dark parts in the game's dark grey
-        None => {
-            let mut px = decode(APP_ICON, size).unwrap_or_else(|| vec![0u8; (size * size * 4) as usize]);
-            for p in px.chunks_exact_mut(4) {
-                let a = p[3] as u32;
-                if a == 0 {
-                    continue;
-                }
-                let un = |c: u8| (c as u32 * 255 / a).min(255);
-                let lum = (un(p[2]) * 77 + un(p[1]) * 150 + un(p[0]) * 29) >> 8;
-                let rgb = if lum >= 90 { [255u32, 255, 255] } else { [53, 44, 37] }; // B, G, R
-                for c in 0..3 {
-                    p[c] = (rgb[c] * a / 255) as u8;
-                }
-            }
-            px
-        }
+        Some(px) => px,
+        // the aLogs icon in its own colours (the player preferred it to a white one like the game's icons)
+        None => decode(APP_ICON, size).unwrap_or_else(|| vec![0u8; (size * size * 4) as usize]),
     };
     if !CAPTURE_ON.load(Ordering::SeqCst) {
         for p in px.chunks_exact_mut(4) {
@@ -508,11 +493,11 @@ unsafe fn menu(hwnd: HWND) {
     let _ = AppendMenuW(m, MF_STRING | check(s.locked), MENU_LOCK, w!("Lock in place"));
     let _ = AppendMenuW(m, MF_STRING, MENU_ICON, w!("Use my own picture…"));
     let row_flags = if s.x.is_some() { MF_STRING } else { MF_STRING | MF_GRAYED };
-    let _ = AppendMenuW(m, row_flags, MENU_ROW, w!("Back to the game's icon row"));
+    let _ = AppendMenuW(m, row_flags, MENU_ROW, w!("Put back in the game's icon row"));
     let default_flags = if s.icon.is_some() { MF_STRING } else { MF_STRING | MF_GRAYED };
     let _ = AppendMenuW(m, default_flags, MENU_DEFAULT_ICON, w!("Use the aLogs icon"));
     let _ = AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = AppendMenuW(m, MF_STRING, MENU_HIDE, w!("Hide this button (aLogs › General shows it again)"));
+    let _ = AppendMenuW(m, MF_STRING, MENU_HIDE, w!("Hide this button (aLogs › General Settings › Screen capture shows it again)"));
     let mut at = POINT::default();
     let _ = GetCursorPos(&mut at);
     // a popup menu only closes properly when its window is in front; give the game the focus back afterwards
@@ -551,7 +536,7 @@ unsafe fn pick_image(owner: HWND) -> Option<PathBuf> {
         lpstrFilter: PCWSTR(filter.as_ptr()),
         lpstrFile: PWSTR(file.as_mut_ptr()),
         nMaxFile: file.len() as u32,
-        lpstrTitle: w!("A picture for the aLogs capture button"),
+        lpstrTitle: w!("Choose a picture for the aLogs button"),
         Flags: OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR,
         ..Default::default()
     };
@@ -628,7 +613,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
     }
 }
 
-unsafe fn run(game_title: String) {
+unsafe fn run() {
     let _ = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     {
@@ -665,7 +650,7 @@ unsafe fn run(game_title: String) {
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
         if (msg.message == WM_TIMER && msg.hwnd == hwnd) || (msg.message == WM_REFRESH && msg.hwnd == hwnd) {
-            let game = HWND(crate::capture::find_game(&game_title) as _);
+            let game = HWND(crate::capture::find_game() as _);
             let front = GetForegroundWindow();
             let in_front = !game.is_invalid() && (front == game || front == hwnd || press().is_some());
             let s = STATE.lock().unwrap().clone().unwrap_or_else(load);
@@ -677,7 +662,7 @@ unsafe fn run(game_title: String) {
             }
             // in the icon row: only while the game shows it (capture off: we can't see it, so while in front)
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-            let row = if s.x.is_some() || !CAPTURE_ON.load(Ordering::SeqCst) {
+            let row = if s.x.is_some() {
                 true
             } else if !(s.show && in_front) {
                 false // no need to look (and no capture asked for) while it can't show anyway

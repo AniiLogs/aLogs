@@ -80,6 +80,12 @@ fn read_json(path: &Path) -> Value {
         .unwrap_or(Value::Null)
 }
 
+/// General Settings › Game window title, trimmed; "Aniimo" when it's empty (an empty one found no window at all).
+pub(crate) fn game_title() -> String {
+    let title = read_settings().pointer("/game/window_title").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    if title.is_empty() { "Aniimo".into() } else { title }
+}
+
 pub(crate) fn read_settings() -> Value {
     match read_json(&settings_path()) {
         Value::Object(map) => Value::Object(map),
@@ -126,6 +132,7 @@ fn stop_meter_inner(meter: &State<Meter>) {
         let pid = child.id().to_string();
         for _ in 0..30 {
             if let Ok(Some(_)) = child.try_wait() {
+                release_controllers();
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -133,6 +140,7 @@ fn stop_meter_inner(meter: &State<Meter>) {
         let _ = Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]).creation_flags(NO_WINDOW).status();
         let _ = child.wait();
     }
+    release_controllers();
 }
 
 /// Starts the meter unless it is already running. Check and start happen under one lock, so the watchdog and a
@@ -145,16 +153,28 @@ fn ensure_meter(app: &AppHandle) -> Result<(), String> {
     let mut guard = meter.child.lock().unwrap();
     // DPS Meter > Meter & overlay > "Run the DPS meter": off means no meter at all (no overlay, records or submissions)
     if !read_settings().pointer("/meter/enabled").and_then(Value::as_bool).unwrap_or(true) {
-        if let Some(child) = guard.as_mut() {
-            let _ = child.kill();
+        if let Some(mut child) = guard.take() {
+            // asked to stop like on quit (it saves an open fight), forced only if it hangs (was killed outright)
+            signal_meter_stop(true);
+            for _ in 0..30 {
+                if let Ok(Some(_)) = child.try_wait() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            if let Ok(None) = child.try_wait() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            release_controllers();
         }
-        *guard = None;
         return Ok(());
     }
     if let Some(child) = guard.as_mut() {
         if let Ok(None) = child.try_wait() {
             return Ok(());
         }
+        release_controllers(); // it stopped on its own (a crash): it may have been holding the controller hidden
     }
     let mut cmd = meter_command(app).ok_or("The meter program was not found in this installation.")?;
     signal_meter_stop(false);
@@ -170,8 +190,17 @@ fn ensure_meter(app: &AppHandle) -> Result<(), String> {
 
 /// Quits at once: the window goes away, the meter is told to stop, and the app exits without waiting. The meter
 /// (stop event, parent gone) and Sanctum Helper (--parent) each notice within a fraction of a second, save and exit.
+/// Controllers visible to the game again: called whenever the meter stops, in case it stopped during an input hold
+/// with the controller hidden (HidHide stays switched on otherwise until the next start).
+fn release_controllers() {
+    if hidhide::installed() {
+        let _ = hidhide::set_active(false);
+    }
+}
+
 fn quit_app(app: &AppHandle) {
     app.state::<Meter>().quitting.store(true, Ordering::SeqCst);
+    release_controllers();
     for (_, window) in app.webview_windows() {
         let _ = window.hide();
     }
@@ -180,13 +209,15 @@ fn quit_app(app: &AppHandle) {
 }
 
 /// How much of the PC aLogs, the meter and Sanctum Helper may take when it's busy (General › Priority):
-/// "low" (below normal, the default: the game and OBS come first), "normal" or "high" (above normal).
-fn priority_class(settings: &Value) -> u32 {
+/// "low" (below normal: the game and OBS come first), "normal" or "high" (above normal); not set (the default):
+/// left as Windows starts it (normal), so None.
+fn priority_class(settings: &Value) -> Option<u32> {
     use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
     match settings.pointer("/app/priority").and_then(Value::as_str) {
-        Some("normal") => NORMAL_PRIORITY_CLASS,
-        Some("high") => ABOVE_NORMAL_PRIORITY_CLASS,
-        _ => BELOW_NORMAL_PRIORITY_CLASS,
+        Some("low") => Some(BELOW_NORMAL_PRIORITY_CLASS),
+        Some("normal") => Some(NORMAL_PRIORITY_CLASS),
+        Some("high") => Some(ABOVE_NORMAL_PRIORITY_CLASS),
+        _ => None,
     }
 }
 
@@ -198,7 +229,9 @@ pub(crate) fn set_priority(child: Option<&Child>, settings: &Value) {
         Some(c) => c.as_raw_handle() as _,
         None => unsafe { GetCurrentProcess() },
     };
-    unsafe { SetPriorityClass(handle, priority_class(settings)) };
+    // not set: back to normal (it may have been set earlier this session)
+    let class = priority_class(settings).unwrap_or(windows_sys::Win32::System::Threading::NORMAL_PRIORITY_CLASS);
+    unsafe { SetPriorityClass(handle, class) };
 }
 
 fn apply_priority(app: &AppHandle, settings: &Value) {
@@ -248,14 +281,23 @@ fn get_settings() -> Value {
 
 /// Saves the settings. The meter picks most of them up by itself within a second; only the overlay's and the game
 /// window's are set when it starts, so it restarts just for those (a restart ends a fight in progress).
-#[tauri::command]
-fn save_settings(app: AppHandle, meter: State<Meter>, settings: Value) -> Result<bool, String> {
+// (async): on a worker thread, not the window's (it showed "Not responding" while this ran)
+#[tauri::command(async)]
+fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Result<bool, String> {
     let old = read_settings();
     let text = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     let path = settings_path();
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, text).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    // the meter may be reading settings.json at that moment (Windows then refuses the replace): try again shortly
+    let mut tries = 0;
+    while let Err(e) = fs::rename(&tmp, &path) {
+        tries += 1;
+        if tries >= 10 {
+            return Err(e.to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     let autostart = settings.pointer("/app/start_with_windows").and_then(Value::as_bool).unwrap_or(false);
     set_autostart(autostart)?;
     if ["overlay", "game"].iter().any(|k| old.get(*k) != settings.get(*k)) {
@@ -338,12 +380,19 @@ impl Scrubber {
             if let Ok(name) = std::env::var(var) {
                 if name.chars().count() >= 3 {
                     names.push(rule(&format!(r"(?i)\b{}\b", regex::escape(&name)), with));
+                    // and as JSON escapes it: letters beyond ASCII as \uXXXX (a name with an accent, say)
+                    let escaped: String =
+                        name.chars().map(|c| if c.is_ascii() { c.to_string() } else { format!(r"\u{:04x}", c as u32) }).collect();
+                    if escaped != name {
+                        names.push(rule(&format!("(?i){}", regex::escape(&escaped)), with));
+                    }
                 }
             }
         }
         Scrubber {
             rules: vec![
-                rule(r#"(?i)([A-Z]:[\\/]+Users[\\/]+)[^\\/\s"']+"#, "${1}<user>"),
+                // the user folder's name, also where JSON wrote its letters as \uXXXX (those stopped the old rule)
+                rule(r#"(?i)([A-Z]:[\\/]+Users[\\/]+)(?:\\u[0-9a-f]{4}|[^\\/\s"'])+"#, "${1}<user>"),
                 rule(r"alb_[A-Za-z0-9_*-]+", "alb_***"),
                 rule(r"(?i)\bBearer\s+\S+", "Bearer ***"),
                 rule(r"[A-Za-z0-9_-]{32,}", "***"),
@@ -366,7 +415,8 @@ impl Scrubber {
 /// The logs for a "Send logs" report, as a zip (base64), one for the whole app: which build, the meter (meter.log, the
 /// newest fight logs, profile notes, status, settings without the leaderboard token) and Sanctum Helper (its log,
 /// settings and state). Most useful first; whatever would take it past ~7.5 MB is left out.
-#[tauri::command]
+// (async): on a worker thread, not the window's (it showed "Not responding" while this ran)
+#[tauri::command(async)]
 fn collect_logs(app: AppHandle) -> Result<String, String> {
     collect_logs_inner(&app.package_info().version.to_string(), meter_running(&app.state::<Meter>()))
 }
@@ -426,36 +476,29 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
     add(&mut files, "sanctum/info.json", sh.join("hosted").join("info.json"));
     add(&mut files, "meter.log.1", logs.join("meter.log.1"));
 
-    // the zip's size so far, kept by its buffer (the writer doesn't tell)
-    struct Sized(std::io::Cursor<Vec<u8>>, std::rc::Rc<std::cell::Cell<u64>>);
-    impl Write for Sized {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let n = self.0.write(buf)?;
-            self.1.set(self.0.get_ref().len() as u64);
-            Ok(n)
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.0.flush()
-        }
-    }
-    impl std::io::Seek for Sized {
-        fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
-            self.0.seek(to)
-        }
-    }
+    // Each file is compressed on its own first to see what it adds, and only added if the report stays under the
+    // limit (writing it and then aborting it left stray bytes that could make the whole zip unreadable).
     let scrub = Scrubber::new();
-    let size = std::rc::Rc::new(std::cell::Cell::new(0u64));
-    let mut zip = zip::ZipWriter::new(Sized(std::io::Cursor::new(Vec::new()), size.clone()));
     let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let measure = |name: &str, text: &[u8]| -> Result<u64, String> {
+        let mut probe = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        probe.start_file(name, options).map_err(|e| e.to_string())?;
+        probe.write_all(text).map_err(|e| e.to_string())?;
+        Ok(probe.finish().map_err(|e| e.to_string())?.into_inner().len() as u64)
+    };
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let mut total = 0u64;
     for (name, bytes) in files {
-        zip.start_file(name, options).map_err(|e| e.to_string())?;
-        zip.write_all(scrub.clean(&String::from_utf8_lossy(&bytes)).as_bytes()).map_err(|e| e.to_string())?;
-        zip.flush().map_err(|e| e.to_string())?;
-        if size.get() > LIMIT {
-            zip.abort_file().map_err(|e| e.to_string())?;
+        let text = scrub.clean(&String::from_utf8_lossy(&bytes));
+        let adds = measure(&name, text.as_bytes())?;
+        if total + adds > LIMIT {
+            continue; // too big for what's left: the rest (smaller) may still fit
         }
+        total += adds;
+        zip.start_file(name, options).map_err(|e| e.to_string())?;
+        zip.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
     }
-    let bytes = zip.finish().map_err(|e| e.to_string())?.0.into_inner();
+    let bytes = zip.finish().map_err(|e| e.to_string())?.into_inner();
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
@@ -464,11 +507,11 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
 #[tauri::command]
 fn send_character_dispute(note: String) -> Result<(), String> {
     let data = data_dir();
-    let text = fs::read_to_string(data.join("character_dispute.json")).map_err(|_| "Nothing to dispute.".to_string())?;
+    let text = fs::read_to_string(data.join("character_dispute.json")).map_err(|_| "There's no dispute to send.".to_string())?;
     let dispute: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     let uid = dispute["gameUid"].as_str().unwrap_or("").chars().filter(|c| c.is_ascii_digit()).collect::<String>();
     if uid.is_empty() {
-        return Err("Nothing to dispute.".into());
+        return Err("There's no dispute to send.".into());
     }
     let item = serde_json::json!({
         "endpoint": "disputes",
@@ -494,7 +537,7 @@ fn character_link(action: String, uid: Option<String>, name: Option<String>) -> 
             fs::write(&path, serde_json::json!({ "request": now }).to_string()).map_err(|e| e.to_string())
         }
         "confirm" => {
-            let text = fs::read_to_string(&path).map_err(|_| "Ask again: the link request is gone.".to_string())?;
+            let text = fs::read_to_string(&path).map_err(|_| "The link request expired. Press Link character again.".to_string())?;
             let mut req: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             req["confirm"] = serde_json::json!({ "uid": uid.unwrap_or_default(), "name": name.unwrap_or_default() });
             fs::write(&path, req.to_string()).map_err(|e| e.to_string())
@@ -568,7 +611,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch,
-            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, site::site_view,
+            auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
@@ -595,11 +638,10 @@ fn main() {
                     }
                 })
                 .build(app)?;
-            let title = read_settings().pointer("/game/window_title").and_then(Value::as_str).unwrap_or("Aniimo").to_string();
-            audio::start(title.clone());     // listens only while the meter asks (Boss Kill audio cue)
+            audio::start();     // listens only while the meter asks (Boss Kill audio cue)
             set_priority(None, &read_settings());
-            overlay_button::start(app.handle().clone(), title.clone());   // the on/off button over the game
-            capture::start(title);
+            overlay_button::start(app.handle().clone());   // the on/off button over the game
+            capture::start();
             // The meter runs whenever the app is open; the watchdog brings it back if it ever stops.
             // Sanctum Helper (when enabled) likewise.
             update::at_start(app.handle());      // an update set for "next time aLogs opens" installs before the meter starts
@@ -639,3 +681,18 @@ fn main() {
         .expect("error while running the app");
 }
 
+
+#[cfg(test)]
+mod scrub_tests {
+    use super::Scrubber;
+
+    #[test]
+    fn user_folder_with_escaped_letters_is_scrubbed() {
+        let s = Scrubber::new();
+        let line = r#"{"player_log": "C:\Users\Jo\u00e3o\AppData\LocalLow\Aniimo\Player.log"}"#;
+        let out = s.clean(line);
+        assert!(!out.contains("Jo") && !out.contains("00e3"), "{out}");
+        assert!(out.contains("<user>"), "{out}");
+        assert_eq!(s.clean(r"C:\Users\Ana\x"), r"C:\Users\<user>\x");
+    }
+}

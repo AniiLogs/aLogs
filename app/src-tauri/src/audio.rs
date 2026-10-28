@@ -207,8 +207,8 @@ impl Listener {
     }
 }
 
-fn game_pid(title: &str) -> u32 {
-    let hwnd = crate::capture::find_game(title);
+fn game_pid() -> u32 {
+    let hwnd = crate::capture::find_game();
     if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
         return 0;
     }
@@ -281,8 +281,8 @@ fn game_pid_alive(pid: u32) -> Option<()> {
     }
 }
 
-/// Starts the audio cue thread. `title` is the game window's title, as for the shared capture.
-pub fn start(title: String) {
+/// Starts the audio cue thread (the game window is found like the shared capture's, capture::find_game).
+pub fn start() {
     std::thread::Builder::new()
         .name("audio-cues".into())
         .spawn(move || {
@@ -301,7 +301,7 @@ pub fn start(title: String) {
                     std::thread::sleep(Duration::from_millis(250));
                     continue;
                 }
-                let pid = game_pid(&title);
+                let pid = game_pid();
                 shared.put_u32(36, pid);
                 if pid == 0 {
                     shared.put_u32(32, 2);

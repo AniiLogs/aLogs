@@ -270,11 +270,23 @@ def clean_old_screenshots(keep_hours):
     if keep_hours is None or keep_hours < 0: return 0, 0        # keep everything (opt-in)
     cutoff = time.time() - (keep_hours or LEFTOVER_HOURS) * 3600   # "until saved": leftovers go after a few hours
     root = os.path.join(HERE, 'logs'); files = size = 0
+    # kept whatever their age: proof a queued record still has to send (offline, or the server busy), and the test
+    # pictures the player saves to send to the developers (Captures & logs › Save test pictures)
+    needed = set()
+    for q in (os.listdir(os.path.join(root, 'submit_queue')) if os.path.isdir(os.path.join(root, 'submit_queue')) else []):
+        try:
+            with open(os.path.join(root, 'submit_queue', q), encoding='utf-8') as f: item = json.load(f)
+            for key in ('evidence', 'battle', 'proof'):
+                if isinstance(item, dict) and item.get(key):
+                    needed.add(os.path.normcase(os.path.abspath(os.path.join(HERE, item[key]))))
+        except (OSError, ValueError): pass
+    keep_dirs = [os.path.normcase(os.path.join(root, k)) for k in ('characters', 'test_frames')]
     for d, dirs, names in os.walk(root, topdown=False):
-        if os.path.normcase(d).startswith(os.path.normcase(os.path.join(root, 'characters'))): continue
+        if any(os.path.normcase(d).startswith(k) for k in keep_dirs): continue
         for n in names:
             if not n.lower().endswith(IMAGE_TYPES): continue
             p = os.path.join(d, n)
+            if os.path.normcase(os.path.abspath(p)) in needed: continue
             try:
                 st = os.stat(p)
                 if st.st_mtime < cutoff: os.remove(p); files += 1; size += st.st_size
@@ -608,6 +620,8 @@ class Meter:
         self.last_screen = None      # game area on screen (x, y, w, h), for placing the DPS window
         self.hold = InputBlock(log.info); self.hold_started = 0.0; self.clicks = 0; self.last_click = 0.0
         self.numbers = None             # the damage-number recorder (experimental), made when the option is on
+        try: self.cfg_stamp = os.stat(C.SETTINGS_FILE).st_mtime   # the settings as loaded at start (a save during start-up was missed)
+        except OSError: pass
         self.auto_until = 0.0        # automatic "View Battle Data" session running until this time
         self.last_status = 0.0; self.status_text = 'starting'
         self.submitter = None
@@ -622,7 +636,7 @@ class Meter:
         self.prep_boss = None        # (time, catalog row) of the boss the battle prep screen showed last
         self.rush_level = last_rush_level()   # Interlink bosses' level (the same for every boss of a season)
         if self.uid: log.info(f'player uid {self.uid} (from the game log)')
-        if not args.replay and os.path.exists(args.player_log):
+        if not args.replay:   # also before the game's first run: it waits for Player.log (the UID came only after a restart)
             self.logw = LogWatcher(args.player_log, self.events); self.logw.start()
 
     # -- capture
@@ -650,7 +664,7 @@ class Meter:
         # the app's shared capture, for every module (the meter never captures by itself)
         if not wc.shared.app_present():
             if not getattr(self, 'no_app_said', False):
-                self.no_app_said = True; self.out('status', 'waiting for the aLogs app to share the game picture')
+                self.no_app_said = True; self.out('status', 'Waiting for aLogs to share the game picture')
             return None
         im = wc.grab_window(self.hwnd, part)
         self.capture_stats(t0, im, 'shared ' + (wc.shared.source or 'capture'))
@@ -1189,7 +1203,7 @@ class Meter:
         key = (season, points, gain)
         if self.last_scores.get('egg_gain') == key: return
         self.last_scores['egg_gain'] = key
-        self.out('status', f"Egg Heist: +{gain} rank points ({st['name']}, {points:,})")
+        self.out('status', f"Egg Heist: +{gain} Rank Points ({st['name']}, {points:,})")
         if self.submitter:
             profile = self.egg_profile(season, lastGain=gain, bar=[points, bar_end], barAt=int(time.time()))
             self.submitter.enqueue(S.eggheist_payload(st, season, self.uid, profile), None)
@@ -1891,23 +1905,30 @@ class Meter:
         return at
 
     def fight_interval(self):
-        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (30 or 60)."""
-        rate = self.args.cfg.get('capture', {}).get('fight_rate', 30)
-        return 1 / 60 if rate == 60 else FIGHT_INTERVAL
+        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
+        rate = self.args.cfg.get('capture', {}).get('fight_rate', 60)
+        return FIGHT_INTERVAL if rate == 30 else 1 / 60
 
     def step(self):
         self.reload_settings(time.time())
+        # holds end on time even without a picture (the game closed or minimized during one): checked first
+        hold = getattr(self, 'egg_hold', None)
+        if hold and time.time() > hold[0]: self.egg_hold_end('time limit')
+        self.auto_active()
         # screen capture switched off (the overlay button or the app): end what's open and rest until it's back on
         off = self.args.replay is None and wc.shared.switched_off()
         if off != getattr(self, 'capture_off', False):
             self.capture_off = off
             log.info('screen capture switched ' + ('off' if off else 'on'))
             if off:
-                self.end_auto('screen capture switched off'); self.hold.stop(); self.egg_hold = None
+                self.end_auto('screen capture switched off')
+                if getattr(self, 'egg_hold', None): self.egg_hold_end('screen capture switched off')
+                self.hold.stop()
+                if CT.hidden: CT.hide_controllers(False)
                 if self.fight: self.end_fight('screen capture switched off')
                 self.bar = None
         if off:
-            self.out('status', 'screen capture is off'); return
+            self.out('status', 'Screen capture is off'); return
         # out in the world, keep the app listening for the boss kill sound while a fight is on
         if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
             wc.audio.want(time.time())
@@ -2208,7 +2229,11 @@ class Meter:
             if not self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
             time.sleep(max(0, interval - (time.time() - t)))
-        self.end_auto('meter closed'); self.hold.stop(); self.end_fight('meter closed'); self.ocr.close()
+        self.end_auto('meter closed')
+        if getattr(self, 'egg_hold', None): self.egg_hold_end('meter closed')
+        self.hold.stop()
+        if CT.hidden: CT.hide_controllers(False)                     # never leave the controller hidden from the game
+        self.end_fight('meter closed'); self.ocr.close()
         if self.submitter and getattr(self, 'presence_sent', None) and self.presence_sent[1] != 'offline':
             self.submitter.presence(self.presence_sent[0], 'offline', wait=True)     # aLogs closing: you're offline
         if self.ocr_bg: self.ocr_bg.close()
@@ -2563,14 +2588,14 @@ def run_overlay(meter, hide):
             rate = b.get('rate_now') if b.get('rate_now') is not None else b.get('rate')
             count = f" · {b['breaks']} break{'s' if b['breaks'] != 1 else ''}" if b.get('breaks') else ''
             if b.get('phase') == 'broken': text, colour = f"BROKEN{count}", '#ffe066'
-            elif b.get('phase') == 'refill': text, colour = f"Break gauge refilling{count}", '#c8d0dc'
+            elif b.get('phase') == 'refill': text, colour = f"BREAK gauge refilling{count}", '#c8d0dc'
             else:
                 size = b.get('size')
                 if size:      # break points from the game data: what's left and break points per second
-                    text = (f"Break {fmt(b['left'] * size)} / {fmt(size)}"
+                    text = (f"BREAK {fmt(b['left'] * size)} / {fmt(size)}"
                             + (f" · {fmt(rate * size / 100)}/s" if rate is not None else '') + count)
                 else:
-                    text = f"Break {b['left'] * 100:.0f}% left" + (f" · {rate:.1f}%/s" if rate is not None else '') + count
+                    text = f"BREAK {b['left'] * 100:.0f}% left" + (f" · {rate:.1f}%/s" if rate is not None else '') + count
                 colour = '#ffc58a' if b.get('kind') == 'orange' else '#dfe8f5'
             return text, colour
         return None
