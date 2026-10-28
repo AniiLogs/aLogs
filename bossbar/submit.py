@@ -106,6 +106,25 @@ class Submitter(threading.Thread):
         self.dispute = _read_json(DISPUTE)   # another account proved our UID first: what a dispute would send
         self.last_result = None              # shown in the app: (time, text)
         log.info('leaderboard submissions: ' + (f"on ({self.config['api_url']})" if self.config else 'off (opt in from the app)'))
+        self.retry_big_proofs()
+
+    @staticmethod
+    def retry_big_proofs():
+        """Character links the site turned down for their proof's size (over its old 512 KB, the Profile screen at 4K;
+        it takes 1.9 MB now) go again, once: without that link the character stayed unproven, and its online status was
+        refused too (409)."""
+        try: names = os.listdir(QUEUE)
+        except OSError: return
+        for name in names:
+            if not (name.startswith('character__') and name.endswith('.json.rejected')): continue
+            path = os.path.join(QUEUE, name)
+            item = _read_json(path)
+            proof = os.path.join(HERE, item['proof']) if isinstance(item, dict) and item.get('proof') else None
+            try: size = os.path.getsize(proof) if proof else 0
+            except OSError: size = 0
+            if not (512 * 1024 < size <= 1900 * 1000) or os.path.exists(path[:-len('.rejected')]): continue
+            try: os.replace(path, path[:-len('.rejected')]); log.info(f'leaderboard: {name[:-14]} sent again (its proof is {size // 1024} KB, now allowed)')
+            except OSError: pass
 
     @staticmethod
     def _stamp():
