@@ -2360,7 +2360,7 @@ def main():
     cfg = C.load()
     ap.set_defaults(interval=cfg['capture']['look_interval'], title=cfg['game']['window_title'],
                     player_log=cfg['game']['player_log'] or PLAYER_LOG, no_overlay=not cfg['overlay']['show'],
-                    hide_from_capture=cfg['overlay']['hide_from_capture'], no_debug_frames=not cfg['capture']['debug_frames'],
+                    hide_from_capture=not cfg['overlay']['in_recordings'], no_debug_frames=not cfg['capture']['debug_frames'],
                     no_auto_click=not cfg['results']['auto_open_battle_data'])
     args = ap.parse_args()
     args.cfg = cfg

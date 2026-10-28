@@ -42,7 +42,8 @@ DEFAULTS = {
         'show': True,                        # any overlay at all (off = console/app only)
         'dps_window': True,
         'hp_labels': True,
-        'hide_from_capture': False,          # keep overlays out of screenshots/recordings
+        'in_recordings': True,               # overlays show in recordings and screenshots (General Settings; shared
+                                             # with Sanctum Helper). Replaced hide_from_capture, its opposite.
         'backdrop': 0,                       # dark panel behind the DPS window, % opacity (0 = none)
         'world_position': 'map',             # out in the world: 'map' (right of the minimap) or 'quests' (under the quest list)
         'rush_position': 'corner',           # Interlink's DPS window: 'corner' (top left, by Esc) or 'panel' (under the stars/timer)
@@ -83,6 +84,9 @@ def load():
     try:
         with open(SETTINGS_FILE, encoding='utf-8') as f: stored = json.load(f)
     except (OSError, ValueError): stored = {}
+    overlay = stored.get('overlay') if isinstance(stored.get('overlay'), dict) else {}
+    if 'in_recordings' not in overlay and 'hide_from_capture' in overlay:      # settings from before 0.1.28
+        overlay['in_recordings'] = not overlay['hide_from_capture']
     return _merge(DEFAULTS, stored)
 
 def save(settings):

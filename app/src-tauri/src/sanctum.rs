@@ -163,6 +163,22 @@ pub fn sanctum_state(app: AppHandle, state: State<Sanctum>) -> Value {
     })
 }
 
+/// The settings aLogs and Sanctum Helper share, set once in General Settings: the game window's title and whether
+/// overlays show in recordings and screenshots. Copied into Sanctum Helper's settings.json when they differ (it
+/// picks up its file's changes), at start and whenever aLogs' settings are saved.
+pub fn share_settings(settings: &Value) {
+    let title = settings.pointer("/game/window_title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).unwrap_or("Aniimo");
+    // overlay.in_recordings replaced the meter's own overlay.hide_from_capture (the opposite)
+    let in_recordings = settings.pointer("/overlay/in_recordings").and_then(Value::as_bool)
+        .unwrap_or_else(|| !settings.pointer("/overlay/hide_from_capture").and_then(Value::as_bool).unwrap_or(false));
+    let current = read_json(&sh_dir().join("settings.json"));
+    if current.get("WindowTitle").and_then(Value::as_str) != Some(title)
+        || current.get("RecordableOverlay").and_then(Value::as_bool) != Some(in_recordings)
+    {
+        let _ = sanctum_save(serde_json::json!({ "WindowTitle": title, "RecordableOverlay": in_recordings }));
+    }
+}
+
 /// Changes some of Sanctum Helper's settings (a partial object, merged into its settings.json).
 #[tauri::command]
 pub fn sanctum_save(changes: Value) -> Result<Value, String> {

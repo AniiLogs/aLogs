@@ -6,7 +6,7 @@
     meter: { enabled: true },
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
-    overlay: { show: true, dps_window: true, hp_labels: true, hide_from_capture: false, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
+    overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
@@ -230,7 +230,7 @@
     nav.hidden = !name;
     nav.textContent = name ? `Signed in as ${name}` : "";
   }
-  $("[data-nav-sign-in]").addEventListener("click", () => $("[data-sign-in]").click());
+  $("[data-nav-sign-in]").addEventListener("click", (event) => signIn(event.currentTarget));
   $("[data-nav-account]").addEventListener("click", () => { $('[data-page="dps"]').click(); showDpsTab("leaderboard"); });
   async function showAccount() {
     const token = get("leaderboard.token") || "";
@@ -238,7 +238,7 @@
     if (!state || accountShown === token) return;
     accountShown = token;
     showNavAccount(null);
-    $("[data-sign-in]").hidden = Boolean(token); $("[data-sign-out]").hidden = !token;
+    $("[data-sign-out]").hidden = !token;
     if (!token) { state.textContent = "Not signed in."; return; }
     state.textContent = "Checking your account…";
     try {
@@ -246,15 +246,15 @@
       const body = await response.json().catch(() => ({}));
       state.textContent = response.ok ? `Signed in as ${body.account?.name || "your Discord account"}.`
         : "This sign-in no longer works (signed out or revoked). Sign in again.";
-      showNavAccount(response.ok ? body.account?.name || "Discord" : null);
-      if (!response.ok) { $("[data-sign-in]").hidden = false; }
+      showNavAccount(response.ok ? body.account?.name || "Discord" : null);   // signed out: the sidebar offers sign-in
     } catch {
       state.textContent = "Signed in (couldn't reach AniiLogs to check right now).";
       showNavAccount("Discord");
     }
   }
-  $("[data-sign-in]").addEventListener("click", async (event) => {
-    const button = event.currentTarget; const state = $("[data-account-state]");
+  // Signing in starts from the sidebar (or the setup guide); the account tab shows the result and signs out.
+  async function signIn(button) {
+    const state = $("[data-account-state]");
     button.disabled = true;
     try {
       const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -275,7 +275,7 @@
       toast(String(error.message || error), true);
     }
     button.disabled = false;
-  });
+  }
   $("[data-sign-out]").addEventListener("click", async () => {
     const token = get("leaderboard.token");
     if (token) {
@@ -325,7 +325,17 @@
       toast(String(error), true);
     }
   }));
-  // Send logs: the meter's logs zipped by the app, with the game UID it last saw and an optional note.
+  // Report a problem (Dashboard): a dialog with an optional note; Send logs zips the app's logs (scrubbed) and sends
+  // them with the game UID it last saw.
+  const report = $("[data-report]");
+  const closeReport = () => { report.hidden = true; };
+  $("[data-report-open]").addEventListener("click", () => {
+    report.hidden = false;
+    $("[data-logs-note]").focus();
+  });
+  $("[data-report-close]").addEventListener("click", closeReport);
+  report.addEventListener("click", (event) => { if (event.target === report) closeReport(); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !report.hidden) closeReport(); });
   $("[data-logs-send]").addEventListener("click", async () => {
     const button = $("[data-logs-send]");
     const uid = status.character?.uid;
@@ -348,6 +358,7 @@
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
       $("[data-logs-note]").value = "";
+      closeReport();
       toast("Logs sent. Thanks!");
     } catch (error) {
       toast(`Couldn't send the logs: ${error.message || error}`, true);
@@ -471,8 +482,7 @@
     const character = status.character || {};
     const who = character.uid ? `${character.name || "Name appears after your first result screen"} · UID ${character.uid}` : "Waiting for the game log…";
     text("character", who);
-    $("[data-logs-uid]").textContent = character.uid ? `Sent as UID ${character.uid}` : "Waiting for your game UID…";
-    text("character-full", character.uid ? who : "Waiting for the game log: your UID shows once you load into the world (it's read fresh each session, so the right character on the right server), then your name.");
+    $("[data-logs-uid]").textContent = character.uid ? `Sent as UID ${character.uid}.` : "Waiting for your game UID: open Aniimo with the meter running.";
     text("character-proof", !character.uid ? "" : character.verified
       ? "Proven: read from the game menu, right above your UID."
       : "Not proven yet: open the game menu (Esc or Start) once while aLogs is running.");
@@ -481,8 +491,8 @@
     if (dispute) $("[data-dispute-text]").textContent = `Another AniiLogs account already proved UID ${dispute.gameUid} as its character. `
       + `If "${dispute.name}" is yours, send a dispute: a developer compares both game-menu proofs and moves the character to the right account.`;
     const lb = status.leaderboard || {};
-    text("lb", !get("leaderboard.submit") ? "Off" : !get("leaderboard.token") ? "On — needs a desktop token" : lb.on ? "On" : "On (starts with the meter)");
-    text("lb-detail", lb.on ? `${lb.pending || 0} waiting to send${lb.last ? ` · last: ${lb.last[1]}` : ""}` : "");
+    text("lb", !get("leaderboard.submit") ? "Off." : !get("leaderboard.token") ? "On, but not signed in: use the Discord button in the sidebar." : lb.on ? "On" : "On (starts with the meter).");
+    text("lb-detail", lb.on ? `· ${lb.pending || 0} waiting to send${lb.last ? ` · last: ${lb.last[1]}` : ""}` : "");
     text("data-dir", status.data_dir || "…");
     $("[data-hidhide-state]").textContent = status.hidhide_installed
       ? "Controller blocking is installed. Press the setup button again whenever you use a different controller."
@@ -539,7 +549,7 @@
   $("[data-guide-skip]").addEventListener("click", closeGuide);
   $("[data-guide-open]").addEventListener("click", openGuide);
   // the account step uses the same sign-in as DPS Meter › Leaderboards & account, and follows it
-  $("[data-guide-sign-in]").addEventListener("click", () => $("[data-sign-in]").click());
+  $("[data-guide-sign-in]").addEventListener("click", (event) => signIn(event.currentTarget));
   new MutationObserver(() => { if (!guide.hidden) guideAccount(); }).observe($("[data-account-state]"), { childList: true, characterData: true, subtree: true });
 
   // About: the last five updates' notes, from the GitHub Releases (loadReleases); the copy built into the app
@@ -634,17 +644,7 @@
         .map((release) => ({ version: release.tag_name.slice("companion-v".length), url: release.html_url, ...parseNotes(release.body) }))
         .sort((a, b) => (newer(a.version, b.version) ? -1 : newer(b.version, a.version) ? 1 : 0));
       if (!releases.length) return;
-      const update = current && newer(releases[0].version, current) ? releases[0] : null;
-      const button = $("[data-update]");
-      if (button.dataset.install !== undefined) { renderPatchNotes(current, releases); return; }   // a downloaded update wins
-      button.hidden = !update;
-      if (update) {
-        button.textContent = `Update to ${update.version}`;
-        button.dataset.open = update.url;
-      }
-      $('[data-page="about"]').classList.toggle("has-update", Boolean(update));
-      $('[data-page="about"]').title = update ? `aLogs ${update.version} is out` : "";
-      renderPatchNotes(current, releases);
+      renderPatchNotes(current, releases);                // installing an update is the sidebar's job
     } catch {
       // offline or GitHub unreachable: try again at the next check
     }
@@ -661,9 +661,6 @@
       : info.downloaded ? `${label} is ready to install` : `${label} is available`;
     $("[data-install-later]").hidden = Boolean(info.next_start);
     for (const button of $$("[data-update-box] button")) button.disabled = false;
-    const about = $("[data-update]");
-    about.hidden = false; about.textContent = `Install ${label}`; about.dataset.install = "";
-    $('[data-page="about"]').classList.add("has-update");
     $("[data-update-note]").textContent = $("[data-update-title]").textContent + ".";
   }
   function showProgress(p) {                         // the download, from update.rs (update-progress)
@@ -692,7 +689,6 @@
       for (const button of $$("[data-update-box] button")) button.disabled = false;
     }
   });
-  $("[data-update]").addEventListener("click", () => { if ($("[data-update]").dataset.install !== undefined) void installUpdate(); });
   $("[data-check-update]").addEventListener("click", async () => {
     const note = $("[data-update-note]");
     note.textContent = "Checking…";
@@ -716,9 +712,23 @@
     }
     renderPatchNotes(version);
     void loadReleases(version);
+    // About's Sanctum Helper line: its version and map data's game build (it has no About of its own)
+    $('[data-page="about"]').addEventListener("click", async () => {
+      try {
+        const info = (await invoke("sanctum_state"))?.info || {};
+        const line = $("[data-sanctum-credit]");
+        line.textContent = line.textContent.replace(/^Includes Sanctum Helper( v[\d.]+)? by sargeeva(, map data from game build \S+)?/u,
+          `Includes Sanctum Helper${info.version ? ` v${info.version}` : ""} by sargeeva${info.gameDataVersion ? `, map data from game build ${info.gameDataVersion}` : ""}`);
+      } catch {
+        // Sanctum Helper not installed or not started: the plain credit stays
+      }
+    });
     setInterval(() => loadReleases(version), 6 * 3600 * 1000);
     try {
-      settings = merge(DEFAULTS, await invoke("get_settings"));
+      const stored = await invoke("get_settings");
+      const overlay = stored?.overlay;                    // settings from before 0.1.28: hide_from_capture, the opposite
+      if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
+      settings = merge(DEFAULTS, stored);
     } catch {
       settings = structuredClone(DEFAULTS);
     }

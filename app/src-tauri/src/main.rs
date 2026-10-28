@@ -195,6 +195,7 @@ fn save_settings(app: AppHandle, meter: State<Meter>, settings: Value) -> Result
         stop_meter_inner(&meter);
     }
     ensure_meter(&app)?;
+    sanctum::share_settings(&settings);
     sanctum::ensure(&app, &settings);
     Ok(true)
 }
@@ -505,6 +506,7 @@ fn main() {
             // Sanctum Helper (when enabled) likewise.
             update::at_start(app.handle());      // an update set for "next time aLogs opens" installs before the meter starts
             let _ = ensure_meter(app.handle());
+            sanctum::share_settings(&read_settings());
             sanctum::ensure(app.handle(), &read_settings());
             update::start(app.handle());
             let handle = app.handle().clone();

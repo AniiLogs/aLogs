@@ -37,7 +37,6 @@
     ["detection", "Detection", "How the difficulty, the layout and your position are found."],
     ["general", "General", "Language, recording and compatibility."],
     ["layouts", "Layout browser", "Every Lost Sanctum layout with its doors, key rooms and nests."],
-    ["about", "About", ""],
   ];
 
   let state = { settings: {}, info: {}, status: null };
@@ -297,18 +296,10 @@
       ),
       group("App",
         toggle("ShowNotifications", "Notifications", "A short notice in the top-right corner when the difficulty or the Sanctum is found."),
-        toggle("RecordableOverlay", "Show in recordings and screenshots", "Lets OBS, Game Bar and screenshot tools capture the overlay."),
-        textField("WindowTitle", "Game window title", "Only change this if the game's window has a different title."),
       ),
-      el("p", { class: "hint" }, "Sanctum Helper starts and stops with aLogs (General Settings › Start aLogs with Windows)."),
+      el("p", { class: "hint" }, "Sanctum Helper starts and stops with aLogs (General Settings › Start aLogs with Windows). The game window's title and whether overlays show in recordings are set once for all of aLogs, in General Settings."),
     ];
   }
-  function textField(key, title, hint) {
-    const input = el("input", { type: "text", value: s[key] || "" });
-    input.addEventListener("change", () => change(key, input.value.trim() || "Aniimo"));
-    return el("div", { class: "setting" }, el("div", {}, el("strong", { textContent: title }), el("small", { textContent: hint })), input);
-  }
-
   let browserLayout = 0;
   function layoutsTab() {
     const layouts = info().layouts || [];
@@ -339,22 +330,7 @@
     }
   }
 
-  function aboutTab() {
-    const i = info();
-    return [
-      group(null,
-        el("p", {}, el("strong", { textContent: "Sanctum Helper" }), ` ${i.version ? `v${i.version}` : ""} — an Egg Heist companion for Aniimo by sargeeva, part of aLogs.`),
-        el("p", { class: "hint" }, i.gameDataVersion ? `Map data from game build ${i.gameDataVersion}. OCR: ${status().ocrLanguage || "—"}.` : ""),
-        el("p", { class: "hint" }, "It only looks at screen pixels: it never reads or changes the game's memory or files. Map art, icons and game terms come from the game's own files and belong to their owners. MIT License."),
-        el("div", { class: "row" },
-          el("button", { textContent: "Open log folder", onclick: () => command("open-logs") }),
-          el("button", { textContent: "Source on GitHub", onclick: () => invoke("open_target", { target: "https://github.com/sargeeva/SanctumHelper" }) }),
-        ),
-      ),
-    ];
-  }
-
-  const BUILDERS = { status: statusTab, overlay: overlayTab, mini: miniTab, markers: markersTab, detection: detectionTab, general: generalTab, layouts: layoutsTab, about: aboutTab };
+  const BUILDERS = { status: statusTab, overlay: overlayTab, mini: miniTab, markers: markersTab, detection: detectionTab, general: generalTab, layouts: layoutsTab };
 
   // ---------------------------------------------------------------- frame
   const tabRow = el("div", { class: "tabs", role: "tablist" });

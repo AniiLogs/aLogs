@@ -38,12 +38,14 @@ code { color: var(--gold); font-size: 12px; overflow-wrap: anywhere; }
 .card { padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
 .card.wide { grid-column: span 2; }
 .card p { margin: 0; font-size: 16px; font-weight: 650; }
-.card small { color: var(--muted); }
+.card small { display: block; margin-top: 4px; color: var(--muted); }
+.card .notice { margin: 10px 0 0; }
 
 .group { display: grid; gap: 10px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
 .group p { margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .row.end { justify-content: flex-end; }
+.row + .group, .row + .notice { margin-top: 16px; }   /* a box after a row of buttons never touches them */
 button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); color: var(--text); cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: default; }
@@ -133,12 +135,6 @@ button.capturing { border-color: var(--gold); color: var(--gold); }
 .note-warn { color: var(--coral); font-weight: 600; }
 .group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .group-head h2 { margin: 0; }
-/* an update is out: a pulsing dot on About in the sidebar */
-.nav button.has-update { display: flex; align-items: center; justify-content: space-between; }
-.nav button.has-update::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); animation: update-pulse 1.8s ease-out infinite; }
-@keyframes update-pulse { to { box-shadow: 0 0 0 8px transparent; } }
-@media (prefers-reduced-motion: reduce) { .nav button.has-update::after { animation: none; } }
 .note h3 { margin: 10px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
 .note p { margin: 8px 0 0; }
 .note ul { margin: 0; padding-left: 18px; }

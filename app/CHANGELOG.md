@@ -38,8 +38,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on
   your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds
   before the Catch Countdown, as before.
-- **Send logs** (DPS Meter › Captures & logs): something wrong with aLogs? Send your logs to the AniiLogs developers
-  in one click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
+- **Report a problem** (Dashboard): something wrong with aLogs? Send your logs to the AniiLogs developers in one
+  click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
   20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in),
   with your game UID, the time and which build you have. Reports are kept
   privately and cleared once the problem is fixed, after 30 days at most.
@@ -59,7 +59,13 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   comes back when you return to the game.
 - The line under the boss bar now reads **HP** (what the boss has left) instead of "Total", and the numbers on and
   under the bar have a soft dark shadow, so they stay readable over bright effects.
-- **DPS Meter settings in tabs:** Meter, Overlay, Results, Captures & logs, and Leaderboards & account.
+- **DPS Meter settings in tabs:** Meter, Overlay, Results, Captures & logs, and Leaderboards & account. Each thing
+  lives in one place: the log folders, Report a problem and your character (name, UID, proof, disputes) are on the
+  Dashboard; you sign in from the sidebar, and Leaderboards & account shows your account and what's being sent; the
+  game window's title and
+  **Overlays show in recordings and screenshots** (one switch for the DPS window, the HP labels and Sanctum Helper's
+  maps) are in General Settings for the meter and Sanctum Helper alike; updates install from the sidebar; and Sanctum
+  Helper's version and credits are in About, which links aLogs' own code too (github.com/AniiLogs/aLogs).
 - **Changing a setting no longer restarts the meter**, so a fight in progress isn't lost. Only the overlay's and the
   game window's settings still restart it.
 - **Sanctum Helper keeps up with you:** the view cone follows the cone's edges instead of its brightest part (bright

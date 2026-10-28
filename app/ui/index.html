@@ -44,15 +44,23 @@
           <article class="card"><h2>Game</h2><p data-s="game">—</p><small data-s="capture"></small></article>
           <article class="card"><h2>Boss bar</h2><p data-s="bar">—</p><small data-s="status"></small></article>
           <article class="card wide"><h2>Current fight</h2><p data-s="fight">No fight in progress.</p><small data-s="fight-detail"></small></article>
-          <article class="card"><h2>Your character</h2><p data-s="character">Not detected yet</p><small>Your UID comes from the game log, your name from your first result screen.</small></article>
-          <article class="card"><h2>Leaderboards</h2><p data-s="lb">Off</p><small data-s="lb-detail"></small></article>
+          <article class="card wide"><h2>Your character</h2><p data-s="character">Not detected yet</p>
+            <small data-s="character-proof"></small>
+            <small class="block">Your UID comes from the game log each session (so the right character on the right server). Your name is read from the menu you open with Esc or Start, right above your UID, and until then from your result screens. The menu is also your proof for the leaderboards.</small>
+            <div class="notice" data-dispute hidden>
+              <p data-dispute-text></p>
+              <label class="field"><span>Anything a developer should know (optional)</span><input type="text" maxlength="500" data-dispute-note></label>
+              <div class="row"><button type="button" class="primary" data-dispute-send>Send a dispute</button></div>
+            </div>
+          </article>
         </div>
         <div class="row">
+          <button type="button" class="primary" data-report-open>Report a problem</button>
           <button type="button" data-open="logs">Open logs folder</button>
           <button type="button" data-open="meter_log">Open meter.log</button>
           <button type="button" data-open="data">Open data folder</button>
         </div>
-        <p class="hint">If something goes wrong, share <strong>meter.log</strong>: it records what the meter saw and why.</p>
+        <p class="hint">Something wrong? <strong>Report a problem</strong> sends your logs to the AniiLogs developers, with a note if you like.</p>
       </section>
 
       <!-- DPS Meter: its sections as tabs across the top, like Sanctum Helper -->
@@ -128,10 +136,6 @@
             </select></label>
           <p class="hint">When the boss goes down, the DPS window shows the fight's final numbers for this long.</p>
         </div>
-        <div class="group">
-          <label class="toggle"><input type="checkbox" data-k="overlay.hide_from_capture"><span></span>
-            <div><strong>Hide the overlay from screenshots and recordings</strong><small>Off by default, so your screenshots and clips include the meter.</small></div></label>
-        </div>
       </div>
       <!-- Results -->
       <div class="dps-panel" data-panel="results">
@@ -162,7 +166,7 @@
 
       <!-- Captures & logs -->
       <div class="dps-panel" data-panel="captures">
-        <p class="lead">The meter always keeps your records: each fight's readings, results, Battle Data numbers, your scores (from Challenge Stats and the battle prep screens) and <strong>meter.log</strong>. The diagnostics below save extra pictures to check the meter's accuracy and fix problems; they're off unless you're chasing a problem, and they take a lot of space.</p>
+        <p class="lead">The meter always keeps your records: each fight's readings, results, Battle Data numbers, your scores (from Challenge Stats and the battle prep screens) and <strong>meter.log</strong> (open them, or report a problem, from the Dashboard). The diagnostics below save extra pictures to check the meter's accuracy and fix problems; they're off unless you're chasing a problem, and they take a lot of space.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="capture.debug_frames"><span></span>
             <div><strong>Boss bar snapshots during fights (diagnostics)</strong><small>Two small pictures of the boss's HP bar each second, to check what the meter read.</small></div></label>
@@ -182,16 +186,6 @@
             </select></label>
           <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Anything left over is cleared every hour. Your records are kept either way.</p>
         </div>
-        <div class="row">
-          <button type="button" data-open="logs">Open logs folder</button>
-          <button type="button" data-open="meter_log">Open meter.log</button>
-        </div>
-        <div class="group">
-          <h2>Send logs</h2>
-          <p class="hint">Something wrong with aLogs? Send your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time and which build you have. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
-          <label class="field"><span>What went wrong (optional)</span><textarea rows="3" maxlength="2000" data-logs-note placeholder="For example: the HP number stopped going down partway through the fight"></textarea></label>
-          <div class="row"><button type="button" class="primary" data-logs-send>Send logs</button><span class="hint" data-logs-uid></span></div>
-        </div>
       </div>
 
       <!-- Leaderboards & account -->
@@ -204,15 +198,15 @@
             <div><strong>Attach the result screenshot</strong><small>Proof for your run: a small picture of the result screen (1280×720). Anyone can open it from the camera next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
             <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
+          <p class="hint">Leaderboards: <strong data-s="lb">Off</strong> <span data-s="lb-detail"></span></p>
         </div>
         <div class="group">
           <h2>Your AniiLogs account</h2>
           <p class="hint" data-account-state>Not signed in.</p>
           <div class="row">
-            <button type="button" class="discord-button" data-sign-in><svg class="discord-logo" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg><span>Sign in with Discord</span></button>
             <button type="button" data-sign-out hidden>Sign out</button>
           </div>
-          <p class="hint">Discord's sign-in opens in your normal web browser (you're usually signed in there already): approve it, then come back here. Your password is never typed into aLogs.</p>
+          <p class="hint">To sign in, use the <strong>Discord</strong> button at the bottom of the sidebar: Discord's sign-in opens in your normal web browser (you're usually signed in there already); approve it, then come back here. Your password is never typed into aLogs.</p>
           <p class="hint">Your records then appear on the <button type="button" class="link" data-open="https://aniilogs.github.io/leaderboard/">AniiLogs leaderboards</button>.</p>
           <details>
             <summary>Advanced</summary>
@@ -221,17 +215,6 @@
             <p class="hint" data-token-hint></p>
             <label class="field"><span>Leaderboard API</span><input type="url" data-k="leaderboard.api_url"></label>
           </details>
-        </div>
-        <div class="group">
-          <h2>Detected character</h2>
-          <p data-s="character-full">Not detected yet. Your UID appears once the game is running, and your name after your first result screen.</p>
-          <p class="hint" data-s="character-proof"></p>
-          <p class="hint">Your name is read from the game: from the menu you open with Esc or Start, where your UID is shown right under it, and until then from your result screens. The menu is also your proof for the leaderboards.</p>
-          <div class="notice" data-dispute hidden>
-            <p data-dispute-text></p>
-            <label class="field"><span>Anything a developer should know (optional)</span><input type="text" maxlength="500" data-dispute-note></label>
-            <div class="row"><button type="button" class="primary" data-dispute-send>Send a dispute</button></div>
-          </div>
         </div>
       </div>
 
@@ -269,6 +252,8 @@
             <div><strong>Start aLogs with Windows</strong><small>Starts in the tray, out of the way.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="app.close_to_tray"><span></span>
             <div><strong>Closing the window keeps aLogs in the tray</strong><small>When off, closing the window quits aLogs and stops the meter.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="overlay.in_recordings"><span></span>
+            <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them).</small></div></label>
         </div>
         <div class="group">
           <h2>Updates</h2>
@@ -287,7 +272,7 @@
         </div>
         <div class="group">
           <h2>Game</h2>
-          <label class="field"><span>Game window title</span><input type="text" data-k="game.window_title"></label>
+          <label class="field"><span>Game window title (the meter and Sanctum Helper)</span><input type="text" data-k="game.window_title"></label>
           <label class="field"><span>Game log (Player.log): leave empty to use the usual location</span><input type="text" data-k="game.player_log" placeholder="%USERPROFILE%\AppData\LocalLow\Aniimo\Aniimo\Player.log"></label>
         </div>
       </div>
@@ -314,20 +299,19 @@
           <p>The meter only reads the screen (built-in Windows capture, no yellow border) and the game's own text log. It never touches the game's memory or files.</p>
           <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
           <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
-          <p class="hint">Includes Sanctum Helper by sargeeva (MIT License).</p>
+          <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>
         </div>
         <div class="group">
           <h2>Source code</h2>
           <div class="row">
+            <button type="button" data-open="https://github.com/AniiLogs/aLogs">aLogs</button>
             <button type="button" data-open="https://github.com/AniiLogs/aniilogs.github.io">AniiLogs site</button>
             <button type="button" data-open="https://github.com/sargeeva/SanctumHelper">Sanctum Helper</button>
             <button type="button" data-open="https://github.com/nefarius/HidHide">HidHide</button>
           </div>
-          <p class="hint">The aLogs app and DPS meter will get their own repository once the suite has its name.</p>
         </div>
         <div class="group">
-          <div class="group-head"><h2>Patch notes</h2>
-            <button type="button" class="primary" data-update data-open="https://github.com/AniiLogs/aniilogs.github.io/releases/latest" hidden>Update</button></div>
+          <div class="group-head"><h2>Patch notes</h2></div>
           <div class="notes" data-patch-notes></div>
           <div class="row">
             <button type="button" data-open="https://github.com/AniiLogs/aniilogs.github.io/releases">All releases</button>
@@ -337,6 +321,20 @@
     </main>
 
     <div class="toast" data-toast hidden></div>
+
+    <!-- Report a problem: the logs, scrubbed, with an optional note (Dashboard) -->
+    <div class="modal" data-report hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+        <h1 id="reportTitle">Report a problem</h1>
+        <p>Sends your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time and which build you have. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
+        <label class="field"><span>What went wrong (optional)</span><textarea rows="4" maxlength="2000" data-logs-note placeholder="For example: the HP number stopped going down partway through the fight"></textarea></label>
+        <p class="hint" data-logs-uid></p>
+        <div class="row end">
+          <button type="button" data-report-close>Cancel</button>
+          <button type="button" class="primary" data-logs-send>Send logs</button>
+        </div>
+      </section>
+    </div>
 
     <!-- First run -->
     <div class="modal" data-guide hidden>
