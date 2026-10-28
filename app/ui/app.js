@@ -1028,6 +1028,12 @@
       return node;
     };
     const shown = releases.slice(0, 5);
+    // A beta: its version isn't released yet, so GitHub's list doesn't have it; its notes so far (built into the app)
+    // go on top
+    if (current && !releases.some((release) => release.version === current) && releases.every((release) => newer(current, release.version))) {
+      const own = (window.PATCH_NOTES || []).find((release) => release.version === current);
+      if (own) shown.unshift({ ...own, beta: true });
+    }
     // A 6th slot when the installed version is older than all five: how far behind it is, with its own notes if known.
     const behind = current ? releases.filter((release) => newer(release.version, current)).length : 0;
     if (current && behind && !shown.some((release) => release.version === current)) {
@@ -1059,7 +1065,8 @@
       const item = document.createElement("details");
       item.className = `note${isNew ? " is-new" : ""}`;
       const summary = document.createElement("summary");
-      summary.textContent = release.version === current ? `${release.version} (installed)`
+      summary.textContent = release.beta ? `${release.version} beta (installed; these notes grow until it's released)`
+        : release.version === current ? `${release.version} (installed)`
         : isNew ? `${release.version} (new, not installed yet)` : release.version;
       item.append(summary);
       if (release.intro) item.append(Object.assign(document.createElement("p"), { textContent: release.intro }));
