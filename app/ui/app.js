@@ -2,7 +2,8 @@
   const invoke = window.__TAURI__.core.invoke;
   // Same defaults as bossbar/settings.py (the meter fills in anything missing the same way).
   const DEFAULTS = {
-    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, auto_download: true, beta_updates: false },
+    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, auto_download: true, beta_updates: false,
+      photos_auto: false, photos_auto_since: 0 },
     meter: { enabled: true },
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
@@ -301,12 +302,178 @@
     saveTimer = setTimeout(async () => {
       try {
         await invoke("save_settings", { settings });
-        toast(message);
+        if (message) toast(message);
       } catch (error) {
         toast(`Could not save: ${error}`, true);
       }
     }, 500);
   }
+  // ---------------------------------------------------------------- Photos
+  // The game's photos (photos.rs finds them and lets this page show them) and which are on the profile already
+  // (the API). Picked ones are made into WebP here, up to 2560 px wide, and uploaded with what the game recorded.
+  const photos = { list: [], folder: null, uploaded: new Map(), selected: new Set(), busy: false, loaded: false };
+  const convertFileSrc = window.__TAURI__.core.convertFileSrc;
+  const authHeaders = () => ({ authorization: `Bearer ${get("leaderboard.token")}` });
+
+  async function loadPhotos() {
+    try {
+      const found = await invoke("game_photos");
+      photos.list = found.photos || [];
+      photos.folder = found.folder;
+    } catch {
+      photos.list = [];
+    }
+    photos.uploaded = new Map();
+    if (get("leaderboard.token")) {
+      try {
+        const response = await fetch(`${api()}/profile/photos`, { headers: authHeaders() });
+        if (response.ok) for (const photo of (await response.json()).photos || []) photos.uploaded.set(photo.gamePhotoId, photo.id);
+      } catch {
+        // offline: everything just shows as not uploaded yet
+      }
+    }
+    for (const id of photos.selected) if (photos.uploaded.has(id)) photos.selected.delete(id);
+    photos.loaded = true;
+    renderPhotos();
+  }
+
+  function renderPhotos() {
+    const signedIn = Boolean(get("leaderboard.token"));
+    const onProfile = photos.list.filter((p) => photos.uploaded.has(p.id)).length;
+    $("[data-photos-state]").textContent = !photos.folder
+      ? "Aniimo's photo folder wasn't found yet: start the game once with aLogs running."
+      : !photos.list.length ? "No photos yet. Take one in Aniimo (with Storage set to Local) and it shows up here."
+      : !signedIn ? `${photos.list.length} photos. Sign in with the Discord button in the sidebar to put them on your profile.`
+      : `${photos.list.length} photos · ${onProfile} on your profile. Click photos to pick them.`;
+    const upload = $("[data-photos-upload]");
+    if (!photos.busy) upload.textContent = photos.selected.size ? `Upload ${photos.selected.size} selected` : "Upload selected";
+    upload.disabled = photos.busy || !signedIn || !photos.selected.size;
+    const grid = $("[data-photos-grid]");
+    grid.replaceChildren(...photos.list.map((photo) => {
+      const uploadedId = photos.uploaded.get(photo.id);
+      const card = document.createElement("div");
+      card.className = `photo-card${uploadedId ? " is-uploaded" : ""}${photos.selected.has(photo.id) ? " is-selected" : ""}`;
+      const img = document.createElement("img");
+      img.loading = "lazy"; img.alt = ""; img.src = convertFileSrc(photo.file);
+      const meta = document.createElement("div");
+      meta.className = "photo-meta";
+      const when = document.createElement("span");
+      when.textContent = photo.takenAt ? new Date(photo.takenAt * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+      meta.append(when);
+      if (uploadedId) {
+        const on = document.createElement("span");
+        on.className = "photo-on"; on.textContent = "✓ On profile";
+        const remove = document.createElement("button");
+        remove.type = "button"; remove.className = "link"; remove.textContent = "Remove";
+        remove.addEventListener("click", (event) => { event.stopPropagation(); void removePhoto(photo, uploadedId); });
+        meta.append(on, remove);
+      } else {
+        const check = document.createElement("input");
+        check.type = "checkbox"; check.className = "photo-check"; check.tabIndex = -1; check.checked = photos.selected.has(photo.id);
+        card.append(check);
+        card.addEventListener("click", () => {
+          if (photos.busy) return;
+          if (photos.selected.has(photo.id)) photos.selected.delete(photo.id); else photos.selected.add(photo.id);
+          renderPhotos();
+        });
+      }
+      card.prepend(img);
+      card.append(meta);
+      return card;
+    }));
+  }
+
+  // A photo as WebP, at most 2560 px wide (the 4K PNGs are 6-13 MB; this is ~0.5-1.5 MB and looks the same).
+  async function photoWebp(photo) {
+    const bitmap = await createImageBitmap(await (await fetch(convertFileSrc(photo.file))).blob());
+    const scale = Math.min(1, 2560 / bitmap.width);
+    const width = Math.round(bitmap.width * scale), height = Math.round(bitmap.height * scale);
+    const canvas = new OffscreenCanvas(width, height);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+    let blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.9 });
+    if (blob.size > 3.8 * 1024 * 1024) blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.78 });
+    return { blob, width, height };
+  }
+
+  async function uploadPhoto(photo) {
+    const { blob, width, height } = await photoWebp(photo);
+    const form = new FormData();
+    form.set("photo", blob, "photo.webp");
+    form.set("meta", JSON.stringify({ gamePhotoId: photo.id, gameUid: photo.gameUid, takenAt: photo.takenAt, sceneId: photo.sceneId,
+      pos: photo.pos, aniimo: photo.aniimo, width, height }));
+    const response = await fetch(`${api()}/profile/photos`, { method: "POST", headers: authHeaders(), body: form });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
+    photos.uploaded.set(photo.id, result.id);
+  }
+
+  async function uploadSelected() {
+    const picked = photos.list.filter((p) => photos.selected.has(p.id));
+    if (!picked.length || photos.busy) return;
+    photos.busy = true;
+    const button = $("[data-photos-upload]");
+    let done = 0;
+    try {
+      for (const photo of picked) {
+        button.textContent = `Uploading ${done + 1} of ${picked.length}…`; button.disabled = true;
+        await uploadPhoto(photo);
+        photos.selected.delete(photo.id); done += 1;
+        renderPhotos();
+      }
+      toast(done === 1 ? "Photo added to your profile" : `${done} photos added to your profile`);
+    } catch (error) {
+      toast(`Couldn't upload ${done ? "all the photos" : "the photo"}: ${error.message || error}`, true);
+    } finally {
+      photos.busy = false;
+      renderPhotos();
+    }
+  }
+
+  async function removePhoto(photo, uploadedId) {
+    try {
+      const response = await fetch(`${api()}/profile/photos/${encodeURIComponent(uploadedId)}`, { method: "DELETE", headers: authHeaders() });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `The server answered ${response.status}.`);
+      photos.uploaded.delete(photo.id);
+      renderPhotos();
+      toast("Photo removed from your profile");
+    } catch (error) {
+      toast(`Couldn't remove the photo: ${error.message || error}`, true);
+    }
+  }
+
+  $("[data-photos-upload]").addEventListener("click", () => void uploadSelected());
+  $("[data-photos-refresh]").addEventListener("click", () => void loadPhotos());
+  $("[data-photos-select]").addEventListener("click", () => {
+    for (const photo of photos.list) if (!photos.uploaded.has(photo.id)) photos.selected.add(photo.id);
+    renderPhotos();
+  });
+  $('[data-page="photos"]').addEventListener("click", () => void loadPhotos());
+
+  // Upload new photos automatically: once a minute, photos taken since that was switched on go up on their own.
+  setInterval(async () => {
+    if (!get("app.photos_auto")) {
+      if (get("app.photos_auto_since")) { set("app.photos_auto_since", 0); scheduleSave(""); }
+      return;
+    }
+    if (!get("leaderboard.token") || photos.busy) return;
+    if (!get("app.photos_auto_since")) { set("app.photos_auto_since", Math.floor(Date.now() / 1000)); scheduleSave(""); return; }
+    await loadPhotos();
+    const since = get("app.photos_auto_since");
+    const fresh = photos.list.filter((p) => !photos.uploaded.has(p.id) && (p.takenAt || 0) >= since);
+    if (!fresh.length) return;
+    photos.busy = true;
+    try {
+      for (const photo of fresh) await uploadPhoto(photo);
+      toast(fresh.length === 1 ? "New photo added to your profile" : `${fresh.length} new photos added to your profile`);
+    } catch (error) {
+      toast(`Couldn't upload a new photo: ${error.message || error}`, true);
+    } finally {
+      photos.busy = false;
+      renderPhotos();
+    }
+  }, 60 * 1000);
+
   for (const input of $$("[data-k]")) {
     input.addEventListener("change", () => {
       let value = input.type === "checkbox" ? input.checked : input.value.trim();

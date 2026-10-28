@@ -16,6 +16,7 @@
       <button type="button" data-page="dps">DPS Meter</button>
       <button type="button" data-page="sanctum">Sanctum Helper</button>
       <button type="button" data-page="site">AniiLogs</button>
+      <button type="button" data-page="photos">Photos</button>
       <button type="button" data-page="general">General Settings</button>
       <button type="button" data-page="about">About</button>
       <div class="nav-foot">
@@ -240,6 +241,24 @@
       </section>
 
       <!-- General Settings: tabs across the top -->
+      <!-- Photos: the pictures taken in Aniimo, put on the AniiLogs profile -->
+      <section class="page page-wide" data-page-body="photos">
+        <header class="page-head"><h1>Photos</h1></header>
+        <p class="lead">Put the photos you take in Aniimo on your AniiLogs profile. They show wherever your profile shows: only to you while it's private, to everyone once you make it public. Each keeps its date, your character, the Aniimo in it and where you took it.</p>
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="app.photos_auto"><span></span>
+            <div><strong>Upload new photos automatically</strong><small>Every photo you take from now on goes to your profile as soon as aLogs sees it. Photos you took before stay yours to pick.</small></div></label>
+          <p class="hint" data-photos-state>Looking for your photos…</p>
+          <div class="row">
+            <button type="button" class="primary" data-photos-upload disabled>Upload selected</button>
+            <button type="button" data-photos-select>Select all not uploaded</button>
+            <button type="button" data-photos-refresh>Refresh</button>
+          </div>
+        </div>
+        <div class="photo-grid" data-photos-grid></div>
+        <p class="hint">Aniimo only saves photos on this PC when its <strong>Settings › Storage</strong> is <strong>Local</strong> or <strong>Local and cloud</strong>. Photos are uploaded as high-quality WebP (up to 2560 px wide).</p>
+      </section>
+
       <section class="page page-wide" data-page-body="general">
         <header class="page-head"><h1>General Settings</h1></header>
         <div class="tabs" role="tablist" aria-label="General Settings">

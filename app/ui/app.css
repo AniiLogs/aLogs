@@ -221,3 +221,13 @@ button.capturing { border-color: var(--gold); color: var(--gold); }
 .backdrop-card { position: absolute; left: 5.77%; top: 13.33%; width: 46.92%; border-radius: 9px; line-height: 0; }
 .backdrop-card img { width: 100%; }
 .field textarea { font: inherit; resize: vertical; min-height: 64px; }
+/* Photos page: the game's pictures, picked for the profile */
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.photo-card { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; }
+.photo-card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--panel-2); }
+.photo-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.photo-card.is-uploaded { cursor: default; }
+.photo-card .photo-check { position: absolute; top: 8px; left: 8px; width: 18px; height: 18px; accent-color: var(--accent); pointer-events: none; }
+.photo-card .photo-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; color: var(--muted); font-size: 12px; }
+.photo-card .photo-on { color: var(--accent-text); font-weight: 650; }
+.photo-card .link { padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; cursor: pointer; }

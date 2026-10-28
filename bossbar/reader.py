@@ -321,12 +321,37 @@ def prep_labelled(img, box, scale, label, size=2):
     ImageDraw.Draw(out).text((20, 20 + c.height * 0.2), label, fill=0, font=font); out.paste(c, (w, 20))
     return out
 
+def prep_labelled_dark(img, box, scale, label, size=3):
+    """prep_labelled() for dark text on a light background (the Profile screen's numbers): not inverted."""
+    from PIL import ImageDraw, ImageFont
+    c = img.crop(tuple(int(v) for v in box)).convert('L')
+    c = ImageOps.autocontrast(c.resize((max(1, int(c.width * size / scale)), max(1, int(c.height * size / scale))), Image.LANCZOS), cutoff=2)
+    try: font = ImageFont.truetype('arialbd.ttf', max(12, int(c.height * 0.6)))
+    except OSError: font = ImageFont.load_default()
+    w = int(font.getlength(label)) + 60
+    out = Image.new('L', (c.width + w + 20, c.height + 40), 255)
+    ImageDraw.Draw(out).text((20, 20 + c.height * 0.2), label, fill=0, font=font); out.paste(c, (w, 20))
+    return out
+
 def prep_short(img, box, scale, copies=3):
     """Very short text (e.g. 'x16'): Windows OCR skips it on its own, so repeat it side by side."""
     c = prep_white(img, box, scale); gap = 20
     out = Image.new('L', (c.width * copies + gap * (copies + 1), c.height + 2 * gap), 255)
     for i in range(copies): out.paste(c, (gap + i * (c.width + gap), gap))
     return out
+
+def after_label(text, label):
+    """What prep_labelled() read after its drawn label: "Player name: 0" or "Player name: / 0" -> "0"."""
+    t = (text or '').strip()
+    low, key = t.lower(), label.lower().rstrip(':')
+    if key in low: t = t[low.index(key) + len(key):]
+    return t.strip(' /:;|.').strip()
+
+def ink_aspect(img, box, thr=200):
+    """Width / height of the bright text in a box (a one-character name: a zero is narrow, about 0.6; an O round,
+    about 0.9)."""
+    b = img.crop(tuple(int(v) for v in box)).convert('L').point(lambda v: 255 if v > thr else 0).getbbox()
+    return (b[2] - b[0]) / (b[3] - b[1]) if b else None
 
 # ---- OCR (Windows built-in: ocr-helper.exe when shipped, else a long-running PowerShell helper) ----
 OCR_EXE = os.path.join(HERE, 'ocr-helper.exe')   # native helper (app/ocr-helper): grey pixels on stdin, no image files

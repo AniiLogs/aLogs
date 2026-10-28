@@ -17,6 +17,7 @@ use tauri::{AppHandle, Manager, State, WindowEvent};
 mod audio;
 mod auth;
 mod capture;
+mod photos;
 mod hidhide;
 mod sanctum;
 mod site;
@@ -77,7 +78,7 @@ fn read_json(path: &Path) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn read_settings() -> Value {
+pub(crate) fn read_settings() -> Value {
     match read_json(&settings_path()) {
         Value::Object(map) => Value::Object(map),
         _ => json!({}),
@@ -472,7 +473,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target,
-            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, collect_logs, site::site_view,
+            auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, collect_logs, photos::game_photos, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,

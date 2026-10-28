@@ -9,7 +9,7 @@ publish = false
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "unstable"] }   # unstable: the website view inside the window (site.rs)
+tauri = { version = "2", features = ["tray-icon", "unstable", "protocol-asset"] }   # protocol-asset: the game's photos in the UI (photos.rs)   # unstable: the website view inside the window (site.rs)
 tauri-plugin-updater = "2"                                         # self-update from the signed GitHub feeds (update.rs)
 semver = "1"
 minisign-verify = "0.3"                                            # checks a kept update again before it runs

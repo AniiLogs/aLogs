@@ -30,6 +30,8 @@ DEFAULTS = {
         'close_to_tray': True,
         'auto_download': True,               # the app downloads updates in the background (General › Updates)
         'beta_updates': False,               # the app's self-update follows the beta feed too (General › Updates)
+        'photos_auto': False,                # Photos: upload new in-game photos to the profile on their own
+        'photos_auto_since': 0,              # ...taken after this (unix time: when that was switched on)
     },
     'sanctum': {                             # Sanctum Helper module (its own options live in its settings.json)
         'enabled': True,

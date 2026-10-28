@@ -881,6 +881,7 @@ class Meter:
         if 'challenge' in heads.get('cs', '').lower(): self.challenge_stats(im, now, u, ux, H); return
         if 'score' in heads.get('bs', '').lower(): self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.egg_rank_info(im, now, u, ux, H); return
+        if head.strip().lower().startswith('profile'): self.profile_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
         if 'adventure' in heads.get('eh', '').lower(): self.egg_result(im, now, u, ux, H, heads['eh']); return
@@ -1552,18 +1553,29 @@ class Meter:
                     if self.fight and self.fight.bossrush: self.fight.scene_ok = True
             elif kind == 'uid': self.set_uid(sid)
 
-    def game_menu(self, name, uid_text, im=None, u=0, ux=0, H=0):
-        """The menu opened with Esc or Start shows your name with your UID right under it. When that UID is the one
-        from the game log, the name is certainly yours: it replaces any earlier guess and is what the leaderboards use.
-        Every Interlink run starts from this menu, so a wrong name can't last."""
+    def game_menu(self, name, uid_text, im=None, u=0, ux=0, H=0, where='menu'):
+        """The menu opened with Esc or Start shows your name with your UID right under it (and the Profile screen
+        shows both too, see profile_screen). When that UID is the one from the game log, the name is certainly yours:
+        it replaces any earlier guess and is what the leaderboards use. Every Interlink run starts from this menu, so
+        a wrong name can't last."""
         digits = re.sub(r'\D', '', (uid_text or '').replace('O', '0'))
         name = re.sub(r'\s+', ' ', (name or '').strip(' /|.'))
+        if where == 'menu' and self.uid and self.uid in digits and len(name) <= 2 and im is not None and u:
+            name = self.short_name(im, u, ux, H) or name             # "0", "Ab": too short for a plain read
         # the UID under it vouches for the name, so a one-character name counts too ("0" is a real one); just not a
         # lone bit of punctuation, which is OCR noise
-        if not self.uid or self.uid not in digits or not 1 <= len(name) <= 40 or (len(name) == 1 and not name.isalnum()): return
+        if not self.uid or self.uid not in digits or not 1 <= len(name) <= 40 or (len(name) == 1 and not name.isalnum()):
+            # your UID is on screen but no name came out of it: say so (once a minute), so a report shows why
+            if self.uid and self.uid in digits and time.time() - getattr(self, 'menu_miss_logged', 0) > 60:
+                self.menu_miss_logged = time.time()
+                log.info(f'game {where}: UID {self.uid} on screen but its name was not read (OCR {name!r})')
+            return
         if self.menu_proven == (self.uid, name): return                  # once per run of the meter
+        # the same name twice in a row first: while the menu slides in, one read can be off ("44inMax")
+        seen, self.menu_candidate = getattr(self, 'menu_candidate', None), (self.uid, name)
+        if seen != (self.uid, name): return
         self.menu_proven = (self.uid, name)
-        log.info(f'game menu: {name} above UID {self.uid} - this is your character')
+        log.info(f'game {where}: {name} with UID {self.uid} - this is your character')
         self.character_name = name
         remember_character(self.uid, name, verified=True)
         proof = None
@@ -1571,8 +1583,93 @@ class Meter:
             # the proof the site keeps: the top of the menu - your picture, name and UID - and nothing else
             d = os.path.join(HERE, 'logs', 'characters'); os.makedirs(d, exist_ok=True)
             proof = os.path.join(d, f'{self.uid}.png')
-            im.crop((int(ux + u * 0.6), int(H * 0.045), int(ux + u * 0.8), int(H * 0.14))).save(proof)
+            # (on the Profile screen: its left column, from the name card down to the UID)
+            box = (0.6, 0.045, 0.8, 0.14) if where == 'menu' else (0.015, 0.06, 0.28, 0.95)
+            im.crop((int(ux + u * box[0]), int(H * box[1]), int(ux + u * box[2]), int(H * box[3]))).save(proof)
         if self.submitter: self.submitter.link_character(self.uid, name, proof=proof)
+
+    def short_name(self, im, u, ux, H):
+        """A name of one or two characters (e.g. "0"): Windows OCR drops so short a word, so it's matched against the
+        game's own font (namereader). When that isn't sure, OCR reads it after a drawn label ("Player name: 0") at two
+        sizes, and a lone round character is told apart by its shape (a zero is narrow, an O round)."""
+        box = (ux + u * 0.657, H * 0.068, ux + u * 0.86, H * 0.104); k = u / 2000
+        reader = self.name_reader()
+        name = reader.read(im, box, u) if reader else None
+        if name: return name
+        r = self.ocr.read({'a': R.prep_labelled(im, box, k, 'Player name:', size=3),
+                           'b': R.prep_labelled(im, box, k, 'Player name:', size=4)})
+        a, b = R.after_label(r.get('a'), 'Player name:'), R.after_label(r.get('b'), 'Player name:')
+        name = a if a and (a == b or not b) else b if b and not a else a or None
+        if name and len(name) == 1 and name in '0Oo':
+            aspect = R.ink_aspect(im, box)
+            if aspect is not None: name = '0' if aspect < 0.78 else ('o' if name == 'o' else 'O')
+        return name
+
+    def name_reader(self):
+        """The game-font name reader (namereader.py), with the font gamefont.py keeps in the data folder; None when
+        the game's font can't be read."""
+        if not hasattr(self, '_name_reader'):
+            import gamefont, namereader
+            font = gamefont.GameFont.load(os.path.join(HERE, 'gamefont'), getattr(self.args, 'player_log', None))
+            self._name_reader = namereader.NameReader(font) if font else None
+        return self._name_reader
+
+    def profile_screen(self, im, now, u, ux, H):
+        """The Profile screen (menu > Profile): your name on your name card at the top left and your UID at the bottom
+        left - the same proof as the menu, and easier to read: dark text on a light card. Players pick the card's
+        picture, so the name is cut out by its own colour, which also drops the coloured mark after it (and the
+        round icon some cards show before it); then read by OCR, or - one to three characters - by the game's font."""
+        if now - getattr(self, 'profile_read', 0) < 2: return
+        self.profile_read = now
+        import namereader
+        name_box = (ux + u * 0.092, H * 0.139, ux + u * 0.272, H * 0.185)     # from the avatar's edge
+        uid_box = (ux + u * 0.03, H * 0.905, ux + u * 0.17, H * 0.945)
+        ink, bg = namereader.ink_colour(im, name_box)
+        mask = namereader.drop_icon(namereader.ink_mask(im, name_box, ink, bg)) if ink else None
+        reads = {'u': R.prep_text(im, uid_box, u / 2000)}
+        if mask is not None:
+            k = 2 * 2000 / u
+            text = ImageOps.invert(mask.convert('L')).resize((max(1, int(mask.width * k)), max(1, int(mask.height * k))), Image.LANCZOS)
+            reads['n'] = ImageOps.expand(text, border=40, fill=255)
+        r = self.ocr.read(reads)
+        name = re.sub(r'\s+', ' ', r.get('n', '')).strip(' /|.')
+        reader = self.name_reader() if mask is not None and len(name) <= 3 else None
+        if reader:
+            name = reader.read(im, name_box, u, px_4k=namereader.PROFILE_PX_4K, mask=mask) or name
+        if not name and mask is not None: log.info(f'profile: name not read ({mask.width}x{mask.height} px of text)')
+        self.game_menu(name, r.get('u', ''), im, u, ux, H, where='profile')
+        if self.uid and self.uid in re.sub(r'\D', '', r.get('u', '').replace('O', '0')):
+            self.profile_stats(im, u, ux, H)
+
+    # Collection Progress on the Profile screen: the value right of each label (dark text on a light pill)
+    PROFILE_STATS = {'aniimoPoint': (0.112, 0.512, 0.150, 0.545), 'sparklingAniimo': (0.234, 0.512, 0.259, 0.545),
+                     'stylePoints': (0.112, 0.560, 0.150, 0.593), 'prismanaAniimo': (0.234, 0.560, 0.259, 0.593)}
+
+    def profile_stats(self, im, u, ux, H):
+        """Your own Profile's Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points, Prismana Aniimo), for
+        your AniiLogs profile: white numbers on grey, matched digit by digit against the game's font (OCR, after a
+        drawn label, when that isn't sure), kept when two reads in a row agree, and sent when they changed."""
+        import namereader
+        reader, stats, unsure = self.name_reader(), {}, {}
+        for key, b in self.PROFILE_STATS.items():
+            box = (ux + u * b[0], H * b[1], ux + u * b[2], H * b[3])
+            ink, bg = namereader.ink_colour(im, box)
+            mask = namereader.ink_mask(im, box, ink, bg) if ink and reader else None
+            v = reader.read(im, box, u, max_chars=7, px_4k=namereader.STATS_PX_4K, mask=mask, chars='0123456789') if mask else None
+            if v: stats[key] = int(v)
+            else: unsure[key] = R.prep_labelled_dark(im, box, u / 2000, 'Count:')
+        if unsure:
+            for key, text in self.ocr.read(unsure).items():
+                v = re.sub(r'(?i)count:?', '', text or '')
+                digits = re.findall(r'\d[\d,]*', v)
+                if len(digits) != 1: return                                   # all four or nothing
+                stats[key] = int(digits[0].replace(',', ''))
+        stats = {key: stats[key] for key in self.PROFILE_STATS}
+        seen, self.stats_candidate = getattr(self, 'stats_candidate', None), (self.uid, stats)
+        if seen != (self.uid, stats) or getattr(self, 'stats_sent', None) == (self.uid, stats): return
+        self.stats_sent = (self.uid, stats)
+        log.info(f'profile: collection {stats} (UID {self.uid})')
+        if self.submitter: self.submitter.character_stats(self.uid, stats)
 
     def set_uid(self, uid):
         """The player's UID, however the game log gave it: also brings back the name saved for it (characters.json),

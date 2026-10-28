@@ -61,6 +61,12 @@ def _read_json(path):
         with open(path, encoding='utf-8') as f: return json.load(f)
     except (OSError, ValueError): return None
 
+def _unchanged(path, raw):
+    """The queued file still holds what was read from it (not rewritten by a newer record while it was sending)."""
+    try:
+        with open(path, encoding='utf-8') as f: return f.read() == raw
+    except OSError: return False
+
 def _form(fields, files):
     """multipart/form-data from text fields and (name, filename, type, bytes) files."""
     boundary = uuid.uuid4().hex
@@ -120,6 +126,15 @@ class Submitter(threading.Thread):
         self.wake.set()
 
 
+    def character_stats(self, uid, stats):
+        """Your character's Collection Progress from the game's Profile screen (live.profile_stats), for your profile.
+        Sent after the character's link (queue files go in name order), and only for a character you proved."""
+        if not self.config or not self.config['link_character'] or not uid: return
+        with open(os.path.join(QUEUE, _safe(f'stats__{uid}') + '.json'), 'w', encoding='utf-8') as f:
+            json.dump({'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()}, f)
+        log.info(f'leaderboard: queued profile numbers for UID {uid}')
+        self.wake.set()
+
     def drop_proof(self, item):
         """A proof picture is only kept until it's sent (Captures & logs > Keep screenshots: until their data is saved)."""
         if int(C.load()['capture'].get('keep_hours', 0)) != 0: return
@@ -157,7 +172,7 @@ class Submitter(threading.Thread):
             except OSError: battle = None
         if evidence: body, ctype = _multipart(item['payload'], evidence, battle)
         else: body = json.dumps(item['payload']).encode()
-        endpoint = 'characters' if item.get('endpoint') == 'characters' else 'submissions'
+        endpoint = item['endpoint'] if item.get('endpoint') in ('characters', 'characters/stats') else 'submissions'
         req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/{endpoint}", data=body, method='POST',
                                      headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,
                                               'user-agent': CLIENT_VERSION})
@@ -174,7 +189,8 @@ class Submitter(threading.Thread):
                 if not name.endswith('.json'): continue
                 path = os.path.join(QUEUE, name)
                 try:
-                    with open(path, encoding='utf-8') as f: item = json.load(f)
+                    with open(path, encoding='utf-8') as f: raw = f.read()
+                    item = json.loads(raw)
                     status, reply = self.send(item)
                     log.info(f"leaderboard: sent {name} -> {status} {reply.get('submissionId') or reply.get('gameUid') or reply.get('disputeId')}"
                              + (' (updated)' if reply.get('updated') else ''))
@@ -183,7 +199,8 @@ class Submitter(threading.Thread):
                         try: os.remove(DISPUTE)
                         except OSError: pass
                     self.last_result = (time.time(), f'sent {name[:-5]}')
-                    os.remove(path); self.drop_proof(item)
+                    if _unchanged(path, raw): os.remove(path); self.drop_proof(item)
+                    else: self.wake.set()           # replaced while it was sending (a newer read): send that one too
                 except urllib.error.HTTPError as e:
                     msg = e.read()[:300].decode('utf-8', 'replace')
                     if e.code == 409 and item.get('endpoint') == 'characters' and item.get('proof') and '"dispute":true' in msg.replace(' ', ''):

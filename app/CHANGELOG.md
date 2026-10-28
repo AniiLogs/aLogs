@@ -41,6 +41,14 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Egg Heist after each match:** the rank screen that follows a match updates your season standing on the
   leaderboard, and your profile gets the Rank Points the match added and your progress bar ("1337/1350 +18"); at Egg
   Emperor, your egg count. Rank Info also sends where your next rank starts, for your profile.
+- **Photos:** put the pictures you take in Aniimo on your AniiLogs profile. The new Photos page shows the ones the game
+  saved on this PC (Settings › Storage set to Local, or Local and cloud); pick the ones to upload, or turn on
+  **Upload new photos automatically**. Each keeps its date, your character, the Aniimo in it and where you took it, and
+  shows wherever your profile shows: only to you while it's private, to everyone once it's public. Uploaded as
+  high-quality WebP (up to 2560 px), and you can remove any of them again.
+- **Your collection on your profile:** open your Profile in Aniimo (menu › Profile) and your AniiLogs profile gets its
+  Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points and Prismana Aniimo) with the game's icons. Only
+  your own Profile counts (it shows your UID); a friend's is never sent.
 - **Report a problem** (Dashboard): something wrong with aLogs? Send your logs to the AniiLogs developers in one
   click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your
   20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in),
@@ -90,8 +98,14 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the
   boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.
-- **One-character names:** a name like "0" read from the game menu was taken for a misread and dropped, so that
-  player's character never got a name and the leaderboards (which list players by name) hid their records.
+- **Short names are read:** a name like "0" read from the game menu was taken for a misread and dropped, and Windows'
+  text reader often couldn't read a name of one or two characters at all, so that player's character never got a
+  name and the leaderboards (which list players by name) hid their records. Short names are now read letter by letter
+  against the game's own font, and the **Profile** screen (menu › Profile) confirms your name too: your name card and
+  UID together, whatever picture your card has. Opening either one is enough.
+- **No more misread names on your profile:** while the game menu slid open, one blurred read could become your
+  character's name ("44inMax"), and a correct read right after it could be lost on the way to the site. A name now has
+  to read the same twice in a row, and the newest one is always the one sent.
 - **Egg Heist rank always has its season:** when Rank Info's season title hadn't appeared yet, the rank was filed
   without a season, as a separate entry; it now takes the current season.
 - **Egg Heist matches reach the leaderboards:** in Team Mode the end screen's Loot This Match and Total Defeats sit
