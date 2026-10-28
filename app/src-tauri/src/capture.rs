@@ -147,7 +147,7 @@ unsafe extern "system" fn each_window(hwnd: HWND, lparam: LPARAM) -> i32 {
     0
 }
 
-fn find_game(title: &str) -> HWND {
+pub(crate) fn find_game(title: &str) -> HWND {
     let mut search = Search { title: title.to_lowercase(), found: null_mut() };
     unsafe { EnumWindows(Some(each_window), &mut search as *mut Search as LPARAM) };
     search.found

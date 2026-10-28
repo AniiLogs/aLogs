@@ -135,6 +135,43 @@ class SharedCapture:
 
 shared = SharedCapture()
 
+class SharedAudio:
+    r"""Reader for the aLogs app's audio cues (`LocalLogs.Audio.v1`, layout in audio.rs). want() keeps the app
+    listening to the game for a few more seconds; cue() is the newest boss kill sound."""
+    NAME, MAGIC, SIZE = r'LocalLogs.Audio.v1', 0x55414C41, 4096
+
+    def __init__(self):
+        self.base = None; self.next_open = 0.0
+
+    def _open(self, now):
+        if self.base or now < self.next_open: return self.base
+        self.next_open = now + 2.0
+        k = SharedCapture().k
+        h = k.OpenFileMappingW(0xF001F, False, self.NAME)
+        if not h: return None
+        base = k.MapViewOfFile(h, 0xF001F, 0, 0, self.SIZE)
+        if not base or SharedCapture._u32(base, 0) != self.MAGIC: return None
+        self.base = base
+        return base
+
+    def want(self, now, seconds=3.0):
+        base = self._open(now)
+        if base: ctypes.c_uint64.from_address(base + 8).value = int((now + seconds) * 1000)
+        return bool(base)
+
+    def state(self):
+        """0 not listening, 1 listening, 2 can't listen (no game, or Windows refused), None without the app."""
+        return SharedCapture._u32(self.base, 32) if self.base else None
+
+    def cue(self):
+        """(count, unix time the sound started, match score) of the newest boss kill sound, or None."""
+        if not self.base: return None
+        n = SharedCapture._u32(self.base, 28)
+        if not n: return None
+        return n, SharedCapture._u64(self.base, 16) / 1000, ctypes.c_float.from_address(self.base + 24).value
+
+audio = SharedAudio()
+
 def grab_window(hwnd, top_fraction=None):
     """The game's client area (or just its top part) as a PIL image, or None: the app's shared frame when it is
     fresh, else our own PrintWindow capture."""

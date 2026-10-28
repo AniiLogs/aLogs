@@ -20,6 +20,9 @@ STATUS_FILE = os.path.join(DATA, 'status.json')
 
 DEFAULTS = {
     'meter': {'enabled': True},               # the desktop app starts the meter only while this is on
+    'audio_cues': {                          # the game's own sounds, heard through the app (Aniimo's audio only)
+        'boss_kill': True,                   # the boss kill sound dates the killing blow out in the world
+    },
     'app': {                                 # used by the desktop app, kept here so both sides agree
         'welcome_done': False,
         'show_guide': True,                  # the setup guide when aLogs starts (until finished or skipped)

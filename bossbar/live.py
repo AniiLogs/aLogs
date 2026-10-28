@@ -23,7 +23,9 @@ HERE = C.DATA                     # everything the meter writes (logs, records, 
 PLAYER_LOG = os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'LocalLow', 'Aniimo', 'Aniimo', 'Player.log')
 METER_LOG = os.path.join(HERE, 'logs', 'meter.log')
 BAR_GONE_GRACE = 20     # seconds a fight waits for its bar to come back (ultimates and effects can hide it)
-KILL_TO_COUNTDOWN = 0.5 # seconds from the killing blow to the game's Catch Countdown (the slow motion after a kill)
+KILL_SOUND_WINDOW = (2.5, 6.0)  # the boss kill sound counts when it started this many seconds before the countdown
+KILL_TO_COUNTDOWN = 3.0 # seconds from the killing blow to the game's Catch Countdown (the kill-cam: no HUD, slow
+                        # motion, speed lines; 3.0-3.1 s on 11 Alpha kills, measured frame by frame)
 TOP_PART = 0.42         # share of the frame captured while a bar is locked (bar, title, xN, timer are all up there)
 FIGHT_INTERVAL = 1 / 30 # seconds between frames during a fight
 INK_MIN = 40            # black pixels a prepared white-text crop needs before it is worth reading (screen_crops)
@@ -501,7 +503,9 @@ class Fight:
         self.seg_info = seg                      # {'grade', 'size_hp', 'left_hp'} of the current star segment, or None
         if note: log.info(f'fight: {note} (fill {self.seg_fill * 100:.1f}%, damage {self.damage:,})')
         self.samples.append((now, self.damage))
-        while self.samples and now - self.samples[0][0] > 5: self.samples.popleft()
+        # keep the last sample from before the 5 s window: after a gap with no readings (a BREAK hides the bar for
+        # seconds, then all its damage shows at once) the jump is spread over the time it really took, not one frame
+        while len(self.samples) > 1 and now - self.samples[1][0] >= 5: self.samples.popleft()
         tp = self.timer.predict(now)
         self.elapsed = (duration - tp) if tp is not None else (now - self.t0 if self.hit else 0.0)
         avg = self.damage / self.elapsed if self.elapsed > 1 else 0
@@ -676,12 +680,14 @@ class Meter:
             left = (f.max_hp - f.damage) / f.max_hp if f.max_hp else 1
             if why.startswith('caught') and not f.bossrush and f.hit and (f.timer is None or f.timer.predict(time.time()) is None):
                 # A finishing ultimate hides the HUD (bar included) for its cutscene, then its attack plays out and the
-                # killing blow lands at its end, followed by ~0.5 s of slow motion and the Catch Countdown. So the
-                # fight runs to just before the countdown, not to the last bar reading (measured frame by frame).
-                kill = self.catch_seen - KILL_TO_COUNTDOWN
+                # killing blow lands at its end, followed by ~3 s of kill-cam and the Catch Countdown. So the fight
+                # runs to the kill, 3 s before the countdown, never earlier than the last bar reading.
+                # The boss kill sound, when heard, dates the blow itself (Boss kill sound, DPS Meter > Meter).
+                heard = self.kill_sound()
+                kill, how = ((heard, 'by its sound') if heard is not None else
+                             (self.catch_seen - KILL_TO_COUNTDOWN, f'{KILL_TO_COUNTDOWN:.0f} s before the Catch Countdown'))
                 if kill - f.t0 > f.elapsed:
-                    log.info(f'fight {f.title}: the bar was last read at {f.elapsed:.1f}s; '
-                             f'the kill, just before the Catch Countdown, at {kill - f.t0:.1f}s')
+                    log.info(f'fight {f.title}: the bar was last read at {f.elapsed:.1f}s; the kill, {how}, at {kill - f.t0:.1f}s')
                     f.elapsed = kill - f.t0
             if why.startswith('caught') or (why == 'boss bar gone' and left < 0.15):
                 f.mark_defeated(why)
@@ -711,12 +717,13 @@ class Meter:
         events = []
         if 'level' in heads.get('pl', '').lower():
             m = re.search(r'(\d[\d,]*)\s*/\s*(\d[\d,]*)', heads.get('pe', ''))
-            g = re.search(r'Exp\s*\+\s*(\d[\d,]*)', heads.get('pe', ''), re.I)
             n = re.search(r'(\d{1,3})\s*$', self.ocr.read({'n': R.prep_labelled(
                 im, (ux + u * 0.47, H * 0.148, ux + u * 0.53, H * 0.192), u / 2000, 'Level:')}).get('n', ''))
             if n and m:
                 cur, need = (int(v.replace(',', '')) for v in m.groups())
-                if cur <= need: events.append(('exp', f'{n.group(1)}', cur, need, int(g.group(1).replace(',', '')) if g else ''))
+                if cur <= need: self.exp_card = getattr(self, 'exp_card', []) + [(now, int(n.group(1)), cur, need)]
+        ev = self.exp_settled(now)
+        if ev: events.append(ev)
         c = re.match(r"\s*([A-Za-z][A-Za-z '-]{1,30}?)\s*/\s*L[vVyY]\.?\s*(\d{1,3})", heads.get('pc', ''))
         if c and re.search(r'view|close', heads.get('pb', ''), re.I):
             events.append(('catch', c.group(1).strip(), int(c.group(2)), '', ''))
@@ -728,6 +735,31 @@ class Meter:
             if now - seen.get(key, -1e9) >= 60: self.profile_note(ev)
             seen[key] = now
         self.profile_seen = {k: t for k, t in seen.items() if now - t < 120}
+
+    def exp_settled(self, now):
+        """The EXP card's level and current EXP, once the card is gone (no read for 2 s): the card slides in and counts
+        up, so its reads come in cut off or short ('985' for 9,885) but never too high. The card's real numbers are
+        then its highest read, at the level most reads agree on. Kept only when it's not behind the last noted value
+        for this character (EXP never drops within a level, and a level only goes up - a new level needs two reads)."""
+        card = getattr(self, 'exp_card', [])
+        if not card or now - card[-1][0] < 2: return None
+        self.exp_card = []
+        level, votes = collections.Counter(r[1] for r in card).most_common(1)[0]
+        _, _, cur, need = max((r for r in card if r[1] == level), key=lambda r: r[2])
+        uid = self.uid or ''; known = getattr(self, 'exp_last', None)
+        if known is None:
+            known = self.exp_last = {}
+            try:     # the last noted values, from earlier sessions
+                with open(os.path.join(HERE, 'logs', 'profile_events.csv'), encoding='utf-8') as fh:
+                    for r in csv.reader(fh):
+                        if len(r) > 5 and r[2] == 'exp' and r[3].isdigit() and r[4].isdigit():   # the highest (older
+                            known[r[1]] = max(known.get(r[1], (0, 0)), (int(r[3]), int(r[4])))  # notes had misreads)
+            except OSError: pass
+        last = known.get(uid)
+        if last and (level < last[0] or (level > last[0] and votes < 2) or (level == last[0] and cur <= last[1])):
+            return None
+        known[uid] = (level, cur)
+        return ('exp', str(level), cur, need, '')
 
     def profile_note(self, ev):
         kind = ev[0]
@@ -1527,8 +1559,22 @@ class Meter:
         a.no_debug_frames = not cfg['capture']['debug_frames']; a.no_auto_click = not cfg['results']['auto_open_battle_data']
         log.info('settings changed - applied')
 
+    def kill_sound(self):
+        """When the boss kill sound started, if the app heard one in the seconds before the Catch Countdown."""
+        if not self.args.cfg.get('audio_cues', {}).get('boss_kill'): return None
+        c = wc.audio.cue()
+        if not c or getattr(self, 'kill_sound_used', None) == c[0]: return None
+        _, at, score = c
+        if not KILL_SOUND_WINDOW[0] <= self.catch_seen - at <= KILL_SOUND_WINDOW[1]: return None
+        self.kill_sound_used = c[0]
+        log.info(f'boss kill sound heard {self.catch_seen - at:.1f}s before the Catch Countdown (match {score:.2f})')
+        return at
+
     def step(self):
         self.reload_settings(time.time())
+        # out in the world, keep the app listening for the boss kill sound while a fight is on
+        if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
+            wc.audio.want(time.time())
         self.game_events()
         self.check_pending_run(time.time())
         # while a fight's bar is locked, the top of the frame is all that's needed (cheaper capture)

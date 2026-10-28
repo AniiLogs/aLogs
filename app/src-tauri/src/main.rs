@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, WindowEvent};
+mod audio;
 mod auth;
 mod capture;
 mod hidhide;
@@ -360,6 +361,7 @@ fn main() {
                 })
                 .build(app)?;
             let title = read_settings().pointer("/game/window_title").and_then(Value::as_str).unwrap_or("Aniimo").to_string();
+            audio::start(title.clone());     // listens only while the meter asks (Boss Kill audio cue)
             capture::start(title);
             // The meter runs whenever the app is open; the watchdog brings it back if it ever stops.
             // Sanctum Helper (when enabled) likewise.

@@ -8,6 +8,7 @@ window.PATCH_NOTES = [
     "heading": "New",
     "items": [
      "**A name:** the app is now **aLogs: Aniiloger's Companion App** (aLogs for short), in its window, the sidebar, About, the installer and the tray. Your settings, records and install stay where they were.",
+     "**A new icon:** Eklue's emblem inside an HP dial and a break bar, ringed by six of the game's biggest buffs, on the desktop, the taskbar, the tray, the installer and the sidebar.",
      "**aLogs updates itself:** it checks for new versions on its own and shows them in the sidebar, with a progress bar while one downloads. **Install now** closes aLogs, installs with just a progress bar (no installer to click through) and opens the new version; **Next time aLogs opens** installs it then. Updates download in the background unless you turn that off (General › Updates), nothing installs without your choice, and only one downloaded update is ever kept. Betas update the same way: General › Get beta updates, and anyone already on a beta keeps getting betas until the release catches up. About shows exactly which build you have (for example \"0.1.28 · RC10\"). (This version still installs the usual way.)",
      "**Setup guide:** a few short steps when aLogs starts: sign in with Discord, choose what goes to the leaderboards, and how result screens are handled. It turns itself off once you finish or skip it, and General can show it again.",
      "**Sign in to sync** in the sidebar, under the meter's state: one click to sign in with Discord, and once signed in it shows who you are (click it for the account settings).",
@@ -15,7 +16,8 @@ window.PATCH_NOTES = [
      "**A dark background for the DPS window** (DPS Meter › Overlay): a slider from none to solid, with a live preview, styled like Interlink's stars and timer panel, to keep the numbers readable over bright effects.",
      "**The fight's result stays on screen:** when a boss goes down, the DPS window shows the final numbers (the last hit counted, \"Defeated\", the fight's time) instead of disappearing. Out in the world you choose how long (10 seconds by default) in DPS Meter › Overlay.",
      "**Being attacked while you're in another window:** like the game's own \"Under attack\" warning, \"You're being attacked in Aniimo\" pops up for 2 seconds every 5 while your boss fight goes on, with the red flash around the screen's edges the game shows when you're hit. Click the text to go back to the game. A fight that ran mostly while you were away shows no result.",
-     "**Profile notes:** the meter notes your **catches** (\"Irisal Lv 55\") and your **level and EXP progress** each time the EXP card shows, for your AniiLogs profile."
+     "**Boss kill sound** (DPS Meter › Meter › Audio cues, on by default): out in the world, the sound the game plays with the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds before the Catch Countdown, as before.",
+     "**Profile notes:** the meter notes your **catches** (\"Irisal Lv 55\") and your **level and current EXP** each time the EXP card shows, for your AniiLogs profile. It keeps the card's final numbers (not ones caught mid-animation), and never notes EXP going backwards."
     ]
    },
    {
@@ -37,7 +39,9 @@ window.PATCH_NOTES = [
     "items": [
      "**Closing aLogs is instant:** it used to hang for about 10 seconds while it waited on the meter and Sanctum Helper. They now finish up on their own (an open fight is still saved) and close within a fraction of a second.",
      "**No more filling up your drive:** the meter's text reader left a small picture behind for nearly every read, in Windows' Temp folder, and never cleaned up (on one PC: 600,000 files, 1.8 GB). It now keeps none, and the first start clears what earlier versions left. Each fight's per-frame log is also cleared after 30 days (your fight results, profile notes and leaderboard records are kept).",
-     "**The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the boss, the fight runs to the killing blow, just before the Catch Countdown, not only to when the cutscene hid the bar.",
+     "**The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.",
+     "**Out in the world fights end at the kill:** the meter ran each fight about 2.5 seconds past the killing blow, through the slow-motion kill-cam to the Catch Countdown, so your DPS showed 12-17% low.",
+     "**The last-5-seconds DPS no longer spikes after a BREAK:** while BREAK hides the boss's HP, its damage shows all at once when the bar comes back, and the meter used to count it as dealt in a split second (100,000+ DPS for a moment). It's now spread over the time it really took.",
      "One misread frame of the boss bar (often as it slides in) no longer freezes the fight's damage until the boss drops below it: a sudden big drop only counts once a following reading confirms it.",
      "**The xN counter reads right at 720p:** below 1080p \"x16\" could be read as \"x6\" in Interlink.",
      "**Sanctum Helper on 16:10 and ultrawide screens:** it read the minimap from the wrong spot (on 3440x1440 well to the left of it); it now finds the game's UI the way the meter does on every screen shape.",

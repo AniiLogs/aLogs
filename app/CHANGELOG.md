@@ -34,8 +34,13 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   attacked in Aniimo" pops up for 2 seconds every 5 while your boss fight goes on, with the red flash around the
   screen's edges the game shows when you're hit. Click the text to go back to the game. A fight that ran mostly while
   you were away shows no result.
-- **Profile notes:** the meter notes your **catches** ("Irisal Lv 55") and your **level and EXP progress** each time
-  the EXP card shows, for your AniiLogs profile.
+- **Boss kill sound** (DPS Meter › Meter › Audio cues, on by default): out in the world, the sound the game plays with
+  the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on
+  your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds
+  before the Catch Countdown, as before.
+- **Profile notes:** the meter notes your **catches** ("Irisal Lv 55") and your **level and current EXP** each time
+  the EXP card shows, for your AniiLogs profile. It keeps the card's final numbers (not ones caught mid-animation),
+  and never notes EXP going backwards.
 
 ### Improved
 - **The meter reacts almost instantly:** it looks for a boss bar 20 times a second, anywhere on screen, and its full
@@ -70,7 +75,12 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   results, profile notes and leaderboard records are kept).
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the
-  boss, the fight runs to the killing blow, just before the Catch Countdown, not only to when the cutscene hid the bar.
+  boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.
+- **Out in the world fights end at the kill:** the meter ran each fight about 2.5 seconds past the killing blow,
+  through the slow-motion kill-cam to the Catch Countdown, so your DPS showed 12-17% low.
+- **The last-5-seconds DPS no longer spikes after a BREAK:** while BREAK hides the boss's HP, its damage shows all at
+  once when the bar comes back, and the meter used to count it as dealt in a split second (100,000+ DPS for a moment).
+  It's now spread over the time it really took.
 - One misread frame of the boss bar (often as it slides in) no longer freezes the fight's damage until the boss drops
   below it: a sudden big drop only counts once a following reading confirms it.
 - **The xN counter reads right at 720p:** below 1080p "x16" could be read as "x6" in Interlink.

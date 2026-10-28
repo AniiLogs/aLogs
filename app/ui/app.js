@@ -4,6 +4,7 @@
   const DEFAULTS = {
     app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, auto_download: true, beta_updates: false },
     meter: { enabled: true },
+    audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, hide_from_capture: false, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
