@@ -51,10 +51,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The fight's result stays on screen:** when a boss goes down, the DPS window shows the final numbers (the last hit
   counted, "Defeated", the fight's time) instead of disappearing. Out in the world you choose how long (10 seconds by
   default) in DPS Meter › Overlay.
-- **Being attacked while you're in another window:** like the game's own "Under attack" warning, "You're being
-  attacked in Aniimo" pops up for 2 seconds every 5 while your boss fight goes on, with the red flash around the
-  screen's edges the game shows when you're hit. Click the text to go back to the game. A fight that ran mostly while
-  you were away shows no result.
+- **Being attacked while you're in another window:** like the game's own "Under attack" warning: while you're in
+  another window, aLogs watches your HP bar, and when it drops, "You're being attacked in Aniimo" pops up over your
+  other windows (for 2 seconds every 5, until the hits stop), with the red flash around the screen's edges the game
+  shows when you're hit. Only real hits count, in a boss fight or anywhere else. Click the text to go back to the
+  game. A fight that ran mostly while you were away shows no result.
 - **Boss kill sound** (DPS Meter › Meter › Audio cues, on by default): out in the world, the sound the game plays with
   the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on
   your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds

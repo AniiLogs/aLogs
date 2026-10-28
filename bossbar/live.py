@@ -380,6 +380,29 @@ def save_proof(pic, base):
     with open(base + '.jpg', 'wb') as f: f.write(buf.getvalue())
     return base + '.jpg'
 
+HP_BAR = (0.400, 0.9296, 0.604, 0.9519)   # your HP bar at the bottom middle (a slight arc), in the 16:9 UI area
+
+def hp_fraction(strip):
+    """How full your HP bar is (0-1) in a picture of HP_BAR, or None when it isn't there (a menu, a loading screen).
+    The fill is bright green; read column by column from the left until it stops, stepping over the HP number that
+    sits on the middle of the bar."""
+    px = strip.convert('RGB').load(); w, h = strip.size
+    filled = []
+    for x in range(w):
+        ok = False
+        for y in range(h):
+            r, g, b = px[x, y]
+            if g > 150 and g > b + 70 and g >= r - 40: ok = True; break
+        filled.append(ok)
+    if not w or not any(filled[:max(1, w * 6 // 100)]): return None
+    end = gap = 0
+    for i, ok in enumerate(filled):
+        if ok: end, gap = i, 0
+        else:
+            gap += 1
+            if gap > w * 7 // 100 and abs(i - w / 2) >= w * 13 / 100: break
+    return (end + 1) / w
+
 def save_picture(im, folder, name):
     """A screen kept as a picture: a JPEG at most 1920 px wide (about 0.3 MB; a 4K PNG is about 5 MB)."""
     d = os.path.join(HERE, 'logs', folder); os.makedirs(d, exist_ok=True)
@@ -1969,8 +1992,7 @@ class Meter:
         else:
             lo, hi = im.convert('L').reduce(max(1, im.width // 64)).getextrema()
             picture = f"a picture from {wc.shared.source or '?'}" + (' (black)' if hi < 20 else '')
-        log.info(f'tabbed out mid-fight ({self.fight.title}): {picture}, boss bar seen {now - self.bar_seen:.1f} s ago'
-                 + (' - alert can show' if now - self.bar_seen < 3 else ' - too long ago for the alert'))
+        log.info(f'tabbed out mid-fight ({self.fight.title}): {picture}, boss bar seen {now - self.bar_seen:.1f} s ago')
         # the bar gone from the picture while the fight goes on (seen on Windows 11's window capture): once a fight, the
         # colours along the row it was on and the picture's average, to tell a hidden HUD, a dimmed or blurred screen
         # and a shifted picture apart
@@ -1982,6 +2004,29 @@ class Meter:
             mean = im.convert('RGB').reduce(max(1, im.width // 32)).resize((1, 1), Image.BOX).getpixel((0, 0))
             log.info(f"tabbed out, no bar: colours along its row (y {yc:.0f}) {' '.join('%02x%02x%02x' % p[:3] for p in row)}; "
                      f"picture {im.width}x{im.height}, average {'%02x%02x%02x' % mean[:3]}")
+
+    HIT_DROP = 0.012          # HP lost (share of the bar) that counts as a hit
+    def hit_watch(self, now):
+        """While you're tabbed out: your HP bar (a strip of its own, 4 times a second); when it drops (in two readings in
+        a row), you're being hit and the overlay shows "You're being attacked" (it used to show for any boss fight,
+        hit or not)."""
+        if self.args.replay is not None or not self.hwnd or wc.is_foreground(self.hwnd) or not self.frame_size[1]:
+            self.hp_seen = None; return
+        if now - getattr(self, 'hp_read_at', 0) < 0.25: return
+        self.hp_read_at = now
+        if getattr(self, 'hp_reader', None) is None: self.hp_reader = wc.SharedCapture(tag=2)
+        W, H = self.frame_size; u = min(W, H * 16 / 9); ux = (W - u) / 2
+        area = ((ux + u * HP_BAR[0]) / W, HP_BAR[1], (ux + u * HP_BAR[2]) / W, HP_BAR[3])
+        strip = self.hp_reader.read_area(self.hwnd, area, shrink=2)
+        hp = hp_fraction(strip) if strip is not None else None
+        seen = getattr(self, 'hp_seen', None)            # (the last reading, a drop waiting for its second reading)
+        if hp is None: return
+        if seen and seen[0] - hp > self.HIT_DROP:
+            if seen[1]:
+                if now - getattr(self, 'hit_at', 0) > 5: log.info(f'tabbed out: HP {seen[1]:.0%} -> {hp:.0%}, "You\'re being attacked" shown')
+                self.hit_at = now; self.hp_seen = (hp, None)
+            else: self.hp_seen = (seen[0], seen[0])     # the drop once: wait for the next reading to agree
+        else: self.hp_seen = (hp, None)
 
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
@@ -2029,6 +2074,7 @@ class Meter:
                     and not self.full_frame_due(time.time()))
         im = self.grab(partial, top_only)
         self.away_note(im)
+        self.hit_watch(time.time())
         if im is None:
             self.out('status', 'waiting for the game window' if not self.hwnd else "can't see the game window"); return
         now = time.time()
@@ -2680,8 +2726,8 @@ def run_overlay(meter, hide):
             return text, colour
         return None
 
-    # --- "You're being attacked": while the game isn't in front and a boss fight is running (your party fights on in
-    #     the background), shown above every window the way the game shows it in its menus (notice 50003, "Under
+    # --- "You're being attacked": while the game isn't in front and your HP bar drops (Meter.hit_watch), shown above
+    #     every window the way the game shows it in its menus (notice 50003, "Under
     #     attack", in the tips panel's A3 area): text centred ~26% down the screen at ~2.6% of its height, up for 2 s
     #     and again every 5 s, each time with the red flash around the screen's edges the HUD plays when you're hit
     #     (UI_Ani_Hud_Hitted: opacity 0 > 0.5 > 0.9 > 0 over 0.73 s). Click the text to go back to the game.
@@ -2785,9 +2831,8 @@ def run_overlay(meter, hide):
                 elif kind == 'img': layered.show(layered.top_hwnd(w), *where)
                 else: w.geometry(f'+{int(where[0])}+{int(where[1])}')
         f = meter.fight
-        if AWAY['on'] and f and time.time() - meter.bar_seen < 3:
-            if alert['since'] is None: log.info("tabbed out mid-fight: \"You're being attacked\" shown")
-            show_alert(f)                                               # tabbed out, boss bar still up
+        if AWAY['on'] and time.time() - getattr(meter, 'hit_at', 0) < 5:
+            show_alert(f)                                               # tabbed out and your HP just dropped
         else: hide_alert()
         latest = None                                          # of several fight frames waiting, only the newest is drawn
         try:
