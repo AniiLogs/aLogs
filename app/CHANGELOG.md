@@ -235,7 +235,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Fixed
 - The party on the prep screen is read wherever it sits (it moves with the boss's challenge text), all four slots
-  are recognised (3P and 4P were missed), and your own slot is found by your green name, leader or not.
+  are recognized (3P and 4P were missed), and your own slot is found by your green name, leader or not.
 - Teammates' names are read the same way on every screen, so one player never shows under two spellings.
 - In Interlink, a boss name read without "Omega" could be taken for the open-world Alpha of the same name, with
   wrong HP. Only this week's Interlink bosses are considered now, and a far-off HP reading is never saved.
@@ -255,7 +255,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### New
 - **Themes:** General Settings has a new Themes tab with the AniiLogs website's themes (Night, Meadow,
-  Emberpup, Pawney) and Custom colours. It changes the app window only; the overlay in the game stays the same.
+  Emberpup, Pawney) and Custom colors. It changes the app window only; the overlay in the game stays the same.
 - **Update notice:** when a new version is out, About gets a dot in the sidebar and an Update button next to the
   patch notes that opens the download page.
 - **Patch notes stay current:** About shows the last five releases straight from GitHub, so you can read what's
