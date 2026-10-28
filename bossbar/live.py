@@ -380,28 +380,15 @@ def save_proof(pic, base):
     with open(base + '.jpg', 'wb') as f: f.write(buf.getvalue())
     return base + '.jpg'
 
-HP_BAR = (0.400, 0.9296, 0.604, 0.9519)   # your HP bar at the bottom middle (a slight arc), in the 16:9 UI area
+HP_BAR = (0.400, 0.915, 0.604, 0.9519)    # your HP bar at the bottom middle with its number on it, in the 16:9 UI area
+HP_TEXT = re.compile(r'(\d[\d ]*)\s*/\s*(\d[\d ]*)')
 
-def hp_fraction(strip):
-    """How full your HP bar is (0-1) in a picture of HP_BAR, or None when it isn't there (a menu, a loading screen).
-    The fill is bright green; read column by column from the left until it stops, stepping over the HP number that
-    sits on the middle of the bar."""
-    px = strip.convert('RGB').load(); w, h = strip.size
-    filled = []
-    for x in range(w):
-        ok = False
-        for y in range(h):
-            r, g, b = px[x, y]
-            if g > 150 and g > b + 70 and g >= r - 40: ok = True; break
-        filled.append(ok)
-    if not w or not any(filled[:max(1, w * 6 // 100)]): return None
-    end = gap = 0
-    for i, ok in enumerate(filled):
-        if ok: end, gap = i, 0
-        else:
-            gap += 1
-            if gap > w * 7 // 100 and abs(i - w / 2) >= w * 13 / 100: break
-    return (end + 1) / w
+def hp_number(ocr, strip, u):
+    """Your HP as the game writes it on the bar ("12643/12694") in a picture of HP_BAR: (current, max), or None."""
+    w, h = strip.size
+    text = ocr.read({'hp': R.prep_white(strip, (w * 0.30, h * 0.36, w * 0.70, h * 0.80), u / 2000)}).get('hp', '')
+    m = HP_TEXT.search(text.replace('O', '0').replace('o', '0'))
+    return (int(m.group(1).replace(' ', '')), int(m.group(2).replace(' ', ''))) if m else None
 
 def save_picture(im, folder, name):
     """A screen kept as a picture: a JPEG at most 1920 px wide (about 0.3 MB; a 4K PNG is about 5 MB)."""
@@ -2005,28 +1992,33 @@ class Meter:
             log.info(f"tabbed out, no bar: colours along its row (y {yc:.0f}) {' '.join('%02x%02x%02x' % p[:3] for p in row)}; "
                      f"picture {im.width}x{im.height}, average {'%02x%02x%02x' % mean[:3]}")
 
-    HIT_DROP = 0.012          # HP lost (share of the bar) that counts as a hit
     def hit_watch(self, now):
-        """While you're tabbed out: your HP bar (a strip of its own, 4 times a second); when it drops (in two readings in
-        a row), you're being hit and the overlay shows "You're being attacked" (it used to show for any boss fight,
-        hit or not)."""
+        """While you're tabbed out: the HP number on your HP bar (a strip of its own, 4 times a second). A reading counts
+        once the same one is read twice in a row (a misread never repeats); one lower than the last that counted is a
+        hit, and the overlay shows "You're being attacked". (The bar's length missed small hits, hits while being
+        healed, and flickered at full HP: false alarms standing in a town.)"""
         if self.args.replay is not None or not self.hwnd or wc.is_foreground(self.hwnd) or not self.frame_size[1]:
-            self.hp_seen = None; return
+            self.hp_seen = self.hp_pending = None; return
         if now - getattr(self, 'hp_read_at', 0) < 0.25: return
         self.hp_read_at = now
         if getattr(self, 'hp_reader', None) is None: self.hp_reader = wc.SharedCapture(tag=2)
+        if getattr(self, 'hp_ocr', None) is None:
+            try: self.hp_ocr = R.Ocr()
+            except Exception as e: log.warning(f'HP reader did not start: {e!r}'); self.hp_ocr = False
+        if not self.hp_ocr: return
         W, H = self.frame_size; u = min(W, H * 16 / 9); ux = (W - u) / 2
         area = ((ux + u * HP_BAR[0]) / W, HP_BAR[1], (ux + u * HP_BAR[2]) / W, HP_BAR[3])
-        strip = self.hp_reader.read_area(self.hwnd, area, shrink=2)
-        hp = hp_fraction(strip) if strip is not None else None
-        seen = getattr(self, 'hp_seen', None)            # (the last reading, a drop waiting for its second reading)
-        if hp is None: return
-        if seen and seen[0] - hp > self.HIT_DROP:
-            if seen[1]:
-                if now - getattr(self, 'hit_at', 0) > 5: log.info(f'tabbed out: HP {seen[1]:.0%} -> {hp:.0%}, "You\'re being attacked" shown')
-                self.hit_at = now; self.hp_seen = (hp, None)
-            else: self.hp_seen = (seen[0], seen[0])     # the drop once: wait for the next reading to agree
-        else: self.hp_seen = (hp, None)
+        strip = self.hp_reader.read_area(self.hwnd, area)
+        hp = hp_number(self.hp_ocr, strip, u) if strip is not None else None
+        # a misread can come twice from one picture ("260/12694"): under a tenth of your HP is taken for one (by then
+        # the hits before it have shown the alert anyway)
+        if hp is None or hp[0] > hp[1] or hp[0] * 10 < hp[1]: return
+        if hp != getattr(self, 'hp_pending', None): self.hp_pending = hp; return      # wait for the same reading again
+        seen = getattr(self, 'hp_seen', None)
+        if seen and hp[1] == seen[1] and hp[0] < seen[0]:
+            if now - getattr(self, 'hit_at', 0) > 5: log.info(f'tabbed out: HP {seen[0]:,} -> {hp[0]:,} of {hp[1]:,}, "You\'re being attacked" shown')
+            self.hit_at = now
+        self.hp_seen = hp
 
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
