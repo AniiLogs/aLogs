@@ -49,7 +49,13 @@ const VK_INSERT: u32 = 0x2D;
 // The game's icon row at 4K (3840x2160 UI area), measured on its HUD: Chat, Photo and Emoticon at x 378 / 505 / 632,
 // 127 px apart, icons ~84 px, centred 133 px above the bottom; their key labels are 40 px high pills centred 59 px
 // above the bottom, light grey (227) with dark text (37, 44, 53), radius ~8, at least 42 px wide.
-const ROW_X: f64 = 632.0 + 127.0; // our slot: right after the Emoticon icon
+const ROW_X: f64 = 632.0 + 127.0; // our slot: right after the Emoticon icon (where it was first seen)
+const ROW_STEP: f64 = 127.0; // from one icon to the next with a keyboard (a controller's row: ~164)
+/// The game's icon row changes: which icons it has depends on where you are and on keyboard or controller (on
+/// 2026-10-28 at 4K: Chat / Photo / Emoticon at x 125 / 251 / 379 with a keyboard, Chat / Emoticon at 125 / 289
+/// with a controller), so the row is found in the picture: (x of the last icon, the row's step), in 4K units, and
+/// the button goes one step after it. x 0: not found yet (ROW_X then).
+static ROW_LAST: Mutex<(f64, f64)> = Mutex::new((0.0, ROW_STEP));
 const ROW_ICON: f64 = 84.0;
 const ROW_ICON_UP: f64 = 133.0;
 const ROW_PILL_UP: f64 = 59.0;
@@ -316,7 +322,8 @@ unsafe fn layout(hwnd: HWND, game: HWND) -> Option<Layout> {
             let _ = ClientToScreen(game, &mut p);
             let (bx, k) = ui_box(rect.right, rect.bottom);
             let icon = (ROW_ICON * k).round() as i32;
-            let cx = p.x as f64 + bx + ROW_X * k;
+            let (last, step) = *ROW_LAST.lock().unwrap();
+            let cx = p.x as f64 + bx + (if last > 0.0 { last + step } else { ROW_X }) * k;
             let cy = p.y as f64 + rect.bottom as f64 - ROW_ICON_UP * k;
             (k, icon, cx, cy)
         }
@@ -444,28 +451,87 @@ fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<boo
     }
     let (cw, ch) = (rect.right as f64, rect.bottom as f64);
     let (bx, k) = ui_box(rect.right, rect.bottom);
-    // the strip from the Chat pill to the Emoticon pill, at 4K: x 340-660, y 2082-2120
-    let (x0, x1) = (bx + 340.0 * k, bx + 660.0 * k);
-    let (y0, y1) = (ch - (2160.0 - 2082.0) * k, ch - (2160.0 - 2120.0) * k);
+    // the bottom left at 4K: x 0-1400, y 1985-2120 (the icons, then their key labels)
+    let (x0, x1) = (bx, bx + ROW_SCAN_W * k);
+    let (y0, y1) = (ch - (2160.0 - ROW_SCAN_TOP) * k, ch - (2160.0 - ROW_SCAN_BOTTOM) * k);
     let share = |v: f64, size: f64| ((v / size).clamp(0.0, 1.0) * 65535.0) as u16;
     let area = [share(x0, cw), share(y0, ch), share(x1, cw), share(y1, ch)];
     let (w, h, px) = reader.read(game.0 as isize, area, 250)?;
-    // inside each pill (4K x 352-400 for Enter, 620-646 for O): mostly light grey, some dark text
-    let looks_like_pill = |from: f64, to: f64| {
-        let (a, b) = ((((bx + from * k) - x0) * w as f64 / (x1 - x0)) as u32, (((bx + to * k) - x0) * w as f64 / (x1 - x0)) as u32);
-        let (mut light, mut dark, mut n) = (0u32, 0u32, 0u32);
-        for y in h / 6..h * 5 / 6 {
-            for x in a.min(w)..b.min(w) {
-                let p = &px[((y * w + x) * 4) as usize..][..3];
-                let (lo, hi) = (*p.iter().min().unwrap(), *p.iter().max().unwrap());
+    let row = icon_row(w, h, &px);
+    if let Some(r) = row {
+        *ROW_LAST.lock().unwrap() = r;
+    }
+    Some(row.is_some())
+}
+
+const ROW_SCAN_W: f64 = 1400.0;
+const ROW_SCAN_TOP: f64 = 1985.0; // icons 84 px high, centred at 2027
+const ROW_SCAN_LABELS: f64 = 2082.0; // key labels (pills or controller buttons) 2082-2120
+const ROW_SCAN_BOTTOM: f64 = 2120.0;
+
+/// The game's icon row in a picture of the bottom left (BGRA, ROW_SCAN_W x ROW_SCAN_TOP-ROW_SCAN_BOTTOM in 4K units):
+/// (x of the last icon, the step between icons) in 4K units, or None when it isn't there. The icons are white
+/// shapes (the same with a keyboard or a controller), each with its key label under it: a light grey pill with dark
+/// text, or a dark controller button. Two or more of them from the left edge, evenly apart.
+fn icon_row(w: u32, h: u32, px: &[u8]) -> Option<(f64, f64)> {
+    let sx = w as f64 / ROW_SCAN_W;
+    let to_y = |v: f64| (((v - ROW_SCAN_TOP) / (ROW_SCAN_BOTTOM - ROW_SCAN_TOP) * h as f64) as u32).min(h);
+    let (icon_top, icon_bottom, label_top) = (0, to_y(ROW_SCAN_TOP + 84.0), to_y(ROW_SCAN_LABELS));
+    let pixel = |x: u32, y: u32| {
+        let p = &px[((y * w + x) * 4) as usize..][..3];
+        (*p.iter().min().unwrap(), *p.iter().max().unwrap())
+    };
+    let rows = icon_bottom.saturating_sub(icon_top).max(1);
+    let white = |x: u32| (icon_top..icon_bottom).filter(|&y| { let (lo, hi) = pixel(x, y); lo >= 225 && hi - lo < 25 }).count() as u32;
+    // runs of columns with some white (an icon), letting small gaps inside one icon join up
+    let gap = (12.0 * sx).max(1.0) as u32;
+    let mut icons: Vec<(f64, f64)> = Vec::new(); // (left, right) in 4K units
+    let mut run: Option<(u32, u32, u32)> = None;
+    let mut keep = |(a, b, sum): (u32, u32, u32)| {
+        let width = (b - a + 1) as f64 / sx;
+        let fill = sum as f64 / ((b - a + 1) * rows) as f64;
+        // an icon's size and fill (the floor, sky or a bright menu isn't a 45-110 px white shape)
+        if !(45.0..=110.0).contains(&width) || !(0.2..=0.8).contains(&fill) {
+            return;
+        }
+        // its key label under it: mostly light grey (a pill) or dark (a controller button)
+        let (mut label, mut n) = (0u32, 0u32);
+        for y in label_top..h {
+            for x in a..=b {
+                let (lo, hi) = pixel(x, y);
+                label += ((lo >= 185 && hi - lo < 30) || hi < 110) as u32;
                 n += 1;
-                light += (lo >= 185 && hi - lo < 30) as u32;
-                dark += (hi < 110) as u32;
             }
         }
-        n > 0 && light * 2 >= n && dark * 25 >= n && dark * 5 <= n * 2
+        if n > 0 && label * 4 >= n {
+            icons.push((a as f64 / sx, b as f64 / sx));
+        }
     };
-    Some(looks_like_pill(352.0, 400.0) && looks_like_pill(620.0, 646.0))
+    for x in 0..w {
+        let c = white(x);
+        let on = c as f64 >= rows as f64 * 0.12;
+        run = match run {
+            Some((a, b, sum)) if on || x - b <= gap => Some((a, if on { x } else { b }, sum + c)),
+            Some(r) => {
+                keep(r);
+                on.then_some((x, x, c))
+            }
+            None => on.then_some((x, x, c)),
+        };
+    }
+    if let Some(r) = run {
+        keep(r);
+    }
+    // the row starts near the left edge; it ends at the first wider gap (the round menu buttons further right)
+    let centers: Vec<f64> = icons.iter().map(|(a, b)| (a + b) / 2.0).collect();
+    if centers.first().map_or(true, |&c| c > 600.0) {
+        return None;
+    }
+    let mut end = 0;
+    while end + 1 < centers.len() && (100.0..=200.0).contains(&(centers[end + 1] - centers[end])) {
+        end += 1;
+    }
+    (end >= 1).then(|| (centers[end], centers[end] - centers[end - 1]))
 }
 
 struct Press {
@@ -641,6 +707,8 @@ unsafe fn run() {
         return;
     };
     WINDOW.store(hwnd.0 as isize, Ordering::SeqCst);
+    // kept out of screen captures, so the row check sees the game's own icons, not this button's pill
+    let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
     let _ = SetTimer(Some(hwnd), TIMER_FOLLOW, 250, None);
     let mut shown = false;
     let mut drawn: Option<(Layout, bool, Option<String>, Option<PathBuf>)> = None;
@@ -701,6 +769,26 @@ unsafe fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The icon row found in pictures of the game's bottom left (x 0-1400, y 1985-2120 at 4K, scaled to a screen size),
+    /// saved as `<width u32><height u32>` + BGRA in the folder ALOGS_ROW_SAMPLES; names with "_ctrl" are a
+    /// controller's row: `ALOGS_ROW_SAMPLES=<dir> cargo test --bin alogs-app icon_row_in_samples -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn icon_row_in_samples() {
+        let dir = std::env::var("ALOGS_ROW_SAMPLES").expect("ALOGS_ROW_SAMPLES");
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        names.sort();
+        for path in names {
+            let data = std::fs::read(&path).unwrap();
+            let (w, h) = (u32::from_le_bytes(data[0..4].try_into().unwrap()), u32::from_le_bytes(data[4..8].try_into().unwrap()));
+            let row = icon_row(w, h, &data[8..]);
+            println!("{}: {:?}", path.file_name().unwrap().to_string_lossy(), row);
+            let (last, step) = row.expect("row not found");
+            let want = if path.to_string_lossy().contains("_ctrl") { (289.0, 164.0) } else { (379.0, 127.0) };
+            assert!((last - want.0).abs() < 8.0 && (step - want.1).abs() < 8.0, "{last} {step}");
+        }
+    }
 
     #[test]
     fn icon_fits_and_dims() {
