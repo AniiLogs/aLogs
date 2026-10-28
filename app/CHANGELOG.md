@@ -139,8 +139,6 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   results, profile notes and leaderboard records are kept). A record that couldn't be sent for 14 days (signed out,
   sending off) is dropped, so its screenshots aren't kept for it forever; what the meter read off result screens goes
   with their pictures, and Sanctum Helper's debug frames go when you turn them off.
-- **Other players' names stay out of your logs:** the meter's log (what Report a problem sends) no longer lists your
-  teammates' names from the party and result screens, only how long each name read was. Your own name is still there.
 - **Less memory while capturing at 4K:** aLogs keeps at most 128 MB of capture buffers (it could hold over 250 MB).
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the

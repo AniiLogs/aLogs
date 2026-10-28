@@ -248,12 +248,6 @@ def remember_character(uid, name, verified=False):
 
 BAR_SPOT = os.path.join(HERE, 'bar_spot.json')
 
-def masked(name, own=None):
-    """Another player's name as the log shows it: only its length (enough to see a name was read), never the name -
-    meter.log goes to the developers with Send logs. Your own name is shown."""
-    if not name or (own and name == own): return name
-    return f'<{len(name)} letters>'
-
 def screen_sig(im):
     """A 48x27 grey thumbnail of the frame (well under a millisecond), to notice the screen changing."""
     return im.resize((48, 27), Image.NEAREST).convert('L').tobytes()
@@ -1378,8 +1372,7 @@ class Meter:
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
         self.party = {'at': now, 'members': members, 'votes': votes}
         if changed:
-            log.info('party: ' + ', '.join(f"{m['name'] if m['self'] else masked(m['name'])}{' (AI)' if m['ai'] else ''}"
-                                           f"{' (you)' if m['self'] else ''}" for m in members))
+            log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}" for m in members))
 
     def party_for_result(self, now):
         """The party read on the prep screen of this run (recent enough to be the same run), or None."""
@@ -1432,9 +1425,7 @@ class Meter:
         elif f and secs is not None and secs < self.args.duration:
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
         boss = f[0].title if f else '(unknown - meter saw no fight)'
-        shown = {k: (masked(v.strip(' /|'), mine) if k.startswith('name') else v) for k, v in t.items()}
-        log.info(f'result screen: banner {banner!r}, OCR {shown!r} -> {boss}: rating {rating}, score {score}, time {secs}, '
-                 f"players {[{**p, 'name': masked(p['name'], mine)} for p in players]}")
+        log.info(f'result screen: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
         d = os.path.join(HERE, 'logs', 'screens'); os.makedirs(d, exist_ok=True)
         shot = self.picture(im, 'screens', 'result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         path = os.path.join(HERE, 'logs', 'results.csv'); new = not os.path.exists(path)
