@@ -56,6 +56,9 @@ const ROW_STEP: f64 = 127.0; // from one icon to the next with a keyboard (a con
 /// with a controller), so the row is found in the picture: (x of the last icon, the row's step), in 4K units, and
 /// the button goes one step after it. x 0: not found yet (ROW_X then).
 static ROW_LAST: Mutex<(f64, f64)> = Mutex::new((0.0, ROW_STEP));
+/// A different row seen once: the button moves only when the next check agrees, so it doesn't follow the icons
+/// while the game slides them over (switching between keyboard and controller).
+static ROW_NEXT: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 const ROW_ICON: f64 = 84.0;
 const ROW_ICON_UP: f64 = 133.0;
 const ROW_PILL_UP: f64 = 59.0;
@@ -459,7 +462,15 @@ fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<boo
     let (w, h, px) = reader.read(game.0 as isize, area, 250)?;
     let row = icon_row(w, h, &px);
     if let Some(r) = row {
-        *ROW_LAST.lock().unwrap() = r;
+        let close = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 6.0 && (a.1 - b.1).abs() < 6.0;
+        let mut last = ROW_LAST.lock().unwrap();
+        let mut next = ROW_NEXT.lock().unwrap();
+        if last.0 == 0.0 || close(*last, r) || next.is_some_and(|n| close(n, r)) {
+            *last = r; // the first sighting, the same spot, or a new spot seen twice in a row
+            *next = None;
+        } else {
+            *next = Some(r);
+        }
     }
     Some(row.is_some())
 }
