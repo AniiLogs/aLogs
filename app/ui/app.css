@@ -2,7 +2,7 @@
 :root {
   --bg: #0b1215; --bg-2: #10242a; --panel: #121d21; --panel-2: #1a2a2f; --line: #315057;
   --text: #f4f4e9; --muted: #9bb5b2; --accent: #62d9b3; --accent-2: #2d9d82; --gold: #f4bd4f; --coral: #f48972;
-  --accent-text: #79e5c2; --on-accent: #08110f;
+  --accent-text: #79e5c2; --gold-text: #f4bd4f; --on-accent: #08110f;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -32,7 +32,7 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
 h2 { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
 .lead { margin: 0 0 16px; color: var(--muted); }
 .hint { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; }
-code { color: var(--gold); font-size: 12px; overflow-wrap: anywhere; }
+code { color: var(--gold-text); font-size: 12px; overflow-wrap: anywhere; }
 
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .card { padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
@@ -41,16 +41,19 @@ code { color: var(--gold); font-size: 12px; overflow-wrap: anywhere; }
 .card small { display: block; margin-top: 4px; color: var(--muted); }
 .card .notice { margin: 10px 0 0; }
 
-.group { display: grid; gap: 10px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
 .group p { margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .row.end { justify-content: flex-end; }
+.row.labeled { align-items: center; }                 /* a label in front of its buttons, like a field's */
+.row.labeled > span:first-child { color: var(--muted); font-size: 12.5px; }
+.row.labeled .hint { margin: 0; }
 .row + .group, .row + .notice { margin-top: 16px; }   /* a box after a row of buttons never touches them */
 button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); color: var(--text); cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 700; }
-button.link { padding: 0 4px; border: 0; background: none; color: var(--accent-text); text-decoration: underline; }
+button.link { padding: 0; border: 0; background: none; color: var(--accent-text); text-decoration: underline; }
 
 .toggle { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; cursor: pointer; }
 .toggle input { position: absolute; opacity: 0; pointer-events: none; }
@@ -91,16 +94,17 @@ details .field { margin-top: 8px; }
 .tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); font-weight: 650; }
 .tab-body .cards { margin-top: 4px; }
 .card p.good { color: var(--accent-text); }
-.setting { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+.setting { display: grid; grid-template-columns: minmax(180px, 1fr) fit-content(60%); gap: 14px; align-items: center; }
+.setting .row > select { flex: 1 1 200px; width: 0; }  /* fills its row but never wider than the box (long options) */
 .setting strong { display: block; font-weight: 650; }
 .setting small { display: block; color: var(--muted); font-size: 12.5px; }
 .setting select, .setting input[type="text"] { min-width: 200px; max-width: 340px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); }
 .slider { display: flex; align-items: center; gap: 10px; }
 .slider input { width: 180px; accent-color: var(--accent); }
 .slider-value { min-width: 52px; color: var(--muted); font-size: 12.5px; text-align: right; }
-button.capturing { border-color: var(--gold); color: var(--gold); }
+button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .style-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
-.style-card { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; text-align: left; }
+.style-card { display: grid; align-content: start; gap: 4px; padding: 10px 12px; border-radius: 12px; text-align: left; }
 .style-card small { color: var(--muted); font-size: 12px; }
 .style-card.is-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel-2)); }
 .layer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -109,8 +113,8 @@ button.capturing { border-color: var(--gold); color: var(--gold); }
 .layer-icon { width: 24px; height: 24px; object-fit: contain; }
 .layout-frame { display: grid; min-height: 300px; place-items: center; border: 1px solid var(--line); border-radius: 14px; background: #071014; overflow: hidden; }
 .layout-image { max-width: 100%; }
-.notice { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--gold); border-radius: 12px; color: var(--gold); }
-.hint.warn { color: var(--gold); }
+.notice { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--gold); border-radius: 12px; color: var(--gold-text); }
+.hint.warn { color: var(--gold-text); }
 .hint.faint { opacity: 0.7; }
 /* Controller: what controller blocking sees */
 .pads { list-style: none; margin: 10px 0 12px; padding: 0; display: grid; gap: 6px; }
@@ -118,7 +122,7 @@ button.capturing { border-color: var(--gold); color: var(--gold); }
 .pads li strong { flex: 1; font-weight: 600; }
 .pads .tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .pads .tag.ok { color: var(--accent); border-color: var(--accent); }
-.pads .tag.warn { color: var(--gold); border-color: var(--gold); }
+.pads .tag.warn { color: var(--gold-text); border-color: var(--gold); }
 .pads li.none { color: var(--muted); }
 .pad-light { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; transition: background 0.15s, box-shadow 0.15s; }
 .pad-light.on { background: var(--accent); box-shadow: 0 0 8px var(--accent); }

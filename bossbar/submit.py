@@ -23,7 +23,7 @@ def load_config():
     return {'api_url': c['api_url'].rstrip('/'), 'token': c['token'], 'screenshots': bool(c.get('include_screenshots', True)),
             'link_character': bool(c.get('link_character', True))}
 
-def _write_json(path, data, **kw):
+def write_json(path, data, **kw):
     """Written whole or not at all (a crash mid-write left a truncated file that stopped the whole queue)."""
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f: json.dump(data, f, **kw)
@@ -41,6 +41,9 @@ def _evidence_bytes(path):
     buf = io.BytesIO(); im.save(buf, 'JPEG', quality=85, optimize=True); return buf.getvalue()
 
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
+QUEUE_DAYS = 14         # a record that couldn't be sent for this long (signed out, sending off, a revoked token) goes,
+                        # so its proof pictures stop being kept for it (the screenshot cleanup then takes them)
+SET_ASIDE_DAYS = 7      # .rejected / .bad copies, kept a few days to look at why
 
 def game_server():
     """The game server (region) you play on, as the game names it - e.g. 'Aniimo-Americas' - from the game's own
@@ -127,7 +130,7 @@ class Submitter(threading.Thread):
         payload = {**payload, 'clientVersion': CLIENT_VERSION}
         if 'server' not in payload: payload['server'] = game_server()      # read each time: you can switch servers
         name = _safe(f"{payload['kind']}__{payload['clientRunId']}") + '.json'
-        _write_json(os.path.join(QUEUE, name), {'endpoint': 'submissions', 'payload': payload,
+        write_json(os.path.join(QUEUE, name), {'endpoint': 'submissions', 'payload': payload,
                     'evidence': evidence_path if self.config['screenshots'] else None,
                     'battle': battle if self.config['screenshots'] else None, 'queued_at': time.time()}, indent=1)
         log.info(f"leaderboard: queued {payload['kind']} {payload['clientRunId']}")
@@ -140,7 +143,7 @@ class Submitter(threading.Thread):
         if not self.config or not self.config['link_character'] or not uid or (uid, name, bool(proof)) == self.linked: return
         if self.linked and self.linked[:2] == (uid, name) and self.linked[2] and not proof: return
         self.linked = (uid, name, bool(proof))
-        _write_json(os.path.join(QUEUE, _safe(f'character__{uid}') + '.json'), {'endpoint': 'characters', 'payload': {'gameUid': uid, 'name': name},
+        write_json(os.path.join(QUEUE, _safe(f'character__{uid}') + '.json'), {'endpoint': 'characters', 'payload': {'gameUid': uid, 'name': name},
                     'proof': os.path.relpath(proof, HERE) if proof else None, 'queued_at': time.time()})
         log.info(f'leaderboard: queued character link {name} (UID {uid}){" with the game menu as proof" if proof else ""}')
         self.wake.set()
@@ -153,7 +156,7 @@ class Submitter(threading.Thread):
         self.refresh()
         if not self.config or not self.config['link_character'] or not uid: return
         name = f'level__{uid}' if 'level' in stats else f'stats__{uid}'
-        _write_json(os.path.join(QUEUE, _safe(name) + '.json'), {'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()})
+        write_json(os.path.join(QUEUE, _safe(name) + '.json'), {'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()})
         log.info(f'leaderboard: queued profile numbers for UID {uid}')
         self.wake.set()
 
@@ -218,11 +221,26 @@ class Submitter(threading.Thread):
                                               'user-agent': CLIENT_VERSION})
         with urllib.request.urlopen(req, timeout=30) as r: return r.status, json.loads(r.read() or b'{}')
 
+    @staticmethod
+    def expire():
+        """Queue items that waited more than QUEUE_DAYS, and set-aside copies after SET_ASIDE_DAYS."""
+        try: names = os.listdir(QUEUE)
+        except OSError: return
+        now = time.time()
+        for name in names:
+            path = os.path.join(QUEUE, name)
+            days = QUEUE_DAYS if name.endswith('.json') else SET_ASIDE_DAYS if name.endswith(('.rejected', '.bad')) else None
+            try:
+                if days is not None and now - os.path.getmtime(path) > days * 86400:
+                    os.remove(path); log.info(f'leaderboard: {name} waited over {days} days, dropped')
+            except OSError: pass
+
     def run(self):
         delay = 5
         while not self.stop:
             self.wake.wait(delay); self.wake.clear()
             self.refresh()                                           # sending turned on or off, signed in or out
+            self.expire()
             if not self.config: delay = 60; continue
             os.makedirs(QUEUE, exist_ok=True)
             for name in sorted(os.listdir(QUEUE)):

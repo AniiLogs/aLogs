@@ -243,10 +243,16 @@ def remember_character(uid, name, verified=False):
     if old.get('name') == name and old.get('verified') == verified: return
     known[uid] = {'name': name, 'verified': verified}
     try:
-        with open(CHARACTERS, 'w', encoding='utf-8') as fh: json.dump(known, fh, ensure_ascii=False)
+        S.write_json(CHARACTERS, known, ensure_ascii=False)
     except OSError: pass
 
 BAR_SPOT = os.path.join(HERE, 'bar_spot.json')
+
+def masked(name, own=None):
+    """Another player's name as the log shows it: only its length (enough to see a name was read), never the name -
+    meter.log goes to the developers with Send logs. Your own name is shown."""
+    if not name or (own and name == own): return name
+    return f'<{len(name)} letters>'
 
 def screen_sig(im):
     """A 48x27 grey thumbnail of the frame (well under a millisecond), to notice the screen changing."""
@@ -257,6 +263,10 @@ def screen_changed(a, b, limit=24):
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a) > limit
 
 IMAGE_TYPES = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
+TEXT_DIAGNOSTICS = ('battle_data', 'nobar')   # their .txt (what was read off the screen, other players' names too) go
+                                              # with the pictures: the records keep what's needed
+TEST_FRAME_DAYS = 7                 # Save test pictures: each day's folder is kept this long...
+TEST_FRAME_BYTES = 3 << 30          # ...and all of them together at most this much (oldest days go first)
 BATTLE_DATA_WAIT = 45               # seconds a best run waits for Battle Data before it goes with the result screen alone
 FIGHT_LOG_DAYS = 30                 # each fight's per-frame CSV is kept this long (its result in logs/fights stays)
 LEFTOVER_HOURS = 6                  # "only until its data is saved": anything a crash or diagnostics left behind
@@ -284,7 +294,8 @@ def clean_old_screenshots(keep_hours):
     for d, dirs, names in os.walk(root, topdown=False):
         if any(os.path.normcase(d).startswith(k) for k in keep_dirs): continue
         for n in names:
-            if not n.lower().endswith(IMAGE_TYPES): continue
+            if not (n.lower().endswith(IMAGE_TYPES)
+                    or (n.lower().endswith('.txt') and os.path.basename(d) in TEXT_DIAGNOSTICS)): continue
             p = os.path.join(d, n)
             if os.path.normcase(os.path.abspath(p)) in needed: continue
             try:
@@ -310,6 +321,30 @@ def clean_old_fight_logs(days=FIGHT_LOG_DAYS):
         except OSError: pass
     return files, size
 
+def clean_test_frames(days=TEST_FRAME_DAYS, limit=TEST_FRAME_BYTES):
+    """Save test pictures (logs/test_frames/<day>/): whole 4K frames add up to gigabytes a day, so a day's folder
+    goes after `days`, and the oldest days first while all of them are over `limit`. Returns (files, bytes) removed."""
+    import shutil
+    root = os.path.join(HERE, 'logs', 'test_frames')
+    try: day_names = sorted(n for n in os.listdir(root) if n.isdigit() and len(n) == 8)
+    except OSError: return 0, 0
+    cutoff = time.strftime('%Y%m%d', time.localtime(time.time() - days * 86400))
+    sizes = {}
+    for n in day_names:
+        found = [os.path.join(at, f) for at, _, fs in os.walk(os.path.join(root, n)) for f in fs]
+        total = 0
+        for f in found:
+            try: total += os.path.getsize(f)
+            except OSError: pass
+        sizes[n] = (len(found), total)
+    files = size = 0; left = sum(b for _, b in sizes.values())
+    for n in day_names:
+        if n >= cutoff and left <= limit: continue
+        if n == time.strftime('%Y%m%d') and n >= cutoff: break     # never today's, while it's being saved
+        shutil.rmtree(os.path.join(root, n), ignore_errors=True)
+        files += sizes[n][0]; size += sizes[n][1]; left -= sizes[n][1]
+    return files, size
+
 def screenshot_cleanup(meter):
     """At start and every hour: clear out old screenshots (the setting can change while the meter runs) and old
     per-frame fight logs."""
@@ -320,6 +355,8 @@ def screenshot_cleanup(meter):
             if files: log.info(f'removed {files} screenshots older than {hours or LEFTOVER_HOURS} hours ({size / 1048576:,.0f} MB)')
             files, size = clean_old_fight_logs()
             if files: log.info(f'removed {files} per-frame fight logs older than {FIGHT_LOG_DAYS} days ({size / 1048576:,.1f} MB)')
+            files, size = clean_test_frames()
+            if files: log.info(f'removed {files} test pictures (older than {TEST_FRAME_DAYS} days or over {TEST_FRAME_BYTES >> 30} GB, {size / 1048576:,.0f} MB)')
         except Exception as e:
             log.warning(f'screenshot cleanup: {e!r}')
         for _ in range(3600):
@@ -364,7 +401,7 @@ def refresh_cycles(meter):
             cycles, changed = gamedata.cached_cycles(os.path.join(HERE, 'game_cycles.json'), meter.args.player_log)
             if cycles:
                 if changed or not os.path.exists(path):
-                    with open(path, 'w', encoding='utf-8') as f: json.dump(cycles, f)
+                    S.write_json(path, cycles)
                     log.info(f'boss rush weeks read from the game data: {len(cycles)} (latest {cycles[-1]["cycle"]})')
                 R.CYCLES_FILE[0] = path
                 upload_cycles(meter, cycles, changed)
@@ -768,7 +805,7 @@ class Meter:
                 im, (ux + u * 0.47, H * 0.148, ux + u * 0.53, H * 0.192), u / 2000, 'Level:')}).get('n', ''))
             if n and m:
                 cur, need = (int(v.replace(',', '')) for v in m.groups())
-                if cur <= need: self.exp_card = getattr(self, 'exp_card', []) + [(now, int(n.group(1)), cur, need)]
+                if cur <= need: self.exp_card = (getattr(self, 'exp_card', []) + [(now, int(n.group(1)), cur, need)])[-60:]   # a card left open: the last minute's reads
         ev = self.exp_settled(now)
         if ev: events.append(ev)
         c = re.match(r"\s*([A-Za-z][A-Za-z '-]{1,30}?)\s*/\s*L[vVyY]\.?\s*(\d{1,3})", heads.get('pc', ''))
@@ -1178,7 +1215,7 @@ class Meter:
         mine = kept.setdefault(f'{self.uid}|{season}', {})
         mine.update({k: v for k, v in values.items() if v is not None})
         try:
-            with open(path, 'w', encoding='utf-8') as f: json.dump(kept, f)
+            S.write_json(path, kept)
         except OSError: pass
         return dict(mine)
 
@@ -1341,7 +1378,8 @@ class Meter:
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
         self.party = {'at': now, 'members': members, 'votes': votes}
         if changed:
-            log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}" for m in members))
+            log.info('party: ' + ', '.join(f"{m['name'] if m['self'] else masked(m['name'])}{' (AI)' if m['ai'] else ''}"
+                                           f"{' (you)' if m['self'] else ''}" for m in members))
 
     def party_for_result(self, now):
         """The party read on the prep screen of this run (recent enough to be the same run), or None."""
@@ -1394,7 +1432,9 @@ class Meter:
         elif f and secs is not None and secs < self.args.duration:
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
         boss = f[0].title if f else '(unknown - meter saw no fight)'
-        log.info(f'result screen: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
+        shown = {k: (masked(v.strip(' /|'), mine) if k.startswith('name') else v) for k, v in t.items()}
+        log.info(f'result screen: banner {banner!r}, OCR {shown!r} -> {boss}: rating {rating}, score {score}, time {secs}, '
+                 f"players {[{**p, 'name': masked(p['name'], mine)} for p in players]}")
         d = os.path.join(HERE, 'logs', 'screens'); os.makedirs(d, exist_ok=True)
         shot = self.picture(im, 'screens', 'result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         path = os.path.join(HERE, 'logs', 'results.csv'); new = not os.path.exists(path)
@@ -1482,13 +1522,13 @@ class Meter:
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
                            else round(f.brk.rate(time.time())[0], 2)}}
         s.update(parts)
-        with open(path, 'w', encoding='utf-8') as fh: json.dump(s, fh, indent=1, ensure_ascii=False)
+        S.write_json(path, s, indent=1, ensure_ascii=False)
         # leaderboard: a run goes, once, when it beats one of your bests on this boss this week (see beats_best),
         # with its result screen and Battle Data. Battle Data's own stats count too, so it decides once that's in.
         if self.submitter and s.get('result') and f.bossrush and 'submit' not in s and not s.get('interlink_scene'):
             log.info("leaderboard: the game log didn't confirm an Interlink scene for this fight - kept in your records, not sent")
             s['submit'] = False
-            with open(path, 'w', encoding='utf-8') as fh: json.dump(s, fh, indent=1, ensure_ascii=False)
+            S.write_json(path, s, indent=1, ensure_ascii=False)
         if self.submitter and s.get('result') and f.bossrush and 'submit' not in s:
             if s.get('battle_data'): self.decide_run(path)
             else: self.pending_run = (path, time.time() + BATTLE_DATA_WAIT)
@@ -1524,7 +1564,7 @@ class Meter:
         better = [k for k, v in mine.items() if v not in (None, 0, [0, 0]) and (old.get(k) is None or v > old[k])]
         if better:
             bests[key] = {**old, **{k: mine[k] for k in better}}
-            with open(path, 'w', encoding='utf-8') as fh: json.dump(bests, fh)
+            S.write_json(path, bests)
         return better
 
     def decide_run(self, path):
@@ -1536,7 +1576,7 @@ class Meter:
         if 'submit' in s: return
         better = self.beats_best(s)
         s['submit'] = bool(better); s['new_bests'] = better
-        with open(path, 'w', encoding='utf-8') as fh: json.dump(s, fh, indent=1, ensure_ascii=False)
+        S.write_json(path, s, indent=1, ensure_ascii=False)
         self.pending_run = None
         if better:
             log.info(f"leaderboard: a new best ({', '.join(better)}) - sending this run")
@@ -1556,7 +1596,7 @@ class Meter:
         except (OSError, ValueError): return
         if s.get('sent'): return
         s['sent'] = True
-        with open(path, 'w', encoding='utf-8') as fh: json.dump(s, fh, indent=1, ensure_ascii=False)
+        S.write_json(path, s, indent=1, ensure_ascii=False)
         self.submitter.enqueue(S.run_payload(s, self.uid, self.args.duration), (s.get('result') or {}).get('screenshot'),
                                battle=(s.get('battle_data') or {}).get('screenshot'))
 
@@ -1904,6 +1944,21 @@ class Meter:
         log.info(f'boss kill sound heard {self.catch_seen - at:.1f}s before the Catch Countdown (match {score:.2f})')
         return at
 
+    def away_note(self, im):
+        """Diagnostics for "You're being attacked" (it has never been seen working): every 3 s while you're tabbed out
+        during a fight, what the meter gets - a picture or not, from which capture, black or not - and how long ago it
+        last saw the boss bar (the alert needs it within 3 s). Read from a "Report a problem"."""
+        now = time.time()
+        if not self.fight or not self.hwnd or self.args.replay is not None or wc.is_foreground(self.hwnd): return
+        if now - getattr(self, 'away_noted', 0) < 3: return
+        self.away_noted = now
+        if im is None: picture = 'no picture'
+        else:
+            lo, hi = im.convert('L').reduce(max(1, im.width // 64)).getextrema()
+            picture = f"a picture from {wc.shared.source or '?'}" + (' (black)' if hi < 20 else '')
+        log.info(f'tabbed out mid-fight ({self.fight.title}): {picture}, boss bar seen {now - self.bar_seen:.1f} s ago'
+                 + (' - alert can show' if now - self.bar_seen < 3 else ' - too long ago for the alert'))
+
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
         rate = self.args.cfg.get('capture', {}).get('fight_rate', 60)
@@ -1949,6 +2004,7 @@ class Meter:
         top_only = (not partial and self.fight is None and self.bar is None and self.args.replay is None
                     and not self.full_frame_due(time.time()))
         im = self.grab(partial, top_only)
+        self.away_note(im)
         if im is None:
             self.out('status', 'waiting for the game window' if not self.hwnd else "can't see the game window"); return
         now = time.time()
@@ -1981,7 +2037,7 @@ class Meter:
                            and s['frame'] == spot['frame'] for s in self.bar_spots):
                     self.bar_spots = [spot] + self.bar_spots[:3]           # the last few spots, newest first
                     try:
-                        with open(BAR_SPOT, 'w', encoding='utf-8') as f: json.dump(self.bar_spots, f)
+                        S.write_json(BAR_SPOT, self.bar_spots)
                     except OSError: pass
             elif self.fight and now - self.bar_seen < BAR_GONE_GRACE:
                 # The bar can hide for a while (effects, BREAK, ultimate animations, menus): the fight stays open and
@@ -2298,7 +2354,7 @@ def run_overlay(meter, hide):
     root = tk.Tk(); root.withdraw()
     def save_positions():
         try:
-            with open(SETTINGS, 'w', encoding='utf-8') as f: json.dump(pos, f)
+            S.write_json(SETTINGS, pos)
         except OSError: pass
     def quit_all(e=None): save_positions(); root.destroy()
     OFF = '+-32000+-32000'                            # hidden = parked off screen (showing again never takes focus)
@@ -2697,7 +2753,9 @@ def run_overlay(meter, hide):
                 elif kind == 'img': layered.show(layered.top_hwnd(w), *where)
                 else: w.geometry(f'+{int(where[0])}+{int(where[1])}')
         f = meter.fight
-        if AWAY['on'] and f and time.time() - meter.bar_seen < 3: show_alert(f)    # tabbed out, boss bar still up
+        if AWAY['on'] and f and time.time() - meter.bar_seen < 3:
+            if alert['since'] is None: log.info("tabbed out mid-fight: \"You're being attacked\" shown")
+            show_alert(f)                                               # tabbed out, boss bar still up
         else: hide_alert()
         latest = None                                          # of several fight frames waiting, only the newest is drawn
         try:

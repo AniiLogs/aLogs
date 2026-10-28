@@ -193,9 +193,9 @@
         <div class="group">
           <h2>Help test aLogs</h2>
           <label class="toggle"><input type="checkbox" data-k="capture.test_frames"><span></span>
-            <div><strong>Save test pictures</strong><small>Full-size pictures at your screen's resolution, for checking that aLogs reads everything right on every screen size: one every 5 seconds during a boss fight, and each screen the meter reads (results, Battle Data, battle prep, Challenge Stats, Profile, Egg Heist). Up to 300 a day, for 3 hours after you turn it on. At 4K they take about 2 GB.</small></div></label>
+            <div><strong>Save test pictures</strong><small>Full-size pictures at your screen's resolution, for checking that aLogs reads everything right on every screen size: one every 5 seconds during a boss fight, and each screen the meter reads (results, Battle Data, battle prep, Challenge Stats, Profile, Egg Heist). Up to 300 a day, for 3 hours after you turn it on. At 4K they take about 2 GB; each day's are kept for 7 days (3 GB in all at most).</small></div></label>
           <div class="row"><button type="button" data-open="test_frames">Open the test pictures folder</button></div>
-          <p class="hint">They show your screen as it is, with your name, UID and teammates, and stay on this PC until you share them. Zip the folder and send it to the AniiLogs developers on Discord; they're used only to test the readers.</p>
+          <p class="hint">They show your screen as it is, with your name, UID and teammates, and stay on this PC (for 7 days) unless you share them. Zip the folder and send it to the AniiLogs developers on Discord; they're used only to test the readers.</p>
         </div>
         <div class="group">
           <label class="field"><span>Keep screenshots</span>
@@ -305,7 +305,7 @@
             <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon next to the game's Chat, Photo and Emoticon icons, with its hotkey under it, bright while capture is on and dim while it's off. It shows only when the game shows those icons. Click it to switch; drag it anywhere else if you like; right-click it to lock it, use your own picture or put it back in the row.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-lock><span></span>
             <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still switch capture.</small></div></label>
-          <div class="row"><span>Hotkey</span><button type="button" data-capture-hotkey>Ins</button><button type="button" data-capture-hotkey-clear>No hotkey</button><span class="hint" data-capture-hotkey-note></span></div>
+          <div class="row labeled"><span>Hotkey</span><button type="button" data-capture-hotkey>Ins</button><button type="button" data-capture-hotkey-clear>No hotkey</button><span class="hint" data-capture-hotkey-note></span></div>
           <div class="row"><button type="button" data-capture-reset>Put the button back in the game's icon row</button><button type="button" data-capture-default-icon>Use the aLogs icon again</button></div>
         </div>
         <div class="group">
@@ -360,7 +360,7 @@
         <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
         <div class="group">
           <p>The meter only reads the game: its picture (built-in Windows capture), its sound during boss fights, its text log and its data files. It never changes the game's memory or files.</p>
-          <p class="notice" data-win10-capture hidden><strong>On Windows 10:</strong> aLogs captures the whole screen without a border (Desktop Duplication: Windows 10 can't capture just the game window without a yellow border; Windows 11 can). So it keeps the DPS window and Sanctum Helper's map out of screen captures, or it would read its own overlays: OBS <strong>Game Capture</strong> is unaffected (it never shows overlay windows), but OBS <strong>Display Capture</strong>, screenshots and Game Bar won't show them. While you're tabbed out, aLogs copies the game window itself a few times a second, so "You're being attacked" still works (not while the game is minimized).</p>
+          <p class="notice" data-win10-capture hidden><strong>On Windows 10:</strong> aLogs captures the whole screen without a border (Desktop Duplication: Windows 10 can't capture just the game window without a yellow border; Windows 11 can). So it keeps the DPS window and Sanctum Helper's map out of screen captures, or it would read its own overlays: OBS <strong>Game Capture</strong> is unaffected (it never shows overlay windows), but OBS <strong>Display Capture</strong>, screenshots and Game Bar won't show them. While you're tabbed out, aLogs copies the game window itself a few times a second instead (not while the game is minimized).</p>
           <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
           <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
           <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>

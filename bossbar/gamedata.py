@@ -11,6 +11,13 @@ data (checked 2026-10-28: all 383 rows).
 """
 import json, os, re, struct, zipfile
 
+
+def _write_json(path, data):
+    """Written whole or not at all: a crash mid-write can't leave a cut-off cache."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f: json.dump(data, f)
+    os.replace(tmp, path)
+
 DATA_REL = os.path.join('Aniimo_Data', 'cvs', 'res', 'lua', 'LuaScripts', 'Common', 'Data', 'pmdata.bin')
 SIZE = {0: 8, 1: 1, 2: 1, 3: 2, 4: 2, 5: 4, 6: 4, 7: 4, 8: 4, 9: 1}
 NUMKEY_SIZE = {0: 8, 5: 4, 3: 2, 1: 1}
@@ -231,7 +238,7 @@ def cached_bosses(cache_path, keep=(), player_log=None):
         pass
     bosses = read_bosses(path, keep)
     if len(bosses) < 50: return None, False                 # a decode that went wrong: keep the shipped list
-    with open(cache_path, 'w', encoding='utf-8') as f: json.dump({'stamp': stamp, 'bosses': bosses}, f)
+    _write_json(cache_path, {'stamp': stamp, 'bosses': bosses})
     return bosses, True
 
 
@@ -247,5 +254,5 @@ def cached_cycles(cache_path, player_log=None):
         pass
     cycles = read_cycles(path)
     if not cycles: return None, False
-    with open(cache_path, 'w', encoding='utf-8') as f: json.dump({'stamp': stamp, 'cycles': cycles}, f)
+    _write_json(cache_path, {'stamp': stamp, 'cycles': cycles})
     return cycles, True

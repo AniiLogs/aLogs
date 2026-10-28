@@ -19,7 +19,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   On Windows 10 the map is kept out of recordings while it's there.
 - **Help test aLogs** (DPS Meter › Captures & logs › Save test pictures): full-size pictures of boss fights and of
   every screen the meter reads, at your own resolution, so the developers can check aLogs reads everything right on
-  every screen size. Up to 300 a day, for 3 hours after you turn it on; they stay on your PC until you share them.
+  every screen size. Up to 300 a day, for 3 hours after you turn it on; they stay on your PC for 7 days and go nowhere unless you share them.
 - **Priority** (General Settings › Performance): how much of a busy PC aLogs, the meter and Sanctum Helper may take. Not set
   (the default: Windows decides), Lower (the game and OBS always come first), Normal, or Higher for keeping the meter on
   pace no matter what.
@@ -110,7 +110,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   trailing, your spot on the map moves with you (dashes show in about half the time), and the open full map follows
   panning and zooming right away. Its map matching is 2–3 times faster, with the same results.
 - **Sanctum Helper uses far less memory:** it held about 600 MB from startup, even with no run, and grew run after
-  run. Maps now load when you enter a Sanctum and are let go after the run.
+  run. Maps now load when you enter a Sanctum and are let go after the run, or a minute after the game closes.
 - Leaderboard records say which aLogs version and build sent them, so a future board that needs a newer aLogs can
   ask for it. Older versions keep sending to the boards they already use.
 
@@ -128,15 +128,20 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   of the screen it reads (Sanctum Helper's map corner, the boss bar area), at its own pace. Sanctum Helper no longer
   copies the screen 60 times a second during an Egg Heist run. On Windows 11 only the game window is captured, so the
   DPS window and map show on stream as usual; on Windows 10 they're kept out of the meter's view (and out of display
-  captures) so it never reads itself. Tabbed out on Windows 10, aLogs still watches the game (a few times a second)
-  so "You're being attacked" keeps working; where Windows can't copy the game window, Windows shows a yellow border
+  captures) so it never reads itself. Tabbed out on Windows 10, aLogs still watches the game a few times a second;
+  where Windows can't copy the game window, Windows shows a yellow border
   around the game while you're away. The logs say how the game is captured and how long it takes.
 - **Closing aLogs is instant:** it used to hang for about 10 seconds while it waited on the meter and Sanctum
   Helper. They now finish up on their own (an open fight is still saved) and close within a fraction of a second.
 - **No more filling up your drive:** the meter's text reader left a small picture behind for nearly every read, in
   Windows' Temp folder, and never cleaned up (on one PC: 600,000 files, 1.8 GB). It now keeps none, and the first
   start clears what earlier versions left. Each fight's per-frame log is also cleared after 30 days (your fight
-  results, profile notes and leaderboard records are kept).
+  results, profile notes and leaderboard records are kept). A record that couldn't be sent for 14 days (signed out,
+  sending off) is dropped, so its screenshots aren't kept for it forever; what the meter read off result screens goes
+  with their pictures, and Sanctum Helper's debug frames go when you turn them off.
+- **Other players' names stay out of your logs:** the meter's log (what Report a problem sends) no longer lists your
+  teammates' names from the party and result screens, only how long each name read was. Your own name is still there.
+- **Less memory while capturing at 4K:** aLogs keeps at most 128 MB of capture buffers (it could hold over 250 MB).
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the
   boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.

@@ -131,7 +131,7 @@
       accentText: "#79e5c2", coral: "#f48972" },
     meadow: { label: "Meadow", colors: { background: "#f8f2d7", backgroundAlt: "#ccebe4", surface: "#fffaf0", surfaceRaised: "#f3edd8",
       border: "#b7d2c7", text: "#24473f", muted: "#506a62", primary: "#4fcda5", secondary: "#258c76", highlight: "#f4bd4f" },
-      accentText: "#1c756b", coral: "#b84c3b" },
+      accentText: "#1c756b", goldText: "#8a5a00", coral: "#b84c3b" },
     emberpup: { label: "Emberpup", colors: { background: "#111218", backgroundAlt: "#2b1815", surface: "#1c1d27", surfaceRaised: "#292a36",
       border: "#4b4650", text: "#fff4e8", muted: "#bdb4b5", primary: "#ff742e", secondary: "#d9471d", highlight: "#ffc857" },
       accentText: "#ffad82", coral: "#ff742e" },
@@ -166,9 +166,11 @@
     const light = luminance(c.background) > 0.4;
     // accent as text: the preset's own readable shade; for Custom, the accent itself when it reads on the panels
     const accentText = preset ? preset.accentText : (contrast(c.primary, c.surface) >= 3 ? c.primary : c.text);
+    // the highlight as text (notices, paths): the light theme's gold doesn't read on its pale panels
+    const goldText = preset ? preset.goldText ?? c.highlight : (contrast(c.highlight, c.surface) >= 4.5 ? c.highlight : c.text);
     const vars = { "--bg": c.background, "--bg-2": c.backgroundAlt, "--panel": c.surface, "--panel-2": c.surfaceRaised, "--line": c.border,
       "--text": c.text, "--muted": c.muted, "--accent": c.primary, "--accent-2": c.secondary, "--gold": c.highlight,
-      "--coral": preset ? preset.coral : "#f48972", "--accent-text": accentText, "--on-accent": readable(c.primary) };
+      "--coral": preset ? preset.coral : "#f48972", "--accent-text": accentText, "--gold-text": goldText, "--on-accent": readable(c.primary) };
     Object.entries(vars).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
     document.documentElement.style.colorScheme = light ? "light" : "dark";
   }
@@ -488,6 +490,9 @@
     if (!photos.busy) upload.textContent = photos.selected.size ? `Upload ${photos.selected.size} selected` : "Upload selected";
     upload.disabled = photos.busy || !signedIn || !photos.selected.size;
     const grid = $("[data-photos-grid]");
+    // another page open (the automatic upload checks every minute): no grid of full-size pictures held in memory;
+    // opening Photos loads it again
+    if (!grid.offsetParent) { grid.replaceChildren(); return; }
     grid.replaceChildren(...photos.list.map((photo) => {
       const uploadedId = photos.uploaded.get(photo.id);
       const card = document.createElement("div");
@@ -1142,7 +1147,7 @@
         const info = (await invoke("sanctum_state"))?.info || {};
         const line = $("[data-sanctum-credit]");
         line.textContent = line.textContent.replace(/^Includes Sanctum Helper( v[\d.]+)? by sargeeva(, map data from game build \S+)?/u,
-          `Includes Sanctum Helper${info.version ? ` v${info.version}` : ""} by sargeeva${info.gameDataVersion ? `, map data from game build ${info.gameDataVersion}` : ""}`);
+          `Includes Sanctum Helper${info.version ? ` v${info.version}` : ""} by sargeeva${/\d/u.test(info.gameDataVersion || "") ? `, map data from game build ${info.gameDataVersion}` : ""}`);
       } catch {
         // Sanctum Helper not installed or not started: the plain credit stays
       }

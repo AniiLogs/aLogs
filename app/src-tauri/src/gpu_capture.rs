@@ -37,8 +37,20 @@ use windows::Win32::Graphics::Gdi::{MonitorFromWindow, HMONITOR, MONITOR_DEFAULT
 use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 
-/// Staging textures kept between frames (one per area size the readers ask for).
+/// Staging textures kept between frames (one per area size the readers ask for), the least recently used going first.
 const STAGING_KEPT: usize = 8;
+/// ...and at most this much memory for each kind (a 4K frame is 33 MB: eight of those held 265 MB).
+const STAGING_BYTES: usize = 128 << 20;
+
+/// Room for a `width` x `height` texture in `kept` (sizes from `size`): drops the least recently used (the front).
+fn make_room<T>(kept: &mut Vec<T>, size: impl Fn(&T) -> (u32, u32), width: u32, height: u32) {
+    let bytes = |(w, h): (u32, u32)| w as usize * h as usize * 4;
+    while !kept.is_empty()
+        && (kept.len() >= STAGING_KEPT || kept.iter().map(|t| bytes(size(t))).sum::<usize>() + bytes((width, height)) > STAGING_BYTES)
+    {
+        kept.remove(0);
+    }
+}
 
 fn device(adapter: Option<&IDXGIAdapter>) -> Result<(ID3D11Device, ID3D11DeviceContext)> {
     let (mut device, mut context) = (None, None);
@@ -146,7 +158,11 @@ impl Gpu {
             // the area into a texture with mip levels, which the card fills with the averaged smaller pictures
             let levels = level + 1;
             let index = match self.shrinkers.iter().position(|s| s.0 == width && s.1 == height && s.2 == levels) {
-                Some(i) => i,
+                Some(i) => {
+                    let used = self.shrinkers.remove(i); // most recently used to the back
+                    self.shrinkers.push(used);
+                    self.shrinkers.len() - 1
+                }
                 None => {
                     let desc = D3D11_TEXTURE2D_DESC {
                         MipLevels: levels,
@@ -160,9 +176,7 @@ impl Gpu {
                         let texture = texture.as_ref().ok_or(E_FAIL)?;
                         self.device.CreateShaderResourceView(texture, None, Some(&mut view))?;
                     }
-                    if self.shrinkers.len() >= STAGING_KEPT {
-                        self.shrinkers.remove(0);
-                    }
+                    make_room(&mut self.shrinkers, |s| (s.0, s.1), width, height);
                     self.shrinkers.push((width, height, levels, texture.ok_or(E_FAIL)?, view.ok_or(E_FAIL)?));
                     self.shrinkers.len() - 1
                 }
@@ -175,13 +189,15 @@ impl Gpu {
             (texture.clone(), level, width >> level, height >> level)
         };
         let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height) {
-            Some(i) => i,
+            Some(i) => {
+                let used = self.staging.remove(i);
+                self.staging.push(used);
+                self.staging.len() - 1
+            }
             None => {
                 let mut texture = None;
                 unsafe { self.device.CreateTexture2D(&texture_desc(width, height, true), None, Some(&mut texture))? };
-                if self.staging.len() >= STAGING_KEPT {
-                    self.staging.remove(0);
-                }
+                make_room(&mut self.staging, |s| (s.0, s.1), width, height);
                 self.staging.push((width, height, texture.ok_or(E_FAIL)?));
                 self.staging.len() - 1
             }

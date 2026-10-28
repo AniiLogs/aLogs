@@ -228,7 +228,9 @@ class SharedAudio:
         h = k.OpenFileMappingW(0xF001F, False, self.NAME)
         if not h: return None
         base = k.MapViewOfFile(h, 0xF001F, 0, 0, self.SIZE)
-        if not base or SharedCapture._u32(base, 0) != self.MAGIC: return None
+        if not base or SharedCapture._u32(base, 0) != self.MAGIC:   # not ready yet: let go, try again in 2 s
+            if base: k.UnmapViewOfFile(ctypes.c_void_p(base))
+            k.CloseHandle(h); return None
         self.base = base
         return base
 

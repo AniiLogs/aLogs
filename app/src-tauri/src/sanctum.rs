@@ -77,7 +77,8 @@ pub fn dotnet_desktop_installed() -> bool {
 pub fn install_dotnet_desktop() -> Result<(), String> {
     let script = "$f = Join-Path $env:TEMP 'windowsdesktop-runtime-9-win-x64.exe'; \
         Invoke-WebRequest -UseBasicParsing 'https://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe' -OutFile $f; \
-        Start-Process $f -ArgumentList '/install','/quiet','/norestart' -Verb RunAs -Wait";
+        try { Start-Process $f -ArgumentList '/install','/quiet','/norestart' -Verb RunAs -Wait } \
+        finally { Remove-Item $f -ErrorAction SilentlyContinue }";
     let status = Command::new("powershell").args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
         .creation_flags(NO_WINDOW).status().map_err(|e| e.to_string())?;
     if !status.success() || !dotnet_desktop_installed() {
