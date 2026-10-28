@@ -90,6 +90,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the
   boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.
+- **One-character names:** a name like "0" read from the game menu was taken for a misread and dropped, so that
+  player's character never got a name and the leaderboards (which list players by name) hid their records.
+- **Egg Heist rank always has its season:** when Rank Info's season title hadn't appeared yet, the rank was filed
+  without a season, as a separate entry; it now takes the current season.
 - **Egg Heist matches reach the leaderboards:** in Team Mode the end screen's Loot This Match and Total Defeats sit
   higher than in solo, and the meter read neither, so matches were sent without their score and never showed.
 - **Out in the world fights end at the kill:** the meter ran each fight about 2.5 seconds past the killing blow,

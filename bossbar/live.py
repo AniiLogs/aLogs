@@ -1089,7 +1089,8 @@ class Meter:
         points, next_start = E.parse_points(t.get('points'))
         stars = next((n for n in (first_num(t.get(key)) for key in ('stars', 'stars2', 'stars3')) if n is not None), None)             if points is None else None
         st = E.standing(t.get('title'), points, stars)
-        season = E.parse_season(t.get('badge'), t.get('season'))
+        # the season title can miss a frame (it fades in): then today's season by date, never an entry without one
+        season = E.parse_season(t.get('badge'), t.get('season')) or getattr(self, 'egg_season', None) or E.current_season()
         if season: self.egg_season = season
         log.info(f'Egg Heist Rank Info: OCR {t!r} -> {st}, season {season}, next big rank at {next_start}')
         if not st or (st['points'] is None and st['stars'] is None): return
@@ -1557,7 +1558,9 @@ class Meter:
         Every Interlink run starts from this menu, so a wrong name can't last."""
         digits = re.sub(r'\D', '', (uid_text or '').replace('O', '0'))
         name = re.sub(r'\s+', ' ', (name or '').strip(' /|.'))
-        if not self.uid or self.uid not in digits or not 2 <= len(name) <= 40: return
+        # the UID under it vouches for the name, so a one-character name counts too ("0" is a real one); just not a
+        # lone bit of punctuation, which is OCR noise
+        if not self.uid or self.uid not in digits or not 1 <= len(name) <= 40 or (len(name) == 1 and not name.isalnum()): return
         if self.menu_proven == (self.uid, name): return                  # once per run of the meter
         self.menu_proven = (self.uid, name)
         log.info(f'game menu: {name} above UID {self.uid} - this is your character')
