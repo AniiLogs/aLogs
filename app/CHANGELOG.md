@@ -136,9 +136,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **No more filling up your drive:** the meter's text reader left a small picture behind for nearly every read, in
   Windows' Temp folder, and never cleaned up (on one PC: 600,000 files, 1.8 GB). It now keeps none, and the first
   start clears what earlier versions left. Each fight's per-frame log is also cleared after 30 days (your fight
-  results, profile notes and leaderboard records are kept). A record that couldn't be sent for 14 days (signed out,
-  sending off) is dropped, so its screenshots aren't kept for it forever; what the meter read off result screens goes
-  with their pictures, and Sanctum Helper's debug frames go when you turn them off.
+  results, profile notes and leaderboard records are kept). Records the leaderboards turned down are cleared after 7
+  days (records still to send wait until they go up); what the meter read off result screens goes with their pictures,
+  and Sanctum Helper's debug frames go when you turn them off.
 - **Less memory while capturing at 4K:** aLogs keeps at most 128 MB of capture buffers (it could hold over 250 MB).
 - **The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK
   overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the

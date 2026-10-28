@@ -41,9 +41,8 @@ def _evidence_bytes(path):
     buf = io.BytesIO(); im.save(buf, 'JPEG', quality=85, optimize=True); return buf.getvalue()
 
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
-QUEUE_DAYS = 14         # a record that couldn't be sent for this long (signed out, sending off, a revoked token) goes,
-                        # so its proof pictures stop being kept for it (the screenshot cleanup then takes them)
-SET_ASIDE_DAYS = 7      # .rejected / .bad copies, kept a few days to look at why
+SET_ASIDE_DAYS = 7      # .rejected / .bad copies (the server turned them down, or unreadable), kept a few days to look
+                        # at why. Records still to send wait as long as it takes: signed out for weeks, they still go up.
 
 def game_server():
     """The game server (region) you play on, as the game names it - e.g. 'Aniimo-Americas' - from the game's own
@@ -223,16 +222,16 @@ class Submitter(threading.Thread):
 
     @staticmethod
     def expire():
-        """Queue items that waited more than QUEUE_DAYS, and set-aside copies after SET_ASIDE_DAYS."""
+        """Set-aside copies after SET_ASIDE_DAYS (records still to send are never dropped)."""
         try: names = os.listdir(QUEUE)
         except OSError: return
         now = time.time()
         for name in names:
             path = os.path.join(QUEUE, name)
-            days = QUEUE_DAYS if name.endswith('.json') else SET_ASIDE_DAYS if name.endswith(('.rejected', '.bad')) else None
+            if not name.endswith(('.rejected', '.bad')): continue
             try:
-                if days is not None and now - os.path.getmtime(path) > days * 86400:
-                    os.remove(path); log.info(f'leaderboard: {name} waited over {days} days, dropped')
+                if now - os.path.getmtime(path) > SET_ASIDE_DAYS * 86400:
+                    os.remove(path); log.info(f'leaderboard: removed {name} (set aside over {SET_ASIDE_DAYS} days ago)')
             except OSError: pass
 
     def run(self):
