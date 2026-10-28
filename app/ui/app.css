@@ -74,6 +74,9 @@ details .field { margin-top: 8px; }
 
 .toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 12px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); }
 .toast.bad { border-color: var(--coral); }
+.toast.bad { display: flex; gap: 12px; align-items: flex-start; }
+.toast-close { flex: none; margin: -4px -6px 0 0; padding: 0 8px; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1.4; cursor: pointer; }
+.toast-close:hover { color: var(--text); }
 
 .modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5, 10, 12, 0.72); }
 .modal[hidden], .toast[hidden] { display: none; }

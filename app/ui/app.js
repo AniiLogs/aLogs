@@ -33,13 +33,24 @@
 
   // ---------------------------------------------------------------- toast
   let toastTimer = 0;
+  // A short notice in the corner. Errors stay until closed (×) so there's time to read them; others go after a few
+  // seconds, longer for longer text.
   function toast(text, bad = false) {
     const node = $("[data-toast]");
-    node.textContent = text;
+    node.replaceChildren(Object.assign(document.createElement("span"), { textContent: text }));
     node.classList.toggle("bad", bad);
-    node.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { node.hidden = true; }, 3200);
+    if (bad) {
+      const close = Object.assign(document.createElement("button"), { type: "button", className: "toast-close", textContent: "×", title: "Close" });
+      close.setAttribute("aria-label", "Close");
+      close.addEventListener("click", () => { node.hidden = true; });
+      node.append(close);
+      node.setAttribute("role", "alert");
+    } else {
+      node.removeAttribute("role");
+      toastTimer = setTimeout(() => { node.hidden = true; }, Math.max(3200, text.length * 60));
+    }
+    node.hidden = false;
   }
 
   // ---------------------------------------------------------------- navigation

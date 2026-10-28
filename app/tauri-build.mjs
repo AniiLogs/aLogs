@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { signUpdate, verifyUpdate } from "./sign-update.mjs";
 
 const version = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
 const counter = join("src-tauri", "target", "release", "bundle", `rc-${version}.txt`);   // the RC numbers of a version keep counting up
@@ -19,3 +20,10 @@ execSync("npx tauri build", {
   stdio: "inherit",
   env: { ...process.env, TAURI_SIGNING_PRIVATE_KEY: readFileSync(key, "utf8"), TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" },
 });
+
+// The feeds announce this build as "<version>+rc.<n>" and the updater only installs an update signed for exactly
+// the announced version, so the installer is signed again with that version (sign-update.mjs), then checked.
+const installer = join("src-tauri", "target", "release", "bundle", "nsis", `aLogs_${version}_x64-setup.exe`);
+signUpdate(installer, `${version}+rc.${rc}`, key);
+const pubkey = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).plugins.updater.pubkey;
+console.log(`update signature: ${verifyUpdate(installer, pubkey).replace(/\t/gu, "  ")}`);
