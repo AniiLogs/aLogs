@@ -44,9 +44,28 @@ def normalize(mask, g):
     im = im.resize((GW, GH), Image.BILINEAR)
     return [v / 255 for v in im.getdata()]
 
+def split_touching(mask, gs):
+    """Glyphs that touch once scaled (the 'x' and a '4' at 720p and 4K) come out as one shape wider than it is tall,
+    which no single character here is: cut such a shape at its thinnest column in the middle part, again if needed."""
+    out = []
+    for g in gs:
+        parts = [g]
+        while parts and (parts[-1][1] - parts[-1][0]) > 1.05 * (parts[-1][3] - parts[-1][2]) and len(parts) < 4:
+            x0, x1, y0, y1 = parts.pop()
+            w = x1 - x0
+            lo, hi = x0 + max(2, int(w * 0.3)), x1 - max(2, int(w * 0.3))
+            if hi <= lo:
+                parts.append((x0, x1, y0, y1)); break
+            cut = min(range(lo, hi), key=lambda x: sum(mask[y][x] for y in range(y0, y1)))
+            for a, b in ((x0, cut), (cut + 1, x1)):
+                ys = [y for y in range(y0, y1) if any(mask[y][c] for c in range(a, b))]
+                if ys and b - a >= 2: parts.append((a, b, ys[0], ys[-1] + 1))
+        out += parts
+    return out
+
 def split_counter(img):
     """Glyph vectors of the digits after the 'x' (the 'x' is the first glyph and is shorter than digits)."""
-    m = white_mask(img); gs = glyphs(m)
+    m = white_mask(img); gs = split_touching(m, glyphs(m))
     if len(gs) < 2: return []
     tall = max(g[3] - g[2] for g in gs)
     digits = [g for g in gs[1:] if g[3] - g[2] >= 0.8 * tall]      # digits are full height, the 'x' is not

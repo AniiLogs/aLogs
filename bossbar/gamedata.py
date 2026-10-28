@@ -1,11 +1,15 @@
-"""The boss rush (Interlink) week schedule, read from the player's own game install.
+"""The boss rush (Interlink) week schedule and the boss list, read from the player's own game install.
 
 The game ships its data tables in LuaScripts/Common/Data/pmdata.bin (a packed table format, decoded in
 aniimo_data/decoder). Each game patch brings the coming week(s) in bossrush_cycle_data, with the three bosses as
 species ids; bossrush_guanka_data maps those to the boss ids the meter and the site use. This reads only those two
 tables, and only when pmdata.bin has changed (the result is cached in the data folder).
+
+The boss list (names, boss-bar titles and HP inputs, as in the shipped boss_catalog.csv) is read the same way, so a
+game patch that adds a boss needs no new aLogs build. It matches the shipped list field for field on the same game
+data (checked 2026-10-28: all 383 rows).
 """
-import json, os, re, struct
+import json, os, re, struct, zipfile
 
 DATA_REL = os.path.join('Aniimo_Data', 'cvs', 'res', 'lua', 'LuaScripts', 'Common', 'Data', 'pmdata.bin')
 SIZE = {0: 8, 1: 1, 2: 1, 3: 2, 4: 2, 5: 4, 6: 4, 7: 4, 8: 4, 9: 1}
@@ -167,6 +171,68 @@ def read_cycles(path):
         out.append({'cycle': str(int(key)), 'season': c.get('seasonId'), 'bossLv': c.get('bossLv'),
                     'start': beg.get(1, beg.get('1')), 'end': end.get(3, end.get('3')), 'bossIds': ids})
     return out
+
+
+BOSS_TABLES = ('puppet_data', 'puppet_data1', 'puppet_data2', 'puppet_data3')
+
+
+def english_text(pm_path):
+    """Text id -> English, from the game's text tables (LuaScripts.xdf, a zip next to the Lua data folder)."""
+    xdf = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(pm_path)))), 'LuaScripts.xdf')
+    with zipfile.ZipFile(xdf) as z:
+        name = next(n for n in z.namelist() if n.lower().endswith('i18n/compress_en.bin'))
+        text = z.read(name)
+        where = json.loads(z.read(name[:-len('Compress_en.bin')] + 'NewTextMap_en.json'))
+    def en(text_id):
+        if not isinstance(text_id, int): return ''
+        at = where.get(str(text_id & 0xffffffff))
+        return text[at[0]:at[0] + at[1]].decode('utf8', 'replace') if at else ''
+    return en
+
+
+def read_bosses(path, keep=()):
+    """Boss rows like boss_catalog.csv's (the fields the meter uses) from the game data: every boss-type creature
+    (monsterType 2) in the four puppet tables, plus the (table, puppetId) pairs in `keep` (the shipped list has four
+    type-1 Alphas)."""
+    pm = PmData(path)
+    en = english_text(path)
+    props = pm.table('property_data') or {}
+    stages = pm.table('bossrush_guanka_data') or {}
+    rush = {str(s.get('bossId')) for s in stages.values() if isinstance(s, dict) and s.get('bossId')}
+    keep = {(t, str(p)) for t, p in keep}
+    out = []
+    for table in BOSS_TABLES:
+        for pid, r in (pm.table(table) or {}).items():
+            if not isinstance(r, dict) or not r.get('propId'): continue
+            pid = str(int(pid))
+            if r.get('monsterType') != 2 and (table, pid) not in keep: continue
+            p = props.get(r['propId'], props.get(str(r['propId']))) or {}
+            rate = p.get('fixed_hp_rate')
+            out.append({
+                'puppetId': pid, 'table': table, 'uiName': r.get('uiName') or '', 'name_en': en(r.get('name')),
+                'bossTitle_en': en(r.get('BossShowName')), 'monsterType': str(r.get('monsterType', '')),
+                'bossType': str(r.get('bossType', '')), 'lvType': str(r.get('lvType', '')), 'propId': str(r['propId']),
+                'species_hp': str(r.get('species_hp_max_v', '')), 'prop_species_adj': str(p.get('species_hp_max_v') or 0),
+                'fixed_hp_rate': json.dumps({str(k): v for k, v in rate.items()}) if isinstance(rate, dict) else '',
+                'in_boss_rush': 'yes' if pid in rush else ''})
+    return out
+
+
+def cached_bosses(cache_path, keep=(), player_log=None):
+    """The boss list from the game data, decoded again only when the game's data file changed.
+    Returns (rows, changed) or (None, False)."""
+    path = find_game_data(player_log)
+    if not path: return None, False
+    stamp = f'{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
+    try:
+        with open(cache_path, encoding='utf-8') as f: cached = json.load(f)
+        if cached.get('stamp') == stamp: return cached['bosses'], False
+    except (OSError, ValueError, KeyError):
+        pass
+    bosses = read_bosses(path, keep)
+    if len(bosses) < 50: return None, False                 # a decode that went wrong: keep the shipped list
+    with open(cache_path, 'w', encoding='utf-8') as f: json.dump({'stamp': stamp, 'bosses': bosses}, f)
+    return bosses, True
 
 
 def cached_cycles(cache_path, player_log=None):

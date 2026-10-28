@@ -14,7 +14,7 @@ from PIL import Image
 import reader as R, xn_digits as X
 TPL = X.load_templates()
 
-SIZES = {'720p': (1280, 720), '1080p': (1920, 1080), '1440p': (2560, 1440), '4K': (3840, 2160)}
+SIZES = {'720p': (1280, 720), '900p': (1600, 900), '1080p': (1920, 1080), '1440p': (2560, 1440), '4K': (3840, 2160)}
 
 def frames(args):
     out = []

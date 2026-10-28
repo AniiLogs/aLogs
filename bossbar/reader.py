@@ -40,8 +40,10 @@ def _bar_run(px, y, x0, x1, gap):
     return best
 
 def _is_bracket(px, x, yc, thick, W, H):
-    """A bracket is a thin, tall white line: white along the column, not white a few pixels to either side."""
-    if _white_run(px, x, yc, 2 * thick, H) < 1.3 * thick: return False
+    """A bracket is a thin, tall white line: white along the column, not white a few pixels to either side. It is
+    ~1.6x the bar's thickness; at small sizes (720p) blending adds a row to the measured thickness and takes the
+    bracket's faded ends off, so 1.5 px of that is allowed for (was a plain 1.3x: missed at 720p)."""
+    if _white_run(px, x, yc, 2 * thick, H) < 1.3 * thick - 1.5: return False
     off = max(3, thick // 3)
     side = [px[min(W - 1, max(0, x + s)), yy] for s in (-off, off) for yy in (yc - thick // 3, yc + thick // 3)]
     return sum(map(is_white, side)) <= 2
@@ -56,11 +58,24 @@ def _longest_run(px, y, x0, x1, test):
         else: run = 0
     return best
 
+def _line_px(px, x, y):
+    """A pixel of a thin white line: white, or (scaled down, the 1 px line falling between two columns) light grey
+    next to light grey - the line split over x and a neighbour, e.g. a bracket at 720p."""
+    p = px[x, y]
+    if is_white(p): return True
+    if min(p[:3]) < 140: return False
+    for nx in (x - 1, x + 1):
+        try:
+            if min(px[nx, y][:3]) >= 140: return True
+        except IndexError:
+            pass
+    return False
+
 def _white_run(px, x, yc, reach, H):
     """Length of the vertical white run through column x around row yc."""
     n = 0
     for y in range(max(0, yc - reach), min(H, yc + reach)):
-        n = n + 1 if is_white(px[x, y]) else n
+        n = n + 1 if _line_px(px, x, y) else n
     return n
 
 LAST_FAIL = ['']     # why the last find_bar call found nothing (for the meter's diagnostics)
@@ -449,8 +464,17 @@ def parse_timer(t):
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
 # ---- boss data ----
+GAME_BOSSES = [None]      # the boss list read from the player's game data (gamedata.cached_bosses), when there is one
+
 def load_catalog():
-    with open(os.path.join(HERE, 'boss_catalog.csv'), encoding='utf-8') as f: return list(csv.DictReader(f))
+    """The shipped boss list, with the game data's own rows (refreshed by the meter after each game patch) taking
+    the place of the same (table, puppetId) and adding bosses new since aLogs was built."""
+    with open(os.path.join(HERE, 'boss_catalog.csv'), encoding='utf-8') as f: rows = list(csv.DictReader(f))
+    game = GAME_BOSSES[0]
+    if not game: return rows
+    key = lambda r: (r['table'], r['puppetId'])        # one row per boss per table: a patch's changed propId replaces it
+    fresh = {key(r): r for r in game}
+    return [{**r, **fresh.pop(key(r), {})} for r in rows] + list(fresh.values())
 
 def load_grades():
     with open(os.path.join(HERE, 'boss_rush_grades.csv'), encoding='utf-8') as f:

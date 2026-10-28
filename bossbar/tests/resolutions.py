@@ -13,7 +13,7 @@ sys.path.insert(0, HERE)
 from PIL import Image
 import live, reader as R
 
-SIZES = {'720p': (1280, 720), '1080p': (1920, 1080), '1440p': (2560, 1440), '4K': (3840, 2160)}
+SIZES = {'720p': (1280, 720), '900p': (1600, 900), '1080p': (1920, 1080), '1440p': (2560, 1440), '4K': (3840, 2160)}
 TMP = tempfile.mkdtemp(prefix='alogs_res_')
 live.HERE = TMP; os.makedirs(os.path.join(TMP, 'logs'), exist_ok=True)
 
@@ -72,7 +72,7 @@ def run(im, when):
 def samples(args):
     paths = []
     for a in args:
-        paths += sorted(glob.glob(os.path.join(a, '*.*'))) if os.path.isdir(a) else [a]
+        paths += sorted(glob.glob(os.path.join(a, '**', '*.*'), recursive=True)) if os.path.isdir(a) else [a]   # test_frames/<day>/<kind>/
     return [p for p in paths if p.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
 
 if __name__ == '__main__':

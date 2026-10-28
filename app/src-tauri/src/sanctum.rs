@@ -59,7 +59,7 @@ fn exe(app: &AppHandle) -> Option<PathBuf> {
 }
 
 pub fn enabled(settings: &Value) -> bool {
-    settings.pointer("/sanctum/enabled").and_then(Value::as_bool).unwrap_or(true)
+    settings.pointer("/sanctum/enabled").and_then(Value::as_bool).unwrap_or(true) && crate::overlay_button::capture_on()
 }
 
 /// Sanctum Helper runs on the PC's .NET Desktop Runtime, version 9 or newer (Program Files\dotnet\shared).
@@ -86,6 +86,13 @@ pub fn install_dotnet_desktop() -> Result<(), String> {
 }
 
 /// Starts Sanctum Helper if it is enabled and not running; stops it when it was turned off.
+/// General › Priority for a running Sanctum Helper.
+pub fn set_priority(app: &AppHandle, settings: &Value) {
+    if let Some(child) = app.state::<Sanctum>().child.lock().unwrap().as_ref() {
+        crate::set_priority(Some(child), settings);
+    }
+}
+
 pub fn ensure(app: &AppHandle, settings: &Value) {
     let state = app.state::<Sanctum>();
     let mut guard = state.child.lock().unwrap();
@@ -121,6 +128,7 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
     match cmd.spawn() {
         Ok(child) => {
             state.blocked.store(false, Ordering::SeqCst);
+            crate::set_priority(Some(&child), settings);
             *guard = Some(child);
         }
         Err(e) => eprintln!("could not start Sanctum Helper: {e}"),

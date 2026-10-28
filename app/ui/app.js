@@ -2,13 +2,13 @@
   const invoke = window.__TAURI__.core.invoke;
   // Same defaults as bossbar/settings.py (the meter fills in anything missing the same way).
   const DEFAULTS = {
-    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, auto_download: true, beta_updates: false,
+    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, priority: "low", auto_download: true, beta_updates: false,
       photos_auto: false, photos_auto_since: 0 },
     meter: { enabled: true },
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
-    capture: { look_interval: 0.05, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
+    capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
   };
@@ -204,6 +204,72 @@
   $("[data-theme-reset]").addEventListener("click", () => saveTheme("custom", { ...THEMES.default.colors }));
   applyTheme(savedTheme().theme, savedTheme().custom);
   renderThemes();
+
+  // ---------------------------------------------------------------- screen capture switch
+  // General › Screen capture: the same switch as the button over the game (overlay_button.rs); the button's own
+  // changes (a click, its right-click menu) arrive as "capture-switch" events.
+  function showCaptureSwitch(info) {
+    if (!info) return;
+    $("[data-capture-on]").checked = info.capture_on;
+    $("[data-capture-button]").checked = info.show;
+    $("[data-capture-lock]").checked = info.locked;
+    $("[data-capture-default-icon]").disabled = !info.custom_icon;
+    $("[data-capture-reset]").disabled = info.in_row !== false;
+    if (!capturingKey) $("[data-capture-hotkey]").textContent = info.hotkey_label || "None";
+  }
+  async function captureSwitch() {
+    try {
+      showCaptureSwitch(await invoke("capture_switch"));
+      await window.__TAURI__.event.listen("capture-switch", (event) => showCaptureSwitch(event.payload));
+    } catch {
+      // an app without the switch
+    }
+  }
+  const setSwitch = async (change) => showCaptureSwitch(await invoke("set_capture_switch", change));
+  $("[data-capture-on]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
+  $("[data-capture-button]").addEventListener("change", (event) => setSwitch({ show: event.target.checked }));
+  $("[data-capture-lock]").addEventListener("change", (event) => setSwitch({ locked: event.target.checked }));
+  $("[data-capture-reset]").addEventListener("click", () => setSwitch({ resetPosition: true }));
+  $("[data-capture-default-icon]").addEventListener("click", () => setSwitch({ defaultIcon: true }));
+
+  // The hotkey: the next key pressed, shown under the button the way the game labels its own keys. Keys the game
+  // uses by default get a warning (they'd do both); the hotkey only works while the game is in front.
+  const GAME_KEYS = new Set(["Tab", "Enter", "Escape", "Space", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
+    "AltLeft", "AltRight", "Backquote", "Minus", "Equal", "Backslash", "Comma", "Period", "Slash", "PageUp", "PageDown",
+    "Delete", "End", "ArrowLeft", "ArrowRight", "NumpadMultiply"]);
+  const gameUses = (code) => GAME_KEYS.has(code) || /^(Key[A-Z]|Digit\d|F([1-9]|1[0-2]))$/.test(code);
+  const KEY_LABELS = { Insert: "Ins", Home: "Home", Pause: "Pause", ScrollLock: "ScrLk", BracketLeft: "[", BracketRight: "]",
+    Semicolon: ";", Quote: "'", NumLock: "NumLk", NumpadDivide: "Num /", NumpadSubtract: "Num -", NumpadAdd: "Num +",
+    NumpadEnter: "Num Ent", NumpadDecimal: "Num .", ArrowUp: "Up", ArrowDown: "Down" };
+  const keyLabel = (event) => KEY_LABELS[event.code] || (event.code.startsWith("Numpad") ? `Num ${event.code.slice(6)}`
+    : event.code.replace(/^Key|^Digit/, "")).slice(0, 8);
+  var capturingKey = false;   // var: showCaptureSwitch above reads it
+  $("[data-capture-hotkey]").addEventListener("click", (event) => {
+    capturingKey = true;
+    event.target.textContent = "Press a key…";
+    $("[data-capture-hotkey-note]").textContent = "";
+  });
+  const stopPicking = async () => {                                              // cancelled: show the key as it is
+    if (!capturingKey) return;
+    capturingKey = false;
+    showCaptureSwitch(await invoke("capture_switch"));
+  };
+  window.addEventListener("blur", () => void stopPicking());
+  document.addEventListener("mousedown", (event) => {
+    if (!event.target.closest("[data-capture-hotkey]")) void stopPicking();      // clicked anywhere else
+  });
+  window.addEventListener("keydown", async (event) => {
+    if (!capturingKey) return;
+    event.preventDefault();
+    if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;           // a modifier alone isn't a hotkey
+    if (event.code === "Escape") { await stopPicking(); return; }
+    capturingKey = false;
+    const label = keyLabel(event);
+    $("[data-capture-hotkey-note]").textContent = gameUses(event.code)
+      ? `The game uses ${label} too: it would do both. A key like Ins, Home or Pause is safer.` : "";
+    await setSwitch({ hotkey: { vk: event.keyCode, label } });
+  }, true);
+  $("[data-capture-hotkey-clear]").addEventListener("click", () => setSwitch({ hotkey: { vk: 0, label: "" } }));
 
   // ---------------------------------------------------------------- settings form
   function fill() {
@@ -1064,6 +1130,7 @@
     } catch {
       // older app without the updater
     }
+    void captureSwitch();
     if (settings.app.show_guide !== false) openGuide();
     // once a second while the window is up; nothing while it sits in the tray, and fresh the moment it's shown
     setInterval(() => { if (!document.hidden) void refresh(); }, 1000);

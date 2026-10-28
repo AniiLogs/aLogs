@@ -221,7 +221,7 @@
         el("div", { class: "setting" },
           el("div", {}, el("strong", { textContent: "Position" }), el("small", { textContent: "Pick a preset, or drag the map exactly where you want it on screen." })),
           el("div", { class: "row" },
-            select("MiniMapCorner", "", "", [["TopRight", "Top right"], ["TopCenter", "Top centre"]]).lastChild,
+            select("MiniMapCorner", "", "", [["TopRight", "Top right"], ["TopCenter", "Top centre"], ["OverGame", "Over the game's minimap (experimental)"]]).lastChild,
             el("button", { textContent: "Drag to position…", disabled: overlay || off || !state.running, onclick: () => command("position-map") }),
           ),
         ),

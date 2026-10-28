@@ -6,6 +6,22 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ## 0.1.28
 
 ### New
+- **An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits next to the game's Chat,
+  Photo and Emoticon icons at the bottom left, drawn like them, with its hotkey under it (Insert by default, a key
+  the game doesn't use; change it or turn it off in General › Screen capture). Bright while aLogs is watching, dim
+  while it's off; one click or the hotkey turns screen capture off (no DPS meter, no Sanctum Helper, nothing read or
+  sent) or back on. It shows only when the game shows those icons, and clicking it never takes you out of the game.
+  Drag it anywhere else if you like; right-click it to lock it, use a picture of your own or put it back in the row.
+- **60 readings a second in fights** (DPS Meter › Meter, optional): times each drop of HP and the kill to 1/60 s.
+  30 stays the default; damage totals are the same either way.
+- **Sanctum Helper's map over the game's minimap** (Sanctum Helper › On-screen map › Position, experimental): the
+  corner or round map sits exactly on the game's minimap, solid, and the game's minimap is still read underneath.
+  On Windows 10 the map is kept out of recordings while it's there.
+- **Help test aLogs** (DPS Meter › Captures & logs › Save test pictures): full-size pictures of boss fights and of
+  every screen the meter reads, at your own resolution, so the developers can check aLogs reads everything right on
+  every screen size. Up to 300 a day, for 3 hours after you turn it on; they stay on your PC until you share them.
+- **Priority** (General › Performance): how much of a busy PC aLogs, the meter and Sanctum Helper may take. Lower
+  (the default: the game and OBS always come first), Normal, or Higher for keeping the meter on pace no matter what.
 - **A name:** the app is now **aLogs: Aniiloger's Companion App** (aLogs for short), in its window, the sidebar,
   About, the installer and the tray. Your settings, records and install stay where they were.
 - **A new icon:** Eklue's emblem inside an HP dial and a break bar, ringed by six of the game's biggest buffs, on the
@@ -65,6 +81,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   and never notes EXP going backwards.
 
 ### Improved
+- **New bosses without waiting for an aLogs update:** the meter reads the boss list (names and HP) from your own
+  game files after each game patch, like the Interlink weeks, so a boss a patch adds is recognised right away.
 - **The meter reacts almost instantly:** it looks for a boss bar 20 times a second, anywhere on screen, and its full
   search is about ten times cheaper than before. During a fight it reads the bar 30 times a second (was 10).
   Result screens, Battle Data and the Catch Countdown are read without ever pausing the meter, and text is read
@@ -95,11 +113,22 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
-- **One game capture for all of aLogs, on every PC:** on PCs where the game window can't be captured (it comes back
-  black), the meter and Sanctum Helper each fell back to copying the whole screen themselves, which could make
-  Sanctum Helper's map lag. aLogs now copies the screen once for both, only while the game is in front, and Sanctum
-  Helper then keeps its map out of recordings so it never reads itself. The logs now say how the game is captured and
-  how long it takes, and how sure Sanctum Helper is about the run timer, so a report shows what slows things down.
+- **The boss bar at 720p:** it was often not found at all (its thin end lines blur at that size), and once its ×N
+  counter was mistaken for the bar's end. Found and read right at 720p, 900p, 1080p, 1440p and 4K now.
+- **The ×N counter at 720p and 4K:** a single digit right after the "x" (×4) touched it once scaled and wasn't read.
+- **Teammates' names on result screens** lost their first letter at some sizes; read whole at
+  every common resolution now.
+- **Boss names on the battle prep screen** in a week the game data doesn't list yet are matched to the right boss
+  instead of kept as read ("Omega Tucking$").
+- **No more lag from aLogs while you play or stream:** aLogs now watches the game on your graphics card, the way
+  OBS does, instead of copying the whole 4K screen up to 20 times a second (about 50 ms each, which could make the
+  game stutter, worse with OBS running). The meter and Sanctum Helper share one capture, and each gets only the part
+  of the screen it reads (Sanctum Helper's map corner, the boss bar area), at its own pace. Sanctum Helper no longer
+  copies the screen 60 times a second during an Egg Heist run. On Windows 11 only the game window is captured, so the
+  DPS window and map show on stream as usual; on Windows 10 they're kept out of the meter's view (and out of display
+  captures) so it never reads itself. Tabbed out on Windows 10, aLogs still watches the game (a few times a second)
+  so "You're being attacked" keeps working; where Windows can't copy the game window, Windows shows a yellow border
+  around the game while you're away. The logs say how the game is captured and how long it takes.
 - **Closing aLogs is instant:** it used to hang for about 10 seconds while it waited on the meter and Sanctum
   Helper. They now finish up on their own (an open fight is still saved) and close within a fraction of a second.
 - **No more filling up your drive:** the meter's text reader left a small picture behind for nearly every read, in

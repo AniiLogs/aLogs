@@ -7,6 +7,11 @@ window.PATCH_NOTES = [
    {
     "heading": "New",
     "items": [
+     "**An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits next to the game's Chat, Photo and Emoticon icons at the bottom left, drawn like them, with its hotkey under it (Insert by default, a key the game doesn't use; change it or turn it off in General › Screen capture). Bright while aLogs is watching, dim while it's off; one click or the hotkey turns screen capture off (no DPS meter, no Sanctum Helper, nothing read or sent) or back on. It shows only when the game shows those icons, and clicking it never takes you out of the game. Drag it anywhere else if you like; right-click it to lock it, use a picture of your own or put it back in the row.",
+     "**60 readings a second in fights** (DPS Meter › Meter, optional): times each drop of HP and the kill to 1/60 s. 30 stays the default; damage totals are the same either way.",
+     "**Sanctum Helper's map over the game's minimap** (Sanctum Helper › On-screen map › Position, experimental): the corner or round map sits exactly on the game's minimap, solid, and the game's minimap is still read underneath. On Windows 10 the map is kept out of recordings while it's there.",
+     "**Help test aLogs** (DPS Meter › Captures & logs › Save test pictures): full-size pictures of boss fights and of every screen the meter reads, at your own resolution, so the developers can check aLogs reads everything right on every screen size. Up to 300 a day, for 3 hours after you turn it on; they stay on your PC until you share them.",
+     "**Priority** (General › Performance): how much of a busy PC aLogs, the meter and Sanctum Helper may take. Lower (the default: the game and OBS always come first), Normal, or Higher for keeping the meter on pace no matter what.",
      "**A name:** the app is now **aLogs: Aniiloger's Companion App** (aLogs for short), in its window, the sidebar, About, the installer and the tray. Your settings, records and install stay where they were.",
      "**A new icon:** Eklue's emblem inside an HP dial and a break bar, ringed by six of the game's biggest buffs, on the desktop, the taskbar, the tray, the installer and the sidebar.",
      "**aLogs updates itself:** it checks for new versions on its own and shows them in the sidebar, with a progress bar while one downloads. **Install now** closes aLogs, installs with just a progress bar (no installer to click through) and opens the new version; **Next time aLogs opens** installs it then. Updates download in the background unless you turn that off (General › Updates), nothing installs without your choice, and only one downloaded update is ever kept. Betas update the same way: General › Get beta updates, and anyone already on a beta keeps getting betas until the release catches up. About shows exactly which build you have (for example \"0.1.28 · RC10\"). (This version still installs the usual way.)",
@@ -28,6 +33,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
+     "**New bosses without waiting for an aLogs update:** the meter reads the boss list (names and HP) from your own game files after each game patch, like the Interlink weeks, so a boss a patch adds is recognised right away.",
      "**The meter reacts almost instantly:** it looks for a boss bar 20 times a second, anywhere on screen, and its full search is about ten times cheaper than before. During a fight it reads the bar 30 times a second (was 10). Result screens, Battle Data and the Catch Countdown are read without ever pausing the meter, and text is read about four times faster (a full screen in ~60 ms instead of ~220 ms) with exactly the same results. The meter starts in a fraction of a second, and between fights it eases off while you're in another window.",
      "**Out in the world the fight's clock starts at the first hit**, not when the boss's bar shows up as you get near it, so standing around before a fight no longer drags your DPS down.",
      "**The overlay only shows over the game:** tab out (to Discord, a browser…) and it gets out of the way at once, then comes back when you return to the game.",
@@ -42,7 +48,11 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
-     "**One game capture for all of aLogs, on every PC:** on PCs where the game window can't be captured (it comes back black), the meter and Sanctum Helper each fell back to copying the whole screen themselves, which could make Sanctum Helper's map lag. aLogs now copies the screen once for both, only while the game is in front, and Sanctum Helper then keeps its map out of recordings so it never reads itself. The logs now say how the game is captured and how long it takes, and how sure Sanctum Helper is about the run timer, so a report shows what slows things down.",
+     "**The boss bar at 720p:** it was often not found at all (its thin end lines blur at that size), and once its ×N counter was mistaken for the bar's end. Found and read right at 720p, 900p, 1080p, 1440p and 4K now.",
+     "**The ×N counter at 720p and 4K:** a single digit right after the \"x\" (×4) touched it once scaled and wasn't read.",
+     "**Teammates' names on result screens** lost their first letter at some sizes; read whole at every common resolution now.",
+     "**Boss names on the battle prep screen** in a week the game data doesn't list yet are matched to the right boss instead of kept as read (\"Omega Tucking$\").",
+     "**No more lag from aLogs while you play or stream:** aLogs now watches the game on your graphics card, the way OBS does, instead of copying the whole 4K screen up to 20 times a second (about 50 ms each, which could make the game stutter, worse with OBS running). The meter and Sanctum Helper share one capture, and each gets only the part of the screen it reads (Sanctum Helper's map corner, the boss bar area), at its own pace. Sanctum Helper no longer copies the screen 60 times a second during an Egg Heist run. On Windows 11 only the game window is captured, so the DPS window and map show on stream as usual; on Windows 10 they're kept out of the meter's view (and out of display captures) so it never reads itself. Tabbed out on Windows 10, aLogs still watches the game (a few times a second) so \"You're being attacked\" keeps working; where Windows can't copy the game window, Windows shows a yellow border around the game while you're away. The logs say how the game is captured and how long it takes.",
      "**Closing aLogs is instant:** it used to hang for about 10 seconds while it waited on the meter and Sanctum Helper. They now finish up on their own (an open fight is still saved) and close within a fraction of a second.",
      "**No more filling up your drive:** the meter's text reader left a small picture behind for nearly every read, in Windows' Temp folder, and never cleaned up (on one PC: 600,000 files, 1.8 GB). It now keeps none, and the first start clears what earlier versions left. Each fight's per-frame log is also cleared after 30 days (your fight results, profile notes and leaderboard records are kept).",
      "**The fight's time is right through BREAKs and ultimates:** the meter keeps reading the boss's HP under the BREAK overlay (it used to freeze there, which gave impossible sub-10-second kills), and when an ultimate finishes the boss, the fight runs to the killing blow, not only to when the cutscene hid the bar.",
@@ -126,7 +136,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
-     "The party on the prep screen is read wherever it sits (it moves with the boss's challenge text), all four slots are recognised (3P and 4P were missed), and your own slot is found by your green name, leader or not.",
+     "The party on the prep screen is read wherever it sits (it moves with the boss's challenge text), all four slots are recognized (3P and 4P were missed), and your own slot is found by your green name, leader or not.",
      "Teammates' names are read the same way on every screen, so one player never shows under two spellings.",
      "In Interlink, a boss name read without \"Omega\" could be taken for the open-world Alpha of the same name, with wrong HP. Only this week's Interlink bosses are considered now, and a far-off HP reading is never saved."
     ]
@@ -158,7 +168,7 @@ window.PATCH_NOTES = [
    {
     "heading": "New",
     "items": [
-     "**Themes:** General Settings has a new Themes tab with the AniiLogs website's themes (Night, Meadow, Emberpup, Pawney) and Custom colours. It changes the app window only; the overlay in the game stays the same.",
+     "**Themes:** General Settings has a new Themes tab with the AniiLogs website's themes (Night, Meadow, Emberpup, Pawney) and Custom colors. It changes the app window only; the overlay in the game stays the same.",
      "**Update notice:** when a new version is out, About gets a dot in the sidebar and an Update button next to the patch notes that opens the download page.",
      "**Patch notes stay current:** About shows the last five releases straight from GitHub, so you can read what's new before you update. Each one opens when you click it. If your version is older than all of them, a sixth entry says how far behind you are."
     ]

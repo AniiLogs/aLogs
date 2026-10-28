@@ -93,7 +93,12 @@
             <select data-k="capture.look_interval" data-type="number">
               <option value="0.05">20 times a second (default)</option><option value="0.1">10 times a second</option><option value="0.25">4 times a second (lightest)</option>
             </select></label>
-          <p class="hint">During a fight it reads 30 times a second whatever this is set to. Sanctum Helper keeps its own pace, so this only affects the meter.</p>
+          <label class="field"><span>How often the meter reads the boss bar during a fight</span>
+            <select data-k="capture.fight_rate" data-type="number">
+              <option value="30">30 times a second (default)</option><option value="60">60 times a second (finer timing, about twice the processor use)</option>
+            </select></label>
+          <p class="hint">Damage totals are the same either way; 60 times a second times each drop of HP and the kill to 1/60 s. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
+          <!-- Read my damage numbers (experimental, bossbar/dmgnumbers.py): paused 2026-10-28, see the meter's DAMAGE_NUMBERS -->
         </div>
         <div class="group">
           <h2>Audio cues</h2>
@@ -184,6 +189,13 @@
             <div><strong>Screens after each fight (diagnostics)</strong><small>A screenshot every 3 seconds for 45 seconds after a fight, so the result screen is kept even if the meter misses it.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="capture.nobar_frames"><span></span>
             <div><strong>Screenshots when the meter can't find the boss bar (diagnostics)</strong><small>In dungeons such as Interlink, if no boss bar shows up, a screenshot every 5 seconds (at most 30 each time the meter starts), so we can see what it missed.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Help test aLogs</h2>
+          <label class="toggle"><input type="checkbox" data-k="capture.test_frames"><span></span>
+            <div><strong>Save test pictures</strong><small>Full-size pictures at your screen's resolution, for checking that aLogs reads everything right on every screen size: one every 5 seconds during a boss fight, and each screen the meter reads (results, Battle Data, battle prep, Challenge Stats, Profile, Egg Heist). Up to 300 a day, for 3 hours after you turn it on. At 4K they take about 2 GB.</small></div></label>
+          <div class="row"><button type="button" data-open="test_frames">Open the test pictures folder</button></div>
+          <p class="hint">They show your screen as it is, with your name, UID and teammates, and stay on this PC until you share them. Zip the folder and send it to the aLogs developers on Discord; they're used only to test the readers.</p>
         </div>
         <div class="group">
           <label class="field"><span>Keep screenshots</span>
@@ -284,6 +296,26 @@
             <div><strong>Closing the window keeps aLogs in the tray</strong><small>When off, closing the window quits aLogs and stops the meter.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="overlay.in_recordings"><span></span>
             <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them).</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Screen capture</h2>
+          <label class="toggle"><input type="checkbox" data-capture-on><span></span>
+            <div><strong>Screen capture</strong><small>Off: aLogs doesn't look at the game at all. No DPS meter, no Sanctum Helper, nothing read or sent until you turn it back on.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-capture-button><span></span>
+            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon next to the game's Chat, Photo and Emoticon icons, with its hotkey under it, bright while capture is on and dim while it's off. It shows only when the game shows those icons. Click it to switch; drag it anywhere else if you like; right-click it to lock it, use your own picture or put it back in the row.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-capture-lock><span></span>
+            <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still switch capture.</small></div></label>
+          <div class="row"><span>Hotkey</span><button type="button" data-capture-hotkey>Ins</button><button type="button" data-capture-hotkey-clear>No hotkey</button><span class="hint" data-capture-hotkey-note></span></div>
+          <div class="row"><button type="button" data-capture-reset>Put the button back in the game's icon row</button><button type="button" data-capture-default-icon>Use the aLogs icon again</button></div>
+        </div>
+        <div class="group">
+          <h2>Performance</h2>
+          <label class="field"><span>Priority when your PC is busy (aLogs, the meter and Sanctum Helper)</span>
+            <select data-k="app.priority">
+              <option value="low">Lower: the game and OBS always come first (recommended)</option>
+              <option value="normal">Normal</option>
+              <option value="high">Higher: the meter keeps up even when the PC is very busy</option>
+            </select></label>
         </div>
         <div class="group">
           <h2>Updates</h2>

@@ -1,7 +1,7 @@
 """Aniimo live boss DPS meter (team damage from the boss HP bar).
 
-Watches the game window with PrintWindow (built-in Windows GDI, no capture border; falls back to a plain screen
-copy), reads the boss bar, and shows team damage and DPS in a small always-on-top overlay. It also follows the
+Watches the game window through the aLogs app's shared capture (on the graphics card, wincapture.py), reads the
+boss bar, and shows team damage and DPS in a small always-on-top overlay. It also follows the
 game's own Player.log for scene changes, which mark exactly when a boss attempt starts and ends.
 It only looks at screen pixels and the game's text log; it never touches the game's memory or files.
 
@@ -29,6 +29,7 @@ KILL_TO_COUNTDOWN = 3.0 # seconds from the killing blow to the game's Catch Coun
                         # motion, speed lines; 3.0-3.1 s on 11 Alpha kills, measured frame by frame)
 TOP_PART = 0.42         # share of the frame captured while a bar is locked (bar, title, xN, timer are all up there)
 FIGHT_INTERVAL = 1 / 30 # seconds between frames during a fight
+DAMAGE_NUMBERS = False  # the damage-number recorder (dmgnumbers.py, capture.damage_numbers): paused, off whatever the setting
 INK_MIN = 40            # black pixels a prepared white-text crop needs before it is worth reading (screen_crops)
 EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to its end screen (egg_fade)
 AWAY_INTERVAL = 0.25    # between fights while the game isn't the active window (a running fight keeps 1/30 s)
@@ -336,6 +337,17 @@ def refresh_cycles(meter):
     import gamedata
     path = os.path.join(HERE, 'boss_rush_cycles.json')
     while not meter.stop:
+        try:   # the boss list too: a patch that adds a boss needs no new aLogs build
+            shipped = R.load_catalog() if R.GAME_BOSSES[0] is None else meter.catalog
+            keep = [(r['table'], r['puppetId']) for r in shipped if r.get('monsterType') != '2']
+            bosses, changed = gamedata.cached_bosses(os.path.join(HERE, 'game_bosses.json'), keep, meter.args.player_log)
+            if bosses:
+                had = {(r['table'], r['puppetId']) for r in meter.catalog}
+                R.GAME_BOSSES[0] = bosses; meter.catalog = R.load_catalog()
+                new = sorted({r['bossTitle_en'] or r['name_en'] for r in meter.catalog if (r['table'], r['puppetId']) not in had})
+                if changed or new: log.info(f'boss list read from the game data: {len(bosses)} rows' + (f', new: {new[:10]}' if new else ''))
+        except Exception as e:
+            log.warning(f'could not read the boss list from the game data: {e}')
         try:
             cycles, changed = gamedata.cached_cycles(os.path.join(HERE, 'game_cycles.json'), meter.args.player_log)
             if cycles:
@@ -595,6 +607,7 @@ class Meter:
         self.last_fight = None       # (Fight, ended at) - the result screen doesn't name the boss
         self.last_screen = None      # game area on screen (x, y, w, h), for placing the DPS window
         self.hold = InputBlock(log.info); self.hold_started = 0.0; self.clicks = 0; self.last_click = 0.0
+        self.numbers = None             # the damage-number recorder (experimental), made when the option is on
         self.auto_until = 0.0        # automatic "View Battle Data" session running until this time
         self.last_status = 0.0; self.status_text = 'starting'
         self.submitter = None
@@ -634,27 +647,17 @@ class Meter:
         x, y, w, h = wc.client_rect(self.hwnd)
         self.origin = (x, y); self.frame_size = (w, h)       # where the frame sits on screen (for the HP labels)
         t0 = time.perf_counter()
-        if wc.shared.app_present():
-            # the app's shared capture, for every module (it copies the screen itself when the window can't be)
-            im = wc.grab_window(self.hwnd, part)
-            self.capture_stats(t0, im, 'shared screen copy' if wc.shared.screen_copy else 'shared PrintWindow')
-            if im is None: return None
-            self.use_screen = wc.shared.screen_copy
-        elif not self.use_screen:
-            im = wc.grab_window(self.hwnd, part)
-            self.frames += 1
-            # a failing PrintWindow gives flat frames; checking costs time, so full frames and every 20th
-            if im is None or ((self.frame_full or self.frames % 20 == 0) and wc.is_blank(im)):
-                self.blank += 1
-                if self.blank >= 8:
-                    self.use_screen = True; self.out('status', 'window capture keeps giving no image; using screen capture')
-                return None
-            self.blank = 0
-        else:
-            im = wc.grab_screen(x, y, w, int(h * part) if part else h)
-        if not wc.shared.base: self.capture_stats(t0, im, 'own screen copy' if self.use_screen else 'own PrintWindow')
+        # the app's shared capture, for every module (the meter never captures by itself)
+        if not wc.shared.app_present():
+            if not getattr(self, 'no_app_said', False):
+                self.no_app_said = True; self.out('status', 'waiting for the aLogs app to share the game picture')
+            return None
+        im = wc.grab_window(self.hwnd, part)
+        self.capture_stats(t0, im, 'shared ' + (wc.shared.source or 'capture'))
+        if im is None: return None
+        self.use_screen = wc.shared.screen_copy        # our overlays can be in the picture: hide them from capture
         if (w, h) != self.last_size:
-            log.info(f'frame size {w}x{h} ({"screen copy" if self.use_screen else "PrintWindow"})')
+            log.info(f'frame size {w}x{h} ({wc.shared.source})')
             self.last_size = (w, h)
         if top_only:
             canvas = getattr(self, 'canvas', None)
@@ -700,6 +703,7 @@ class Meter:
         log.debug(' | '.join(parts))
 
     def end_fight(self, why):
+        if self.numbers: self.numbers.fight_ended()
         if self.fight:
             f = self.fight
             # The bar vanishes the moment a boss is killed or caught, before the last hit shows - but it also hides
@@ -910,16 +914,19 @@ class Meter:
             if self.auto_active() and now - self.last_click > 1.0:
                 if self.clicks < 6: self.open_battle_data(im, u, ux, H)                 # first click or a retry
                 else: self.end_auto('Battle Data did not open after 6 clicks')
+            self.test_frame(im, 'result', now)
             self.result_screen(im, now, u, ux, H, heads.get('cs', ''))
             return
-        if 'challenge' in heads.get('cs', '').lower(): self.challenge_stats(im, now, u, ux, H); return
-        if 'score' in heads.get('bs', '').lower(): self.prep_screen(im, now, u, ux, H, heads['bs']); return
-        if 'rank info' in head.lower(): self.egg_rank_info(im, now, u, ux, H); return
-        if head.strip().lower().startswith('profile'): self.profile_screen(im, now, u, ux, H); return
+        if 'challenge' in heads.get('cs', '').lower(): self.test_frame(im, 'challenge', now); self.challenge_stats(im, now, u, ux, H); return
+        if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
+        if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
+        if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
-        if 'adventure' in heads.get('eh', '').lower(): self.egg_result(im, now, u, ux, H, heads['eh']); return
+        if 'adventure' in heads.get('eh', '').lower(): self.test_frame(im, 'egg_result', now); self.egg_result(im, now, u, ux, H, heads['eh']); return
+        if heads.get('me') and heads.get('uid'): self.test_frame(im, 'menu', now)
         if not is_bd: return
+        self.test_frame(im, 'battle_data', now)
         self.end_auto('Battle Data is open')
         if self.fight: self.end_fight('Battle Data screen')           # can show up while the bar dropout is still bridged
         # once per appearance: a Battle Data screen left open (or reopened from a menu) is read once, not every 30 s
@@ -1258,8 +1265,16 @@ class Meter:
         import difflib
         ids = {str(b) for b in R.active_cycle_bosses()}
         names = sorted({r['bossTitle_en'] for r in self.catalog if r['puppetId'] in ids and r['table'] == 'puppet_data' and r['bossTitle_en']})
-        if not names: return text                           # a week the game data doesn't list yet: as read
         def norm(s): return re.sub(r'[^a-z]', '', s.lower())
+        if not names:
+            # a week the game data doesn't list yet: the closest of every boss, only when it's a clear match
+            # (OCR adds marks the name doesn't have: 'Omega Tucking$' for the screen's 'Omega Tucking+')
+            every = sorted({r['bossTitle_en'] for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en']})
+            scored = sorted(((difflib.SequenceMatcher(None, norm(text), norm(n)).ratio(), n) for n in every), reverse=True)
+            # (an exact match, marks aside, always wins: the game data also has near-twins like 'Omega Tuckin')
+            if scored and (scored[0][0] == 1.0 or scored[0][0] >= 0.85 and (len(scored) < 2 or scored[0][0] - scored[1][0] >= 0.1)):
+                return scored[0][1]
+            return text
         scored = sorted(((difflib.SequenceMatcher(None, norm(text), norm(n)).ratio(), n) for n in names), reverse=True)
         best, name = scored[0]
         runner_up = scored[1][0] if len(scored) > 1 else 0
@@ -1331,8 +1346,9 @@ class Meter:
             'time': R.prep_short(im, (ux + u * 0.68, H * 0.33, ux + u * 0.79, H * 0.41), k)}
         for i in range(4):
             dx = i * 0.1765
-            # a softer threshold keeps thin letters at 720p ('Tammy', not 'Ta nny'); just as good at 4K
-            crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.15 + dx), H * 0.615, ux + u * (0.22 + dx), H * 0.655), k, thr=160)
+            # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
+            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p
+            crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.15 + dx), H * 0.615, ux + u * (0.22 + dx), H * 0.655), k, thr=130)
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
         t = self.ocr.read(crops)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
@@ -1796,6 +1812,33 @@ class Meter:
         if keep == 0 and not sending: return None
         return save_picture(im, folder, name)
 
+    TEST_FRAMES_MAX = 300           # a day's test pictures at most
+    TEST_FRAMES_HOURS = 3           # saved for this long after the option is turned on (or the meter starts with it)
+    TEST_FRAMES_GAP = {'fight': 5, 'nobar': 10}   # seconds between pictures of one kind (screens: 8)
+
+    def test_frame_due(self, kind, now):
+        cap = self.args.cfg['capture']
+        if not cap.get('test_frames') or self.args.replay is not None:
+            self.test_since = None; return False
+        if getattr(self, 'test_since', None) is None:
+            self.test_since = now; self.test_last = {}
+            d = os.path.join(HERE, 'logs', 'test_frames', time.strftime('%Y%m%d'))
+            self.test_count = sum(len(fs) for at, _, fs in os.walk(d) if 'numbers' not in at) if os.path.isdir(d) else 0
+            log.info(f'test pictures: saving for {self.TEST_FRAMES_HOURS} hours ({self.test_count} already today)')
+        if now - self.test_since > self.TEST_FRAMES_HOURS * 3600 or self.test_count >= self.TEST_FRAMES_MAX: return False
+        return now - self.test_last.get(kind, 0) >= self.TEST_FRAMES_GAP.get(kind, 8)
+
+    def test_frame(self, im, kind, now):
+        """Captures & logs › Save test pictures: whole frames at the player's own resolution, lossless, for the
+        accuracy tests (tests/resolutions.py, tests/bar_resolutions.py) - fights every 5 s and each screen the meter
+        reads. Saved in the background so the meter never waits; logs/test_frames/<day>/<kind>/."""
+        if not getattr(self, 'frame_full', True) or not self.test_frame_due(kind, now): return
+        self.test_last[kind] = now; self.test_count += 1
+        d = os.path.join(HERE, 'logs', 'test_frames', time.strftime('%Y%m%d'), kind); os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"{time.strftime('%H%M%S')}_{self.test_count:03d}_{im.width}x{im.height}.png")
+        threading.Thread(target=lambda pic=im.copy(): pic.save(path, compress_level=1), daemon=True, name='test-frame').start()
+        if self.test_count >= self.TEST_FRAMES_MAX: log.info(f'test pictures: {self.TEST_FRAMES_MAX} today, no more')
+
     def save_end_screens(self, im, now):
         """For 45 s after a fight: a full frame every 3 s to logs/end_screens/<fight>/, so any results / stat screen
         is kept for comparison even if the meter doesn't recognize it (Battle Data is also saved on its own)."""
@@ -1847,8 +1890,24 @@ class Meter:
         log.info(f'boss kill sound heard {self.catch_seen - at:.1f}s before the Catch Countdown (match {score:.2f})')
         return at
 
+    def fight_interval(self):
+        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (30 or 60)."""
+        rate = self.args.cfg.get('capture', {}).get('fight_rate', 30)
+        return 1 / 60 if rate == 60 else FIGHT_INTERVAL
+
     def step(self):
         self.reload_settings(time.time())
+        # screen capture switched off (the overlay button or the app): end what's open and rest until it's back on
+        off = self.args.replay is None and wc.shared.switched_off()
+        if off != getattr(self, 'capture_off', False):
+            self.capture_off = off
+            log.info('screen capture switched ' + ('off' if off else 'on'))
+            if off:
+                self.end_auto('screen capture switched off'); self.hold.stop(); self.egg_hold = None
+                if self.fight: self.end_fight('screen capture switched off')
+                self.bar = None
+        if off:
+            self.out('status', 'screen capture is off'); return
         # out in the world, keep the app listening for the boss kill sound while a fight is on
         if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
             wc.audio.want(time.time())
@@ -1863,6 +1922,9 @@ class Meter:
             # break line): a fraction of the top part, at every resolution
             b = self.bar; band = (b['yc'] + 0.06 * b['span'] + 4) / self.frame_size[1]
             if band < TOP_PART: partial = band; self.band_frame = True
+        # a whole test picture now and then (at most one try a second: without a bar found there's nothing to save)
+        if partial and self.fight and self.test_frame_due('fight', time.time()) and time.time() - getattr(self, 'test_try', 0) >= 1:
+            partial = False; self.test_try = time.time()
         top_only = (not partial and self.fight is None and self.bar is None and self.args.replay is None
                     and not self.full_frame_due(time.time()))
         im = self.grab(partial, top_only)
@@ -1937,6 +1999,7 @@ class Meter:
                 self.out('status', 'waiting for a boss bar')   # why it isn't found goes to meter.log (1 s snapshot)
                 self.snapshot(now); return
         bar = self.bar; self.bar_seen = now
+        if self.fight: self.test_frame(im, 'fight', now)
         fill, fill_rgb, edge_rgb = R.measure_fill_any(im, bar)
         scale = bar['span'] / R.REF_SPAN
         need_title = self.fight is None or now - self.last_title > 8
@@ -2060,6 +2123,11 @@ class Meter:
     def start_fight(self, row, level, title, bossrush, how):
         hp = R.boss_max_hp(row, level)
         self.fight = Fight(row['bossTitle_en'] or title, level, row, hp, bossrush, debug_dir=not self.args.no_debug_frames)
+        if DAMAGE_NUMBERS and self.args.cfg['capture'].get('damage_numbers') and self.args.replay is None:   # experimental
+            if self.numbers is None:
+                import dmgnumbers as N
+                self.numbers = N.Recorder(HERE, log)
+            self.numbers.fight_started(self.hwnd, self.fight.title)
         self.fight.scene_ok = bossrush and self.bossrush_space    # the game log confirmed an Interlink scene
         if self.bar: self.fight.bar_geom = (self.bar['span'], self.bar['yc'])     # the bar this fight follows
         self.out('status', f'fight started: {self.fight.title} Lv {level}, max HP {hp:,}' + (' (Interlink)' if bossrush else ''))
@@ -2111,7 +2179,7 @@ class Meter:
         self.presence_tick(now)
         C.write_status({
             'time': now, 'pid': os.getpid(), 'status': self.status_text,
-            'game_window': bool(self.hwnd), 'capture': 'screen copy' if self.use_screen else 'PrintWindow',
+            'game_window': bool(self.hwnd), 'capture': wc.shared.source or None,
             'frame': list(self.last_size) if self.last_size else None, 'boss_bar': self.bar is not None,
             'fight': f and {'boss': f.title, 'level': f.level, 'segment': f.seg, 'damage': f.damage, 'max_hp': f.max_hp,
                             'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent)},
@@ -2135,7 +2203,8 @@ class Meter:
                 log.exception('error in step'); self.out('status', f'error: {e!r} (details in logs/meter.log)')
             self.write_status(time.time())
             if self.args.replay is not None and not self.args.replay: break
-            interval = FIGHT_INTERVAL if self.fight else self.args.interval
+            interval = self.fight_interval() if self.fight else self.args.interval
+            if getattr(self, 'capture_off', False): interval = max(interval, AWAY_INTERVAL)   # resting
             if not self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
             time.sleep(max(0, interval - (time.time() - t)))
@@ -2454,10 +2523,15 @@ def run_overlay(meter, hide):
         for n in hp: clear(n)
 
     for w in [dw] + [L['win'] for L in hp.values()]: w.update_idletasks()
-    if hide:   # only on request: by default the meter shows up in screenshots and recordings
-        for w in [dw] + [L['win'] for L in hp.values()]:
-            try: wc.hide_from_capture(ctypes.windll.user32.GetParent(w.winfo_id()) or w.winfo_id())
+    hidden = {'on': False, 'done': set()}
+    def hide_all():
+        """Every overlay window (the DPS window, HP labels, result notes, the alert) out of screen captures."""
+        hidden['on'] = True
+        for w in root.winfo_children():
+            if not isinstance(w, tk.Toplevel) or w in hidden['done']: continue
+            try: wc.hide_from_capture(ctypes.windll.user32.GetParent(w.winfo_id()) or w.winfo_id()); hidden['done'].add(w)
             except Exception: pass
+    if hide: hide_all()   # on request; otherwise the meter shows up in screenshots and recordings
 
     def show_hp(d):
         bar = d.get('bar')
@@ -2586,6 +2660,10 @@ def run_overlay(meter, hide):
 
     def poll():
         if not th.is_alive(): root.destroy(); return          # the meter stopped (asked to, or closed): exit
+        # the app's picture is of the screen (Desktop Duplication): keep our windows out of it, or the meter would
+        # read its own HP labels on the boss bar
+        if meter.use_screen and not hidden['on']: log.info('overlay hidden from capture (the picture is of the screen)')
+        if meter.use_screen or hidden['on']: hide_all()   # windows made since (result notes) too
         front = game_in_front()
         if AWAY['on'] != (not front):
             AWAY['on'] = not front

@@ -17,8 +17,10 @@ use tauri::{AppHandle, Manager, State, WindowEvent};
 mod audio;
 mod auth;
 mod capture;
+mod gpu_capture;
 mod photos;
 mod hidhide;
+mod overlay_button;
 mod sanctum;
 mod site;
 mod update;
@@ -60,7 +62,7 @@ fn signal_meter_stop(on: bool) {
     }
 }
 
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
     let dir = PathBuf::from(base).join(APP_DIR).join("meter");
     let _ = fs::create_dir_all(&dir);
@@ -160,7 +162,9 @@ fn ensure_meter(app: &AppHandle) -> Result<(), String> {
         .env("ALOGS_PARENT", std::process::id().to_string())
         .env("ALOGS_VERSION", format!("aLogs-{}+rc.{}", app.package_info().version, update::build_rc()))
         .creation_flags(NO_WINDOW);
-    *guard = Some(cmd.spawn().map_err(|e| format!("Could not start the meter: {e}"))?);
+    let child = cmd.spawn().map_err(|e| format!("Could not start the meter: {e}"))?;
+    set_priority(Some(&child), &read_settings());
+    *guard = Some(child);
     Ok(())
 }
 
@@ -173,6 +177,68 @@ fn quit_app(app: &AppHandle) {
     }
     signal_meter_stop(true);
     app.exit(0);
+}
+
+/// How much of the PC aLogs, the meter and Sanctum Helper may take when it's busy (General › Priority):
+/// "low" (below normal, the default: the game and OBS come first), "normal" or "high" (above normal).
+fn priority_class(settings: &Value) -> u32 {
+    use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
+    match settings.pointer("/app/priority").and_then(Value::as_str) {
+        Some("normal") => NORMAL_PRIORITY_CLASS,
+        Some("high") => ABOVE_NORMAL_PRIORITY_CLASS,
+        _ => BELOW_NORMAL_PRIORITY_CLASS,
+    }
+}
+
+/// Sets the priority of `child` (or, with None, of aLogs itself).
+pub(crate) fn set_priority(child: Option<&Child>, settings: &Value) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, SetPriorityClass};
+    let handle = match child {
+        Some(c) => c.as_raw_handle() as _,
+        None => unsafe { GetCurrentProcess() },
+    };
+    unsafe { SetPriorityClass(handle, priority_class(settings)) };
+}
+
+fn apply_priority(app: &AppHandle, settings: &Value) {
+    set_priority(None, settings);
+    if let Some(child) = app.state::<Meter>().child.lock().unwrap().as_ref() {
+        set_priority(Some(child), settings);
+    }
+    sanctum::set_priority(app, settings);
+}
+
+#[tauri::command]
+fn capture_switch() -> Value {
+    overlay_button::info()
+}
+
+/// The screen-capture switch and its overlay button, from the app's settings page.
+#[tauri::command]
+fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<bool>, locked: Option<bool>, reset_position: Option<bool>, default_icon: Option<bool>, hotkey: Option<Value>) -> Value {
+    if let Some(on) = capture_on {
+        overlay_button::set_capture(on);
+        sanctum::ensure(&app, &read_settings());
+    }
+    if let Some(show) = show {
+        overlay_button::set_shown(show);
+    }
+    if let Some(locked) = locked {
+        overlay_button::set_locked(locked);
+    }
+    if reset_position == Some(true) {
+        overlay_button::reset_position();
+    }
+    if default_icon == Some(true) {
+        overlay_button::use_default_icon();
+    }
+    // {vk, label} from General's key picker; vk 0 (or null) clears it: no hotkey, no label under the button
+    if let Some(h) = hotkey {
+        let vk = h.get("vk").and_then(Value::as_u64).unwrap_or(0) as u32;
+        overlay_button::set_hotkey(vk, h.get("label").and_then(Value::as_str).unwrap_or(""));
+    }
+    overlay_button::info()
 }
 
 #[tauri::command]
@@ -198,6 +264,7 @@ fn save_settings(app: AppHandle, meter: State<Meter>, settings: Value) -> Result
     ensure_meter(&app)?;
     sanctum::share_settings(&settings);
     sanctum::ensure(&app, &settings);
+    apply_priority(&app, &settings);
     Ok(true)
 }
 
@@ -235,6 +302,7 @@ fn open_target(target: String) -> Result<(), String> {
     let path = match target.as_str() {
         "data" => data,
         "logs" => data.join("logs"),
+        "test_frames" => data.join("logs").join("test_frames"),
         "meter_log" => data.join("logs").join("meter.log"),
         url if url.starts_with("https://") => {
             Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).creation_flags(NO_WINDOW).spawn().map_err(|e| e.to_string())?;
@@ -242,6 +310,9 @@ fn open_target(target: String) -> Result<(), String> {
         }
         _ => return Err("Unknown target.".into()),
     };
+    if target == "test_frames" {
+        let _ = fs::create_dir_all(&path); // empty until the first test picture: open it anyway
+    }
     if !path.exists() {
         return Err(format!("{} does not exist yet.", path.display()));
     }
@@ -496,7 +567,7 @@ fn main() {
         .manage(update::Pending::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            get_settings, save_settings, get_status, open_target,
+            get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch,
             auth::auth_listen_start, auth::auth_listen_wait, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, site::site_view,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
@@ -526,6 +597,8 @@ fn main() {
                 .build(app)?;
             let title = read_settings().pointer("/game/window_title").and_then(Value::as_str).unwrap_or("Aniimo").to_string();
             audio::start(title.clone());     // listens only while the meter asks (Boss Kill audio cue)
+            set_priority(None, &read_settings());
+            overlay_button::start(app.handle().clone(), title.clone());   // the on/off button over the game
             capture::start(title);
             // The meter runs whenever the app is open; the watchdog brings it back if it ever stops.
             // Sanctum Helper (when enabled) likewise.

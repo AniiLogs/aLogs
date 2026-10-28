@@ -1,10 +1,8 @@
-"""Window capture with built-in Windows GDI calls (same approach as Sanctum Helper).
+"""The game frame, from the aLogs app's shared capture (app/src-tauri/src/capture.rs).
 
-Shared: while the aLogs app runs it copies the game window once for every module (app/src-tauri/src/capture.rs);
-grab_window reads that frame first and only captures by itself when the app isn't there.
-Primary: PrintWindow(hwnd, PW_CLIENTONLY | PW_RENDERFULLCONTENT) - renders the game window into a bitmap,
-works when the window is covered, no yellow border (it is not Windows Graphics Capture).
-Fallback: BitBlt from the screen (the game must be visible).
+The app captures the game once for every module, on the graphics card (window capture or Desktop Duplication),
+and copies off the card only the areas the modules ask for. The meter never captures by itself any more:
+PrintWindow and screen copies took ~50 ms per 4K frame and could make the game stutter.
 """
 import ctypes, ctypes.wintypes as W
 from PIL import Image
@@ -12,26 +10,6 @@ from PIL import Image
 user32 = ctypes.windll.user32; gdi32 = ctypes.windll.gdi32
 try: ctypes.windll.shcore.SetProcessDpiAwareness(2)   # real pixels on scaled displays
 except Exception: pass
-
-PW_CLIENTONLY, PW_RENDERFULLCONTENT = 0x1, 0x2
-SRCCOPY, DIB_RGB_COLORS = 0x00CC0020, 0
-
-class BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [('biSize', W.DWORD), ('biWidth', W.LONG), ('biHeight', W.LONG), ('biPlanes', W.WORD),
-                ('biBitCount', W.WORD), ('biCompression', W.DWORD), ('biSizeImage', W.DWORD),
-                ('biXPelsPerMeter', W.LONG), ('biYPelsPerMeter', W.LONG), ('biClrUsed', W.DWORD), ('biClrImportant', W.DWORD)]
-
-user32.PrintWindow.argtypes = [W.HWND, W.HDC, W.UINT]
-gdi32.GetDIBits.argtypes = [W.HDC, W.HBITMAP, W.UINT, W.UINT, ctypes.c_void_p, ctypes.c_void_p, W.UINT]
-# handles are 64-bit: without these, ctypes treats them as 32-bit ints and a large one fails ("int too long")
-user32.GetDC.argtypes = [W.HWND]; user32.GetDC.restype = W.HDC
-user32.ReleaseDC.argtypes = [W.HWND, W.HDC]
-gdi32.CreateCompatibleDC.argtypes = [W.HDC]; gdi32.CreateCompatibleDC.restype = W.HDC
-gdi32.CreateCompatibleBitmap.argtypes = [W.HDC, ctypes.c_int, ctypes.c_int]; gdi32.CreateCompatibleBitmap.restype = W.HBITMAP
-gdi32.SelectObject.argtypes = [W.HDC, W.HGDIOBJ]; gdi32.SelectObject.restype = W.HGDIOBJ
-gdi32.DeleteObject.argtypes = [W.HGDIOBJ]
-gdi32.DeleteDC.argtypes = [W.HDC]
-gdi32.BitBlt.argtypes = [W.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, W.HDC, ctypes.c_int, ctypes.c_int, W.DWORD]
 
 def find_window(title='Aniimo'):
     """The game's window: visible, exactly this title, and a Unity player window (so a File Explorer folder or a
@@ -56,59 +34,84 @@ def client_rect(hwnd):
     p = W.POINT(0, 0); user32.ClientToScreen(hwnd, ctypes.byref(p))
     return p.x, p.y, r.right, r.bottom
 
-def _bitmap_to_image(hdc, hbm, w, h, rows=None):
-    """The bitmap as a PIL image; with `rows`, only the top `rows` lines (cheaper at 4K, same coordinates)."""
-    rows = h if not rows or rows >= h else int(rows)
-    # bottom-up DIB: the top `rows` lines are scan lines h-rows .. h-1
-    bmi = BITMAPINFOHEADER(ctypes.sizeof(BITMAPINFOHEADER), w, h, 1, 32, 0, 0, 0, 0, 0, 0)
-    buf = ctypes.create_string_buffer(w * rows * 4)
-    gdi32.GetDIBits(hdc, hbm, h - rows, rows, buf, ctypes.byref(bmi), DIB_RGB_COLORS)
-    return Image.frombuffer('RGB', (w, rows), buf, 'raw', 'BGRX', 0, -1)
-
 class SharedCapture:
-    r"""Reader for the aLogs app's shared frame (`Local\aLogs.Capture.v1`, layout in capture.rs).
-    It asks for frames at the rate it is called and takes the newest complete one."""
-    NAME, MAGIC, HEADER, SLOTS, SLOT_BASE, SIZE = r'Local\aLogs.Capture.v1',0x50434C41, 4096, 16, 64, 4096 + 3840 * 2160 * 4
+    r"""Reader for the aLogs app's shared game picture (`Local\aLogs.Capture.v2`, layout in capture.rs).
+    It asks for pictures at the rate it is called and for the area it needs (the box around everything it read in
+    the last couple of seconds; only that leaves the graphics card), and gets them in its own picture buffer."""
+    NAME, MAGIC, HEADER, SLOTS, SLOT_BASE, PICTURE_BASE, PICTURE = r'Local\aLogs.Capture.v2', 0x50434C41, 4096, 16, 64, 320, 64
+    SOURCES = {1: 'window copy (tabbed out)', 3: 'Desktop Duplication', 4: 'window capture'}
+    AREA_KEEP = 2.0            # seconds an area stays asked for after its last use
 
-    def __init__(self):
+    def __init__(self, tag=0):
+        """`tag` > 0: a second reader in this process with a slot of its own (e.g. the damage-number recorder's middle
+        of the screen next to the meter's top band); slots are told apart by process id with the tag in the top bits."""
+        import os
+        self.owner = os.getpid() | (tag << 28)
         self.base = None; self.slot = None; self.next_open = 0.0; self.last_call = 0.0; self.interval = 250.0
-        self.screen_copy = False; self.copy_us = 0     # the last frame's source (bit 1 of its flags) and copy time
+        self.screen_copy = False; self.copy_us = 0     # the last picture: our overlays may be in it (flags bit 1), copy time
+        self.source = ''                               # where the last picture came from (flags bits 4-7)
+        self.areas = []; self.box = None; self.request = 0
         k = self.k = ctypes.windll.kernel32
         k.OpenFileMappingW.restype = W.HANDLE; k.OpenFileMappingW.argtypes = [W.DWORD, W.BOOL, W.LPCWSTR]
         k.MapViewOfFile.restype = ctypes.c_void_p
         k.MapViewOfFile.argtypes = [W.HANDLE, W.DWORD, W.DWORD, W.DWORD, ctypes.c_size_t]
+        k.UnmapViewOfFile.argtypes = [ctypes.c_void_p]; k.CloseHandle.argtypes = [W.HANDLE]
+        self.handle = None
+
+    HEARTBEAT, HEARTBEAT_STALE = 2048, 5000   # the app's capture thread stamps this; older than 5 s: the app is gone
+
+    def _close(self):
+        if self.base: self.k.UnmapViewOfFile(self.base)
+        if self.handle: self.k.CloseHandle(self.handle)
+        self.base = self.handle = None; self.slot = None
 
     def _open(self, now):
         if self.base or now < self.next_open: return self.base
         self.next_open = now + 2.0
         h = self.k.OpenFileMappingW(0xF001F, False, self.NAME)      # FILE_MAP_ALL_ACCESS: we write our request slot
         if not h: return None
-        base = self.k.MapViewOfFile(h, 0xF001F, 0, 0, self.SIZE)
-        if not base or self._u32(base, 0) != self.MAGIC: return None
-        self.base = base
+        base = self.k.MapViewOfFile(h, 0xF001F, 0, 0, 0)            # the whole mapping
+        if not base or self._u32(base, 0) != self.MAGIC:
+            if base: self.k.UnmapViewOfFile(base)
+            self.k.CloseHandle(h); return None
+        self.base, self.handle = base, h
         return base
 
+    @staticmethod
+    def _u16(base, at): return ctypes.c_uint16.from_address(base + at).value
     @staticmethod
     def _u32(base, at): return ctypes.c_uint32.from_address(base + at).value
     @staticmethod
     def _u64(base, at): return ctypes.c_uint64.from_address(base + at).value
 
     def _request(self, base, now_ms):
-        import os
-        pid = os.getpid()
+        pid = self.owner
         if self.slot is None or self._u32(base, self.SLOT_BASE + self.slot * 16 + 12) != pid:
             free = [i for i in range(self.SLOTS) if self._u64(base, self.SLOT_BASE + i * 16) < now_ms
                     or self._u32(base, self.SLOT_BASE + i * 16 + 12) == pid]
             if not free: return False
-            self.slot = free[0]
+            self.slot = free[0]; self.box = None
+            ctypes.c_uint8.from_address(base + self.PICTURE_BASE + self.slot * self.PICTURE + 60).value = 0   # no shrink (the slot's last owner may have asked)
         at = self.SLOT_BASE + self.slot * 16
         ctypes.c_uint32.from_address(base + at + 12).value = pid
         ctypes.c_uint32.from_address(base + at + 8).value = int(self.interval)
         ctypes.c_uint64.from_address(base + at).value = now_ms + 2500
         return True
 
+    def _ask_area(self, base, now, area):
+        """Asks for the box around `area` and the areas used in the last AREA_KEEP seconds (shares of the frame,
+        0-65535); a new box gets a new request id."""
+        self.areas = [(t, a) for t, a in self.areas if now - t < self.AREA_KEEP and a != area] + [(now, area)]
+        box = tuple(f(a[k] for _, a in self.areas) for k, f in enumerate((min, min, max, max)))
+        at = self.PICTURE_BASE + self.slot * self.PICTURE
+        if box != self.box or self._u32(base, at + 8) != self.request:
+            self.box = box; self.request = (self.request % 0xFFFFFFFF) + 1
+            for k, v in enumerate(box): ctypes.c_uint16.from_address(base + at + 2 * k).value = v
+            ctypes.c_uint32.from_address(base + at + 8).value = self.request
+
     def read(self, hwnd, top_fraction=None):
-        """The newest shared frame of this window as a PIL image, or None (app not running, frame stale or invalid)."""
+        """The newest picture of this window (its top `top_fraction`, or all of it) as a PIL image, or None (app not
+        running, our area not served yet, picture stale or invalid)."""
         import time
         now = time.time()
         if self.last_call:   # follow the caller's pace: 30/s in fights, 20/s otherwise
@@ -118,27 +121,94 @@ class SharedCapture:
         if not base: return None
         now_ms = int(now * 1000)
         if not self._request(base, now_ms): return None
+        top = 65535 if not top_fraction else min(65535, int(65535 * top_fraction) + 1)
+        self._ask_area(base, now, (0, 0, 65535, top))
+        if self._u64(base, 40) != (hwnd or 0): return None
+        at = self.PICTURE_BASE + self.slot * self.PICTURE
         for _ in range(4):
-            seq = self._u64(base, 8)
+            seq = self._u64(base, at + 16)
             if seq & 1: time.sleep(0.002); continue
-            w, h, stride, flags = (self._u32(base, at) for at in (16, 20, 24, 28))
-            frame_ms, frame_hwnd = self._u64(base, 32), self._u64(base, 40)
-            if not flags & 1 or frame_hwnd != (hwnd or 0) or now_ms - frame_ms > max(150, 2 * self.interval): return None
-            self.screen_copy, self.copy_us = bool(flags & 2), self._u32(base, 60)
-            rows = h if not top_fraction else min(h, int(h * top_fraction))
-            # converted straight out of the shared memory into the image's own pixels (no extra copy of the raw
-            # frame first); a frame written meanwhile shows in the sequence number and is read again
-            im = Image.frombuffer('RGB', (w, rows), (ctypes.c_char * (stride * rows)).from_address(base + self.HEADER),
-                                  'raw', 'BGRX', stride, 1)
-            im.load()
-            if self._u64(base, 8) == seq:
+            if self._u32(base, at + 12) != self.request: return None              # our area isn't in yet
+            flags = self._u32(base, at + 48)
+            # tabbed out on Windows 10 the app copies the window only 4 times a second (source 1): older is fine then
+            fresh = 600 if flags >> 4 & 15 == 1 else max(150, 2 * self.interval)
+            if not flags & 1 or now_ms - self._u64(base, at + 24) > fresh: return None
+            if ctypes.c_uint8.from_address(base + at + 61).value > 1: return None  # shrunk: not what we asked for
+            offset, stride = self._u32(base, at + 32), self._u32(base, at + 36)
+            x, y, w, h = (self._u16(base, at + 40 + 2 * k) for k in range(4))
+            cw, ch = self._u16(base, at + 56), self._u16(base, at + 58)
+            rows = ch if not top_fraction else min(ch, int(ch * top_fraction))
+            if x + w > cw or y + h > ch or not w or not h: return None
+            # converted straight out of the shared memory into the image's own pixels; a picture written
+            # meanwhile shows in the sequence number and is read again
+            got = min(h, max(0, rows - y))
+            im = Image.frombuffer('RGB', (w, got), (ctypes.c_char * (stride * got)).from_address(base + self.HEADER + offset),
+                                  'raw', 'BGRX', stride, 1) if got else None
+            if im is not None: im.load()
+            if (x, y, w, got) != (0, 0, cw, rows):
+                # the game window is partly off its screen (Desktop Duplication sees only the screen): what's on it in
+                # place, the rest black, so every reader's coordinates stay right
+                full = Image.new('RGB', (cw, rows))
+                if im is not None: full.paste(im, (x, y))
+                im = full
+            if self._u64(base, at + 16) == seq:
+                self.screen_copy, self.copy_us = bool(flags & 2), self._u32(base, at + 52)
+                self.source = self.SOURCES.get(flags >> 4 & 15, '?')
                 return im
         return None
 
-    def app_present(self):
-        """The aLogs app is running and sharing its capture: then the meter never copies the game itself."""
+    def read_area(self, hwnd, area, shrink=1):
+        """The part `area` (x0, y0, x1, y1 as shares of the client, 0-1) of the newest picture, as a PIL image, or None.
+        For a reader of its own (tag > 0) asking for one fixed area, e.g. the middle of the screen. `shrink` 2 or 4:
+        the graphics card averages it down to half or a quarter first (only that leaves the card; an app without
+        that gives it full size, see the image's size)."""
         import time
-        return bool(self._open(time.time()))
+        now = time.time()
+        if self.last_call: self.interval = min(1000.0, max(16.0, 0.7 * self.interval + 0.3 * (now - self.last_call) * 1000))
+        self.last_call = now
+        base = self._open(now)
+        if not base or not self._request(base, int(now * 1000)): return None
+        want = tuple(min(65535, max(0, int(v * 65535))) for v in area)
+        at = self.PICTURE_BASE + self.slot * self.PICTURE
+        if ctypes.c_uint8.from_address(base + at + 60).value != shrink:
+            ctypes.c_uint8.from_address(base + at + 60).value = shrink; self.box = None     # a new request
+        self._ask_area(base, now, want)
+        if self._u64(base, 40) != (hwnd or 0): return None
+        at = self.PICTURE_BASE + self.slot * self.PICTURE
+        for _ in range(4):
+            seq = self._u64(base, at + 16)
+            if seq & 1: time.sleep(0.001); continue
+            if self._u32(base, at + 12) != self.request: return None
+            flags = self._u32(base, at + 48)
+            if not flags & 1 or int(now * 1000) - self._u64(base, at + 24) > max(100, 2 * self.interval): return None
+            offset, stride = self._u32(base, at + 32), self._u32(base, at + 36)
+            x, y, w, h = (self._u16(base, at + 40 + 2 * k) for k in range(4))
+            used = ctypes.c_uint8.from_address(base + at + 61).value or 1
+            w, h = w // used, h // used
+            pixels = (ctypes.c_char * (stride * h)).from_address(base + self.HEADER + offset)
+            im = Image.frombuffer('RGB', (w, h), pixels, 'raw', 'BGRX', stride, 1)
+            im.load()
+            if self._u64(base, at + 16) == seq:
+                self.picture_time = self._u64(base, at + 24) / 1000      # when the app took it (to tell frames apart)
+                return im
+        return None
+
+    def switched_off(self):
+        """The player turned screen capture off (the overlay button or the app): nothing is captured, the meter rests."""
+        import time
+        base = self._open(time.time())
+        return bool(base and self._u32(base, 60) == 1)
+
+    def app_present(self):
+        """The aLogs app is running and sharing its capture (the meter only takes pictures from it). A mapping whose
+        heartbeat stopped (the app was closed) is let go, so a new app's is found."""
+        import time
+        now = time.time(); base = self._open(now)
+        if base:
+            beat = self._u64(base, self.HEARTBEAT)
+            if beat and now * 1000 - beat > self.HEARTBEAT_STALE:
+                self._close(); return False
+        return bool(base)
 
 shared = SharedCapture()
 
@@ -180,37 +250,10 @@ class SharedAudio:
 audio = SharedAudio()
 
 def grab_window(hwnd, top_fraction=None):
-    """The game's client area (or just its top part) as a PIL image, or None: the app's shared frame while the app
-    runs (one capture for all of aLogs: None until it has a fresh one), else our own PrintWindow capture (the meter
-    on its own, e.g. from source)."""
-    try:
-        if shared.app_present(): return shared.read(hwnd, top_fraction)
-    except Exception:
-        pass
-    _, _, w, h = client_rect(hwnd)
-    if w <= 0 or h <= 0: return None
-    hdc_win = user32.GetDC(hwnd); hdc = gdi32.CreateCompatibleDC(hdc_win)
-    hbm = gdi32.CreateCompatibleBitmap(hdc_win, w, h); old = gdi32.SelectObject(hdc, hbm)
-    try:
-        ok = user32.PrintWindow(hwnd, hdc, PW_CLIENTONLY | PW_RENDERFULLCONTENT)
-        return _bitmap_to_image(hdc, hbm, w, h, h * top_fraction if top_fraction else None) if ok else None
-    finally:
-        gdi32.SelectObject(hdc, old); gdi32.DeleteObject(hbm); gdi32.DeleteDC(hdc); user32.ReleaseDC(hwnd, hdc_win)
-
-def grab_screen(x, y, w, h):
-    """BitBlt from the screen (what is visible at that spot)."""
-    hdc_scr = user32.GetDC(None); hdc = gdi32.CreateCompatibleDC(hdc_scr)
-    hbm = gdi32.CreateCompatibleBitmap(hdc_scr, w, h); old = gdi32.SelectObject(hdc, hbm)
-    try:
-        gdi32.BitBlt(hdc, 0, 0, w, h, hdc_scr, x, y, SRCCOPY)
-        return _bitmap_to_image(hdc, hbm, w, h)
-    finally:
-        gdi32.SelectObject(hdc, old); gdi32.DeleteObject(hbm); gdi32.DeleteDC(hdc); user32.ReleaseDC(None, hdc_scr)
-
-def is_blank(im):
-    """True if the image is (nearly) one flat color - what PrintWindow returns when it fails."""
-    ext = im.reduce(max(1, im.width // 128)).getextrema()     # cheap: a ~128 px wide copy is enough
-    return all(hi - lo < 6 for lo, hi in ext)
+    """The game's client area (or just its top part) as a PIL image, or None: the app's shared frame, None until
+    the app has a fresh one (or isn't running)."""
+    try: return shared.read(hwnd, top_fraction) if shared.app_present() else None
+    except Exception: return None
 
 WDA_EXCLUDEFROMCAPTURE = 0x11
 def hide_from_capture(hwnd):
