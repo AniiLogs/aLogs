@@ -3,26 +3,6 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
-## 0.1.29
-
-### Improved
-- **Sanctum Helper knows this game update's Egg Heist layouts:** Normal no longer has layout 60, and Nightmare and
-  Chaos now draw from 12 layouts, with maps for all of them: the rebuilt 31, 33 and 38 and the new 61 and 62.
-- **Sign in with Discord without leaving aLogs:** Discord's sign-in page opens in a window of aLogs instead of your
-  web browser, and closes by itself once you've approved. Close it to cancel. aLogs only gets a one-time code from
-  Discord, never what you type there.
-- **New photos reach your profile in seconds:** with Upload new photos automatically on, a photo goes up a few
-  seconds after you take it (it could take up to a minute), and aLogs only asks the site when there's something new.
-
-### Fixed
-- **Boss HP and BREAK gauges after the Whisperwake update:** the game changed how boss HP grows with level (bosses
-  using its main HP curve rise more slowly from level 56, everyone gains a new curve above 65, and a new formula
-  for the Umbral bosses) and gave Interlink bosses new BREAK gauges, which the meter didn't know: those bosses got
-  wrong or no HP and BREAK numbers. All of them now match the game's own formulas at every level. aLogs' built-in
-  boss list (used when your game files can't be read) also has the new bosses and Interlink weeks.
-- **The on/off button hides with the game's icons even after you move it:** dragged somewhere else, it stayed on
-  every screen, the patch download and loading screens, menus and the map included.
-
 ## 0.1.28
 
 ### New
@@ -59,8 +39,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   (This version still installs the usual way.)
 - **Setup guide:** a few short steps when aLogs starts: sign in with Discord, choose what goes to the leaderboards,
   and how result screens are handled. It turns itself off once you finish or skip it, and General Settings can show it again.
-- **Sign in with Discord** in the sidebar, under the meter's state: one click to sign in with Discord, and once signed in
-  it shows who you are (click it for the account settings).
+- **Sign in with Discord** in the sidebar, under the meter's state: Discord's sign-in page opens in a window of aLogs
+  and closes by itself once you've approved (close it to cancel); aLogs only gets a one-time code from Discord, never
+  what you type there. Once signed in it shows who you are (click it for the account settings).
 - **DPS Meter › Overlay,** a tab of its own, with a picture of each spot the DPS window can sit in, per mode: out in
   the world right of the minimap (new, clear of the quest list and the rewards after a catch) or under the quest list;
   in Interlink the top-left corner next to Esc (new) or under the stars and timer. Every spot scales to your screen
@@ -84,7 +65,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   Emperor, your egg count. Rank Info also sends where your next rank starts, for your profile.
 - **Photos:** put the pictures you take in Aniimo on your AniiLogs profile. The new Photos page shows the ones the game
   saved on this PC (Settings › Storage set to Local, or Local and cloud); pick the ones to upload, or turn on
-  **Upload new photos automatically**. Each keeps its date, your character, the Aniimo in it and where you took it, and
+  **Upload new photos automatically** (a new photo goes up a few seconds after you take it). Each keeps its date, your character, the Aniimo in it and where you took it, and
   shows wherever your profile shows: only to you while it's private, to everyone once it's public. Uploaded as
   high-quality WebP (up to 2560 px), and you can remove any of them again.
 - **Your collection on your profile:** open your Profile in Aniimo (Esc › Profile) and your AniiLogs profile gets its
@@ -133,12 +114,19 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   floor and walls no longer pull it sideways), the cone and your character's arrow follow fast turns without
   trailing, your spot on the map moves with you (dashes show in about half the time), and the open full map follows
   panning and zooming right away. Its map matching is 2–3 times faster, with the same results.
+- **Sanctum Helper knows the Whisperwake update's Egg Heist layouts:** Normal no longer has layout 60, and Nightmare
+  and Chaos now draw from 12 layouts, with maps for all of them (the rebuilt 31, 33 and 38 and the new 61 and 62).
 - **Sanctum Helper uses far less memory:** it held about 600 MB from startup, even with no run, and grew run after
   run. Maps now load when you enter a Sanctum and are let go after the run, or a minute after the game closes.
 - Leaderboard records say which aLogs version and build sent them, so a future board that needs a newer aLogs can
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **Boss HP and BREAK gauges after the Whisperwake update:** the game changed how boss HP grows with level (bosses
+  using its main HP curve rise more slowly from level 56, a new curve above 65, and a new formula for the Umbral
+  bosses) and gave Interlink bosses new BREAK gauges and more HP. The meter's numbers now match the game's own
+  formulas at every level, and its built-in boss list (used when your game files can't be read) has the new bosses
+  and Interlink weeks.
 - **The boss bar at 720p:** it was often not found at all (its thin end lines blur at that size), and once its ×N
   counter was mistaken for the bar's end. Found and read right at 720p, 900p, 1080p, 1440p and 4K now.
 - **The ×N counter at 720p and 4K:** a single digit right after the "x" (×4) touched it once scaled and wasn't read.

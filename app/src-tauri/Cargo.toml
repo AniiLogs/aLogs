@@ -1,6 +1,6 @@
 [package]
 name = "alogs-app"
-version = "0.1.29"
+version = "0.1.28"
 edition = "2021"
 description = "Desktop app for the aLogs suite: boss DPS meter, results capture and leaderboards"
 publish = false

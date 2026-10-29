@@ -1,27 +1,6 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
-  "version": "0.1.29",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "Improved",
-    "items": [
-     "**Sanctum Helper knows this game update's Egg Heist layouts:** Normal no longer has layout 60, and Nightmare and Chaos now draw from 12 layouts, with maps for all of them: the rebuilt 31, 33 and 38 and the new 61 and 62.",
-     "**Sign in with Discord without leaving aLogs:** Discord's sign-in page opens in a window of aLogs instead of your web browser, and closes by itself once you've approved. Close it to cancel. aLogs only gets a one-time code from Discord, never what you type there.",
-     "**New photos reach your profile in seconds:** with Upload new photos automatically on, a photo goes up a few seconds after you take it (it could take up to a minute), and aLogs only asks the site when there's something new."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "**Boss HP and BREAK gauges after the Whisperwake update:** the game changed how boss HP grows with level (bosses using its main HP curve rise more slowly from level 56, everyone gains a new curve above 65, and a new formula for the Umbral bosses) and gave Interlink bosses new BREAK gauges, which the meter didn't know: those bosses got wrong or no HP and BREAK numbers. All of them now match the game's own formulas at every level. aLogs' built-in boss list (used when your game files can't be read) also has the new bosses and Interlink weeks.",
-     "**The on/off button hides with the game's icons even after you move it:** dragged somewhere else, it stayed on every screen, the patch download and loading screens, menus and the map included."
-    ]
-   }
-  ]
- },
- {
   "version": "0.1.28",
   "intro": "",
   "sections": [
@@ -37,14 +16,14 @@ window.PATCH_NOTES = [
      "**A new icon:** Eklue's emblem inside an HP dial and a break bar, ringed by six of the game's biggest buffs, on the desktop, the taskbar, the tray, the installer and the sidebar.",
      "**aLogs updates itself:** it checks for new versions on its own and shows them in the sidebar, with a progress bar while one downloads. **Install now** closes aLogs, installs with just a progress bar (no installer to click through) and opens the new version; **Next time aLogs opens** installs it then. Updates download in the background unless you turn that off (General Settings › Updates), nothing installs without your choice, and only one downloaded update is ever kept. Betas update the same way: General Settings › Updates › Get beta updates, and anyone already on a beta keeps getting betas until the release catches up. About shows exactly which build you have (for example \"0.1.28 · RC10\"). (This version still installs the usual way.)",
      "**Setup guide:** a few short steps when aLogs starts: sign in with Discord, choose what goes to the leaderboards, and how result screens are handled. It turns itself off once you finish or skip it, and General Settings can show it again.",
-     "**Sign in with Discord** in the sidebar, under the meter's state: one click to sign in with Discord, and once signed in it shows who you are (click it for the account settings).",
+     "**Sign in with Discord** in the sidebar, under the meter's state: Discord's sign-in page opens in a window of aLogs and closes by itself once you've approved (close it to cancel); aLogs only gets a one-time code from Discord, never what you type there. Once signed in it shows who you are (click it for the account settings).",
      "**DPS Meter › Overlay,** a tab of its own, with a picture of each spot the DPS window can sit in, per mode: out in the world right of the minimap (new, clear of the quest list and the rewards after a catch) or under the quest list; in Interlink the top-left corner next to Esc (new) or under the stars and timer. Every spot scales to your screen (16:9, 16:10 and ultrawide). If you had moved the window, it starts from its spot again.",
      "**A dark background for the DPS window** (DPS Meter › Overlay): a slider from none to solid, with a live preview, styled like Interlink's stars and timer panel, to keep the numbers readable over bright effects.",
      "**The fight's result stays on screen:** when a boss goes down, the DPS window shows the final numbers (the last hit counted, \"Defeated\", the fight's time) instead of disappearing. Out in the world you choose how long (10 seconds by default) in DPS Meter › Overlay.",
      "**Being attacked while you're in another window:** like the game's own \"Under attack\" warning: while you're in another window, aLogs watches your HP bar, and when it drops, \"You're being attacked in Aniimo\" pops up over your other windows (for 2 seconds every 5, until the hits stop), with the red flash around the screen's edges the game shows when you're hit. Only real hits count, in a boss fight or anywhere else. Click the text to go back to the game. A fight that ran mostly while you were away shows no result.",
      "**Boss kill sound** (DPS Meter › Meter › Audio cues, on by default): out in the world, the sound the game plays with the killing blow dates the end of the fight to the hit itself. aLogs listens to Aniimo's audio only (nothing else on your PC), only during a boss fight, and records nothing. Without it (or with the game muted) the fight ends 3 seconds before the Catch Countdown.",
      "**Egg Heist after each match:** the rank screen that follows a match updates your season standing on the leaderboard, and your profile gets the Rank Points the match added and your progress bar (\"1337/1350 +18\"); at Egg Emperor, your egg count. Rank Info also sends where your next rank starts, for your profile.",
-     "**Photos:** put the pictures you take in Aniimo on your AniiLogs profile. The new Photos page shows the ones the game saved on this PC (Settings › Storage set to Local, or Local and cloud); pick the ones to upload, or turn on **Upload new photos automatically**. Each keeps its date, your character, the Aniimo in it and where you took it, and shows wherever your profile shows: only to you while it's private, to everyone once it's public. Uploaded as high-quality WebP (up to 2560 px), and you can remove any of them again.",
+     "**Photos:** put the pictures you take in Aniimo on your AniiLogs profile. The new Photos page shows the ones the game saved on this PC (Settings › Storage set to Local, or Local and cloud); pick the ones to upload, or turn on **Upload new photos automatically** (a new photo goes up a few seconds after you take it). Each keeps its date, your character, the Aniimo in it and where you took it, and shows wherever your profile shows: only to you while it's private, to everyone once it's public. Uploaded as high-quality WebP (up to 2560 px), and you can remove any of them again.",
      "**Your collection on your profile:** open your Profile in Aniimo (Esc › Profile) and your AniiLogs profile gets its Collection Progress (Aniimo Point, Sparkling Aniimo, Style Points and Prismana Aniimo) with the game's icons, and your character's gender. Only your own Profile counts (it shows your UID); a friend's is never sent. Your level (from the EXP card) and your server (Aniimo-Americas, …) show beside your character's name too.",
      "**Online on your profile:** while Aniimo and aLogs are running, your AniiLogs profile shows **Online** with a green dot, and **AFK** once Aniimo hasn't been the window in front, or nobody has touched the keyboard, mouse or controller, for 20 minutes, and **Offline** (red) when either isn't running. Don't want it shown? Turn it off on your profile (Edit profile › Show my online status) or in DPS Meter › Leaderboards & account.",
      "**Report a problem** (Dashboard): something wrong with aLogs? Send your logs to the AniiLogs developers in one click, with a note about what went wrong if you like. One report covers the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time and which build you have. Add up to 5 screenshots if they help: pick them or paste one (a Win+Shift+S snip works). Reports are kept privately and cleared once the problem is fixed, after 30 days at most.",
@@ -62,6 +41,7 @@ window.PATCH_NOTES = [
      "**DPS Meter settings in tabs:** Meter, Overlay, Results, Captures & logs, and Leaderboards & account. Each thing lives in one place: the log folders, Report a problem and your character (name, UID, proof, disputes) are on the Dashboard; you sign in from the sidebar, and Leaderboards & account shows your account and what's being sent; the game window's title and **Overlays show in recordings and screenshots** (one switch for the DPS window, the HP labels and Sanctum Helper's maps) are in General Settings for the meter and Sanctum Helper alike; updates install from the sidebar; and Sanctum Helper's version and credits are in About, which links aLogs' own code too (github.com/AniiLogs/aLogs).",
      "**Changing a setting no longer restarts the meter**, so a fight in progress isn't lost. Only the overlay's and the game window's settings still restart it.",
      "**Sanctum Helper keeps up with you:** the view cone follows the cone's edges instead of its brightest part (bright floor and walls no longer pull it sideways), the cone and your character's arrow follow fast turns without trailing, your spot on the map moves with you (dashes show in about half the time), and the open full map follows panning and zooming right away. Its map matching is 2–3 times faster, with the same results.",
+     "**Sanctum Helper knows the Whisperwake update's Egg Heist layouts:** Normal no longer has layout 60, and Nightmare and Chaos now draw from 12 layouts, with maps for all of them (the rebuilt 31, 33 and 38 and the new 61 and 62).",
      "**Sanctum Helper uses far less memory:** it held about 600 MB from startup, even with no run, and grew run after run. Maps now load when you enter a Sanctum and are let go after the run, or a minute after the game closes.",
      "Leaderboard records say which aLogs version and build sent them, so a future board that needs a newer aLogs can ask for it. Older versions keep sending to the boards they already use."
     ]
@@ -69,6 +49,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
+     "**Boss HP and BREAK gauges after the Whisperwake update:** the game changed how boss HP grows with level (bosses using its main HP curve rise more slowly from level 56, a new curve above 65, and a new formula for the Umbral bosses) and gave Interlink bosses new BREAK gauges and more HP. The meter's numbers now match the game's own formulas at every level, and its built-in boss list (used when your game files can't be read) has the new bosses and Interlink weeks.",
      "**The boss bar at 720p:** it was often not found at all (its thin end lines blur at that size), and once its ×N counter was mistaken for the bar's end. Found and read right at 720p, 900p, 1080p, 1440p and 4K now.",
      "**The ×N counter at 720p and 4K:** a single digit right after the \"x\" (×4) touched it once scaled and wasn't read.",
      "**Teammates' names on result screens** lost their first letter at some sizes; read whole at every common resolution now.",
@@ -179,6 +160,26 @@ window.PATCH_NOTES = [
     "heading": "Fixed",
     "items": [
      "In someone else's party (when you aren't 1P), the app could take another player's name as yours and link it to your account. It now only saves your name when it's sure: your saved name is on the result screen, or everyone else in the party was AI."
+    ]
+   }
+  ]
+ },
+ {
+  "version": "0.1.24",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "New",
+    "items": [
+     "**Themes:** General Settings has a new Themes tab with the AniiLogs website's themes (Night, Meadow, Emberpup, Pawney) and Custom colors. It changes the app window only; the overlay in the game stays the same.",
+     "**Update notice:** when a new version is out, About gets a dot in the sidebar and an Update button next to the patch notes that opens the download page.",
+     "**Patch notes stay current:** About shows the last five releases straight from GitHub, so you can read what's new before you update. Each one opens when you click it. If your version is older than all of them, a sixth entry says how far behind you are."
+    ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "Your character name could show as \"Name appears after your first result screen\" after an update or restart until you finished another fight. The saved name now comes back as soon as the game is running."
     ]
    }
   ]
