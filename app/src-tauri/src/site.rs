@@ -18,7 +18,7 @@ static LAST_PAGE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new()
 static BUSY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Pages the site view may show itself: the site, its API (sign-in round trip) and Discord's sign-in pages.
-fn stays_inside(url: &Url) -> bool {
+pub(crate) fn stays_inside(url: &Url) -> bool {
     match url.host_str() {
         Some(host) => url.scheme() == "https"
             && (host == "aniilogs.github.io" || host == "aniilogs-api.pages.dev" || host == "discord.com" || host.ends_with(".discord.com")),
@@ -26,7 +26,7 @@ fn stays_inside(url: &Url) -> bool {
     }
 }
 
-fn open_outside(url: &Url) {
+pub(crate) fn open_outside(url: &Url) {
     if url.scheme() == "https" || url.scheme() == "http" {
         let _ = Command::new("rundll32").args(["url.dll,FileProtocolHandler", url.as_str()]).creation_flags(NO_WINDOW).spawn();
     }

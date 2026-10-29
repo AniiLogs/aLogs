@@ -1,13 +1,16 @@
-//! "Sign in with Discord" for the app: Discord's page opens in the player's own browser (where they are usually
-//! signed in already), never inside the app. When they approve, the API sends that browser back to this app on
-//! 127.0.0.1 with a one-time code. This module only listens for that one visit; the page trades the code for a
-//! desktop token, together with a secret only it holds (PKCE), so the code is useless to anyone else.
+//! "Sign in with Discord" for the app: Discord's page opens in a window of aLogs' own (the player asked not to be sent
+//! to their browser; it shares the site view's storage, so Discord can remember them). When they approve, the API sends
+//! that window back to this app on 127.0.0.1 with a one-time code. This module only listens for that one visit; the
+//! page trades the code for a desktop token, together with a secret only it holds (PKCE), so the code is useless to
+//! anyone else. The window only shows AniiLogs' API and Discord; any other link opens in the browser.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Url, WebviewUrl, WindowEvent};
 
 static LISTENER: Mutex<Option<TcpListener>> = Mutex::new(None);
 /// Set by "Cancel sign-in": the wait stops (it held the sign-in button for up to 5 minutes after a closed tab).
@@ -23,6 +26,60 @@ pub fn auth_listen_start() -> Result<u16, String> {
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     *LISTENER.lock().unwrap_or_else(|e| e.into_inner()) = Some(listener);
     Ok(port)
+}
+
+const WINDOW: &str = "signin";
+
+/// Opens the sign-in window at `url` (the API's Discord start page), or brings it forward when it's already open.
+/// Closing it cancels the sign-in. Async: a window made on the main thread deadlocks on Windows (see site.rs).
+#[tauri::command]
+pub async fn auth_window_open(app: AppHandle, url: String) -> Result<(), String> {
+    let url: Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
+    if !crate::site::stays_inside(&url) || url.host_str() == Some("aniilogs.github.io") {
+        return Err("Not AniiLogs' sign-in page.".into());
+    }
+    if let Some(window) = app.get_webview_window(WINDOW) {
+        let _ = window.navigate(url);
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let mut builder = WebviewWindowBuilder::new(&app, WINDOW, WebviewUrl::External(url))
+        .title("Sign in with Discord · aLogs")
+        .inner_size(520.0, 780.0)
+        .min_inner_size(400.0, 500.0)
+        .center()
+        // Discord and AniiLogs' API stay here; the way back to aLogs (127.0.0.1) is caught by the listener below
+        .on_navigation(|url| {
+            let back = url.scheme() == "http" && url.host_str() == Some("127.0.0.1");
+            if back || crate::site::stays_inside(url) {
+                true
+            } else {
+                crate::site::open_outside(url);
+                false
+            }
+        })
+        .on_new_window(|url, _features| {
+            crate::site::open_outside(&url);
+            NewWindowResponse::Deny
+        });
+    if let Some(main) = app.get_webview_window("main") {
+        builder = builder.parent(&main).map_err(|e| e.to_string())?;
+    }
+    let window = builder.build().map_err(|e| e.to_string())?;
+    window.on_window_event(|event| {
+        if matches!(event, WindowEvent::Destroyed) {
+            CANCELLED.store(true, Ordering::SeqCst);    // closed before signing in: stop waiting
+        }
+    });
+    Ok(())
+}
+
+/// Closes the sign-in window (done, failed or cancelled).
+#[tauri::command]
+pub fn auth_window_close(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(WINDOW) {
+        let _ = window.close();
+    }
 }
 
 /// Stops a sign-in that's waiting for the browser.
@@ -64,7 +121,7 @@ pub async fn auth_listen_wait() -> Result<String, String> {
         };
         let (code, error) = (param("code"), param("error"));
         let ok = code.as_deref().map_or(false, |c| c.len() >= 32 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'));
-        let message = if ok { "You're signed in. You can close this tab and go back to aLogs." } else { "Sign-in was cancelled. You can close this tab." };
+        let message = if ok { "You're signed in. Back to aLogs…" } else { "Sign-in was cancelled." };
         let page = format!(
             "<!doctype html><meta charset=\"utf-8\"><title>aLogs</title><body style=\"font:16px system-ui;background:#0b1215;color:#f4f4e9;display:grid;place-items:center;height:90vh\"><p>{message}</p></body>"
         );
@@ -74,8 +131,8 @@ pub async fn auth_listen_wait() -> Result<String, String> {
         ).as_bytes());
         return match (ok, error) {
             (true, _) => Ok(code.unwrap_or_default()),
-            (false, Some(_)) => Err("Sign-in was cancelled in the browser.".into()),
-            _ => Err("The browser came back without a sign-in code.".into()),
+            (false, Some(_)) => Err("Sign-in was cancelled on Discord's page.".into()),
+            _ => Err("Discord came back without a sign-in code.".into()),
         };
     }
     Err("Sign-in timed out (5 minutes). Try again.".into())

@@ -396,8 +396,12 @@
       const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
       const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
       const port = await invoke("auth_listen_start");
-      await invoke("open_target", { target: `${api()}/auth/discord/start?app_port=${port}&app_challenge=${challenge}` });
-      state.textContent = "Finish signing in with your browser, then come back here…";
+      // Discord's page in a window of aLogs' own (a custom API address the window won't show goes to the browser)
+      const start = `${api()}/auth/discord/start?app_port=${port}&app_challenge=${challenge}`;
+      let inApp = true;
+      try { await invoke("auth_window_open", { url: start }); }
+      catch { inApp = false; await invoke("open_target", { target: start }); }
+      state.textContent = inApp ? "Finish signing in in the Discord window…" : "Finish signing in with your browser, then come back here…";
       button.textContent = "Cancel sign-in";
       const code = await invoke("auth_listen_wait");
       const response = await fetch(`${api()}/auth/app/exchange`, {
@@ -413,6 +417,7 @@
       const text = String(error.message || error);
       if (text !== "Sign-in cancelled.") toast(text, true);
     }
+    void invoke("auth_window_close");
     button.innerHTML = label;
     signingIn = null;
   }

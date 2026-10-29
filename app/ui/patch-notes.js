@@ -7,6 +7,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
+     "**Sign in with Discord without leaving aLogs:** Discord's sign-in page opens in a window of aLogs instead of your web browser, and closes by itself once you've approved. Close it to cancel. aLogs only gets a one-time code from Discord, never what you type there.",
      "**New photos reach your profile in seconds:** with Upload new photos automatically on, a photo goes up a few seconds after you take it (it could take up to a minute), and aLogs only asks the site when there's something new."
     ]
    },
