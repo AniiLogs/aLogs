@@ -30,6 +30,7 @@ Never commit the token or paste it into a chat, issue or PR. Revoke it on the sa
 node tools/log-reports.mjs list                 # open reports, newest first: id, UID, time (UTC), size, app build,
                                                 # screenshots, the player's note and every developer's notes
 node tools/log-reports.mjs list --all           # cleared reports too (their notes stay; their logs are gone)
+node tools/log-reports.mjs list --beta          # testers' Beta Menu sends only: what didn't work, notes, bug titles
 node tools/log-reports.mjs get <id> [folder]    # download and unzip (default ./log-reports/<id>, which git ignores),
                                                 # with the player's screenshots (screenshot-1.png, ...)
 node tools/log-reports.mjs note <id> "<text>"   # leave a note on it (see below)
