@@ -11,7 +11,7 @@
 //                                                     (the report's line and notes stay)
 //
 // Needs a developer's own AniiLogs desktop token (alb_...): the ALOGS_DEV_TOKEN environment variable, or the first
-// line of ~/.aniilogs/dev-token. The account must have the developer role; anyone else gets "Developer access required".
+// line of ~/.aniilogs/dev-token. The account must be an administrator (or the owner); anyone else is turned away.
 // ALOGS_API overrides the API (default https://aniilogs-api.pages.dev/api).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

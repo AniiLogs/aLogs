@@ -1,0 +1,79 @@
+{
+  "build": "0.1.28 RC43",
+  "items": [
+    {
+      "id": "under-attack-hp-number",
+      "title": "\"You're being attacked\" only on real hits",
+      "how": "Tab out at full HP in the open world for 10 minutes: no alert. Get hit while tabbed out: the alert shows.",
+      "details": [
+        "aLogs now reads the HP number on your bar instead of the bar's length, so the bar flickering at full HP can't set it off any more.",
+        "Also try: a small hit, and a hit while you're being healed. Both should show the alert.",
+        "If it shows with nothing attacking you, say where you were standing and what was on screen."
+      ]
+    },
+    {
+      "id": "interlink-3846247",
+      "title": "Interlink after the Whisperwake update",
+      "how": "Run Interlink: the meter's damage and HP labels match Battle Data, BREAK numbers show for the new bosses.",
+      "details": [
+        "The update raised the bosses' HP by about 60% and added Glameep, Sugartini, Jabster, Magmarex, Turbo, Jeburst and Infergon.",
+        "Compare the meter's total with Battle Data at the end of the run.",
+        "The run should reach the leaderboard with its screenshot."
+      ]
+    },
+    {
+      "id": "alpha-56-60",
+      "title": "Level 56-60 Alpha totals",
+      "how": "Fight a level 56-60 Alpha in the world (e.g. Sugartini, Glameep): the fight total matches the HP the game shows."
+    },
+    {
+      "id": "world-boss-clock",
+      "title": "World boss clock and result",
+      "how": "Fight a world boss: the clock starts at the first hit, ends at the kill sound, and the final numbers stay on screen."
+    },
+    {
+      "id": "glyph-readers",
+      "title": "Screen readers after the patch",
+      "how": "Check the Interlink xN counter, the short names on the game menu and Egg Heist Rank Info still read right."
+    },
+    {
+      "id": "egg-heist-leaderboard",
+      "title": "Egg Heist to the leaderboard",
+      "how": "Play an Egg Heist match: it reaches the leaderboard and the rank screen updates your season standing."
+    },
+    {
+      "id": "signin-window",
+      "title": "Sign in inside aLogs",
+      "how": "Sidebar Discord button: Discord opens in an aLogs window, approve and you're signed in; closing it cancels.",
+      "details": [
+        "Also try it from the setup guide (General Settings: turn the guide on, restart aLogs).",
+        "Closing the window should bring the Sign in button back straight away."
+      ]
+    },
+    {
+      "id": "capture-button-row",
+      "title": "Capture button follows the game's icons",
+      "how": "It sits left of Chat at the icons' size, and hides in menus, loading screens and the map, even when dragged."
+    },
+    {
+      "id": "sanctum-3846247",
+      "title": "Sanctum Helper on the new layouts",
+      "how": "Run Egg Heist on any layout (ideally 31, 33, 38, 61 or 62): the map shows. A run with the new boss room doesn't break it."
+    },
+    {
+      "id": "profile-link-4k",
+      "title": "Profile link at 4K",
+      "how": "Link your character from the Profile screen at 4K: it's accepted, and your online status shows."
+    },
+    {
+      "id": "photos-auto",
+      "title": "New photos upload by themselves",
+      "how": "With \"Upload new photos automatically\" on, take a photo in game: it's on your profile within a few seconds."
+    },
+    {
+      "id": "patch-notes-beta",
+      "title": "Patch notes on the beta",
+      "how": "About, Patch notes: shows \"0.1.28 beta (installed)\" with its notes on top."
+    }
+  ]
+}

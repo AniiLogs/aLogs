@@ -19,6 +19,8 @@
       <button type="button" data-page="photos">Photos</button>
       <button type="button" data-page="general">General Settings</button>
       <button type="button" data-page="about">About</button>
+      <!-- testers only: shown for the developer role with Developer Mode on (the server says "beta") -->
+      <button type="button" data-page="beta" data-beta-nav hidden>Beta Menu</button>
       <div class="nav-foot">
         <div class="nav-meter"><span class="dot" data-meter-dot></span><span data-meter-state>Meter starting…</span></div>
         <div class="nav-update" data-update-box hidden>
@@ -357,6 +359,49 @@
       </section>
 
       <!-- About -->
+      <!-- Beta Menu (testers only): this build's tests, and bug reports; both go up like Report a problem, logs always -->
+      <section class="page page-wide" data-page-body="beta">
+        <header class="page-head"><h1>Beta Menu</h1><span class="beta-build" data-beta-build></span></header>
+        <div class="tabs" role="tablist" aria-label="Beta Menu">
+          <button type="button" role="tab" data-tab="tests" aria-selected="true">Tests <span class="tab-count" data-beta-count></span></button>
+          <button type="button" role="tab" data-tab="bugs" aria-selected="false">Bug reports <span class="tab-count" data-bug-count></span></button>
+        </div>
+        <div class="dps-panel is-active" data-panel="tests">
+          <p class="lead">What's new or fixed in this build. Tick what you tested, say whether it works, and add a note if
+            anything's off. Untested items are fine: send what you have, your notes are kept until you do.</p>
+          <!-- the owner (beta.manage): publish this build's list, retire tests for everyone -->
+          <div class="notice beta-owner" data-beta-owner hidden>
+            <span data-beta-owner-text></span>
+            <button type="button" data-beta-publish>Publish this build's list</button>
+          </div>
+          <p class="hint warn" data-beta-offline hidden>Couldn't reach AniiLogs: this is the build's own list. Your notes are kept; send once you're online.</p>
+          <div class="beta-filter">
+            <label class="toggle"><input type="checkbox" data-beta-hide-working><span></span>
+              <div><strong>Hide what I marked Working</strong><small>Tests you already sent as Working <span data-beta-hidden></span></small></div></label>
+          </div>
+          <div class="beta-list" data-beta-tests></div>
+          <details class="beta-retired" data-beta-retired hidden>
+            <summary>Retired tests (<span data-beta-retired-count>0</span>): hidden for everyone</summary>
+            <ul data-beta-retired-list></ul>
+          </details>
+          <div class="beta-send">
+            <p class="hint" data-beta-tests-summary></p>
+            <button type="button" class="primary" data-beta-tests-send>Send results</button>
+          </div>
+        </div>
+        <div class="dps-panel" data-panel="bugs">
+          <p class="lead">One card per bug. Found more than one? <strong>+ Another bug</strong> adds a card; they all go
+            up together, with your logs.</p>
+          <div class="beta-list" data-bugs></div>
+          <div class="beta-send">
+            <button type="button" data-bug-add>+ Another bug</button>
+            <span class="beta-send-gap"></span>
+            <p class="hint" data-bugs-summary></p>
+            <button type="button" class="primary" data-bugs-send>Send bug reports</button>
+          </div>
+        </div>
+      </section>
+
       <section class="page" data-page-body="about">
         <header class="page-head"><h1>About</h1></header>
         <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
@@ -408,6 +453,16 @@
           <button type="button" data-report-close>Cancel</button>
           <button type="button" class="primary" data-logs-send>Send logs</button>
         </div>
+      </section>
+    </div>
+
+    <!-- Beta Menu: what was just sent -->
+    <div class="modal" data-beta-sent hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="betaSentTitle">
+        <h1 id="betaSentTitle" data-beta-sent-title>Sent. Thanks!</h1>
+        <ul class="beta-sent-list" data-beta-sent-list></ul>
+        <p class="hint" data-beta-sent-id></p>
+        <div class="row end"><button type="button" class="primary" data-beta-sent-close>Done</button></div>
       </section>
     </div>
 

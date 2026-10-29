@@ -6,9 +6,12 @@ pull request to this repository.
 
 ## Who can read them
 
-Only AniiLogs accounts with the **developer role** (granted on the website). Everyone else can send reports but never
-read them. Ask the maintainer for the role. Developers read reports and leave notes on them; only the maintainer
-clears them.
+Only AniiLogs **administrators** (and the owner). The developer role is not enough: testers have it too, so players'
+logs stay with fewer people. Everyone else can send reports but never read them. Ask the maintainer for access.
+Administrators read reports and leave notes on them; only the maintainer clears them.
+
+Testers' Beta Menu sends (test results and bug reports from aLogs) are reports too, of kind `beta-tests` or
+`beta-bugs`, read the same way.
 
 ## Setup (once)
 

@@ -372,6 +372,7 @@
     accountShown = token;
     showNavAccount(null);
     $("[data-sign-out]").hidden = !token;
+    showBeta(false);
     if (!token) { state.textContent = "Not signed in."; return; }
     state.textContent = "Checking your account…";
     try {
@@ -380,6 +381,7 @@
       state.textContent = response.ok ? `Signed in as ${body.account?.name || "your Discord account"}.`
         : "This sign-in no longer works (signed out or revoked). Sign in again.";
       showNavAccount(response.ok ? body.account?.name || "Discord" : null);   // signed out: the sidebar offers sign-in
+      showBeta(response.ok && body.account?.beta === true, body.account?.permissions || []);   // testers: the Beta Menu
     } catch {
       state.textContent = "Signed in (couldn't reach AniiLogs to check right now).";
       showNavAccount("Discord");
@@ -815,6 +817,427 @@
       button.textContent = "Send logs";
     }
   });
+
+  // ---------------------------------------------------------------- Beta Menu (testers only)
+  // The tests to do and bug reports, sent like Report a problem but always with the logs and the tester's sign-in
+  // (testers have the developer role; the server checks it). Shown only when the account says "beta": the developer
+  // role with Developer Mode on (players' log reports need more: administrators). The test list is shared: it comes
+  // from the server (beta-tests.json, written for each RC, is the fallback offline and what the owner publishes), and
+  // only an account with the "beta.manage" permission (the owner today) can publish it or retire a test. Each tester's
+  // own results come back with it, so "Hide what I marked Working" follows them; notes stay in this window until sent.
+  const BETA_KEY = "alogs:beta:v1";
+  const BETA_HIDE_KEY = "alogs:beta:hide-working";
+  const BUG_SHOTS = 3, BUG_CARDS = 10;
+  const AREAS = ["DPS meter", "Overlay / DPS window", "Capture button", "Sanctum Helper", "Leaderboards & profile", "Photos",
+    "Sign-in & account", "Install & updates", "Something else"];
+  const SEVERITY = [["blocks", "Stops me testing"], ["wrong", "Wrong result"], ["annoying", "Annoying"], ["looks", "Looks off"]];
+  let bundledTests = { build: "", items: [] };   // this build's own list
+  let betaTests = { build: "", items: [] };      // what's shown: the shared list (retired ones only for the owner)
+  let betaShared = false;                        // false: the server couldn't be reached, the bundled list is shown
+  let betaOwner = false;
+  let hideWorking = false;
+  let beta = { build: "", tests: {}, bugs: [] };
+  const bugShots = new Map();   // bug card key -> [{ blob, url }]: pictures stay in memory only (not in the saved notes)
+  let activeBug = null;         // where a pasted picture goes
+  const el = (tag, className, props = {}) => Object.assign(document.createElement(tag), className ? { className } : {}, props);
+  const newBug = () => ({ key: crypto.randomUUID(), title: "", area: "", severity: "", text: "" });
+  const dayLabel = (seconds) => new Date(seconds * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  let betaSaveTimer = 0;
+  function saveBeta() {
+    clearTimeout(betaSaveTimer);
+    betaSaveTimer = setTimeout(() => {
+      try { localStorage.setItem(BETA_KEY, JSON.stringify(beta)); } catch { /* kept for this session anyway */ }
+    }, 300);
+  }
+  async function loadBeta() {
+    try { bundledTests = await (await fetch("beta-tests.json")).json(); } catch { bundledTests = { build: "", items: [] }; }
+    try { beta = { ...beta, ...JSON.parse(localStorage.getItem(BETA_KEY) || "{}") }; } catch { /* a fresh start */ }
+    try { hideWorking = localStorage.getItem(BETA_HIDE_KEY) === "1"; } catch { /* off */ }
+    $("[data-beta-hide-working]").checked = hideWorking;
+    if (!Array.isArray(beta.bugs) || !beta.bugs.length) beta.bugs = [newBug()];
+    betaTests = bundledTests;
+    showTests();
+    renderBugs();
+  }
+  // The shared list and this tester's own last results ({ id: { working, at } }), each time the Beta Menu opens.
+  async function refreshBetaList() {
+    try {
+      const response = await fetch(`${api()}/beta/tests`, { headers: authHeaders() });
+      if (!response.ok) throw new Error(String(response.status));
+      const body = await response.json();
+      betaTests = { build: body.build || bundledTests.build, items: Array.isArray(body.items) ? body.items : [] };
+      for (const [id, mine] of Object.entries(body.mine || {})) {
+        const state = (beta.tests[id] ??= { tested: false, result: "", note: "" });
+        if (!state.sentAt || mine.at > state.sentAt) Object.assign(state, { sent: mine.working ? "working" : "broken", sentAt: mine.at });
+      }
+      betaShared = true;
+    } catch {
+      betaTests = bundledTests;
+      betaShared = false;
+    }
+    showTests();
+  }
+  function showTests() {
+    // a test no longer on the shared list loses its notes (kept while offline)
+    if (betaShared) {
+      const ids = new Set(betaTests.items.map((item) => item.id));
+      beta.tests = Object.fromEntries(Object.entries(beta.tests || {}).filter(([id]) => ids.has(id)));
+    }
+    beta.build = betaTests.build;
+    $("[data-beta-build]").textContent = betaTests.build;
+    $("[data-beta-offline]").hidden = betaShared;
+    renderOwner();
+    renderTests();
+    saveBeta();
+  }
+  function showBeta(on, permissions = []) {
+    $("[data-beta-nav]").hidden = !on;
+    betaOwner = on && permissions.includes("beta.manage");
+    if (on) void refreshBetaList();
+    if (!on && $('[data-page-body="beta"]').classList.contains("is-active")) $('[data-page="dashboard"]').click();
+  }
+  $('[data-page="beta"]').addEventListener("click", () => void refreshBetaList());
+  $("[data-beta-hide-working]").addEventListener("change", (event) => {
+    hideWorking = event.target.checked;
+    try { localStorage.setItem(BETA_HIDE_KEY, hideWorking ? "1" : "0"); } catch { /* this session only */ }
+    renderTests();
+  });
+
+  // The owner's part: publish this build's list (new tests added, wording updated, retired ones stay retired) and
+  // retire or bring back a test for everyone.
+  async function ownerCall(path, body) {
+    const response = await fetch(`${api()}/beta/tests${path}`, { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify(body) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
+    return result;
+  }
+  function renderOwner() {
+    const box = $("[data-beta-owner]");
+    box.hidden = !betaOwner;
+    if (!betaOwner) return;
+    const listed = new Set(betaTests.items.map((item) => item.id));
+    const fresh = bundledTests.items.filter((item) => !listed.has(item.id)).length;
+    $("[data-beta-owner-text]").textContent = !betaShared ? "The shared list couldn't be reached, so this is the build's own list."
+      : fresh ? `This build (${bundledTests.build}) has ${fresh === 1 ? "1 test" : `${fresh} tests`} the shared list doesn't have yet.`
+        : `The shared list has every test from ${bundledTests.build}.`;
+    $("[data-beta-publish]").disabled = !betaShared;
+  }
+  $("[data-beta-publish]").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await ownerCall("", { build: bundledTests.build, items: bundledTests.items });
+      toast(`Published ${bundledTests.build}: ${result.added ?? 0} added, ${result.updated ?? 0} updated.`);
+      await refreshBetaList();
+    } catch (error) {
+      toast(`Couldn't publish: ${error.message || error}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  async function retireTest(item, retired) {
+    try {
+      await ownerCall(`/${encodeURIComponent(item.id)}/retire`, { retired });
+      toast(retired ? `Retired "${item.title}" for everyone.` : `"${item.title}" is back on everyone's list.`);
+      await refreshBetaList();
+    } catch (error) {
+      toast(`Couldn't change it: ${error.message || error}`, true);
+    }
+  }
+
+  function testCard(item) {
+    const state = (beta.tests[item.id] ??= { tested: false, result: "", note: "" });
+    const card = el("article", "beta-card");
+    const head = el("div", "beta-card-head");
+    const tick = el("input", "beta-tick", { type: "checkbox", checked: state.tested, title: "I tested this" });
+    tick.setAttribute("aria-label", `Tested: ${item.title}`);
+    const title = el("div", "beta-title");
+    const name = el("strong", "", { textContent: item.title });
+    if (state.sent) {
+      name.append(" ", el("span", `beta-sent-tag${state.sent === "broken" ? " bad" : ""}`,
+        { textContent: `You sent: ${state.sent === "working" ? "Working" : "Not working"}${state.sentAt ? ` · ${dayLabel(state.sentAt)}` : ""}` }));
+    }
+    title.append(name, el("small", "", { textContent: item.how }));
+    const result = el("select", "beta-result");
+    result.setAttribute("aria-label", `Result: ${item.title}`);
+    result.append(el("option", "", { value: "", textContent: "Working?", disabled: true }),
+      el("option", "", { value: "working", textContent: "Working" }), el("option", "", { value: "broken", textContent: "Not working" }));
+    result.value = state.result;
+    head.append(tick, title, result);
+    const more = item.details?.length ? el("button", "beta-more", { type: "button", textContent: "More", title: "Show the details" }) : null;
+    head.append(more || el("span"));   // the dropdowns line up whether a card has More or not
+    const note = el("input", "beta-note", { type: "text", maxLength: 1000, value: state.note, placeholder: "Notes (optional): what you saw, where, which settings" });
+    const need = el("p", "beta-need", { textContent: "Choose Working or Not working for a test you ticked.", hidden: true });
+    card.append(head, need, note);
+    if (more) {
+      const details = el("div", "beta-details", { hidden: true });
+      details.append(...item.details.map((line) => el("p", "", { textContent: line })));
+      card.insertBefore(details, need);
+      more.addEventListener("click", () => {
+        details.hidden = !details.hidden;
+        card.classList.toggle("is-open", !details.hidden);
+        more.textContent = details.hidden ? "More" : "Less";
+      });
+    }
+    if (betaOwner) {
+      const owner = el("div", "beta-owner-row");
+      const counts = item.results ? `${item.results.working ?? 0} working, ${item.results.broken ?? 0} not working` : "";
+      const retire = el("button", "link", { type: "button", textContent: "Retire for everyone" });
+      retire.addEventListener("click", () => void retireTest(item, true));
+      owner.append(el("span", "hint", { textContent: counts ? `Testers so far: ${counts}` : "No results yet" }), retire);
+      card.append(owner);
+    }
+    const update = () => {
+      card.classList.toggle("is-tested", state.tested);
+      card.classList.toggle("is-broken", state.result === "broken");
+      if (!state.tested || state.result) { card.classList.remove("needs-result"); need.hidden = true; }
+      testsSummary();
+      saveBeta();
+    };
+    tick.addEventListener("change", () => { state.tested = tick.checked; update(); });
+    result.addEventListener("change", () => { state.result = result.value; state.tested = tick.checked = true; update(); });
+    note.addEventListener("input", () => { state.note = note.value; saveBeta(); });
+    card.classList.toggle("is-tested", state.tested);
+    card.classList.toggle("is-broken", state.result === "broken");
+    card.dataset.id = item.id;
+    return card;
+  }
+  const activeTests = () => betaTests.items.filter((item) => !item.retired);
+  // hidden by the filter: what this tester last sent as Working and hasn't ticked again since
+  const hiddenByFilter = (item) => hideWorking && beta.tests[item.id]?.sent === "working" && !beta.tests[item.id]?.tested;
+  function renderTests() {
+    const shown = activeTests().filter((item) => !hiddenByFilter(item));
+    const hidden = activeTests().length - shown.length;
+    $("[data-beta-tests]").replaceChildren(...shown.map(testCard));
+    $("[data-beta-hidden]").textContent = hidden ? `(${hidden} hidden)` : "";
+    const retired = betaOwner ? betaTests.items.filter((item) => item.retired) : [];
+    $("[data-beta-retired]").hidden = !retired.length;
+    $("[data-beta-retired-count]").textContent = String(retired.length);
+    $("[data-beta-retired-list]").replaceChildren(...retired.map((item) => {
+      const row = el("li");
+      const back = el("button", "link", { type: "button", textContent: "Bring back" });
+      back.addEventListener("click", () => void retireTest(item, false));
+      row.append(el("span", "", { textContent: item.title }), back);
+      return row;
+    }));
+    testsSummary();
+  }
+  function testsSummary() {
+    const items = activeTests();
+    const states = items.map((item) => beta.tests[item.id] || {});
+    const tested = states.filter((s) => s.tested).length;
+    const broken = states.filter((s) => s.tested && s.result === "broken").length;
+    const open = states.filter((s) => !s.tested && !s.sent).length;
+    $("[data-beta-count]").textContent = `${tested}/${items.length}`;
+    $("[data-beta-tests-summary]").textContent = tested
+      ? `${tested} to send${broken ? `, ${broken} not working` : ""}, ${open} never tested. Your logs go with them.`
+      : `Nothing ticked yet. ${open} never tested.`;
+    $("[data-beta-tests-send]").disabled = !tested;
+  }
+
+  function bugCard(bug, index) {
+    const card = el("article", "beta-card bug-card");
+    const head = el("div", "bug-head");
+    head.append(el("strong", "", { textContent: `Bug ${index + 1}` }));
+    if (beta.bugs.length > 1) {
+      const remove = el("button", "bug-remove", { type: "button", textContent: "×", title: "Remove this bug" });
+      remove.setAttribute("aria-label", `Remove bug ${index + 1}`);
+      remove.addEventListener("click", () => {
+        for (const shot of bugShots.get(bug.key) || []) URL.revokeObjectURL(shot.url);
+        bugShots.delete(bug.key);
+        beta.bugs = beta.bugs.filter((b) => b !== bug);
+        renderBugs();
+        saveBeta();
+      });
+      head.append(remove);
+    }
+    const field = (label, input) => { const f = el("label", "field"); f.append(el("span", "", { textContent: label }), input); return f; };
+    const title = el("input", "", { type: "text", maxLength: 120, value: bug.title, placeholder: "e.g. The DPS window froze after a BREAK" });
+    const area = el("select");
+    area.append(el("option", "", { value: "", textContent: "Choose…" }), ...AREAS.map((a) => el("option", "", { value: a, textContent: a })));
+    area.value = bug.area;
+    const severity = el("select");
+    severity.append(el("option", "", { value: "", textContent: "Choose…" }), ...SEVERITY.map(([v, t]) => el("option", "", { value: v, textContent: t })));
+    severity.value = bug.severity;
+    const text = el("textarea", "", { rows: 4, maxLength: 4000, value: bug.text,
+      placeholder: "What you did, what happened, and what you expected instead. When it happened helps too (e.g. \"about 21:40, second Interlink run\")." });
+    const pair = el("div", "bug-pair");
+    pair.append(field("Where", area), field("How bad", severity));
+    const shots = el("div", "field");
+    const list = el("div", "report-shots");
+    const add = el("button", "", { type: "button", textContent: "Add screenshots" });
+    const file = el("input", "", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: true, hidden: true });
+    const row = el("div", "row labeled");
+    row.append(add, file, el("span", "hint", { textContent: `Up to ${BUG_SHOTS}, or paste with Ctrl+V. Crop out anything private.` }));
+    shots.append(el("span", "", { textContent: "Screenshots (optional)" }), list, row);
+    const need = el("p", "beta-need", { textContent: "A bug needs a title and what happened.", hidden: true });
+    card.append(head, field("Title", title), pair, field("What happened", text), shots, need);
+    const renderShots = () => {
+      const mine = bugShots.get(bug.key) || [];
+      list.replaceChildren(...mine.map((shot, i) => {
+        const item = el("div", "report-shot");
+        const remove = el("button", "report-shot-remove", { type: "button", textContent: "×", title: "Remove" });
+        remove.addEventListener("click", () => { URL.revokeObjectURL(shot.url); mine.splice(i, 1); renderShots(); bugsSummary(); });
+        item.append(el("img", "", { src: shot.url, alt: `Screenshot ${i + 1}` }), remove);
+        return item;
+      }));
+      add.disabled = mine.length >= BUG_SHOTS;
+    };
+    card.addShots = async (files) => {
+      const mine = bugShots.get(bug.key) || [];
+      bugShots.set(bug.key, mine);
+      for (const f of files) {
+        if (!f.type.startsWith("image/")) continue;
+        if (mine.length >= BUG_SHOTS) { toast(`Up to ${BUG_SHOTS} screenshots per bug.`, true); break; }
+        try { const blob = await shotBlob(f); mine.push({ blob, url: URL.createObjectURL(blob) }); } catch { toast("That picture couldn't be read.", true); }
+      }
+      renderShots();
+      bugsSummary();
+    };
+    add.addEventListener("click", () => file.click());
+    file.addEventListener("change", () => { void card.addShots([...file.files]); file.value = ""; });
+    const changed = () => {
+      Object.assign(bug, { title: title.value, area: area.value, severity: severity.value, text: text.value });
+      if (bug.title.trim() && bug.text.trim()) { card.classList.remove("needs-result"); need.hidden = true; }
+      bugsSummary();
+      saveBeta();
+    };
+    for (const input of [title, area, severity, text]) input.addEventListener(input.tagName === "SELECT" ? "change" : "input", changed);
+    card.addEventListener("focusin", () => { activeBug = card; });
+    renderShots();
+    return card;
+  }
+  function renderBugs() {
+    const cards = beta.bugs.map(bugCard);
+    $("[data-bugs]").replaceChildren(...cards);
+    activeBug = cards.at(-1);
+    $("[data-bug-add]").disabled = beta.bugs.length >= BUG_CARDS;
+    bugsSummary();
+  }
+  const bugFilled = (bug) => bug.title.trim() || bug.text.trim() || (bugShots.get(bug.key) || []).length;
+  function bugsSummary() {
+    const filled = beta.bugs.filter(bugFilled).length;
+    $("[data-bug-count]").textContent = filled ? String(filled) : "";
+    $("[data-bugs-summary]").textContent = filled ? `${filled === 1 ? "1 bug" : `${filled} bugs`}, with your logs.` : "";
+    $("[data-bugs-send]").disabled = !filled;
+  }
+  $("[data-bug-add]").addEventListener("click", () => {
+    beta.bugs.push(newBug());
+    renderBugs();
+    saveBeta();
+    $("[data-bugs] .bug-card:last-child input").focus();
+  });
+  document.addEventListener("paste", (event) => {
+    if (!$('[data-page-body="beta"]').classList.contains("is-active") || !$('[data-panel="bugs"]').classList.contains("is-active")) return;
+    const files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
+    if (!files.length || !activeBug) return;
+    event.preventDefault();
+    void activeBug.addShots(files);
+  });
+
+  // Both tabs send one report each (kind "beta-tests" or "beta-bugs"), always with the logs.
+  async function sendBeta(kind, button, fields, shots) {
+    const uid = status.character?.uid;
+    if (!uid) { toast("aLogs hasn't seen your game UID yet: open Aniimo with the meter running, then try again.", true); return null; }
+    if (!get("leaderboard.token")) { toast("Sign in with Discord first: the Beta Menu sends as you.", true); return null; }
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = "Sending…";
+    try {
+      const zip = Uint8Array.from(atob(await invoke("collect_logs")), (c) => c.charCodeAt(0));
+      const version = await window.__TAURI__.app.getVersion();
+      const rc = await invoke("build_number").catch(() => 0);
+      const form = new FormData();
+      form.set("kind", kind);
+      form.set("uid", uid);
+      form.set("app_version", rc ? `${version}+rc.${rc}` : version);
+      form.set("build", betaTests.build);
+      for (const [key, value] of Object.entries(fields)) form.set(key, JSON.stringify(value));
+      form.set("logs", new Blob([zip], { type: "application/zip" }), "logs.zip");
+      for (const [name, blob] of shots) form.append("screenshot", blob, name);
+      const response = await fetch(`${api()}/logs/beta`, { method: "POST", headers: authHeaders(), body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
+      return result;
+    } catch (error) {
+      toast(`Couldn't send: ${error.message || error}`, true);
+      return null;
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
+  function showSent(title, lines, reportId) {
+    $("[data-beta-sent-title]").textContent = title;
+    $("[data-beta-sent-list]").replaceChildren(...lines.map((line) => el("li", "", { textContent: line })));
+    $("[data-beta-sent-id]").textContent = reportId ? `Report ${reportId}, with your logs.` : "With your logs.";
+    $("[data-beta-sent]").hidden = false;
+  }
+  $("[data-beta-sent-close]").addEventListener("click", () => { $("[data-beta-sent]").hidden = true; });
+  $("[data-beta-tests-send]").addEventListener("click", async (event) => {
+    const ticked = activeTests().filter((item) => beta.tests[item.id]?.tested);
+    const missing = ticked.filter((item) => !beta.tests[item.id].result);
+    $$("[data-beta-tests] .beta-card").forEach((card) => {
+      const bad = missing.some((item) => item.id === card.dataset.id);
+      card.classList.toggle("needs-result", bad);
+      $(".beta-need", card).hidden = !bad;
+    });
+    if (missing.length) {
+      $(`[data-beta-tests] .beta-card[data-id="${missing[0].id}"]`).scrollIntoView({ behavior: "smooth", block: "center" });
+      toast(`Choose Working or Not working for ${missing.length === 1 ? "the test" : `the ${missing.length} tests`} you ticked.`, true);
+      return;
+    }
+    const tests = activeTests().map((item) => {
+      const s = beta.tests[item.id] || {};
+      return { id: item.id, title: item.title, tested: Boolean(s.tested), working: s.tested ? s.result === "working" : null, note: (s.note || "").trim() };
+    });
+    const result = await sendBeta("beta-tests", event.currentTarget, { tests }, []);
+    if (!result) return;
+    const broken = ticked.filter((item) => beta.tests[item.id].result === "broken");
+    showSent("Test results sent. Thanks!", [
+      `${ticked.length} tested: ${ticked.length - broken.length} working, ${broken.length} not working`,
+      ...broken.map((item) => `Not working: ${item.title}`),
+      `${activeTests().length - ticked.length} not in this send (they stay here with your notes)`,
+    ], result.reportId);
+    const now = Math.floor(Date.now() / 1000);                // sent: remembered for the filter, the rest kept
+    for (const item of ticked) beta.tests[item.id] = { tested: false, result: "", note: "", sent: beta.tests[item.id].result, sentAt: now };
+    renderTests();
+    saveBeta();
+  });
+  $("[data-bugs-send]").addEventListener("click", async (event) => {
+    const filled = beta.bugs.filter(bugFilled);
+    const cards = $$("[data-bugs] .bug-card");
+    const incomplete = filled.filter((bug) => !bug.title.trim() || !bug.text.trim());
+    beta.bugs.forEach((bug, i) => {
+      const bad = incomplete.includes(bug);
+      cards[i].classList.toggle("needs-result", bad);
+      $(".beta-need", cards[i]).hidden = !bad;
+    });
+    if (incomplete.length) {
+      cards[beta.bugs.indexOf(incomplete[0])].scrollIntoView({ behavior: "smooth", block: "center" });
+      toast("Every bug needs a title and what happened.", true);
+      return;
+    }
+    const shots = [];
+    const bugs = filled.map((bug, i) => {
+      const mine = bugShots.get(bug.key) || [];
+      mine.forEach((shot, k) => shots.push([`bug-${i + 1}-${k + 1}`, shot.blob]));
+      return { title: bug.title.trim(), area: bug.area || null, severity: bug.severity || null, text: bug.text.trim(), screenshots: mine.length };
+    });
+    const result = await sendBeta("beta-bugs", event.currentTarget, { bugs }, shots);
+    if (!result) return;
+    showSent(bugs.length === 1 ? "Bug report sent. Thanks!" : `${bugs.length} bug reports sent. Thanks!`,
+      bugs.map((bug) => `${bug.title}${bug.screenshots ? ` (${bug.screenshots === 1 ? "1 screenshot" : `${bug.screenshots} screenshots`})` : ""}`),
+      result.reportId);
+    for (const list of bugShots.values()) for (const shot of list) URL.revokeObjectURL(shot.url);
+    bugShots.clear();
+    beta.bugs = [newBug()];
+    renderBugs();
+    saveBeta();
+  });
+  void loadBeta();
+
   $("[data-dispute-send]").addEventListener("click", async () => {
     try {
       await invoke("send_character_dispute", { note: $("[data-dispute-note]").value.trim() });
