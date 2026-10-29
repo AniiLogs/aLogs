@@ -7,7 +7,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
-     "**Sanctum Helper knows this game update's Egg Heist layouts:** Normal no longer has layout 60, and Nightmare and Chaos now draw from 12 layouts. The rebuilt 31, 33 and 38 and the new 61 and 62 get their maps in a later update (their map art arrives with the game's download); until then Sanctum Helper shows no map for those five rather than a wrong one.",
+     "**Sanctum Helper knows this game update's Egg Heist layouts:** Normal no longer has layout 60, and Nightmare and Chaos now draw from 12 layouts, with maps for all of them: the rebuilt 31, 33 and 38 and the new 61 and 62.",
      "**Sign in with Discord without leaving aLogs:** Discord's sign-in page opens in a window of aLogs instead of your web browser, and closes by itself once you've approved. Close it to cancel. aLogs only gets a one-time code from Discord, never what you type there.",
      "**New photos reach your profile in seconds:** with Upload new photos automatically on, a photo goes up a few seconds after you take it (it could take up to a minute), and aLogs only asks the site when there's something new."
     ]
