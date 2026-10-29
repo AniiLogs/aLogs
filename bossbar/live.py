@@ -1147,7 +1147,7 @@ class Meter:
     def sim_result(self, im, now, u, ux, H):
         """Holo-Battle Sim's end screen: "Victory" with "Battle time 00:08:22 Training of Water - Hard" under it. The
         stage is "Training of" (Easy, Normal, Hard), "Trial of" or "Crucible of" (Challenge) Grass, Water or Fire.
-        A win goes to the leaderboards (testers and above until the boards open) with the screen as proof."""
+        A win goes to the leaderboards with the screen as proof."""
         if now - getattr(self, 'sim_seen', 0) < 30: return                 # once per appearance
         box = (ux + u * 0.36, H * 0.198, ux + u * 0.65, H * 0.233)
         t = self.ocr.read({'w': R.prep_white(im, box, u / 2000), 'b': R.prep_bright(im, box, u / 2000),
@@ -1168,8 +1168,7 @@ class Meter:
             if new: w.writerow(['time', 'uid', 'trial', 'difficulty', 'time_s', 'screenshot'])
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, sim['trial'], sim['difficulty'], sim['time_s'],
                         os.path.relpath(shot, HERE) if shot else ''])
-        # testers and above only, until the Holo-Battle Sim boards open to everyone
-        if self.submitter and self.uid and self.args.cfg['leaderboard'].get('beta'):
+        if self.submitter and self.uid:
             self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None)
         self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s")
 

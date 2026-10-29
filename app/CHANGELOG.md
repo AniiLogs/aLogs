@@ -6,6 +6,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ## 0.1.28
 
 ### New
+- **Holo-Battle Sim on the leaderboards:** after a win, aLogs reads the line under "Victory" (the battle time, the
+  stage such as "Training of Water" or "Trial of Fire", and the difficulty) and sends your time to that stage's board,
+  with the Victory screen as proof.
 - **An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits just left of the game's
   Chat icon at the bottom left (it follows Chat when the row moves), drawn like the game's icons, with its hotkey
   under it: Insert by default, a key the game doesn't use; change it, make it a combination like Ctrl+Ins, or turn it

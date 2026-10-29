@@ -37,7 +37,6 @@
       "how": "Win a Training and a Trial in Holo-Battle Sim: each run shows on the right board with its time, stage and difficulty.",
       "details": [
         "aLogs reads the line under \"Victory\" (\"Battle time 00:08:22 Training of Water - Hard\") and sends the time, the stage and the difficulty, with the screen as proof.",
-        "Only for testers and above until the boards open to everyone.",
         "Say if a win didn't show up, or showed on the wrong board (check meter.log for \"Holo-Battle Sim\")."
       ]
     },
