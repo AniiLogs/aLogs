@@ -482,6 +482,15 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
     for name in ["profile_events.csv", "time_check.csv", "egg_matches.csv"] {
         add(&mut files, name, logs.join(name));
     }
+    // the HP bar as read when "You're being attacked" last showed (a few small pictures of the bar only)
+    let mut alerts: Vec<PathBuf> = fs::read_dir(logs.join("hp_alerts"))
+        .map(|dir| dir.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    alerts.sort();
+    for path in alerts.into_iter().rev().take(5) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("alert.jpg").to_string();
+        add(&mut files, &format!("hp_alerts/{name}"), path);
+    }
     add(&mut files, "status.json", data.join("status.json"));
     let mut settings = read_settings();
     if let Some(board) = settings.get_mut("leaderboard").and_then(Value::as_object_mut) {

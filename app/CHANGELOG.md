@@ -127,6 +127,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   bosses) and gave Interlink bosses new BREAK gauges and more HP. The meter's numbers now match the game's own
   formulas at every level, and its built-in boss list (used when your game files can't be read) has the new bosses
   and Interlink weeks.
+- **"You're being attacked" in town at full HP:** the small HP number is often misread, and in a still scene the same
+  misread can come back again and again. A hit now has to hold for three readings in a row, and a single small drop
+  only counts when another follows within 10 seconds; a number flipping between the same two readings is ignored.
 - **Interlink's new star rules:** since the Whisperwake update a fight is rated out of 20 stars (the middle boss
   counts double, 80 a week). A run that ended early with 15 to 19 stars counted as a clear on the fastest-clear board;
   a clear now takes the full 20. Runs also say which boss of the week they were (left, middle or right) and which

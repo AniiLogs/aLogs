@@ -1,14 +1,14 @@
 {
-  "build": "0.1.28 RC44",
+  "build": "0.1.28 RC45",
   "items": [
     {
       "id": "under-attack-hp-number",
       "title": "\"You're being attacked\" only on real hits",
       "how": "Tab out at full HP in the open world for 10 minutes: no alert. Get hit while tabbed out: the alert shows.",
       "details": [
-        "aLogs now reads the HP number on your bar instead of the bar's length, so the bar flickering at full HP can't set it off any more.",
-        "Also try: a small hit, and a hit while you're being healed. Both should show the alert.",
-        "If it shows with nothing attacking you, say where you were standing and what was on screen."
+        "A hit now has to hold for three readings in a row, and a small drop only counts when another follows within 10 seconds, so a misread HP number in town can't set it off.",
+        "Stand still in a town for 10 minutes tabbed out: no alert. Get hit by a wild Aniimo while tabbed out: the alert shows.",
+        "If it still shows falsely, send a report right after: it now includes a picture of the HP bar as read."
       ]
     },
     {

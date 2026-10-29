@@ -1997,13 +1997,21 @@ class Meter:
             log.info(f"tabbed out, no bar: colours along its row (y {yc:.0f}) {' '.join('%02x%02x%02x' % p[:3] for p in row)}; "
                      f"picture {im.width}x{im.height}, average {'%02x%02x%02x' % mean[:3]}")
 
+    HIT_HOLD = 3            # a lower HP must be read this many times in a row (0.75 s) to count
+    HIT_BIG = 0.02          # a drop of this share of your HP shows the alert by itself...
+    HIT_AGAIN = 10          # ...a smaller one only when another drop follows within this many seconds
+    HIT_FLIP = 30           # seconds a number flipping between two readings (a misread) is ignored
+
     def hit_watch(self, now):
         """While you're tabbed out: the HP number on your HP bar (a strip of its own, 4 times a second). A reading counts
-        once the same one is read twice in a row (a misread never repeats); one lower than the last that counted is a
-        hit, and the overlay shows "You're being attacked". (The bar's length missed small hits, hits while being
-        healed, and flickered at full HP: false alarms standing in a town.)"""
+        once the same one is read twice in a row; a lower one is a drop once it is read HIT_HOLD times in a row, and
+        the overlay shows "You're being attacked" for a drop of HIT_BIG or more, or for two drops within HIT_AGAIN
+        seconds. Windows OCR misreads this small number often, and in a still scene (a town) the same misread comes
+        back frame after frame: "11,390 -> 11,356" read twice raised the alert at full HP. A misread also tends to
+        flip back and forth between the same two numbers, which is never a hit. (The bar's length missed small hits,
+        hits while being healed, and flickered at full HP: false alarms standing in a town.)"""
         if self.args.replay is not None or not self.hwnd or wc.is_foreground(self.hwnd) or not self.frame_size[1]:
-            self.hp_seen = self.hp_pending = None; return
+            self.hp_seen = self.hp_pending = self.hp_drop = None; return
         if now - getattr(self, 'hp_read_at', 0) < 0.25: return
         self.hp_read_at = now
         if getattr(self, 'hp_reader', None) is None: self.hp_reader = wc.SharedCapture(tag=2)
@@ -2018,12 +2026,33 @@ class Meter:
         # a misread can come twice from one picture ("260/12694"): under a tenth of your HP is taken for one (by then
         # the hits before it have shown the alert anyway)
         if hp is None or hp[0] > hp[1] or hp[0] * 10 < hp[1]: return
-        if hp != getattr(self, 'hp_pending', None): self.hp_pending = hp; return      # wait for the same reading again
         seen = getattr(self, 'hp_seen', None)
-        if seen and hp[1] == seen[1] and hp[0] < seen[0]:
-            if now - getattr(self, 'hit_at', 0) > 5: log.info(f'tabbed out: HP {seen[0]:,} -> {hp[0]:,} of {hp[1]:,}, "You\'re being attacked" shown')
-            self.hit_at = now
-        self.hp_seen = hp
+        if seen is None or hp[1] != seen[1] or hp[0] >= seen[0]:
+            self.hp_drop = None                                    # no drop (or the old number came back: a misread)
+            if hp != getattr(self, 'hp_pending', None): self.hp_pending = hp; return    # wait for the same reading again
+            if seen and hp != seen: self.hp_moves = getattr(self, 'hp_moves', []) + [(now, seen[0], hp[0])]
+            self.hp_seen = hp; return
+        drop = self.hp_drop if getattr(self, 'hp_drop', None) and self.hp_drop['hp'] == hp else {'hp': hp, 'n': 0, 'strip': strip}
+        drop['n'] += 1; self.hp_drop = drop
+        if drop['n'] < self.HIT_HOLD: return
+        self.hp_drop = None; self.hp_seen = hp
+        moves = [m for m in getattr(self, 'hp_moves', []) if now - m[0] < self.HIT_FLIP]
+        flip = any({a, b} == {seen[0], hp[0]} for _, a, b in moves)
+        last = getattr(self, 'hp_drop_at', 0)
+        self.hp_moves = moves + [(now, seen[0], hp[0])]; self.hp_drop_at = now
+        share = (seen[0] - hp[0]) / hp[1]
+        if flip or (share < self.HIT_BIG and now - last > self.HIT_AGAIN):
+            log.info(f'tabbed out: HP {seen[0]:,} -> {hp[0]:,} of {hp[1]:,} not taken for a hit '
+                     f'({"it flips between these two (a misread)" if flip else "a small drop on its own"})')
+            return
+        if now - getattr(self, 'hit_at', 0) > 5:
+            log.info(f'tabbed out: HP {seen[0]:,} -> {hp[0]:,} of {hp[1]:,} ({share:.1%}), "You\'re being attacked" shown')
+            try:                                   # what was read, for a report (only the newest 10 are kept)
+                save_picture(strip, 'hp_alerts', time.strftime('%Y%m%d_%H%M%S'))
+                d = os.path.join(HERE, 'logs', 'hp_alerts')
+                for old in sorted(os.listdir(d))[:-10]: os.remove(os.path.join(d, old))
+            except OSError: pass
+        self.hit_at = now
 
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
