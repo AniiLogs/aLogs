@@ -381,7 +381,8 @@
       state.textContent = response.ok ? `Signed in as ${body.account?.name || "your Discord account"}.`
         : "This sign-in no longer works (signed out or revoked). Sign in again.";
       showNavAccount(response.ok ? body.account?.name || "Discord" : null);   // signed out: the sidebar offers sign-in
-      showBeta(response.ok && body.account?.beta === true, body.account?.permissions || []);   // testers: the Beta Menu
+      // testers: the Beta Menu (the site answers beta and permissions next to account, not inside it)
+      showBeta(response.ok && (body.beta ?? body.account?.beta) === true, body.permissions || body.account?.permissions || []);
     } catch {
       state.textContent = "Signed in (couldn't reach AniiLogs to check right now).";
       showNavAccount("Discord");
