@@ -50,6 +50,7 @@ window.PATCH_NOTES = [
     "heading": "Fixed",
     "items": [
      "**Boss HP and BREAK gauges after the Whisperwake update:** the game changed how boss HP grows with level (bosses using its main HP curve rise more slowly from level 56, a new curve above 65, and a new formula for the Umbral bosses) and gave Interlink bosses new BREAK gauges and more HP. The meter's numbers now match the game's own formulas at every level, and its built-in boss list (used when your game files can't be read) has the new bosses and Interlink weeks.",
+     "**Interlink's new star rules:** since the Whisperwake update a fight is rated out of 20 stars (the middle boss counts double, 80 a week). A run that ended early with 15 to 19 stars counted as a clear on the fastest-clear board; a clear now takes the full 20. Runs also say which boss of the week they were (left, middle or right) and which part of the season, and the two-boss middle fights from November 18 count for both bosses.",
      "**The boss bar at 720p:** it was often not found at all (its thin end lines blur at that size), and once its ×N counter was mistaken for the bar's end. Found and read right at 720p, 900p, 1080p, 1440p and 4K now.",
      "**The ×N counter at 720p and 4K:** a single digit right after the \"x\" (×4) touched it once scaled and wasn't read.",
      "**Teammates' names on result screens** lost their first letter at some sizes; read whole at every common resolution now.",
