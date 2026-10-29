@@ -10,7 +10,8 @@
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, fight_rate: 60, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
-    leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
+    leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true,
+      beta: false },
   };
   let settings = structuredClone(DEFAULTS);
   let status = {};
@@ -373,7 +374,11 @@
     showNavAccount(null);
     $("[data-sign-out]").hidden = !token;
     showBeta(false);
-    if (!token) { state.textContent = "Not signed in."; return; }
+    if (!token) {
+      state.textContent = "Not signed in.";
+      if (get("leaderboard.beta")) { set("leaderboard.beta", false); void saveChanges(); }
+      return;
+    }
     state.textContent = "Checking your account…";
     try {
       const response = await fetch(`${api()}/auth/app/account`, { headers: { authorization: `Bearer ${token}` } });
@@ -382,7 +387,10 @@
         : "This sign-in no longer works (signed out or revoked). Sign in again.";
       showNavAccount(response.ok ? body.account?.name || "Discord" : null);   // signed out: the sidebar offers sign-in
       // testers: the Beta Menu (the site answers beta and permissions next to account, not inside it)
-      showBeta(response.ok && (body.beta ?? body.account?.beta) === true, body.permissions || body.account?.permissions || []);
+      const beta = response.ok && (body.beta ?? body.account?.beta) === true;
+      showBeta(beta, body.permissions || body.account?.permissions || []);
+      // the meter sends beta-only records (Holo-Battle Sim) for testers and above
+      if (get("leaderboard.beta") !== beta) { set("leaderboard.beta", beta); void saveChanges(); }
     } catch {
       state.textContent = "Signed in (couldn't reach AniiLogs to check right now).";
       showNavAccount("Discord");

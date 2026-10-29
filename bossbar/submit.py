@@ -349,6 +349,14 @@ def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):
             'cycle': cycle, 'boss': {'id': boss_id, 'name': boss[:80]}, 'score': score, 'stars': stars,
             'playedAt': int(time.time()), 'extra': _slot(cycle, boss_id)}
 
+def sim_payload(sim, uid, played_at=None):
+    """sim_run: one Holo-Battle Sim win from its Victory screen - the battle time, the stage as shown ("Training of
+    Water", "Trial of Fire") and its difficulty ("Hard", "Challenge"). One entry per win."""
+    at = int(played_at or time.time())
+    return {'kind': 'sim_run', 'clientRunId': _safe(f'sim-{uid or "x"}-{at}'), 'gameUid': uid,
+            'clearTimeS': sim['time_s'], 'trial': sim['trial'], 'difficulty': sim['difficulty'], 'cleared': True,
+            'playedAt': at, 'extra': {'trial': sim['trial'], 'element': sim['element']}}
+
 def egg_match_payload(match, season, uid, played_at=None):
     """eggheist_match: one Egg Heist match from the end screen - Loot This Match (score), time, escaped or not,
     difficulty and Total Defeats. One entry per match."""

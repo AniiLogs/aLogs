@@ -76,6 +76,7 @@ DEFAULTS = {
         'token': '',                         # desktop token from the leaderboard page
         'link_character': True,              # link the detected character (UID + name) to the account
         'include_screenshots': True,         # attach the result screenshot as evidence
+        'beta': False,                       # the account is a tester or above (set by the app): beta-only records
     },
 }
 

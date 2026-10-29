@@ -152,6 +152,19 @@ def first_num(s):
     m = re.search(r'\d+', (s or '').replace('O', '0'))
     return int(m.group()) if m else None
 
+# between the stage and its difficulty: " - ", which OCR sometimes reads with a stray letter ("j- Challenge")
+SIM_STAGE = re.compile(r'(Training|Trial|Crucible)\s*of\s*(Grass|Water|Fire).{0,6}?(Easy|Normal|Hard|Challenge)', re.I)
+
+def parse_sim(text):
+    """Holo-Battle Sim's Victory line "Battle time 00:08:22 Training of Water - Hard" -> {'time_s': 502, 'trial':
+    'Training of Water', 'element': 'Water', 'difficulty': 'Hard'}, or None unless the time and the stage both read."""
+    t = re.search(r'(\d{1,2})\s*[:.]\s*(\d{2})\s*[:.]\s*(\d{2})', text or '')
+    s = SIM_STAGE.search(text or '')
+    if not t or not s or int(t.group(2)) > 59 or int(t.group(3)) > 59: return None
+    kind, element, difficulty = (g.capitalize() for g in s.groups())
+    return {'time_s': int(t.group(1)) * 3600 + int(t.group(2)) * 60 + int(t.group(3)),
+            'trial': f'{kind} of {element}', 'element': element, 'difficulty': difficulty}
+
 def last_uid(path):
     """Your player id from the end of the game log (last 32 MB), the newest of: a personal-space id
     ('100-<uid>-<scene>'), the 'callerId=<uid>' of the game's service calls, or your profile files the game downloads
@@ -920,7 +933,9 @@ class Meter:
                     # Egg Heist's rank screen after a match: "1337/1350" right of the badge (then "+18" next to it)
                     ('ep', 'text', (0.72, 0.555, 0.83, 0.605)),
                     # ...and at Egg Emperor, which has no points bar: the egg count "x57" under the badge
-                    ('es', 'text', (0.465, 0.73, 0.55, 0.80)))
+                    ('es', 'text', (0.465, 0.73, 0.55, 0.80)),
+                    # Holo-Battle Sim's Victory screen: "Battle time 00:08:22 Training of Water - Hard" under the title
+                    ('sv', 'text', (0.36, 0.198, 0.65, 0.233)))
     QUICK_BOXES = ('h', 'cs', 'lbl', 'cc')   # while a fight's bar is hidden: Catch Countdown and the result screens
 
     def screen_crops(self, im, quick):
@@ -998,6 +1013,7 @@ class Meter:
             self.test_frame(im, 'result', now)
             self.result_screen(im, now, u, ux, H, heads.get('cs', ''))
             return
+        if 'battle time' in heads.get('sv', '').lower(): self.test_frame(im, 'sim_result', now); self.sim_result(im, now, u, ux, H); return
         if 'challenge' in heads.get('cs', '').lower(): self.test_frame(im, 'challenge', now); self.challenge_stats(im, now, u, ux, H); return
         if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
@@ -1127,6 +1143,35 @@ class Meter:
             im.save(os.path.join(d, os.path.splitext(os.path.basename(f.log.name))[0] + '.png'))
         except Exception as e:
             log.info(f'bar sample not saved: {e!r}')
+
+    def sim_result(self, im, now, u, ux, H):
+        """Holo-Battle Sim's end screen: "Victory" with "Battle time 00:08:22 Training of Water - Hard" under it. The
+        stage is "Training of" (Easy, Normal, Hard), "Trial of" or "Crucible of" (Challenge) Grass, Water or Fire.
+        A win goes to the leaderboards (testers and above until the boards open) with the screen as proof."""
+        if now - getattr(self, 'sim_seen', 0) < 30: return                 # once per appearance
+        box = (ux + u * 0.36, H * 0.198, ux + u * 0.65, H * 0.233)
+        t = self.ocr.read({'w': R.prep_white(im, box, u / 2000), 'b': R.prep_bright(im, box, u / 2000),
+                           'title': R.prep_bright(im, (ux + u * 0.43, H * 0.13, ux + u * 0.57, H * 0.20), u / 2000)})
+        sim = parse_sim(t.get('w')) or parse_sim(t.get('b'))
+        won = 'victory' in (t.get('title') or '').lower()
+        if not sim:
+            log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
+        self.sim_seen = now
+        log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
+                 f"{sim['difficulty']}, battle time {sim['time_s']} s")
+        if not won: return
+        shot = self.picture(im, 'screens', 'sim_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
+        os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
+        path = os.path.join(HERE, 'logs', 'sim_runs.csv'); new = not os.path.exists(path)
+        with open(path, 'a', newline='', encoding='utf-8') as fh:
+            w = csv.writer(fh)
+            if new: w.writerow(['time', 'uid', 'trial', 'difficulty', 'time_s', 'screenshot'])
+            w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, sim['trial'], sim['difficulty'], sim['time_s'],
+                        os.path.relpath(shot, HERE) if shot else ''])
+        # testers and above only, until the Holo-Battle Sim boards open to everyone
+        if self.submitter and self.uid and self.args.cfg['leaderboard'].get('beta'):
+            self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None)
+        self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s")
 
     def egg_result(self, im, now, u, ux, H, title):
         """Egg Heist end screen ("Adventure Successful", or the failed one): difficulty, mode, time, objective, Loot
