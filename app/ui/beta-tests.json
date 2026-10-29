@@ -1,5 +1,5 @@
 {
-  "build": "0.1.28 RC43",
+  "build": "0.1.28 RC44",
   "items": [
     {
       "id": "under-attack-hp-number",
@@ -19,6 +19,16 @@
         "The update raised the bosses' HP by about 60% and added Glameep, Sugartini, Jabster, Magmarex, Turbo, Jeburst and Infergon.",
         "Compare the meter's total with Battle Data at the end of the run.",
         "The run should reach the leaderboard with its screenshot."
+      ]
+    },
+    {
+      "id": "interlink-20-stars",
+      "title": "Interlink's 20-star rating",
+      "how": "Run Interlink: the result shows up to 20 stars; ending early with fewer than 20 isn't a clear, a kill at 20 is.",
+      "details": [
+        "Since the Whisperwake update each fight is rated out of 20 (the middle boss counts double, 80 a week).",
+        "If you kill the boss, say what the result screen's rating shows (20 or \"Eliminate\").",
+        "From November 18 the middle fight has two bosses: say whether the DPS window follows both."
       ]
     },
     {
