@@ -629,18 +629,15 @@
   });
   $('[data-page="photos"]').addEventListener("click", () => void loadPhotos());
 
-  // Upload new photos automatically: once a minute, photos taken since that was switched on go up on their own.
-  setInterval(async () => {
-    if (!get("app.photos_auto")) {
-      if (get("app.photos_auto_since")) { set("app.photos_auto_since", 0); scheduleSave(""); }
-      return;
-    }
-    if (!get("leaderboard.token") || photos.busy) return;
-    if (!get("app.photos_auto_since")) { set("app.photos_auto_since", Math.floor(Date.now() / 1000)); scheduleSave(""); return; }
+  // Upload new photos automatically: photos taken since that was switched on go up on their own, a few seconds after
+  // the game saves them. Every 3 s the app only checks when the game last saved a photo (no site request); once that
+  // has changed and then held still for a check (the game has finished writing), the new ones are sent.
+  let photoStamp = null, photoPending = false;
+  async function uploadNewPhotos() {
     await loadPhotos();
     const since = get("app.photos_auto_since");
     // only the character you're playing (other characters or accounts on this PC have their own photos), and not one
-    // the site already turned down (it blocked every photo after it, with the same error each minute)
+    // the site already turned down (it blocked every photo after it, with the same error each time)
     const uid = status.character?.uid;
     if (!uid) return;
     const fresh = photos.list.filter((p) => !photos.uploaded.has(p.id) && !photos.refused.has(p.id) && p.gameUid === uid
@@ -658,7 +655,26 @@
       photos.busy = false;
       renderPhotos();
     }
-  }, 60 * 1000);
+  }
+  setInterval(async () => {
+    if (!get("app.photos_auto")) {
+      if (get("app.photos_auto_since")) { set("app.photos_auto_since", 0); scheduleSave(""); }
+      photoStamp = null;
+      return;
+    }
+    if (!get("leaderboard.token") || photos.busy) return;
+    if (!get("app.photos_auto_since")) { set("app.photos_auto_since", Math.floor(Date.now() / 1000)); scheduleSave(""); return; }
+    let stamp;
+    try { stamp = await invoke("photos_stamp"); } catch { return; }
+    if (stamp !== photoStamp) {
+      photoPending = true;   // (the first look too: photos taken while aLogs was closed)
+      photoStamp = stamp;
+      return;
+    }
+    if (!photoPending) return;
+    photoPending = false;
+    await uploadNewPhotos();
+  }, 3000);
 
   for (const input of $$("[data-k]")) {
     input.addEventListener("change", () => {

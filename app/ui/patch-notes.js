@@ -1,6 +1,24 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.29",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "Improved",
+    "items": [
+     "**New photos reach your profile in seconds:** with Upload new photos automatically on, a photo goes up a few seconds after you take it (it could take up to a minute), and aLogs only asks the site when there's something new."
+    ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "**The on/off button hides with the game's icons even after you move it:** dragged somewhere else, it stayed on every screen, the patch download and loading screens, menus and the map included."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.28",
   "intro": "",
   "sections": [
@@ -158,26 +176,6 @@ window.PATCH_NOTES = [
     "heading": "Fixed",
     "items": [
      "In someone else's party (when you aren't 1P), the app could take another player's name as yours and link it to your account. It now only saves your name when it's sure: your saved name is on the result screen, or everyone else in the party was AI."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.24",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "New",
-    "items": [
-     "**Themes:** General Settings has a new Themes tab with the AniiLogs website's themes (Night, Meadow, Emberpup, Pawney) and Custom colors. It changes the app window only; the overlay in the game stays the same.",
-     "**Update notice:** when a new version is out, About gets a dot in the sidebar and an Update button next to the patch notes that opens the download page.",
-     "**Patch notes stay current:** About shows the last five releases straight from GitHub, so you can read what's new before you update. Each one opens when you click it. If your version is older than all of them, a sixth entry says how far behind you are."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "Your character name could show as \"Name appears after your first result screen\" after an update or restart until you finished another fight. The saved name now comes back as soon as the game is running."
     ]
    }
   ]

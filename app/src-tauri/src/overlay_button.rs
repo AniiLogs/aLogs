@@ -1,13 +1,13 @@
 //! The screen-capture switch on the game: a small button (the aLogs icon, or the player's own picture) that turns
 //! screen capture on and off with one click. Bright while capture is on, dim while it's off.
 //!
-//! - Left click: on / off. Drag it anywhere (unless locked).
-//! - Right click: a menu to switch capture, lock the button in place, use your own picture (any image, shrunk to
-//!   fit the button) or the aLogs icon again, or hide the button (aLogs › General shows it again).
+//! - Left click: on / off. Hold Alt and drag it anywhere (unless locked). Locking, your own picture and hiding it
+//!   are in General Settings › Screen capture.
 //! - It shows only while the game is in front, and never takes the focus from the game when clicked.
-//! - By default it sits in the game's own icon row at the bottom left (after Chat, Photo and Emoticon), sized like
-//!   those icons, with its hotkey under it in the game's key label style (no label without a hotkey), and it hides
-//!   whenever the game hides those icons (menus, the map, cutscenes). Dragged elsewhere, it stays where it was put.
+//! - By default it sits in the game's own icon row at the bottom left (one step left of Chat), sized like those
+//!   icons, with its hotkey (or controller combo) under it in the game's key label style (no label without one).
+//!   Wherever it is, dragged or not, it hides whenever the game hides those icons (menus, the map, cutscenes,
+//!   loading and patch screens).
 //! - Hotkey (Insert by default, a key the game doesn't use; changeable in General): only while the game is in front.
 //!
 //! Everything in the icon row is measured on the game's 4K layout and scaled with its UI area (a 16:9 box: on
@@ -758,10 +758,12 @@ unsafe fn run() {
                     }
                 }
             }
-            let row = if s.x.is_some() {
-                true
-            } else if !(s.show && in_front) {
+            // dragged elsewhere too: it's part of the game's HUD, so it hides with the icons (it showed on the patch
+            // screen, in menus and on the map); without the app's capture it can't tell, so it stays
+            let row = if !(s.show && in_front) {
                 false // no need to look (and no capture asked for) while it can't show anyway
+            } else if reader.is_none() {
+                s.x.is_some()
             } else {
                 now.saturating_sub(row_seen) < 1500 || press().is_some()
             };

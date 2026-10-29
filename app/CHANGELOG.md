@@ -3,6 +3,16 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.29
+
+### Improved
+- **New photos reach your profile in seconds:** with Upload new photos automatically on, a photo goes up a few
+  seconds after you take it (it could take up to a minute), and aLogs only asks the site when there's something new.
+
+### Fixed
+- **The on/off button hides with the game's icons even after you move it:** dragged somewhere else, it stayed on
+  every screen, the patch download and loading screens, menus and the map included.
+
 ## 0.1.28
 
 ### New

@@ -108,6 +108,25 @@ pub fn game_photos(app: AppHandle) -> Value {
     found
 }
 
+/// The Pictures folder found last (finding it reads the start of the game's log): photos_stamp asks every few seconds.
+static FOLDER: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// When the game last saved a photo (ms): the newer of its record file and its newest dated folder, or None without
+/// a Pictures folder. Cheap, so "Upload new photos automatically" can look every few seconds and go to the site only
+/// when this changes.
+#[tauri::command(async)]
+pub fn photos_stamp() -> Option<u64> {
+    let mut cached = FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+    if !cached.as_ref().is_some_and(|f| f.is_dir()) {
+        *cached = install_from_logs(&crate::read_settings()).or_else(install_from_process).map(|i| i.join("Pictures")).filter(|f| f.is_dir());
+    }
+    let folder = cached.clone()?;
+    let ms = |path: &Path| fs::metadata(path).and_then(|m| m.modified()).ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64);
+    let days = fs::read_dir(&folder).into_iter().flatten().flatten().filter(|d| d.path().is_dir()).map(|d| ms(&d.path())).max();
+    Some(ms(&folder.join("PlayerPhotoMetaInfo.json")).max(days.unwrap_or(0)))
+}
+
 fn scan(settings: &Value) -> (Option<PathBuf>, Value) {
     let Some(install) = install_from_logs(settings).or_else(install_from_process) else {
         return (None, json!({ "folder": null, "photos": [] }));
