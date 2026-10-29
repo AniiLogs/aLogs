@@ -160,14 +160,17 @@ def find_game_data(player_log=None):
 
 
 def read_cycles(path):
-    """[{'cycle', 'season', 'start', 'end', 'bossLv', 'bossIds': [left, middle, right]}] from the game data."""
+    """[{'cycle', 'season', 'split', 'start', 'end', 'bossLv', 'bossIds': [left, middle, right], 'bossIds2'}] from the
+    game data. 'split' is the week's ranking period (isRank: 174 for weeks 3000-3005, 91 for 4000-4005; seasonId alone
+    doesn't tell the season's parts apart); 'bossIds2' is a slot's second boss (two-boss middle fights from week 4003),
+    None where the slot has one."""
     pm = PmData(path)
     cycles = pm.table('bossrush_cycle_data') or {}
     stages = pm.table('bossrush_guanka_data') or {}
-    def boss_id(species):
+    def boss_id(species, key='bossId'):
         entry = stages.get(species) if isinstance(stages, dict) else None
         if entry is None and isinstance(stages, dict): entry = stages.get(str(species))
-        return entry.get('bossId') if isinstance(entry, dict) else None
+        return entry.get(key) if isinstance(entry, dict) else None
     out = []
     for key in sorted(cycles, key=lambda k: int(k)):
         c = cycles[key]
@@ -175,8 +178,9 @@ def read_cycles(path):
         beg, end = c.get('begDayTime') or {}, c.get('endDayTime') or {}
         ids = [boss_id(c.get(side)) for side in ('bossLeft', 'bossMid', 'bossRight')]
         if not all(ids): continue
-        out.append({'cycle': str(int(key)), 'season': c.get('seasonId'), 'bossLv': c.get('bossLv'),
-                    'start': beg.get(1, beg.get('1')), 'end': end.get(3, end.get('3')), 'bossIds': ids})
+        out.append({'cycle': str(int(key)), 'season': c.get('seasonId'), 'split': c.get('isRank'), 'bossLv': c.get('bossLv'),
+                    'start': beg.get(1, beg.get('1')), 'end': end.get(3, end.get('3')), 'bossIds': ids,
+                    'bossIds2': [boss_id(c.get(side), 'bossId_2') for side in ('bossLeft', 'bossMid', 'bossRight')]})
     return out
 
 
@@ -205,7 +209,7 @@ def read_bosses(path, keep=()):
     en = english_text(path)
     props = pm.table('property_data') or {}
     stages = pm.table('bossrush_guanka_data') or {}
-    rush = {str(s.get('bossId')) for s in stages.values() if isinstance(s, dict) and s.get('bossId')}
+    rush = {str(s.get(k)) for s in stages.values() if isinstance(s, dict) for k in ('bossId', 'bossId_2') if s.get(k)}
     keep = {(t, str(p)) for t, p in keep}
     out = []
     for table in BOSS_TABLES:
@@ -246,7 +250,8 @@ def cached_cycles(cache_path, player_log=None):
     """The schedule, decoded again only when the game's data file changed. Returns (cycles, changed) or (None, False)."""
     path = find_game_data(player_log)
     if not path: return None, False
-    stamp = f'{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
+    # v2: weeks carry their split and a two-boss fight's second boss (read again once, without a game patch)
+    stamp = f'v2:{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
     try:
         with open(cache_path, encoding='utf-8') as f: cached = json.load(f)
         if cached.get('stamp') == stamp: return cached['cycles'], False

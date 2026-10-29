@@ -523,7 +523,7 @@ def active_cycle_bosses(now=None):
     try:
         with open(CYCLES_FILE[0], encoding='utf-8') as f: cycles = json.load(f)
     except OSError: return set()
-    return {b for c in cycles if c['start'] <= now <= c['end'] for b in c['bossIds']}
+    return {b for c in cycles if c['start'] <= now <= c['end'] for b in c['bossIds'] + [x for x in c.get('bossIds2') or [] if x]}
 
 def active_cycle_slots(now=None):
     """The running week's bosses by their spot on the boss rush map: {'left': id, 'middle': id, 'right': id}."""
@@ -560,9 +560,21 @@ def latest_cycle_boss(ids):
         with open(CYCLES_FILE[0], encoding='utf-8') as f: cycles = json.load(f)
     except OSError: return None
     for c in sorted(cycles, key=lambda c: c['end'], reverse=True):
-        hit = [b for b in c['bossIds'] if b in ids]
+        hit = [b for b in c['bossIds'] + [x for x in c.get('bossIds2') or [] if x] if b in ids]
         if hit: return hit[0]
     return None
+
+def cycle_slot(cycle, boss_id):
+    """Where a boss fights in a week: ('left' | 'middle' | 'right', the week's split), or (None, split) when it isn't
+    one of that week's bosses. A two-boss middle fight counts for both of its bosses."""
+    try:
+        with open(CYCLES_FILE[0], encoding='utf-8') as f: cycles = json.load(f)
+    except OSError: return None, None
+    c = next((c for c in cycles if str(c['cycle']) == str(cycle)), None)
+    if not c: return None, None
+    for slot, a, b in zip(('left', 'middle', 'right'), c['bossIds'], c.get('bossIds2') or [None] * 3):
+        if str(boss_id) in (str(a), str(b)): return slot, c.get('split')
+    return None, c.get('split')
 
 CALIB = os.path.join(C.DATA, 'calibration.json')
 

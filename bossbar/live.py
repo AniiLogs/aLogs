@@ -145,7 +145,7 @@ def canon(text, choices, cutoff=0.6):
     best = max(choices, key=lambda c: difflib.SequenceMatcher(None, t, norm(c)).ratio())
     return best if difflib.SequenceMatcher(None, t, norm(best)).ratio() >= cutoff else text
 
-CLEAR_STARS = 15                                                 # an Interlink clear: the full rating, then ended early
+CLEAR_STARS = 20       # an Interlink clear: the full rating (game build 3846247: 20 a boss, BossRushMaxStarSideBoss)
 
 def first_num(s):
     """First number in an OCR read of tiled short text ('60 60 60' -> 60)."""
@@ -451,7 +451,10 @@ def upload_cycles(meter, cycles, changed):
     if not config or (done == stamp and not changed): return
     names = {r['puppetId']: r['bossTitle_en'] for r in meter.catalog if r['table'] == 'puppet_data' and r['bossTitle_en']}
     body = {'cycles': [{'id': c['cycle'], 'season': c.get('season'), 'start': c['start'], 'end': c['end'],
-                        'bosses': [{'id': str(b), 'name': names.get(str(b), str(b))} for b in c['bossIds']]}
+                        'bosses': [{'id': str(b), 'name': names.get(str(b), str(b))} for b in c['bossIds']],
+                        # left / middle / right as in 'bosses'; a two-boss fight's second boss, and the week's split
+                        'bosses2': [{'id': str(b), 'name': names.get(str(b), str(b))} if b else None for b in c.get('bossIds2') or [None] * 3],
+                        'split': c.get('split')}
                        for c in cycles if c.get('start') and c.get('end')]}
     req = urllib.request.Request(f"{config['api_url']}/leaderboard/interlink/cycles", data=json.dumps(body).encode(),
                                  method='POST', headers={'authorization': f"Bearer {config['token']}",
@@ -1431,6 +1434,8 @@ class Meter:
         t = self.ocr.read(crops)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
         rating, score, secs = first_num(t.get('rating')), num(t.get('score')), first_num(t.get('time'))
+        # the grade above the full rating is the kill, "Eliminate": the full stars
+        if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = CLEAR_STARS
         players = []
         for i in range(4):
             name = (t.get(f'name{i}') or '').strip(' /|')
@@ -1449,8 +1454,8 @@ class Meter:
             log.info('result screen: not sure which slot is you (a party with other players, and your name not known yet), '
                      'so the character name is left as it is')
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
-        # A clear: finished before the clock ran out with the full 15 stars (the game offers ending early only from 15
-        # stars), and the game's time is exact. A run quit early ("The team leader has ended the challenge.") also
+        # A clear: finished before the clock ran out with the full rating (CLEAR_STARS; it was 15 before the
+        # Whisperwake update), and the game's time is exact. A run quit early ("The team leader has ended the challenge.") also
         # finishes under the clock, but with fewer stars: that is no clear.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
         cleared = bool(f and secs is not None and 0 < secs < self.args.duration and f[0].bossrush and (rating or 0) >= CLEAR_STARS)

@@ -301,6 +301,12 @@ class Submitter(threading.Thread):
             delay = 60 if any(n.endswith('.json') for n in os.listdir(QUEUE)) else 300
 
 # ---------------------------------------------------------------- payloads from the meter's records
+def _slot(cycle, boss_id):
+    """{'slot': 'left' | 'middle' | 'right', 'split': the week's ranking period} for a run's extra, from the week list."""
+    import reader
+    slot, split = reader.cycle_slot(cycle, boss_id)
+    return {k: v for k, v in (('slot', slot), ('split', split)) if v is not None}
+
 def run_payload(summary, uid, duration=180):
     """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter)."""
     res = summary.get('result') or {}
@@ -330,7 +336,7 @@ def run_payload(summary, uid, duration=180):
         'teamDps': bd.get('team_avg_dps'), 'meterDps': meter.get('dps'), 'meterDamage': meter.get('damage'),
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
         'extra': {'newBest': res.get('new_best'), 'trackedFromStart': meter.get('tracked_from_start'),
-                  'instanceId': summary.get('instance')},
+                  'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId'))},
     }
 
 def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):
@@ -341,7 +347,7 @@ def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):
                 'score': score, 'stars': stars, 'playedAt': int(time.time())}
     return {'kind': 'interlink_best', 'clientRunId': _safe(f'best-{week}-{boss_id or boss}'), 'gameUid': uid,
             'cycle': cycle, 'boss': {'id': boss_id, 'name': boss[:80]}, 'score': score, 'stars': stars,
-            'playedAt': int(time.time())}
+            'playedAt': int(time.time()), 'extra': _slot(cycle, boss_id)}
 
 def egg_match_payload(match, season, uid, played_at=None):
     """eggheist_match: one Egg Heist match from the end screen - Loot This Match (score), time, escaped or not,
