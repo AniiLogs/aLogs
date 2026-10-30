@@ -14,7 +14,12 @@ HERE = C.RES                      # shipped data files (catalog, OCR helper)
 REF_SPAN = 789                                   # bracket span on the 2000x1125 reference shot
 TRACK = (9 / 789, 716 / 789)                     # fill track: left edge, right edge (exclusive)
 WORLD_TRACK_RIGHT = 784 / 789                     # bosses out in the world have no xN box: the track runs to the bracket
-TITLE_BOX = (175 / 789, -52 / 789, 625 / 789, -8 / 789)    # x0, y0, x1, y1; y relative to the fill's centre row
+# x0, y0, x1, y1; y relative to the fill's centre row. The title is centred over the bar, so a long one grows both ways:
+# open-world bars are narrower than Interlink's (1293 px at 4K against 1514) with text the same size, and
+# "Lv.60 Sparkling- Young Omega Sherro" filled almost the whole span - the old 175..625 box cut "Lv.60" off one end and
+# "herro" off the other, and with no level no fight started. Now the full span plus a little: what OCR finds left of
+# "Lv" is dropped by parse_title, and a bracket top read as ']' or '|' after the name is no letter to norm()
+TITLE_BOX = (-30 / 789, -52 / 789, 819 / 789, -8 / 789)
 XN_BOX = (722 / 789, -12 / 789, 783 / 789, 14 / 789)    # inside the dark xN box only
 SPAN_PER_THICKNESS = 789 / 12                     # fallback when brackets aren't visible (fill is 12 px thick at span 789)
 
@@ -447,7 +452,18 @@ def parse_title(t):
     level = int(digits[:2]) if digits.isdigit() else None
     if level is not None and not 1 <= level <= 80: level = None
     title = (t[m.end():] if m else (t or '')).strip(' |Il')
-    return level, re.sub(r'\s+', ' ', title).strip()
+    return level, strip_sparkling(re.sub(r'\s+', ' ', title).strip())
+
+def strip_sparkling(title):
+    """'Sparkling- Young Omega Sherro' -> 'Young Omega Sherro'. Sparkling is a cosmetic variant (one of the Aniilog's
+    Sparkling styles): no boss list has a Sparkling title, so pick_boss never matched it. The word is often garbled
+    (';parkling-', 'arkdjng-', 'Tfkling-', 'økl}ing-'), so a short head before a dash goes if it is half like
+    'sparkling'; without the dash only a close match (no boss name's first word is: 'Tucking' scores 0.5)."""
+    for pattern, need in ((r'\s*([^-–—~]{1,13}?)\s*[-–—~]+\s*(\S.*)', 0.5), (r'\s*(\S{6,12})\s+(\S.*)', 0.7)):
+        m = re.match(pattern, title or '')
+        if m and norm(m.group(1)) and difflib.SequenceMatcher(None, norm(m.group(1)), 'sparkling').ratio() >= need:
+            return m.group(2)
+    return title
 
 XN_FIX = str.maketrans({'l': '1', 'I': '1', 'i': '1', '|': '1', 'O': '0', 'o': '0', 'D': '0', 'Q': '0', 'S': '5', 's': '5'})
 
@@ -495,9 +511,19 @@ def world_rows(rows):
     standard wild-Alpha HP formula (3101) on a world id (21...), as the game's own Alpha Panpanta Lv 55 matched."""
     rows = [r for r in rows if r['fixed_hp_rate']]
     big = lambda r: r['puppetId'].startswith(('8000', '1108'))          # Interlink-scale copies (tens of millions)
-    rows = [r for r in rows if not big(r)] or rows
+    if rows and all(big(r) for r in rows): return [wild_copy(rows[0])]   # no world entry yet (Alpha Glameep)
+    rows = [r for r in rows if not big(r)]
     wild = [r for r in rows if hp_formula(r) == 3101]
-    return [r for r in wild if r['puppetId'].startswith('21')] or wild or rows
+    # the entry named as its bar reads ("Young Omega Sherro", 344,742 at Lv 60) over plain ones ("Sherro": 29,731)
+    named = [r for r in wild if norm(r['name_en']) == norm(r['bossTitle_en'])]
+    return named or [r for r in wild if r['puppetId'].startswith('21')] or wild or rows
+
+def wild_copy(row):
+    """A boss with only Interlink entries met in the world (a new Whisperwake Alpha): its species with the standard
+    wild-Alpha HP formula, the same as every world Alpha (Minespine, Tubster, Panpanta ...), instead of Interlink's
+    tens of millions. An estimate until the game data has the boss's own world entry."""
+    return {**row, 'hp_estimated': 'wild', 'prop_species_adj': '0',
+            'fixed_hp_rate': '{"1": 3101, "2": 75, "3": 1, "4": 1, "5": 1}'}
 
 def pick_boss(catalog, title, bossrush, boss_id=None):
     # main puppet_data table only; puppet_data1/2/3 are alternate copies that sometimes disagree
