@@ -54,8 +54,11 @@ def setup_log():
     except Exception: pass
 
 # ---------------------------------------------------------------- game log
-RX_UID = re.compile(rb'createVoxelScene new>>>id:\d+-(\d{6,20})-\d+|callerId=(\d{6,20})'
-                    rb'|/prod/ClientInfo/(\d{6,20})_client_info_bin|/prod/pet_jewelry/(\d{6,20})')
+# Your own UID: the callerId of the game's service calls and your profile files. A personal space id
+# ('100-<uid>-<scene>') is only a fallback: it's the owner's, and visiting someone's home put their UID on your runs
+# (30 Oct, 100-302000245537-550: a Glameep run was filed under that player).
+RX_UID = re.compile(rb'callerId=(\d{6,20})|/prod/ClientInfo/(\d{6,20})_client_info_bin|/prod/pet_jewelry/(\d{6,20})')
+RX_SPACE_UID = re.compile(rb'createVoxelScene new>>>id:\d+-(\d{6,20})-\d+')
 
 def uid_in(raw):
     """Your UID from one game-log line (bytes), or None."""
@@ -181,7 +184,7 @@ def last_uid(path):
         with open(path, 'rb') as f:
             f.seek(max(0, os.path.getsize(path) - (32 << 20))); tail = f.read()
     except OSError: return None
-    ids = [next(g for g in m.groups() if g) for m in RX_UID.finditer(tail)]
+    ids = [next(g for g in m.groups() if g) for m in RX_UID.finditer(tail)] or [m.group(1) for m in RX_SPACE_UID.finditer(tail)]
     return ids[-1].decode() if ids else None
 
 def parse_battle_data(text):
@@ -1851,7 +1854,7 @@ class Meter:
                 log.info(f'game log: {kind} {sid or ""}' + (f' (seen {delay:.1f}s after the game wrote it)' if delay is not None else ''))
             if kind == 'enter':
                 m = re.match(r'^\d+-(\d+)-\d+$', sid or '')
-                if m: self.set_uid(m.group(1))
+                if m and not self.uid: self.set_uid(m.group(1))       # someone's home is theirs: only before any UID
                 self.space = sid; self.bossrush_space = sid in self.rush_spaces
                 self.duds = []; self.dud_cand = None
                 # the timer check may already have ended this fight; the log only ends it if it is still running
