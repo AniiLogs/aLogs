@@ -197,7 +197,10 @@ def parse_battle_data(text):
             p = part.replace(',', '')
             if re.fullmatch(r'[oO]', p): p = '0'
             if re.fullmatch(r'\d+', p): vals.append(int(p))
-        if len(vals) >= 3: cards.append(dict(zip(keys, vals[:4] + [None] * (4 - len(vals[:4])))))
+        # a card one value short is missing its Heal: the lone '0' the OCR skips (every short card on 30 Oct, checked
+        # against the proof pictures, was a Heal of 0)
+        if len(vals) == 3: vals.append(0)
+        if len(vals) >= 4: cards.append(dict(zip(keys, vals[:4])))
     return cards
 
 # ---------------------------------------------------------------- timer
@@ -414,10 +417,11 @@ def hp_number(ocr, strip, u):
     m = HP_TEXT.search(text.replace('O', '0').replace('o', '0'))
     return (int(m.group(1).replace(' ', '')), int(m.group(2).replace(' ', ''))) if m else None
 
-def save_picture(im, folder, name):
-    """A screen kept as a picture: a JPEG at most 1920 px wide (about 0.3 MB; a 4K PNG is about 5 MB)."""
+def save_picture(im, folder, name, width=1920):
+    """A screen kept as a picture: a JPEG at most `width` px wide (about 0.3 MB at 1920; a 4K PNG is about 5 MB).
+    Leaderboard proofs keep the screen's own size, so the cropped proof the site shows stays sharp."""
     d = os.path.join(HERE, 'logs', folder); os.makedirs(d, exist_ok=True)
-    if im.width > 1920: im = im.resize((1920, round(im.height * 1920 / im.width)), Image.LANCZOS)
+    if im.width > width: im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
     path = os.path.join(d, name + '.jpg'); im.convert('RGB').save(path, quality=85); return path
 
 SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest); they age out like every screenshot
@@ -1088,7 +1092,7 @@ class Meter:
         k = max(1.0, 2 * 2000 / u); rows = rows.resize((int(rows.width * k), int(rows.height * k)), Image.LANCZOS)
         text = self.ocr.read({'d': ImageOps.expand(rows, border=20, fill=255)}).get('d', '')
         cards = parse_battle_data(text); vals = [c['avg_dps'] for c in cards]
-        log.info(f'Battle Data: OCR {text[:200]!r} -> {cards}')
+        log.info(f'Battle Data: OCR {text!r} -> {cards}')   # whole: a run can be re-read from the log
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         stamp = time.strftime('%Y%m%d_%H%M%S'); out_dir = os.path.join(HERE, 'logs', 'battle_data'); os.makedirs(out_dir, exist_ok=True)
         shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0])))
@@ -2068,7 +2072,7 @@ class Meter:
         keep = int(self.args.cfg['capture'].get('keep_hours', 0))
         sending = proof and self.submitter and self.submitter.config and self.submitter.config['screenshots']
         if keep == 0 and not sending: return None
-        return save_picture(im, folder, name)
+        return save_picture(im, folder, name, 3840 if sending else 1920)
 
     TEST_FRAMES_MAX = 300           # a day's test pictures at most
     TEST_FRAMES_HOURS = 3           # saved for this long after the option is turned on (or the meter starts with it)

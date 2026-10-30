@@ -40,6 +40,28 @@ def _evidence_bytes(path):
     im = ImageOps.pad(im, PROOF_SIZE, Image.LANCZOS, color=(0, 0, 0)) if im.size != PROOF_SIZE else im
     buf = io.BytesIO(); im.save(buf, 'JPEG', quality=85, optimize=True); return buf.getvalue()
 
+# Two proofs for each screen a run is read from: the part aLogs read, cropped at the screen's own sharpness ('evidence',
+# 'battle': what the site shows), and the whole screen ('evidence_full', 'battle_full', at most 1920 wide) for the site's
+# second check, which reads the numbers again on its own. Boxes are shares of the 16:9 UI area (x0, y0, x1, y1) and go
+# with the run (extra.proofBoxes), so the site knows where in the whole screen each crop came from.
+PROOF_BOXES = {'interlink_run': {'evidence': (0.13, 0.06, 0.88, 0.67),     # banner, rating, score, time, the players' names and stats
+                                 'battle': (0.115, 0.295, 0.885, 0.755)}}  # Battle Data: the four cards, names and all four stats
+FULL_WIDTH = 1920
+
+def _jpeg(im, quality):
+    buf = io.BytesIO(); im.save(buf, 'JPEG', quality=quality, optimize=True); return buf.getvalue()
+
+def _crop_bytes(path, box):
+    """The part of a proof screenshot inside `box` (shares of its 16:9 UI area), at full size."""
+    im = Image.open(path).convert('RGB'); W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
+    return _jpeg(im.crop((int(ux + u * box[0]), int(H * box[1]), int(ux + u * box[2]), int(H * box[3]))), 90)
+
+def _full_bytes(path):
+    """A whole proof screenshot for the site's second check, at most FULL_WIDTH wide."""
+    im = Image.open(path).convert('RGB')
+    if im.width > FULL_WIDTH: im = im.resize((FULL_WIDTH, round(im.height * FULL_WIDTH / im.width)), Image.LANCZOS)
+    return _jpeg(im, 88)
+
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
 SET_ASIDE_DAYS = 7      # .rejected / .bad copies (the server turned them down, or unreadable), kept a few days to look
                         # at why. Records still to send wait as long as it takes: signed out for weeks, they still go up.
@@ -86,11 +108,12 @@ def _form(fields, files):
     parts.append(f'--{boundary}--\r\n'.encode())
     return b''.join(parts), f'multipart/form-data; boundary={boundary}'
 
-def _multipart(payload, evidence, battle=None):
+def _multipart(payload, files):
+    """The record and its proof pictures: {'evidence': bytes, 'evidence_full': bytes, 'battle': ..., 'battle_full': ...}."""
     boundary = uuid.uuid4().hex
     parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="submission"\r\n'
              f'Content-Type: application/json\r\n\r\n'.encode() + json.dumps(payload).encode() + b'\r\n']
-    for field, data in (('evidence', evidence), ('battle', battle)):     # the result screen, and Battle Data
+    for field, data in files.items():
         if data:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{field}.jpg"\r\n'
                          f'Content-Type: image/jpeg\r\n\r\n'.encode() + data + b'\r\n')
@@ -225,15 +248,19 @@ class Submitter(threading.Thread):
                                              headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,
                                                       'user-agent': CLIENT_VERSION})
                 with urllib.request.urlopen(req, timeout=30) as r: return r.status, json.loads(r.read() or b'{}')
-        if item.get('evidence'):
-            try: evidence = _evidence_bytes(os.path.join(HERE, item['evidence']))
-            except OSError: evidence = None
-        battle = None
-        if evidence and item.get('battle'):
-            try: battle = _evidence_bytes(os.path.join(HERE, item['battle']))
-            except OSError: battle = None
-        if evidence: body, ctype = _multipart(item['payload'], evidence, battle)
-        else: body = json.dumps(item['payload']).encode()
+        files = {}; payload = item['payload']
+        boxes = PROOF_BOXES.get(payload.get('kind'), {})
+        for key in ('evidence', 'battle'):
+            if not item.get(key) or (key == 'battle' and 'evidence' not in files): continue   # Battle Data goes with a result
+            path = os.path.join(HERE, item[key])
+            try:
+                files[key] = _crop_bytes(path, boxes[key]) if key in boxes else _evidence_bytes(path)
+                files[key + '_full'] = _full_bytes(path)
+            except (OSError, ValueError): files.pop(key, None)
+        if files:
+            if boxes: payload = {**payload, 'extra': {**(payload.get('extra') or {}), 'proofBoxes': {k: list(v) for k, v in boxes.items() if k in files}}}
+            body, ctype = _multipart(payload, files)
+        else: body = json.dumps(payload).encode()
         endpoint = item['endpoint'] if item.get('endpoint') in ('characters', 'characters/stats', 'disputes') else 'submissions'
         req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/{endpoint}", data=body, method='POST',
                                      headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,
