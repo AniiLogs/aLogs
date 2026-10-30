@@ -438,11 +438,14 @@ class Ocr:
             import shutil
             shutil.rmtree(self.dir, ignore_errors=True)
 
-DIGIT_FIX = str.maketrans({'O': '0', 'o': '0', 'Q': '0', 'D': '0', 'I': '1', 'l': '1', 'S': '5'})
+DIGIT_FIX = str.maketrans({'O': '0', 'o': '0', 'Q': '0', 'D': '0', 'I': '1', 'l': '1', 'S': '5', 'B': '8', 'Z': '2', 'G': '6'})
 
 def parse_title(t):
-    m = re.search(r'L\s*[vVyYnN]\s*\.?\s*([0-9OoQDIlS]+)', t or '')      # 'Lv', also misread as LV / LY / LN / Ly
-    level = int(m.group(1).translate(DIGIT_FIX)) if m else None
+    m = re.search(r'L\s*[vVyYnN]\s*\.?\s*([0-9OoQDIlSBZG]+)', t or '')      # 'Lv', also misread as LV / LY / LN / Ly
+    digits = m.group(1).translate(DIGIT_FIX) if m else ''
+    # levels are 1-80: a stray mark after the number at small sizes ('Lv. 551 Omega' for Lv 55) keeps its first two
+    level = int(digits[:2]) if digits.isdigit() else None
+    if level is not None and not 1 <= level <= 80: level = None
     title = (t[m.end():] if m else (t or '')).strip(' |Il')
     return level, re.sub(r'\s+', ' ', title).strip()
 
@@ -482,6 +485,20 @@ def load_grades():
 
 def norm(s): return re.sub(r'[^a-z]', '', (s or '').lower())
 
+def hp_formula(r):
+    try: return json.loads(r['fixed_hp_rate']).get('1')
+    except (ValueError, AttributeError): return None
+
+def world_rows(rows):
+    """Out in the world, the entries a boss on the bar can be. One name has many entries (Alpha Minespine: 30), and
+    taking the first gave Interlink's 33M HP or a quest copy's third of the real HP: the wild one is preferred, the
+    standard wild-Alpha HP formula (3101) on a world id (21...), as the game's own Alpha Panpanta Lv 55 matched."""
+    rows = [r for r in rows if r['fixed_hp_rate']]
+    big = lambda r: r['puppetId'].startswith(('8000', '1108'))          # Interlink-scale copies (tens of millions)
+    rows = [r for r in rows if not big(r)] or rows
+    wild = [r for r in rows if hp_formula(r) == 3101]
+    return [r for r in wild if r['puppetId'].startswith('21')] or wild or rows
+
 def pick_boss(catalog, title, bossrush, boss_id=None):
     # main puppet_data table only; puppet_data1/2/3 are alternate copies that sometimes disagree
     main = [r for r in catalog if r['table'] == 'puppet_data'] or catalog
@@ -509,7 +526,7 @@ def pick_boss(catalog, title, bossrush, boss_id=None):
                 if len({r['puppetId'] for r in fits}) == 1: in_active = fits
             # with the week known only its three bosses can be on the bar: nothing else, however close the name
             rows = in_active if active else (rush or rows)
-        else: rows = [r for r in rows if r['in_boss_rush'] != 'yes'] or rows
+        else: rows = world_rows([r for r in rows if r['in_boss_rush'] != 'yes'] or rows)
     rows = [r for r in rows if r['fixed_hp_rate']]
     return (rows[0] if rows else None), len({(r['species_hp'], r['prop_species_adj'], r['fixed_hp_rate']) for r in rows})
 
