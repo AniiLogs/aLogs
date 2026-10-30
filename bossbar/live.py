@@ -1051,6 +1051,7 @@ class Meter:
         if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
         if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
+        if head.strip().lower().startswith('party'): self.test_frame(im, 'party', now); self.party_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
         if 'adventure' in heads.get('eh', '').lower(): self.test_frame(im, 'egg_result', now); self.egg_result(im, now, u, ux, H, heads['eh']); return
@@ -1482,7 +1483,45 @@ class Meter:
         names = self.ocr.read(crops)
         members = [{'slot': i, 'name': (names.get(f'n{i}') or '').strip(' /|'), 'ai': kind == 'ai', 'self': mine[i]}
                    for i, kind in enumerate(kinds) if kind]
-        members = [m for m in members if m['name']]
+        self.set_party([m for m in members if m['name']], now)
+
+    # Interlink's Party screen (since the Whisperwake update, in place of the lobby): the boss on top, then the four
+    # slots' name pills - 1P in the middle-left, 2P middle-right, 3P far left, 4P far right - as (x0, y0, x1, y1)
+    PARTY_SLOTS = ((0.30, 0.17, 0.44, 0.21), (0.58, 0.185, 0.70, 0.225), (0.095, 0.222, 0.215, 0.262), (0.815, 0.209, 0.94, 0.249))
+    # the game's AI teammates (its pills don't mark them any more): names seen filling an Interlink party
+    INTERLINK_NPCS = {'flora', 'mario', 'leonard'}
+
+    def party_screen(self, im, now, u, ux, H):
+        """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
+        name, the voice icon), and whether the others are AI - "No team available. Cannot chat." at the bottom left
+        means you're on your own (every other slot is the game's), and the NPCs' own names say it in a team too. Read
+        in the bright-text preparation: the 1P name is yellow, which the white-text one loses. Feeds the same party as
+        the old prep screen, so the result screen can tell which name is you and fix its own misreads."""
+        if now - getattr(self, 'party_seen', 0) < 2: return
+        self.party_seen = now; k = u / 2000
+        box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
+        crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
+        crops['chat'] = R.prep_text(im, box(0.035, 0.915, 0.23, 0.955), k)
+        crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
+        t = self.ocr.read(crops)
+        alone = 'no team' in (t.get('chat') or '').lower()
+        known = self.character_name; members = []
+        for i in range(4):
+            words = [w for w in re.split(r'[\s/|]+', t.get(f'n{i}') or '') if len(w) >= 2 and not re.fullmatch(r'[1-4Il]P', w)]
+            name = max(words, key=len) if words else ''        # the name: the longest word (marks and icons are 1-2 letters)
+            if not name: continue
+            mine = bool(known and same_name(known, name)) or (alone and not known and i == 0)
+            members.append({'slot': i, 'name': name, 'self': mine,
+                            'ai': not mine and (alone or name.casefold() in self.INTERLINK_NPCS)})
+        boss = self.cycle_boss((t.get('boss') or '').strip(' /|'))
+        row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
+                    and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None
+        if row: self.prep_boss = (now, row)
+        log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}{', no team (the others are AI)' if alone else ''}")
+        self.set_party(members, now)
+
+    def set_party(self, members, now):
+        """This run's party (from the old prep screen or the Party screen), each slot's name voted over a few reads."""
         if not members: return
         # the same party is read every few seconds: keep each slot's most common reading (OCR slips now and then)
         same = self.party and now - self.party['at'] < 900 and \
@@ -1525,8 +1564,13 @@ class Meter:
         # the grade above the full rating is the kill, "Eliminate": the full stars
         if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = full
         players = []
+        party_names = [m['name'] for m in self.party_for_result(now) or []]
         for i in range(4):
             name = (t.get(f'name{i}') or '').strip(' /|')
+            # the Party screen read this run's names clearly: a result-screen misread ('Ky ru', 'Shadow)') takes the
+            # party name it's closest to, when that's a clear match
+            close = difflib.get_close_matches(name, party_names, n=1, cutoff=0.6) if name and party_names else []
+            if close: name = close[0]
             parts = [p.strip() for p in (t.get(f'stat{i}') or '').split(' / ') if p.strip()]
             value = next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None)
             label = canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS)
