@@ -35,6 +35,7 @@ EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to it
 AWAY_INTERVAL = 0.25    # between fights while the game isn't the active window (a running fight keeps 1/30 s)
 CONFIRM_GAP = 0.09      # a reading that confirms an earlier one (a big drop, a refill, a counter vote) must come at
                         # least this long after it, so a one-off effect lasting a few fast frames can't confirm itself
+XN_STALE = 40           # s a boss rush counter read keeps bounding refills (the late bars take 15-25 s each)
 SETTINGS = os.path.join(HERE, 'overlay_positions.json')
 
 # ---------------------------------------------------------------- diagnostic log
@@ -574,27 +575,44 @@ class Fight:
         if not (r_ >= 225 and 80 <= g_ <= 140 and 75 <= b_ <= 135): fill = None
         # --- segment tracking. Two signals: the counter (digit matcher every frame + OCR) and the bar refilling.
         #     A refill must hold for two frames; two agreeing counter reads can correct the segment either way.
+        #     The counter is the authority. A refill only moves one bar past what the counter last confirmed: on
+        #     30 Oct a misread start (x11 for x16) plus a fake refill (a low fill under an overlay for ~0.5 s, then the
+        #     true fill back) put the meter 6 bars ahead, more than the counter may pull back up, and it stayed ahead
+        #     to the end (x1 and 51.4M shown, the counter said x7: ~9M). Early bars really do pass every 2-4 s (x16 is
+        #     0.93% of max HP, x1 is 50%), so the time between refills can't tell a fake one; the counter can.
         if self.bossrush:
             if xn_ocr and now - self.vote_at >= CONFIRM_GAP:
                 self.xn_votes.append(xn_ocr); self.xn_votes = self.xn_votes[-4:]; self.vote_at = now
             agreed = xn_ocr if xn_ocr and self.xn_votes.count(xn_ocr) >= 2 else None
+            if agreed and agreed == self.seg: self.xn_anchor = (agreed, now)
             if self.seg is None:
-                if xn_ocr == 16 or agreed:
-                    self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'
+                # Interlink starts at x16. While the bar fades in, x16 reads as x11 (10 of 11 fights on 30 Oct, two
+                # agreeing reads 15-30 s in) or x6: anything but 16 takes three reads and stays a guess that a later
+                # x16 can overrule (a meter that joins a fight late still gets the right segment from three reads)
+                if xn_ocr == 16 or (agreed and self.xn_votes.count(agreed) >= 3):
+                    self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'; self.xn_anchor = (xn_ocr, now); self.seg_guess = xn_ocr != 16
                     self.started_at_16 = xn_ocr == 16 and fill is not None and fill > 0.97
                     self.seg_fill = fill if fill is not None else 1.0
             # within a fight the counter only counts down: going up (x1->x4 reset the damage in 6 of 13 fights) takes
-            # three agreeing reads instead of two
-            elif agreed and agreed != self.seg and abs(agreed - self.seg) <= 3 and (agreed < self.seg or self.xn_votes.count(agreed) >= 3):
-                note = f'segment x{self.seg}->x{agreed} (counter)'
+            # three agreeing reads instead of two, and at most 3 bars - except from a start guess to x16
+            elif agreed and agreed != self.seg and (abs(agreed - self.seg) <= 3 or (agreed == 16 and getattr(self, 'seg_guess', False))) \
+                    and (agreed < self.seg or self.xn_votes.count(agreed) >= 3):
+                note = f'segment x{self.seg}->x{agreed} (counter)'; self.xn_anchor = (agreed, now); self.seg_guess = False
                 self.seg = agreed; self.seg_fill = fill if fill is not None else 1.0; self.refill_pending = 0
             elif fill is not None and self.seg_fill < 0.25 and fill > 0.7 and fill - self.seg_fill > 0.45:
                 if not self.refill_pending or now - self.refill_at >= CONFIRM_GAP:
                     self.refill_pending += 1; self.refill_at = now
-                if self.refill_pending >= 2 and self.seg > 1:                            # holds for two readings
+                # the counter's word lapses after XN_STALE s without a read (a box we can't read must not freeze us)
+                anchor, at = getattr(self, 'xn_anchor', None) or (None, 0.0)
+                if anchor is not None and now - at > XN_STALE: anchor = None
+                if self.refill_pending >= 2 and self.seg > 1 and (anchor is None or self.seg >= anchor):   # holds for two readings
                     note = f'segment x{self.seg}->x{self.seg - 1} (bar refilled)'; self.seg -= 1; self.seg_fill = fill
                     self.refill_pending = 0
                     self.xn_votes = [v for v in self.xn_votes if v <= self.seg]
+                elif self.refill_pending >= 2 and self.seg > 1:
+                    # already a bar past the counter: the low fill was the misread (the bar is back where it was), so
+                    # the segment carries on from here; if it really was a refill the counter moves us down shortly
+                    note = f'refill ignored, counter last x{anchor}'; self.seg_fill = fill; self.refill_pending = 0
             elif fill is not None:
                 self.refill_pending = 0
         if fill is not None and not (self.bossrush and self.refill_pending):
