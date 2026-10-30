@@ -19,7 +19,8 @@ use windows_sys::Win32::Devices::Properties::{DEVPKEY_Device_InstanceId, DEVPKEY
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, ReadFile, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, REG_MULTI_SZ, RRF_RT_REG_MULTI_SZ,
+    RegCloseKey, RegDeleteKeyValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, REG_MULTI_SZ,
+    RRF_RT_ANY, RRF_RT_REG_DWORD, RRF_RT_REG_MULTI_SZ,
 };
 use windows_sys::Win32::System::Services::{CloseServiceHandle, DeleteService, OpenSCManagerW, OpenServiceW, SC_MANAGER_CONNECT};
 use windows_sys::Win32::System::IO::DeviceIoControl;
@@ -35,6 +36,9 @@ const GUID_DEVINTERFACE_XUSB: GUID = GUID::from_u128(0xec87f1e3_c13b_4100_b5f7_8
 // HidHide's standalone install: when it's there, its own uninstaller owns the driver, not ours
 const NEFARIUS_DIR: &str = r"C:\Program Files\Nefarius Software Solutions\HidHide";
 const MARKER: &str = r"aLogs\hidhide-driver"; // under %ProgramData%: this app installed the driver
+const SERVICE_KEY: &str = r"SYSTEM\CurrentControlSet\Services\HidHide";
+const ERROR_SERVICE_DOES_NOT_EXIST: u32 = 1060;
+const ERROR_SERVICE_MARKED_FOR_DELETE: u32 = 1072;
 
 const fn ioctl(function: u32) -> u32 {
     (32769 << 16) | (1 << 14) | (function << 2) // CTL_CODE(32769, function, METHOD_BUFFERED, FILE_READ_DATA)
@@ -82,6 +86,34 @@ pub fn installed() -> bool {
 /// Is HidHide registered as a filter on the controller classes? Without it the driver runs but hides nothing.
 pub fn filters_registered() -> bool {
     filter_on(FILTER_CLASSES[0])
+}
+
+#[derive(PartialEq)]
+enum Service {
+    Missing,
+    Deleting, // removed, but Windows deletes it only at the next restart
+    Ok,
+}
+
+/// The HidHide service's state. Its filter must never be on a class without it: Windows then can't start any device
+/// of that class (Code 19), keyboards and mice included. The driver keeps running until the next restart after its
+/// service is removed, so `installed()` alone can't tell.
+fn service() -> Service {
+    let key = wide(SERVICE_KEY);
+    let mut size = 0u32;
+    if unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), wide("ImagePath").as_ptr(), RRF_RT_ANY, null_mut(), null_mut(), &mut size) } != 0 {
+        return Service::Missing;
+    }
+    let (mut flag, mut size) = (0u32, 4u32);
+    let read = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), wide("DeleteFlag").as_ptr(), RRF_RT_REG_DWORD, null_mut(), &mut flag as *mut u32 as *mut c_void, &mut size)
+    };
+    if read == 0 && flag != 0 { Service::Deleting } else { Service::Ok }
+}
+
+/// Is the HidHide service there to back its filters (and not about to be deleted)?
+pub fn service_ok() -> bool {
+    service() == Service::Ok
 }
 
 /// Is HidHide in this device's driver stack right now (else it needs a restart of the device: replug, or setup)?
@@ -395,6 +427,7 @@ pub fn run_elevated(args: &str) -> Result<(), String> {
     match status.code() {
         Some(0) => Ok(()),
         Some(1223) => Err("Admin approval is needed to set up controller blocking (the prompt was declined).".into()),
+        Some(1072) => Err("Windows is still removing the old HidHide driver. Restart Windows, then set up controller blocking again.".into()),
         code => Err(format!("Setting up the HidHide driver failed (code {}).", code.unwrap_or(-1))),
     }
 }
@@ -413,13 +446,39 @@ pub fn admin_task(args: &[String]) -> i32 {
 }
 
 fn install(dir: &Path) -> Result<(), u32> {
-    if !installed() {
-        install_driver(dir)?;
+    clear_orphaned_filters()?;
+    // by the service, not by whether the driver answers: a removed driver still answers until the next restart
+    match service() {
+        Service::Deleting => return Err(ERROR_SERVICE_MARKED_FOR_DELETE),
+        Service::Missing => install_driver(dir)?,
+        Service::Ok => {}
+    }
+    if !service_ok() {
+        return Err(ERROR_SERVICE_DOES_NOT_EXIST);
     }
     for class in FILTER_CLASSES {
-        set_class_filter(class, true);
+        set_class_filter(class, true)?;
+    }
+    // the uninstaller takes the filters off again, unless HidHide's own setup owns them
+    if !Path::new(NEFARIUS_DIR).exists() {
+        if let Some(marker) = marker() {
+            let _ = std::fs::create_dir_all(marker.parent().unwrap());
+            let _ = std::fs::write(marker, "Installed by aLogs; removed by its uninstaller.\n");
+        }
     }
     restart_controllers();
+    Ok(())
+}
+
+/// Take HidHide off every class when its service is gone or going (an interrupted removal, or another HidHide
+/// uninstaller): left there, no device of those classes starts after the next restart.
+fn clear_orphaned_filters() -> Result<(), u32> {
+    if service_ok() {
+        return Ok(());
+    }
+    for class in FILTER_CLASSES {
+        set_class_filter(class, false)?;
+    }
     Ok(())
 }
 
@@ -481,22 +540,17 @@ fn install_driver(dir: &Path) -> Result<(), u32> {
             return Err(GetLastError());
         }
     }
-    for class in FILTER_CLASSES {
-        set_class_filter(class, true);
-    }
-    if let Some(marker) = marker() {
-        let _ = std::fs::create_dir_all(marker.parent().unwrap());
-        let _ = std::fs::write(marker, "Installed by aLogs; removed by its uninstaller.\n");
-    }
     Ok(())
 }
 
 fn remove() -> Result<(), u32> {
+    clear_orphaned_filters()?;
     if Path::new(NEFARIUS_DIR).exists() {
         return Ok(()); // the standalone HidHide is installed: leave its driver alone
     }
+    // every filter off before the service goes: a filter without its service stops the whole class from starting
     for class in FILTER_CLASSES {
-        set_class_filter(class, false);
+        set_class_filter(class, false)?;
     }
     unsafe {
         let set = SetupDiGetClassDevsW(null(), wide("ROOT").as_ptr(), null_mut(), DIGCF_ALLCLASSES);
@@ -579,13 +633,14 @@ fn filter_on(class: &str) -> bool {
     read == 0 && split_multi_sz(&buf[..(size as usize / 2)]).iter().any(|f| f.eq_ignore_ascii_case("HidHide"))
 }
 
-/// Add HidHide to (or take it off) a device class's upper filters. A class that isn't on this PC yet is skipped.
-fn set_class_filter(class: &str, on: bool) {
+/// Add HidHide to (or take it off) a device class's upper filters, keeping the class's other filters. A class that
+/// isn't on this PC yet is skipped.
+fn set_class_filter(class: &str, on: bool) -> Result<(), u32> {
     let key = wide(&format!(r"SYSTEM\CurrentControlSet\Control\Class\{class}"));
     let value = wide("UpperFilters");
     let mut opened: HKEY = null_mut();
     if unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, key.as_ptr(), 0, KEY_READ, &mut opened) } != 0 {
-        return;
+        return Ok(());
     }
     unsafe { RegCloseKey(opened) };
     let mut buf = vec![0u16; 4096];
@@ -596,17 +651,20 @@ fn set_class_filter(class: &str, on: bool) {
     let mut filters = if read == 0 { split_multi_sz(&buf[..(size as usize / 2)]) } else { Vec::new() };
     let has = filters.iter().any(|f| f.eq_ignore_ascii_case("HidHide"));
     if on == has {
-        return;
+        return Ok(());
     }
     if on {
         filters.push("HidHide".into());
     } else {
         filters.retain(|f| !f.eq_ignore_ascii_case("HidHide"));
     }
-    let data = multi_sz(&filters);
-    unsafe {
-        RegSetKeyValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), value.as_ptr(), REG_MULTI_SZ, data.as_ptr() as *const c_void, (data.len() * 2) as u32);
-    }
+    let written = if filters.is_empty() {
+        unsafe { RegDeleteKeyValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), value.as_ptr()) }
+    } else {
+        let data = multi_sz(&filters);
+        unsafe { RegSetKeyValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), value.as_ptr(), REG_MULTI_SZ, data.as_ptr() as *const c_void, (data.len() * 2) as u32) }
+    };
+    if written != 0 { Err(written) } else { Ok(()) }
 }
 
 #[cfg(test)]

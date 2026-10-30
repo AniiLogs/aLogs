@@ -585,7 +585,7 @@ fn character_link(action: String, uid: Option<String>, name: Option<String>) -> 
 /// list. Returns how many controllers were found.
 #[tauri::command]
 async fn setup_controller_blocking(app: AppHandle) -> Result<usize, String> {
-    if !hidhide::installed() || !hidhide::filters_registered() {
+    if !hidhide::installed() || !hidhide::filters_registered() || !hidhide::service_ok() {
         let dir = app.path().resource_dir().map_err(|e| e.to_string())?.join("resources").join("vendor").join("hidhide");
         if !dir.join("HidHide.inf").exists() {
             return Err("The HidHide driver isn't included in this build.".into());

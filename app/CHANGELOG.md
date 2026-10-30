@@ -125,6 +125,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **Keyboard, mouse and controllers stopping after a restart:** setting up controller blocking right after HidHide
+  had been removed (by aLogs or by HidHide's own uninstaller) could leave Windows looking for a driver that was gone,
+  and then no keyboard, mouse or controller worked after the next restart. Set up now asks you to restart Windows
+  first in that case, cleans up a HidHide setup that was left half-removed, and the uninstaller always takes
+  controller blocking off again cleanly.
 - **Boss HP and BREAK gauges after the Whisperwake update:** the game changed how boss HP grows with level (bosses
   using its main HP curve rise more slowly from level 56, a new curve above 65, and a new formula for the Umbral
   bosses) and gave Interlink bosses new BREAK gauges and more HP. The meter's numbers now match the game's own
