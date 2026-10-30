@@ -1,5 +1,6 @@
-// Publishes the newest test build (src-tauri/target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe) to GitHub as a
-// pre-release: never "latest", so the site's Download button keeps serving the real release (release.mjs).
+// Publishes the newest test build (src-tauri/target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe) to GitHub,
+// never as "latest", so the site's Download button and the release feed (latest.json) keep serving the real release
+// (release.mjs). Tester links are pre-releases; the public beta is a normal release (the user's call, 2026-10-30).
 //   node share.mjs --test       one fixed tester link, replaced each time:
 //                               releases/download/test-build/aLogs-Test-Setup.exe
 //   node share.mjs --beta       folds the newest RC into this version's one public beta, "<version> Beta"
@@ -78,12 +79,13 @@ if (!dryRun) await publish();
 
 async function publish() {
 let release;
+const listing = { prerelease: mode !== "beta", make_latest: "false" };   // "latest" must stay the real release
 if (fold) {                                       // same release and link: new notes, the installer swapped
-  release = await github(`https://api.github.com/repos/${REPO}/releases/${fold.id}`, { method: "PATCH", body: JSON.stringify({ name, body }) });
+  release = await github(`https://api.github.com/repos/${REPO}/releases/${fold.id}`, { method: "PATCH", body: JSON.stringify({ name, body, ...listing }) });
   for (const a of fold.assets || []) await github(`https://api.github.com/repos/${REPO}/releases/assets/${a.id}`, { method: "DELETE" });
 } else {
   release = await github(`https://api.github.com/repos/${REPO}/releases`, {
-    method: "POST", body: JSON.stringify({ tag_name: tag, name, body, prerelease: true, make_latest: "false" }),
+    method: "POST", body: JSON.stringify({ tag_name: tag, name, body, ...listing }),
   });
 }
 const uploaded = await github(`https://uploads.github.com/repos/${REPO}/releases/${release.id}/assets?name=${asset}`, {
