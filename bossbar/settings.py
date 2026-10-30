@@ -60,9 +60,8 @@ DEFAULTS = {
         'debug_frames': False,               # bar crops per fight in logs/<fight>/ (diagnostics)
         'end_screens': False,                # frames after each fight in logs/end_screens/ (diagnostics)
         'nobar_frames': False,               # frames when no bar is found in a dungeon (diagnostics)
-        # pictures: 0 = only until their data is saved (and, as leaderboard proof, sent); N = N hours; -1 = keep all.
-        # 1 day by default (0 before 0.1.28 B2), so the sample pictures are still there the day after a report
-        'keep_hours': 24,
+        # pictures: 0 = only until their data is saved (and, as leaderboard proof, sent); N = N hours; -1 = keep all
+        'keep_hours': 0,
     },
     'results': {
         'auto_open_battle_data': True,       # click "View Battle Data" on the result screen
@@ -97,10 +96,6 @@ def load():
     overlay = stored.get('overlay') if isinstance(stored.get('overlay'), dict) else {}
     if 'in_recordings' not in overlay and 'hide_from_capture' in overlay:      # settings from before 0.1.28
         overlay['in_recordings'] = not overlay['hide_from_capture']
-    capture = stored.get('capture') if isinstance(stored.get('capture'), dict) else {}
-    user_set = stored.get('user_set') if isinstance(stored.get('user_set'), list) else []
-    if capture.get('keep_hours') == 0 and 'capture.keep_hours' not in user_set:   # the old default, never picked: 1 day
-        capture['keep_hours'] = 24
     return _merge(DEFAULTS, stored)
 
 def save(settings):

@@ -211,13 +211,14 @@
         <div class="group">
           <label class="field"><span>Keep screenshots</span>
             <select data-k="capture.keep_hours" data-type="number">
-              <option value="0">Only until their data is saved</option>
-              <option value="6">For 6 hours</option><option value="24">For 1 day (default)</option><option value="48">For 2 days</option>
+              <option value="0">Only until their data is saved (default)</option>
+              <option value="6">For 6 hours</option><option value="24">For 1 day</option><option value="48">For 2 days</option>
               <option value="72">For 3 days</option><option value="96">For 4 days</option><option value="120">For 5 days</option>
               <option value="144">For 6 days</option><option value="168">For 7 days</option>
               <option value="-1">Keep everything (don't delete)</option>
             </select></label>
           <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Anything left over is cleared every hour. Your records are kept either way.</p>
+          <p class="hint"><strong>Troubleshooting a problem?</strong> Set this to at least 1 day first. aLogs also keeps a few sample pictures of the screens it reads (the Party screen, Interlink fights), and with "Only until their data is saved" they are gone within a few hours, before anyone can look at them.</p>
         </div>
       </div>
 

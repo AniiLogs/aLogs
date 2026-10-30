@@ -8,7 +8,7 @@
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
-    capture: { look_interval: 0.05, fight_rate: 60, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 24 },
+    capture: { look_interval: 0.05, fight_rate: 60, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
@@ -1680,12 +1680,7 @@
       const stored = await invoke("get_settings");
       const overlay = stored?.overlay;                    // settings from before 0.1.28: hide_from_capture, the opposite
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
-      // Keep screenshots' default went from 0 to 1 day: moved once for anyone still on the old default, never for a
-      // value the player picked (picking marks it as theirs)
-      const untouched = (path) => !(stored?.user_set || []).includes(path);
-      const migrate = stored?.capture?.keep_hours === 0 && untouched("capture.keep_hours");
       settings = merge(DEFAULTS, stored);
-      if (migrate) { set("capture.keep_hours", 24); scheduleSave(); }
     } catch {
       settings = structuredClone(DEFAULTS);
     }
