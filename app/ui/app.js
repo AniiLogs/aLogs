@@ -366,9 +366,11 @@
     $("[data-nav-account-name]").textContent = name || "";
     nav.title = name ? `Signed in as ${name}` : "";
     const img = $("[data-nav-avatar]");
-    img.hidden = !(name && avatar);
-    if (name && avatar) img.src = avatar; else img.removeAttribute("src");
-    $(".discord-logo", nav).style.display = name && avatar ? "none" : "";
+    const logo = $(".discord-logo", nav);
+    const useLogo = () => { img.hidden = true; img.removeAttribute("src"); logo.style.display = ""; };
+    // an avatar that fails to load (a stale hash, offline) falls back to the Discord logo, never a broken image
+    img.onerror = useLogo;
+    if (name && avatar) { img.hidden = false; logo.style.display = "none"; img.src = avatar; } else useLogo();
     if (!name) closeAccountMenu();
   }
   const accountMenu = $("[data-nav-account-menu]");
