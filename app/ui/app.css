@@ -183,7 +183,7 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .nav-meter { display: flex; align-items: center; gap: 8px; }
 /* signed in: the Discord pill (discord-button) with the name cut short to fit, and a chevron; its menu opens above */
 .nav-account-wrap { position: relative; display: grid; }
-.nav .nav-account { display: flex; justify-content: flex-start; gap: 8px; min-width: 0; }
+.nav .nav-account { display: flex; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 36px; padding: 6px 12px; font-weight: 850; }
 .nav-account[hidden] { display: none; }
 .nav-account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .nav-chevron { flex: none; font-size: 11px; opacity: 0.85; }
@@ -195,11 +195,12 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .nav .nav-account-menu button:hover { background: var(--panel-2); }
 
 /* Sign in with Discord: Discord's own look (blurple, white logo and text), the same everywhere */
-.discord-button { display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border: 0; border-radius: 8px;
-  background: #5865f2; color: #fff; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.discord-button { display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border: 1px solid color-mix(in srgb, #5865f2 64%, var(--line));
+  border-radius: 999px; background: #5865f2; color: #fff; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 7px 18px rgba(38, 45, 116, 0.3); }          /* the site's account pill (shape, border, shadow) */
 .discord-button:hover { background: #4752c4; }
 /* in the sidebar too (its buttons are otherwise plain text) */
-.nav button.discord-button { background: #5865f2; color: #fff; font-weight: 700; text-align: center; border-radius: 8px; }
+.nav button.discord-button { background: #5865f2; color: #fff; font-weight: 700; text-align: center; border-radius: 999px; }
 .nav button.discord-button:hover { background: #4752c4; color: #fff; }
 .discord-button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 4px #5865f2; }
 .discord-button:disabled { opacity: 0.6; cursor: default; }
