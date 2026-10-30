@@ -86,6 +86,8 @@ struct State {
     x: Option<i32>,
     y: Option<i32>,
     locked: bool,
+    /// Shown whenever the game is in front, without waiting for the game's icon row (for layouts the row check misses)
+    always: bool,
     icon: Option<PathBuf>,
     /// Virtual-key code of the hotkey (0: none), its modifiers (MOD_ALT 1, MOD_CONTROL 2, MOD_SHIFT 4) and how its
     /// label reads ("Ins", "Ctrl+Ins").
@@ -110,6 +112,7 @@ fn load() -> State {
         x: v["x"].as_i64().map(|n| n as i32),
         y: v["y"].as_i64().map(|n| n as i32),
         locked: v["locked"].as_bool().unwrap_or(false),
+        always: v["always"].as_bool().unwrap_or(false),
         icon: v["icon"].as_str().map(PathBuf::from).filter(|p| p.is_file()),
         hotkey_vk: v["hotkey_vk"].as_u64().map_or(VK_INSERT, |n| n as u32),
         hotkey_mods: v["hotkey_mods"].as_u64().unwrap_or(0) as u32,
@@ -121,7 +124,7 @@ fn load() -> State {
 
 fn save(s: &State) {
     let v = json!({
-        "capture_on": CAPTURE_ON.load(Ordering::SeqCst), "show": s.show, "x": s.x, "y": s.y, "locked": s.locked,
+        "capture_on": CAPTURE_ON.load(Ordering::SeqCst), "show": s.show, "x": s.x, "y": s.y, "locked": s.locked, "always": s.always,
         "icon": s.icon.as_ref().map(|p| p.to_string_lossy().to_string()),
         "hotkey_vk": s.hotkey_vk, "hotkey_mods": s.hotkey_mods, "hotkey_label": s.hotkey_label,
         "pad_buttons": s.pad_buttons, "pad_label": s.pad_label,
@@ -150,7 +153,7 @@ pub fn capture_on() -> bool {
 /// What the app's settings page shows.
 pub fn info() -> Value {
     let s = STATE.lock().unwrap().get_or_insert_with(load).clone();
-    json!({ "capture_on": capture_on(), "show": s.show, "locked": s.locked, "custom_icon": s.icon.is_some(),
+    json!({ "capture_on": capture_on(), "show": s.show, "locked": s.locked, "always": s.always, "custom_icon": s.icon.is_some(),
             "in_row": s.x.is_none(), "hotkey_vk": s.hotkey_vk, "hotkey_label": if s.hotkey_vk == 0 { "" } else { &s.hotkey_label },
             "pad_buttons": s.pad_buttons, "pad_label": if s.pad_buttons == 0 { "" } else { &s.pad_label } })
 }
@@ -180,6 +183,11 @@ pub fn set_shown(show: bool) {
 
 pub fn set_locked(locked: bool) {
     with_state(|s| s.locked = locked);
+    changed();
+}
+
+pub fn set_always(always: bool) {
+    with_state(|s| s.always = always);
     changed();
 }
 
@@ -766,6 +774,8 @@ unsafe fn run() {
             // screen, in menus and on the map); without the app's capture it can't tell, so it stays
             let row = if !(s.show && in_front) {
                 false // no need to look (and no capture asked for) while it can't show anyway
+            } else if s.always {
+                true // the player wants it whenever the game is in front (the row is still read for the label)
             } else if reader.is_none() {
                 s.x.is_some()
             } else {
@@ -860,7 +870,7 @@ mod look {
     fn render_row_button() {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new() });
+            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, always: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new() });
             let k = 1.0;
             let icon = (ROW_ICON * k).round() as i32;
             let font = (ROW_FONT * k).round() as i32;

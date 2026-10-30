@@ -232,6 +232,7 @@
     $("[data-capture-on]").checked = info.capture_on;
     $("[data-capture-button]").checked = info.show;
     $("[data-capture-lock]").checked = info.locked;
+    $("[data-capture-always]").checked = Boolean(info.always);
     $("[data-capture-default-icon]").disabled = !info.custom_icon;
     $("[data-capture-reset]").disabled = info.in_row !== false;
     if (!capturingKey) $("[data-capture-hotkey]").textContent = info.hotkey_label || "None";
@@ -249,6 +250,7 @@
   $("[data-capture-on]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
   $("[data-capture-button]").addEventListener("change", (event) => setSwitch({ show: event.target.checked }));
   $("[data-capture-lock]").addEventListener("change", (event) => setSwitch({ locked: event.target.checked }));
+  $("[data-capture-always]").addEventListener("change", (event) => setSwitch({ always: event.target.checked }));
   $("[data-capture-reset]").addEventListener("click", () => setSwitch({ resetPosition: true }));
   $("[data-capture-default-icon]").addEventListener("click", () => setSwitch({ defaultIcon: true }));
   $("[data-capture-choose-icon]").addEventListener("click", async () => showCaptureSwitch(await invoke("capture_choose_icon")));
