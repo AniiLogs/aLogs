@@ -62,6 +62,17 @@ def _full_bytes(path):
     if im.width > FULL_WIDTH: im = im.resize((FULL_WIDTH, round(im.height * FULL_WIDTH / im.width)), Image.LANCZOS)
     return _jpeg(im, 88)
 
+PARTY_MAX = 1_500_000      # bytes: the site takes the Party screen up to 1.5 MB
+
+def _party_bytes(path):
+    """The run's Party screen (its last capture before the fight), whole, as a JPEG under PARTY_MAX."""
+    im = Image.open(path).convert('RGB')
+    for width, quality in ((2560, 85), (2560, 75), (1920, 80), (1600, 70)):
+        small = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS) if im.width > width else im
+        data = _jpeg(small, quality)
+        if len(data) <= PARTY_MAX: return data
+    return data
+
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
 SET_ASIDE_DAYS = 7      # .rejected / .bad copies (the server turned them down, or unreadable), kept a few days to look
                         # at why. Records still to send wait as long as it takes: signed out for weeks, they still go up.
@@ -164,7 +175,7 @@ class Submitter(threading.Thread):
             except Exception: pass                                           # a save in progress: next time
 
     # -- queueing (called from the meter thread)
-    def enqueue(self, payload, evidence_path=None, battle=None):
+    def enqueue(self, payload, evidence_path=None, battle=None, party=None):
         """Queue one record; the same kind + run id replaces an older queued copy. Nothing is queued while off."""
         self.refresh()
         if not self.config: return
@@ -173,7 +184,8 @@ class Submitter(threading.Thread):
         name = _safe(f"{payload['kind']}__{payload['clientRunId']}") + '.json'
         write_json(os.path.join(QUEUE, name), {'endpoint': 'submissions', 'payload': payload,
                     'evidence': evidence_path if self.config['screenshots'] else None,
-                    'battle': battle if self.config['screenshots'] else None, 'queued_at': time.time()}, indent=1)
+                    'battle': battle if self.config['screenshots'] else None,
+                    'party': party if self.config['screenshots'] else None, 'queued_at': time.time()}, indent=1)
         log.info(f"leaderboard: queued {payload['kind']} {payload['clientRunId']}")
         self.wake.set()
 
@@ -222,7 +234,7 @@ class Submitter(threading.Thread):
     def drop_proof(self, item):
         """A proof picture is only kept until it's sent (Captures & logs > Keep screenshots: until their data is saved)."""
         if int(C.load()['capture'].get('keep_hours', 0)) != 0: return
-        for key in ('evidence', 'battle'):
+        for key in ('evidence', 'battle', 'party'):
             if item.get(key):
                 try: os.remove(os.path.join(HERE, item[key]))
                 except OSError: pass
@@ -257,6 +269,9 @@ class Submitter(threading.Thread):
                 files[key] = _crop_bytes(path, boxes[key]) if key in boxes else _evidence_bytes(path)
                 files[key + '_full'] = _full_bytes(path)
             except (OSError, ValueError): files.pop(key, None)
+        if item.get('party') and 'evidence' in files:            # the Party screen, whole: the run's lineup and buffs
+            try: files['party'] = _party_bytes(os.path.join(HERE, item['party']))
+            except (OSError, ValueError): pass
         if files:
             if boxes: payload = {**payload, 'extra': {**(payload.get('extra') or {}), 'proofBoxes': {k: list(v) for k, v in boxes.items() if k in files}}}
             body, ctype = _multipart(payload, files)
@@ -336,13 +351,16 @@ def _slot(cycle, boss_id):
 
 def _lineup(summary):
     """{'lineup': each slot's player and lead Aniimo from the Party screen, 'title': your title} for a run's extra."""
-    lineup = [{k: v for k, v in {'slot': m.get('slot'), 'name': (m.get('name') or '')[:40] or None, 'ai': m.get('ai'),
-                                 'self': True if m.get('self') else None, 'aniimo': (m.get('aniimo') or '')[:40] or None,
-                                 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}.items() if v is not None}
-              for m in summary.get('party') or []]
-    out = {'lineup': lineup} if any('aniimo' in m for m in lineup) else {}
-    if summary.get('title'): out['title'] = summary['title'][:40]
-    return out
+    # the site shows only your own team: the others' entries carry just their slot, name and AI flag
+    def entry(m):
+        e = {'slot': m.get('slot'), 'name': (m.get('name') or '')[:40] or None, 'ai': m.get('ai')}
+        if m.get('self'):
+            lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
+            lead = {k: v for k, v in lead.items() if v is not None}
+            e.update(self=True, **lead, **({'team': [lead]} if lead.get('aniimo') else {}))
+        return {k: v for k, v in e.items() if v is not None}
+    lineup = [entry(m) for m in summary.get('party') or []]
+    return {'lineup': lineup} if lineup else {}
 
 def run_payload(summary, uid, duration=180):
     """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter)."""

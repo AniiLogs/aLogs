@@ -1644,7 +1644,6 @@ class Meter:
         crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
-        crops['title'] = R.prep_bright(im, box(0.325, 0.14, 0.435, 0.168), k)      # your title over the 1P name
         t = self.ocr.read(crops)
         # (Season Buffs' "Lv. 4" and Challenge's "4/4" are too small and short for OCR to read reliably: left out)
         known = self.character_name; members = []
@@ -1684,8 +1683,9 @@ class Meter:
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}")
         members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge
         self.set_party(members, now)
-        title = re.sub(r'^[\W\d_]+', '', (t.get('title') or '').split('/')[-1]).strip()   # '.1 / Wind Champion'
-        if title and self.party: self.party['title'] = title
+        # the screen itself goes with the run (its lineup and the leader's buffs): the last capture before the fight,
+        # since anyone can still change their team until it starts. Kept in memory; saved when the result is in.
+        if self.party: self.party['picture'] = im
 
     def set_party(self, members, now):
         """This run's party (from the old prep screen or the Party screen), each slot's name voted over a few reads."""
@@ -1792,10 +1792,13 @@ class Meter:
         for p in players:
             p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
             p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
+        party_shot = None
+        if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
+            party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
-                                 **({'title': self.party['title']} if party and self.party.get('title') else {}))
+                                 **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)
         self.out('status', f'result recorded: {boss} - score {score}, {rating} stars, {secs}s')
         self.end_sig = screen_sig(im)                           # the note stays only while this screen does
@@ -1936,7 +1939,7 @@ class Meter:
         s['sent'] = True
         S.write_json(path, s, indent=1, ensure_ascii=False)
         self.submitter.enqueue(S.run_payload(s, self.uid, self.args.duration), (s.get('result') or {}).get('screenshot'),
-                               battle=(s.get('battle_data') or {}).get('screenshot'))
+                               battle=(s.get('battle_data') or {}).get('screenshot'), party=s.get('party_screenshot'))
 
     def check_pending_run(self, now):
         """A run whose Battle Data never showed up: decide on the result screen alone."""
