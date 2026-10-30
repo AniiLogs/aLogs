@@ -63,7 +63,6 @@ DEFAULTS = {
         # pictures: 0 = only until their data is saved (and, as leaderboard proof, sent); N = N hours; -1 = keep all.
         # 1 day by default (0 before 0.1.28 B2), so the sample pictures are still there the day after a report
         'keep_hours': 24,
-        'keep_hours_chosen': False,          # the player picked Keep screenshots themselves: never changed for them
     },
     'results': {
         'auto_open_battle_data': True,       # click "View Battle Data" on the result screen
@@ -79,6 +78,9 @@ DEFAULTS = {
         'link_character': True,              # link the detected character (UID + name) to the account
         'include_screenshots': True,         # attach the result screenshot as evidence
     },
+    # the settings the player changed themselves ('capture.keep_hours', ...), kept by the app: a default that changes in
+    # a later version only moves the ones not listed, so a choice is never overwritten
+    'user_set': [],
 }
 
 def _merge(base, extra):
@@ -96,7 +98,8 @@ def load():
     if 'in_recordings' not in overlay and 'hide_from_capture' in overlay:      # settings from before 0.1.28
         overlay['in_recordings'] = not overlay['hide_from_capture']
     capture = stored.get('capture') if isinstance(stored.get('capture'), dict) else {}
-    if capture.get('keep_hours') == 0 and not capture.get('keep_hours_chosen'):   # the old default, never picked: 1 day
+    user_set = stored.get('user_set') if isinstance(stored.get('user_set'), list) else []
+    if capture.get('keep_hours') == 0 and 'capture.keep_hours' not in user_set:   # the old default, never picked: 1 day
         capture['keep_hours'] = 24
     return _merge(DEFAULTS, stored)
 
