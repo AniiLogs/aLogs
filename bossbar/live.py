@@ -1421,7 +1421,7 @@ class Meter:
     def prep_screen(self, im, now, u, ux, H, pill):
         """Battle prep screen of one boss: its name top-left, 'Best score: 24459 | (star) 15' top-right."""
         if now - self.stats_seen < 2: return
-        self.stats_seen = now
+        self.stats_seen = now; keep_sample(im, 'prep')      # its boss name stopped reading after the Whisperwake update
         t = self.ocr.read({'n': R.prep_text(im, (ux + u * 0.065, H * 0.025, ux + u * 0.3, H * 0.085), u / 2000),
                            'label': R.prep_label(im, u, ux, H)})
         name = t.get('n', '')
@@ -1825,9 +1825,10 @@ class Meter:
             row = None
             if screen == 'battle_prep':
                 row = self.week_row(boss)
-                if not row or not self.bossrush_space:
-                    log.info(f"leaderboard: prep-screen best for {boss!r} not sent - "
-                             + ("not one of this week's bosses" if not row else "the game log didn't confirm an Interlink scene"))
+                # (it also needed the game log's Interlink scene, but since the Whisperwake update the prep screen
+                # opens out in the world, before the run's scene: all 7 bests on 30 Oct were refused for that)
+                if not row:
+                    log.info(f"leaderboard: prep-screen best for {boss!r} not sent - not one of this week's bosses")
                     return
                 boss = row['bossTitle_en']
             self.submitter.enqueue(S.score_payload(screen, boss, score, stars, self.uid, R.active_cycle_id(),

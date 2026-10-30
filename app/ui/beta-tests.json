@@ -23,12 +23,22 @@
     },
     {
       "id": "interlink-20-stars",
-      "title": "Interlink's 20-star rating",
-      "how": "Run Interlink: the result shows up to 20 stars; ending early with fewer than 20 isn't a clear, a kill at 20 is.",
+      "title": "Interlink's 20 / 40 / 20 rating",
+      "how": "Run Interlink: the left and right bosses are rated out of 20 stars, the center boss out of 40. A clear is the full rating; ending early with fewer stars isn't one.",
       "details": [
-        "Since the Whisperwake update each fight is rated out of 20 (the middle boss counts double, 80 a week).",
-        "If you kill the boss, say what the result screen's rating shows (20 or \"Eliminate\").",
+        "Since the Whisperwake update: 20 on the left and right bosses, 40 on the center boss (80 a week).",
+        "If you kill the boss, say what the result screen's rating shows (20, 40 or \"Eliminate\").",
         "From November 18 the middle fight has two bosses: say whether the DPS window follows both."
+      ]
+    },
+    {
+      "id": "interlink-party-screen",
+      "title": "Interlink's Party screen",
+      "how": "Start Interlink and wait on the Party screen a few seconds: the log notes every player's name, who is AI, your title and each lead Aniimo.",
+      "details": [
+        "There's no lobby since the Whisperwake update: the Party screen comes right before the fight.",
+        "With \"No team available. Cannot chat.\" every other slot should be AI; in a real team, say whether the names and AI marks are right.",
+        "On the result screen, the names should match the Party screen's (no misread names on the leaderboard)."
       ]
     },
     {
