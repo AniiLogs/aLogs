@@ -372,7 +372,7 @@ def run_payload(summary, uid, duration=180):
         'cleared': None if secs is None else res['cleared'] if 'cleared' in res else secs < duration,
         'teamDps': bd.get('team_avg_dps'), 'meterDps': meter.get('dps'), 'meterDamage': meter.get('damage'),
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
-        'extra': {'newBest': res.get('new_best'), 'trackedFromStart': meter.get('tracked_from_start'),
+        'extra': {'newBest': res.get('new_best'), 'newBests': summary.get('new_bests') or [], 'trackedFromStart': meter.get('tracked_from_start'),
                   'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId')),
                   **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {})},
     }

@@ -1913,26 +1913,19 @@ class Meter:
         return better
 
     def decide_run(self, path):
-        """Battle Data is in (or the wait for it ran out): send the run if it beats one of your bests, else keep it in
-        your records only and let its pictures go."""
+        """Battle Data is in (or the wait for it ran out): send the run. Every run goes, for the player's Battle History
+        on the site (its proof pictures too); the boards still rank each player's best, and extra.newBests says which of
+        your bests this run beat (a run that beats none can't change a ranking)."""
         try:
             with open(path, encoding='utf-8') as fh: s = json.load(fh)
         except (OSError, ValueError): return
         if 'submit' in s: return
         better = self.beats_best(s)
-        s['submit'] = bool(better); s['new_bests'] = better
+        s['submit'] = True; s['new_bests'] = better
         S.write_json(path, s, indent=1, ensure_ascii=False)
         self.pending_run = None
-        if better:
-            log.info(f"leaderboard: a new best ({', '.join(better)}) - sending this run")
-            self.send_run(path)
-            return
-        log.info('leaderboard: no new best on this boss this week - kept in your records, not sent')
-        if int(self.args.cfg['capture'].get('keep_hours', 0)) == 0:   # its proof isn't needed after all
-            for shot in ((s.get('result') or {}).get('screenshot'), (s.get('battle_data') or {}).get('screenshot')):
-                if shot:
-                    try: os.remove(os.path.join(HERE, shot))
-                    except OSError: pass
+        log.info(f"leaderboard: sending this run ({'a new best: ' + ', '.join(better) if better else 'no new best; for your Battle History'})")
+        self.send_run(path)
 
     def send_run(self, path):
         """Send a run once: its numbers, the result screen and Battle Data (whichever pictures exist)."""
