@@ -250,8 +250,8 @@ def cached_cycles(cache_path, player_log=None):
     """The schedule, decoded again only when the game's data file changed. Returns (cycles, changed) or (None, False)."""
     path = find_game_data(player_log)
     if not path: return None, False
-    # v2: weeks carry their split and a two-boss fight's second boss (read again once, without a game patch)
-    stamp = f'v2:{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
+    # v2: weeks carry their split and a two-boss fight's second boss; v3: Interlink's rules too (read again once)
+    stamp = f'v3:{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
     try:
         with open(cache_path, encoding='utf-8') as f: cached = json.load(f)
         if cached.get('stamp') == stamp: return cached['cycles'], False
@@ -259,5 +259,17 @@ def cached_cycles(cache_path, player_log=None):
         pass
     cycles = read_cycles(path)
     if not cycles: return None, False
-    _write_json(cache_path, {'stamp': stamp, 'cycles': cycles})
+    _write_json(cache_path, {'stamp': stamp, 'cycles': cycles, 'rules': read_rush_rules(path)})
     return cycles, True
+
+def read_rush_rules(path):
+    """Interlink's rules from the game's own config (sys_config_data): the side bosses' full rating, the center boss's
+    multiplier, the fight's length and the AI teammates' ids. The ratings went from 15 to 20 a side with the Whisperwake
+    update, so they're read with each patch rather than built in. {} when the table can't be read."""
+    try: cfg = PmData(path).table('sys_config_data') or {}
+    except Exception: return {}
+    side, mult = cfg.get('BossRushMaxStarSideBoss'), cfg.get('BossRushStarMultiplierMidBoss')
+    bots = cfg.get('BossRushPlayerBotList')
+    return {k: v for k, v in {'starSide': side, 'starCenter': side * mult if isinstance(side, int) and isinstance(mult, int) else None,
+                              'duration': cfg.get('BossRushCombatDuration'),
+                              'bots': sorted(bots.values()) if isinstance(bots, dict) else None}.items() if v is not None}

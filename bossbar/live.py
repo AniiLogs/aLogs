@@ -152,9 +152,25 @@ def canon(text, choices, cutoff=0.6):
 CLEAR_STARS = 20       # an Interlink clear: the full rating, 20 on the left and right bosses (BossRushMaxStarSideBoss)
 CENTER_STARS = 40      # and 40 on the center boss: a 26-star center run that ended at 95 s with most of its HP left was no clear
 
+STAR_CAPS = os.path.join(HERE, 'logs', 'star_caps.json')   # the caps the Interlink screen last showed: {'side', 'center', 'cycle'}
+
+def star_caps():
+    """The side and center bosses' full ratings. They went from 15/30 to 20/40 with the Whisperwake update and may move
+    again, so they come from the game itself: its config, read with each patch (game_cycles.json 'rules':
+    BossRushMaxStarSideBoss x BossRushStarMultiplierMidBoss), else what the Interlink screen last showed ('14/20',
+    '36/40'), else the built-in 20/40."""
+    for path, keys in ((os.path.join(HERE, 'game_cycles.json'), ('rules', 'starSide', 'starCenter')), (STAR_CAPS, (None, 'side', 'center'))):
+        try:
+            with open(path, encoding='utf-8') as f: c = json.load(f)
+            c = c[keys[0]] if keys[0] else c
+            return int(c[keys[1]]), int(c[keys[2]])
+        except (OSError, ValueError, KeyError, TypeError): continue
+    return CLEAR_STARS, CENTER_STARS
+
 def clear_stars(puppet_id):
-    """The full rating of an Interlink boss: 40 for this week's center boss, 20 for the others."""
-    return CENTER_STARS if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else CLEAR_STARS
+    """The full rating of an Interlink boss: the center boss's cap for this week's center boss, the side cap otherwise."""
+    side, center = star_caps()
+    return center if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else side
 
 def first_num(s):
     """The number in an OCR read of tiled short text ('60 60 60' -> 60): the one most tiles agree on, so one misread
@@ -1077,6 +1093,7 @@ class Meter:
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
         if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
         if head.strip().lower().startswith('party'): self.test_frame(im, 'party', now); self.party_screen(im, now, u, ux, H); return
+        if re.sub(r'[^a-z]', '', head.lower()).startswith('holobattlei'): self.interlink_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
         if 'adventure' in heads.get('eh', '').lower(): self.test_frame(im, 'egg_result', now); self.egg_result(im, now, u, ux, H, heads['eh']); return
@@ -1518,6 +1535,33 @@ class Meter:
     # the game's AI teammates (its pills don't mark them any more): names seen filling an Interlink party
     INTERLINK_NPCS = {'flora', 'mario', 'leonard', 'tammy'}
 
+    # The Interlink screen (the week's three bosses): each one's stars as 'earned/cap' over its name, left, center, right
+    INTERLINK_STARS = ((0.18, 0.50, 0.28, 0.565), (0.44, 0.375, 0.53, 0.43), (0.71, 0.44, 0.78, 0.485))
+
+    def interlink_screen(self, im, now, u, ux, H):
+        """The week's star caps from the Interlink screen ('14/20', '36/40', '20/20'): the cap behind each slash, read
+        two ways (the number in front picks up the star icon now and then). Saved when it makes sense - left and
+        right the same, the center double - so clears follow the game when it raises them."""
+        if now - getattr(self, 'interlink_seen', 0) < 30: return
+        self.interlink_seen = now; k = u / 2000
+        box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
+        crops = {}
+        for i, s in enumerate(self.INTERLINK_STARS):
+            crops[f'b{i}'] = R.prep_bright(im, box(*s), k); crops[f't{i}'] = R.prep_text(im, box(*s), k)
+        t = self.ocr.read(crops)
+        caps = []
+        for i in range(3):
+            found = [int(c) for key in (f'b{i}', f't{i}') for c in re.findall(r'/\s*(\d{2})(?!\d)', t.get(key) or '')]
+            caps.append(max(set(found), key=found.count) if found else None)
+        side, center = caps[0] or caps[2], caps[1]
+        if side and center is None and caps[0] == caps[2]: center = 2 * side       # both sides agree; the center is double
+        if not (side and center and (caps[0] in (None, side)) and (caps[2] in (None, side)) and center == 2 * side and 10 <= side <= 60):
+            log.info(f'Interlink screen: star caps not clear enough {caps} (OCR {t!r})'); return
+        if star_caps() != (side, center):
+            log.info(f'Interlink screen: star caps {side} / {center} / {side} (were {star_caps()[0]} / {star_caps()[1]})')
+            try: S.write_json(STAR_CAPS, {'side': side, 'center': center, 'cycle': R.active_cycle_id(), 'seen': time.strftime('%Y-%m-%d %H:%M:%S')})
+            except OSError: pass
+
     def party_screen(self, im, now, u, ux, H):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
         name, the voice icon), and whether the others are AI - "No team available. Cannot chat." at the bottom left
@@ -1667,7 +1711,7 @@ class Meter:
         you = next((m['name'] for m in party or [] if m.get('self')), None)
         for p in players: p['self'] = bool((self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
-                                               'time_s': secs, 'cleared': cleared, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
+                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
                                  **({'title': self.party['title']} if party and self.party.get('title') else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)

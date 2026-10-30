@@ -374,7 +374,7 @@ def run_payload(summary, uid, duration=180):
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
         'extra': {'newBest': res.get('new_best'), 'trackedFromStart': meter.get('tracked_from_start'),
                   'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId')),
-                  **_lineup(summary)},
+                  **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {})},
     }
 
 def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):
