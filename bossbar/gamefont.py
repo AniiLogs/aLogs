@@ -33,7 +33,7 @@ def extract(cache_dir, player_log=None):
     """Writes <cache_dir>/gamefont.png and gamefont.json from the game install. Returns True on success."""
     import UnityPy                                     # only needed this once
     for d in _game_dirs(player_log):
-        bundles = [os.path.join(d, n) for n in os.listdir(d) if n.startswith('xgui_font')]
+        bundles = [os.path.join(d, n) for n in os.listdir(d) if 'xgui_font' in n]   # ar_xgui_font_* / mres_xgui_font_* since 2026
         if not bundles: continue
         env = UnityPy.load(*bundles)
         for obj in env.objects:
