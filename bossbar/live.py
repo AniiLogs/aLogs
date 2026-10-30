@@ -420,6 +420,23 @@ def save_picture(im, folder, name):
     if im.width > 1920: im = im.resize((1920, round(im.height * 1920 / im.width)), Image.LANCZOS)
     path = os.path.join(d, name + '.jpg'); im.convert('RGB').save(path, quality=85); return path
 
+SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest), whatever Keep screenshots says
+SAMPLE_GAP = 600           # seconds between two samples of one kind (one a run, not one a read)
+_sample_at = {}
+
+def keep_sample(im, kind):
+    """A few full-size pictures of the screens the readers depend on (the Party screen, an Interlink fight's HUD),
+    kept on this PC so a changed screen can be checked against real pictures later: the newest SAMPLES_KEPT of each
+    kind, as PNG at the game's own size. Never sent anywhere."""
+    now = time.time()
+    if now - _sample_at.get(kind, 0) < SAMPLE_GAP: return
+    _sample_at[kind] = now
+    try:
+        d = os.path.join(HERE, 'logs', 'samples'); os.makedirs(d, exist_ok=True)
+        im.convert('RGB').save(os.path.join(d, f"{kind}_{time.strftime('%Y%m%d_%H%M%S')}.png"))
+        for old in sorted(n for n in os.listdir(d) if n.startswith(kind + '_'))[:-SAMPLES_KEPT]: os.remove(os.path.join(d, old))
+    except OSError as e: log.info(f'sample picture not kept: {e!r}')
+
 def last_rush_level():
     """The level of the last Interlink boss fought (logs/fights/*.json), for the instant start."""
     import glob
@@ -1501,6 +1518,7 @@ class Meter:
         the old prep screen, so the result screen can tell which name is you and fix its own misreads."""
         if now - getattr(self, 'party_seen', 0) < 2: return
         self.party_seen = now; k = u / 2000
+        keep_sample(im, 'party')
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
         crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
@@ -2424,6 +2442,12 @@ class Meter:
 
     def emit_fight(self, im, bar):
         f = self.fight; si = f.seg_info or {}
+        # an Interlink fight's HUD a few seconds in (the players' icons top left: how many are real), and the whole
+        # frame mid-fight, for checking readers against real pictures (logs/samples)
+        if f.bossrush and im is not None and getattr(self, 'frame_full', True):
+            age = time.time() - f.created
+            if 3 <= age < 30: keep_sample(im, 'interlink_start')
+            elif 60 <= age < 120: keep_sample(im, 'interlink_mid')
         self.last_screen = (self.origin[0], self.origin[1], self.frame_size[0], self.frame_size[1])
         self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'xn': f.seg, 'fill': f.seg_fill,
                            'damage': f.damage, 'elapsed': f.elapsed, 'avg': f.avg, 'recent': f.recent,
