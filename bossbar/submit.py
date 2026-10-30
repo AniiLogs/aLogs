@@ -357,7 +357,9 @@ def _lineup(summary):
         if m.get('self'):
             lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
             lead = {k: v for k, v in lead.items() if v is not None}
-            e.update(self=True, **lead, **({'team': [lead]} if lead.get('aniimo') else {}))
+            # the rest of your team from the pictures in your card's team row (icons.py; unread ones left out)
+            rest = [{'aniimo': n[:40]} for n in summary.get('team') or [] if n]
+            e.update(self=True, **lead, **({'team': [lead] + rest} if lead.get('aniimo') or rest else {}))
         return {k: v for k, v in e.items() if v is not None}
     lineup = [entry(m) for m in summary.get('party') or []]
     return {'lineup': lineup} if lineup else {}
@@ -390,6 +392,8 @@ def run_payload(summary, uid, duration=180):
         'cleared': None if secs is None else res['cleared'] if 'cleared' in res else secs < duration,
         'teamDps': bd.get('team_avg_dps'), 'meterDps': meter.get('dps'), 'meterDamage': meter.get('damage'),
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
+        # the leader's Season Buffs and Special Offering from the Party screen's icons: [{id, name, level}]
+        **({'buffs': [{k: v for k, v in b.items() if v is not None} for b in summary['buffs']]} if summary.get('buffs') else {}),
         'extra': {'newBest': res.get('new_best'), 'newBests': summary.get('new_bests') or [], 'trackedFromStart': meter.get('tracked_from_start'),
                   'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId')),
                   **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {})},

@@ -817,6 +817,9 @@ class Meter:
         self.catch_seen = 0.0        # last time the game's "Catch Countdown" was on screen
         self.stats_seen = 0.0; self.last_scores = {}; self.result_seen = 0.0
         self.party = None            # {'at', 'members': [{'name', 'ai'}]} from the battle prep screen
+        self.icons = None            # icons.Icons: the game's head portraits and buff icons (loaded in the background)
+        self.icons_state = None      # None, 'loading', 'ready', 'failed'
+        self.icon_read = None        # the Party screen icon read running in the background (a thread)
         self.last_fight = None       # (Fight, ended at) - the result screen doesn't name the boss
         self.last_screen = None      # game area on screen (x, y, w, h), for placing the DPS window
         self.hold = InputBlock(log.info); self.hold_started = 0.0; self.clicks = 0; self.unread = 0; self.last_click = 0.0
@@ -1670,7 +1673,7 @@ class Meter:
             mine = bool(known and same_name(known, name)) or (not known and yellow(i))
             # a card read that missed (an effect over it) keeps the last read of that slot
             old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == slot and m['name'] == name), {})
-            members.append({'slot': slot, 'name': name, 'self': mine,
+            members.append({'slot': slot, 'name': name, 'self': mine, 'pill': i,
                             # AI: no CP on the card (a card that didn't read falls back to the NPCs' names)
                             'ai': not mine and (not cp if card.strip() else name.casefold() in self.INTERLINK_NPCS),
                             'aniimo': pet.group(1).strip() if pet else old.get('aniimo'),
@@ -1686,6 +1689,72 @@ class Meter:
         # the screen itself goes with the run (its lineup and the leader's buffs): the last capture before the fight,
         # since anyone can still change their team until it starts. Kept in memory; saved when the result is in.
         if self.party: self.party['picture'] = im
+        mine = next((i for i, m in enumerate(members) if m['self']), None)
+        if mine is not None: self.read_party_icons(im, members[mine]['pill'], u, ux, H, now)
+
+    # Your card's team row: your three other Aniimo as pictures, each a slice of the game's head portrait cut by a
+    # window left of its skill badge. Shares of the UI width (x) from the card box's left / of the screen height (y)
+    # from its top; the portrait's whole square for the matcher. Measured on 4K and 2K Party screens.
+    TEAM_PITCH = 0.0503
+    TEAM_WINDOW = (-0.030, 0.064, -0.012, 0.100)    # x0, y0, x1, y1 (x from the card's left + pitch * i)
+    TEAM_SQUARE = (-0.0345, 0.0472, 0.0405)         # left, top, side (side in UI width)
+    # The Season Buffs (bottom center): each icon's blue square, and the N of the "Lv. N" under it
+    SEASON_BUFFS = ((0.525, 0.867, 0.550, 0.911), (0.5595, 0.867, 0.5845, 0.911))
+    SEASON_LEVEL = (0.0153, 0.900, 0.0273, 0.923)   # x from the square's left
+    OFFERING = (0.4338, 0.865, 0.4575, 0.909)       # the Special Offering circle ('+' or '...' when none)
+
+    def read_party_icons(self, im, card, u, ux, H, now):
+        """Your team and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
+        the background (a few seconds a read). Each tile keeps its last three answers; the most common one stands, so a
+        team changed before the fight follows within a read or two. Nothing is read until the icons are loaded."""
+        if self.icons_state is None:
+            self.icons_state = 'loading'
+            def load():
+                import icons
+                self.icons = icons.Icons.load(os.path.join(HERE, 'icons'), getattr(self.args, 'player_log', None))
+                self.icons_state = 'ready' if self.icons else 'failed'
+                log.info('game icons: ' + (f'{len(self.icons.heads)} Aniimo, {len(self.icons.buffs)} buffs (game build {self.icons.build})'
+                                           if self.icons else f'not readable ({icons.Icons.error})'))
+            threading.Thread(target=load, daemon=True).start()
+        if self.icons_state != 'ready' or (self.icon_read and self.icon_read.is_alive()): return
+        votes = self.party['votes']                          # this party (it's rebuilt each read, its votes carry on)
+        a, b = self.PARTY_CARDS[card][:2]
+        box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
+        def read():
+            ic, team, buffs = self.icons, [], []
+            for i in range(3):
+                t = a + self.TEAM_PITCH * i; wx0, wy0, wx1, wy1 = self.TEAM_WINDOW; sx, sy, side = self.TEAM_SQUARE
+                r = ic.head(im, box(t + wx0, b + wy0, t + wx1, b + wy1), (ux + u * (t + sx), H * (b + sy), u * side))
+                # accepted only when clearly ahead (checked on 48 tiles: no wrong answer passes); an Aniimo whose
+                # portrait isn't in the install (Leafy, 30 Oct) scores low against everything and stays unread
+                team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
+            for sq in self.SEASON_BUFFS:
+                r = ic.buff(im, box(*sq), 'season')
+                if not r or r[1] < 0.8 or r[2] < 0.2: continue
+                x0, y0, x1, y1 = self.SEASON_LEVEL
+                d = ic.digit(im, box(sq[0] + x0, y0, sq[0] + x1, y1))
+                level = int(d[0]) if d and d[2] >= 0.08 else None
+                ids = ic.buffs_named(r[0], 'season', level) if level else []
+                names = [ic.buffs[k]['name'] for k in ic.buffs_named(r[0], 'season')]
+                buffs.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
+                             {'name': max(set(names), key=names.count)})
+            r = ic.buff(im, box(*self.OFFERING), 'offering', text_below=False)
+            if r and r[1] >= 0.8 and r[2] >= 0.15:          # none chosen shows '+' or '...' (up to 0.61 against the icons)
+                ids = ic.buffs_named(r[0], 'offering')        # a few offerings share an icon: then only their names go
+                names = sorted({ic.buffs[k]['name'] for k in ids})
+                buffs.append({'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)})
+            party = self.party
+            if not party or party['votes'] is not votes: return          # a new party came in meanwhile
+            hist = party.setdefault('team_reads', [collections.deque(maxlen=3) for _ in range(3)])
+            def pick(h):                                    # agreed by two of the last three reads (or the only read)
+                names = [n for n in h if n]
+                n = max(set(names), key=names.count) if names else None
+                return n if n and (names.count(n) >= 2 or len(h) == 1) else None
+            for i, name in enumerate(team): hist[i].append(name)
+            party['team'] = [pick(h) for h in hist]
+            if buffs or 'buffs' not in party: party['buffs'] = buffs
+            log.info(f"Party screen icons: team {party['team']}, buffs {party.get('buffs')}")
+        self.icon_read = threading.Thread(target=read, daemon=True); self.icon_read.start()
 
     def set_party(self, members, now):
         """This run's party (from the old prep screen or the Party screen), each slot's name voted over a few reads."""
@@ -1698,7 +1767,8 @@ class Meter:
         for m in members: m['name'] = votes[m['slot']].most_common(1)[0][0]
         changed = not same or [(m['name'], m['ai'], m['self']) for m in members] != \
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
-        self.party = {'at': now, 'members': members, 'votes': votes}
+        kept = {k: self.party[k] for k in ('team_reads', 'team', 'buffs') if k in self.party} if same else {}
+        self.party = {'at': now, 'members': members, 'votes': votes, **kept}      # the icon reads carry on too
         if changed:
             log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
                                            + (f" [{m['aniimo']} Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]" if m.get('aniimo') else '')
@@ -1798,6 +1868,7 @@ class Meter:
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
+                                 **({'team': self.party.get('team'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)
         self.out('status', f'result recorded: {boss} - score {score}, {rating} stars, {secs}s')
