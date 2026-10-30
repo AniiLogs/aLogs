@@ -40,6 +40,10 @@ code { color: var(--gold-text); font-size: 12px; overflow-wrap: anywhere; }
 .card p { margin: 0; font-size: 16px; font-weight: 650; }
 .card small { display: block; margin-top: 4px; color: var(--muted); }
 .card .notice { margin: 10px 0 0; }
+/* a card's label with its action on the right (Your character: Link character), never on the name's row */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.card-head h2 { margin: 0; }
+.card-head button { padding: 6px 14px; font-size: 13px; }
 
 .group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
 .group p { margin: 0; }
