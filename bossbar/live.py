@@ -698,7 +698,7 @@ class Meter:
         self.party = None            # {'at', 'members': [{'name', 'ai'}]} from the battle prep screen
         self.last_fight = None       # (Fight, ended at) - the result screen doesn't name the boss
         self.last_screen = None      # game area on screen (x, y, w, h), for placing the DPS window
-        self.hold = InputBlock(log.info); self.hold_started = 0.0; self.clicks = 0; self.last_click = 0.0
+        self.hold = InputBlock(log.info); self.hold_started = 0.0; self.clicks = 0; self.unread = 0; self.last_click = 0.0
         self.numbers = None             # the damage-number recorder (experimental), made when the option is on
         try: self.cfg_stamp = os.stat(C.SETTINGS_FILE).st_mtime   # the settings as loaded at start (a save during start-up was missed)
         except OSError: pass
@@ -1541,7 +1541,7 @@ class Meter:
     def start_auto(self, now):
         r = C.load()['results']
         self.auto_until = now + max(5, min(120, int(r.get('hold_seconds') or 60)))
-        self.clicks = 0; self.last_click = 0.0; self.hold_started = now
+        self.clicks = 0; self.unread = 0; self.last_click = 0.0; self.hold_started = now
         if r.get('hold_inputs'): self.hold.start(self.auto_until - now)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
 
@@ -1567,7 +1567,13 @@ class Meter:
         c = c.resize((max(1, int(c.width * kk)), max(1, int(c.height * kk))), Image.BICUBIC).point(lambda v: 0 if v < 120 else 255)
         label = self.ocr.read({'b': ImageOps.expand(c, border=20, fill=255)}).get('b', '')
         if 'battle' not in label.lower():
-            self.end_auto(f'button reads {label!r}'); return
+            # the session starts on the screen's first frame, while it's still sliding in: the button isn't drawn yet
+            # (it read '' and ended the hold at once, 5 of 11 times). Not ready yet: try again in a second; a screen
+            # that really changed ends the session above ('screen changed')
+            self.unread += 1
+            if self.unread >= 6: self.end_auto(f'button reads {label!r} after {self.unread} tries')
+            else: log.info(f'View Battle Data not readable yet ({label!r}), trying again')
+            return
         x = self.origin[0] + ux + u * 0.6; y = self.origin[1] + H * 0.9
         self.clicks += 1; log.info(f'auto-click {self.clicks}: View Battle Data at screen ({x:.0f}, {y:.0f})')
         self.hide_end_note()
