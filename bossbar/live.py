@@ -509,6 +509,25 @@ def refresh_cycles(meter):
     import gamedata
     path = os.path.join(HERE, 'boss_rush_cycles.json')
     while not meter.stop:
+        # Game data that doesn't have this week is an old copy (a second, older install): it gave old weeks' bosses and
+        # HP and no new bosses (Glameep matched an open-world Omega Glameep; 30 Oct report). Then aLogs' own schedule
+        # and boss list are used, and nothing is sent to the site.
+        stale = False
+        try:
+            cycles, changed = gamedata.cached_cycles(os.path.join(HERE, 'game_cycles.json'), meter.args.player_log)
+            with open(os.path.join(R.HERE, 'boss_rush_cycles.json'), encoding='utf-8') as f: shipped_cycles = json.load(f)
+            stale = bool(cycles) and not gamedata.covers_now(cycles) and gamedata.covers_now(shipped_cycles)
+            if stale:
+                log.warning(f"the game data at {gamedata.find_game_data(meter.args.player_log)} is older than this week "
+                            f"(latest week {cycles[-1]['cycle']}): using aLogs' own boss list and week schedule instead")
+                R.GAME_BOSSES[0] = None; meter.catalog = R.load_catalog(); R.CYCLES_FILE[0] = os.path.join(R.HERE, 'boss_rush_cycles.json')
+        except Exception as e:
+            log.warning(f'could not check the game data: {e}')
+        if stale:
+            for _ in range(6 * 3600):
+                if meter.stop: return
+                time.sleep(1)
+            continue
         try:   # the boss list too: a patch that adds a boss needs no new aLogs build
             shipped = R.load_catalog() if R.GAME_BOSSES[0] is None else meter.catalog
             keep = [(r['table'], r['puppetId']) for r in shipped if r.get('monsterType') != '2']

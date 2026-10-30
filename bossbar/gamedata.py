@@ -143,20 +143,34 @@ class PmData:
 
 
 def find_game_data(player_log=None):
-    """pmdata.bin in the game install (path from the game's own log, else the usual Steam folders)."""
-    candidates = []
+    """pmdata.bin of the game that's running: the install the game's own log names (any folder, Steam or not), else
+    the newest copy in the Steam libraries. A PC with an old second install found that one first (C: before D:) and
+    read week 3002 data while playing week 4000 (30 Oct report): the newest copy wins now, not the first."""
+    running, others = [], []
     if player_log and os.path.exists(player_log):
         try:
             with open(player_log, 'rb') as f: head = f.read(400_000).decode('utf-8', 'replace')
-            candidates += [m.group(1) for m in re.finditer(r'([A-Za-z]:[/\\][^\r\n"]*?steamapps[/\\]common[/\\]Aniimo)', head)]
+            running += [m.group(1) for m in re.finditer(r'([A-Za-z]:[/\\][^\r\n"\']*?)[/\\]Aniimo_Data\b', head)]
+            running += [m.group(1) for m in re.finditer(r'([A-Za-z]:[/\\][^\r\n"\']*?steamapps[/\\]common[/\\]Aniimo)(?=[/\\"\'\r\n])', head)]
         except OSError: pass
-    for drive in 'CDEFG':
-        for base in (r'\Program Files (x86)\Steam', r'\Program Files\Steam', r'\SteamLibrary', r'\Steam'):
-            candidates.append(drive + ':' + base + r'\steamapps\common\Aniimo')
-    for c in candidates:
-        p = os.path.join(c.replace('/', '\\'), DATA_REL)
-        if os.path.exists(p): return p
+    libraries = [d + ':' + b for d in 'CDEFGHIJ' for b in (r'\Program Files (x86)\Steam', r'\Program Files\Steam', r'\SteamLibrary', r'\Steam')]
+    try:                                                     # every Steam library this PC has, wherever it is
+        with open(r'C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf', encoding='utf-8', errors='replace') as f:
+            libraries += [p.replace('\\\\', '\\') for p in re.findall(r'"path"\s*"([^"]+)"', f.read())]
+    except OSError: pass
+    others += [lib + r'\steamapps\common\Aniimo' for lib in libraries]
+    def found(dirs):
+        paths = {os.path.normcase(os.path.join(d.replace('/', '\\'), DATA_REL)) for d in dirs}
+        return [p for p in paths if os.path.exists(p)]
+    for group in (found(running), found(others)):
+        if group: return max(group, key=os.path.getmtime)    # the newest copy
     return None
+
+def covers_now(cycles, now=None):
+    """The week schedule has the week running now (an old copy of the game data doesn't)."""
+    import time
+    now = now or time.time()
+    return any(c.get('start') and c.get('end') and c['start'] <= now <= c['end'] for c in cycles or [])
 
 
 def read_cycles(path):
