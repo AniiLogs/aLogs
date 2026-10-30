@@ -145,7 +145,12 @@ def canon(text, choices, cutoff=0.6):
     best = max(choices, key=lambda c: difflib.SequenceMatcher(None, t, norm(c)).ratio())
     return best if difflib.SequenceMatcher(None, t, norm(best)).ratio() >= cutoff else text
 
-CLEAR_STARS = 20       # an Interlink clear: the full rating (game build 3846247: 20 a boss, BossRushMaxStarSideBoss)
+CLEAR_STARS = 20       # an Interlink clear: the full rating, 20 on the left and right bosses (BossRushMaxStarSideBoss)
+CENTER_STARS = 40      # and 40 on the center boss: a 26-star center run that ended at 95 s with most of its HP left was no clear
+
+def clear_stars(puppet_id):
+    """The full rating of an Interlink boss: 40 for this week's center boss, 20 for the others."""
+    return CENTER_STARS if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else CLEAR_STARS
 
 def first_num(s):
     """The number in an OCR read of tiled short text ('60 60 60' -> 60): the one most tiles agree on, so one misread
@@ -1488,8 +1493,10 @@ class Meter:
         t = self.ocr.read(crops)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
         rating, score, secs = first_num(t.get('rating')), num(t.get('score')), first_num(t.get('time'))
+        f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
+        full = clear_stars(f[0].row['puppetId'] if f else None)
         # the grade above the full rating is the kill, "Eliminate": the full stars
-        if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = CLEAR_STARS
+        if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = full
         players = []
         for i in range(4):
             name = (t.get(f'name{i}') or '').strip(' /|')
@@ -1507,12 +1514,11 @@ class Meter:
         elif not mine:
             log.info('result screen: not sure which slot is you (a party with other players, and your name not known yet), '
                      'so the character name is left as it is')
-        f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
-        # A clear: finished before the clock ran out with the full rating (CLEAR_STARS; it was 15 before the
-        # Whisperwake update), and the game's time is exact. A run quit early ("The team leader has ended the challenge.") also
-        # finishes under the clock, but with fewer stars: that is no clear.
+        # A clear: finished before the clock ran out with the full rating (clear_stars: 20 left and right, 40 in the
+        # center; it was 15 before the Whisperwake update), and the game's time is exact. A run quit early ("The team
+        # leader has ended the challenge.") also finishes under the clock, but with fewer stars: that is no clear.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
-        cleared = bool(f and secs is not None and 0 < secs < self.args.duration and f[0].bossrush and (rating or 0) >= CLEAR_STARS)
+        cleared = bool(f and secs is not None and 0 < secs < self.args.duration and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
         elif f and secs is not None and secs < self.args.duration:
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
