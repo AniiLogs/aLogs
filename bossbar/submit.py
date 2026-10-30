@@ -307,6 +307,16 @@ def _slot(cycle, boss_id):
     slot, split = reader.cycle_slot(cycle, boss_id)
     return {k: v for k, v in (('slot', slot), ('split', split)) if v is not None}
 
+def _lineup(summary):
+    """{'lineup': each slot's player and lead Aniimo from the Party screen, 'title': your title} for a run's extra."""
+    lineup = [{k: v for k, v in {'slot': m.get('slot'), 'name': (m.get('name') or '')[:40] or None, 'ai': m.get('ai'),
+                                 'self': True if m.get('self') else None, 'aniimo': (m.get('aniimo') or '')[:40] or None,
+                                 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}.items() if v is not None}
+              for m in summary.get('party') or []]
+    out = {'lineup': lineup} if any('aniimo' in m for m in lineup) else {}
+    if summary.get('title'): out['title'] = summary['title'][:40]
+    return out
+
 def run_payload(summary, uid, duration=180):
     """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter)."""
     res = summary.get('result') or {}
@@ -336,7 +346,8 @@ def run_payload(summary, uid, duration=180):
         'teamDps': bd.get('team_avg_dps'), 'meterDps': meter.get('dps'), 'meterDamage': meter.get('damage'),
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
         'extra': {'newBest': res.get('new_best'), 'trackedFromStart': meter.get('tracked_from_start'),
-                  'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId'))},
+                  'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId')),
+                  **_lineup(summary)},
     }
 
 def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):

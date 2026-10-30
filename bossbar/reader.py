@@ -320,6 +320,18 @@ def prep_white(img, box, scale, size=4):
             if min(r, g, b) > 165 and max(r, g, b) - min(r, g, b) < 50: dst[x, y] = 0
     return out
 
+def prep_grey(img, box, scale, size=3, pad=24):
+    """Dark grey text on a light card -> black on white; coloured marks next to it (an element icon after a name)
+    stay blank, so they don't take the line with them."""
+    c = img.crop(tuple(int(v) for v in box)).convert('RGB'); k = size / scale
+    c = c.resize((max(1, int(c.width * k)), max(1, int(c.height * k))), Image.BICUBIC)
+    out = Image.new('L', c.size, 255); src = c.load(); dst = out.load()
+    for y in range(c.height):
+        for x in range(c.width):
+            r, g, b = src[x, y]
+            if max(r, g, b) < 135 and max(r, g, b) - min(r, g, b) < 45: dst[x, y] = 0
+    return ImageOps.expand(out, border=pad, fill=255)
+
 def prep_bright(img, box, scale, size=2):
     """Any bright text (pink difficulty, orange numbers, yellow titles) on a darker background: brightness,
     stretched, as dark text on white. For coloured text that the white-only preparations drop."""

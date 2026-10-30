@@ -1488,8 +1488,10 @@ class Meter:
     # Interlink's Party screen (since the Whisperwake update, in place of the lobby): the boss on top, then the four
     # slots' name pills - 1P in the middle-left, 2P middle-right, 3P far left, 4P far right - as (x0, y0, x1, y1)
     PARTY_SLOTS = ((0.30, 0.17, 0.44, 0.21), (0.58, 0.185, 0.70, 0.225), (0.095, 0.222, 0.215, 0.262), (0.815, 0.209, 0.94, 0.249))
+    # ...and each slot's lead Aniimo card lower down ('Irisalis / Lv.60 CP:3578'; CP only on your own)
+    PARTY_CARDS = ((0.33, 0.548, 0.44, 0.605), (0.598, 0.563, 0.71, 0.62), (0.116, 0.6, 0.228, 0.657), (0.842, 0.587, 0.952, 0.643))
     # the game's AI teammates (its pills don't mark them any more): names seen filling an Interlink party
-    INTERLINK_NPCS = {'flora', 'mario', 'leonard'}
+    INTERLINK_NPCS = {'flora', 'mario', 'leonard', 'tammy'}
 
     def party_screen(self, im, now, u, ux, H):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
@@ -1501,9 +1503,12 @@ class Meter:
         self.party_seen = now; k = u / 2000
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
         crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
+        crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['chat'] = R.prep_text(im, box(0.035, 0.915, 0.23, 0.955), k)
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
+        crops['title'] = R.prep_bright(im, box(0.325, 0.14, 0.435, 0.168), k)      # your title over the 1P name
         t = self.ocr.read(crops)
+        # (Season Buffs' "Lv. 4" and Challenge's "4/4" are too small and short for OCR to read reliably: left out)
         alone = 'no team' in (t.get('chat') or '').lower()
         known = self.character_name; members = []
         for i in range(4):
@@ -1511,14 +1516,24 @@ class Meter:
             name = max(words, key=len) if words else ''        # the name: the longest word (marks and icons are 1-2 letters)
             if not name: continue
             mine = bool(known and same_name(known, name)) or (alone and not known and i == 0)
+            card = t.get(f'a{i}') or ''
+            pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
+            lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
+            # a card read that missed (an effect over it) keeps the last read of that slot
+            old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == i and m['name'] == name), {})
             members.append({'slot': i, 'name': name, 'self': mine,
-                            'ai': not mine and (alone or name.casefold() in self.INTERLINK_NPCS)})
+                            'ai': not mine and (alone or name.casefold() in self.INTERLINK_NPCS),
+                            'aniimo': pet.group(1).strip() if pet else old.get('aniimo'),
+                            'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
+                            'cp': int(cp.group(1)) if cp else old.get('cp')})
         boss = self.cycle_boss((t.get('boss') or '').strip(' /|'))
         row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
                     and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None
         if row: self.prep_boss = (now, row)
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}{', no team (the others are AI)' if alone else ''}")
         self.set_party(members, now)
+        title = re.sub(r'^[\W\d_]+', '', (t.get('title') or '').split('/')[-1]).strip()   # '.1 / Wind Champion'
+        if title and self.party: self.party['title'] = title
 
     def set_party(self, members, now):
         """This run's party (from the old prep screen or the Party screen), each slot's name voted over a few reads."""
@@ -1533,7 +1548,9 @@ class Meter:
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
         self.party = {'at': now, 'members': members, 'votes': votes}
         if changed:
-            log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}" for m in members))
+            log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
+                                           + (f" [{m['aniimo']} Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]" if m.get('aniimo') else '')
+                                           for m in members))
 
     def party_for_result(self, now):
         """The party read on the prep screen of this run (recent enough to be the same run), or None."""
@@ -1618,7 +1635,8 @@ class Meter:
         for p in players: p['self'] = bool((self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
-                                 **({'party': party} if party else {}))
+                                 **({'party': party} if party else {}),
+                                 **({'title': self.party['title']} if party and self.party.get('title') else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)
         self.out('status', f'result recorded: {boss} - score {score}, {rating} stars, {secs}s')
         self.end_sig = screen_sig(im)                           # the note stays only while this screen does
