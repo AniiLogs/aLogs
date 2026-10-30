@@ -148,9 +148,10 @@ def canon(text, choices, cutoff=0.6):
 CLEAR_STARS = 20       # an Interlink clear: the full rating (game build 3846247: 20 a boss, BossRushMaxStarSideBoss)
 
 def first_num(s):
-    """First number in an OCR read of tiled short text ('60 60 60' -> 60)."""
-    m = re.search(r'\d+', (s or '').replace('O', '0'))
-    return int(m.group()) if m else None
+    """The number in an OCR read of tiled short text ('60 60 60' -> 60): the one most tiles agree on, so one misread
+    tile doesn't win by coming first ('6 36 36' was read as 6 stars)."""
+    nums = re.findall(r'\d+', (s or '').replace('O', '0'))
+    return int(max(nums, key=lambda n: (nums.count(n), -nums.index(n)))) if nums else None
 
 # between the stage and its difficulty: " - ", which OCR sometimes reads with a stray letter ("j- Challenge")
 SIM_STAGE = re.compile(r'(Training|Trial|Crucible)\s*of\s*(Grass|Water|Fire).{0,6}?(Easy|Normal|Hard|Challenge)', re.I)
@@ -179,14 +180,18 @@ def last_uid(path):
 
 def parse_battle_data(text):
     """Battle Data cards: OCR gives each card's 4 labels, then its 4 values in the same order
-    (Average DPS, BREAK Value, Damage Taken, Heal Amount). A lone 'o'/'O' is a 0."""
-    keys = ('avg_dps', 'break', 'taken', 'heal'); cards = []; vals = []
-    for part in (p.strip() for p in (text or '').split(' / ')):
-        p = part.replace(',', '')
-        if re.fullmatch(r'[oO]', p): p = '0'
-        if re.fullmatch(r'\d+', p):
-            vals.append(int(p))
-            if len(vals) == 4: cards.append(dict(zip(keys, vals))); vals = []
+    (Average DPS, BREAK Value, Damage Taken, Heal Amount). A lone 'o'/'O' is a 0. Each card is read on its own,
+    from one 'Average DPS' label to the next: a value the OCR missed (a blank Heal) used to shift every later card
+    by one, so the next player's DPS became this one's heal. A card short of a value keeps the ones it has, in
+    order, and the missing ones are None (never another player's)."""
+    keys = ('avg_dps', 'break', 'taken', 'heal'); cards = []
+    for seg in re.split(r'[^/]*Average\s*D', text or '')[1:]:          # one segment per card, labels then values
+        vals = []
+        for part in (p.strip() for p in seg.split('/')):
+            p = part.replace(',', '')
+            if re.fullmatch(r'[oO]', p): p = '0'
+            if re.fullmatch(r'\d+', p): vals.append(int(p))
+        if len(vals) >= 3: cards.append(dict(zip(keys, vals[:4] + [None] * (4 - len(vals[:4])))))
     return cards
 
 # ---------------------------------------------------------------- timer
@@ -573,7 +578,9 @@ class Fight:
                     self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'
                     self.started_at_16 = xn_ocr == 16 and fill is not None and fill > 0.97
                     self.seg_fill = fill if fill is not None else 1.0
-            elif agreed and agreed != self.seg and abs(agreed - self.seg) <= 3:
+            # within a fight the counter only counts down: going up (x1->x4 reset the damage in 6 of 13 fights) takes
+            # three agreeing reads instead of two
+            elif agreed and agreed != self.seg and abs(agreed - self.seg) <= 3 and (agreed < self.seg or self.xn_votes.count(agreed) >= 3):
                 note = f'segment x{self.seg}->x{agreed} (counter)'
                 self.seg = agreed; self.seg_fill = fill if fill is not None else 1.0; self.refill_pending = 0
             elif fill is not None and self.seg_fill < 0.25 and fill > 0.7 and fill - self.seg_fill > 0.45:
@@ -998,7 +1005,10 @@ class Meter:
             if now - self.catch_seen > 30: log.info(f"Catch Countdown on screen: {heads.get('cc')!r}")
             self.catch_seen = now
         is_result = 'score' in heads.get('lbl', '').lower() and 'time' in heads.get('lbl', '').lower()
-        head = heads.get('h', ''); is_bd = 'battle' in head.lower()
+        # 'Battle Data' itself: 'Battle Buffs' and 'Holo-Battle I/II' share the word (21 of 29 detections were those,
+        # which ended fights and replaced a run's Battle Data with an empty one)
+        head = heads.get('h', ''); hl = re.sub(r'[^a-z]', '', head.lower())
+        is_bd = 'battle' in hl and 'dat' in hl and 'holo' not in hl and 'buff' not in hl
         if self.auto_active() and not is_result and not is_bd and now - self.hold_started > 4:
             self.end_auto('screen changed')
         if is_result:
@@ -2185,7 +2195,9 @@ class Meter:
                     try:
                         S.write_json(BAR_SPOT, self.bar_spots)
                     except OSError: pass
-            elif self.fight and now - self.bar_seen < BAR_GONE_GRACE:
+            # in Interlink, while the game log still has you in the run, the fight waits longer for its bar: hidden
+            # 20 s by an effect or a dropped capture, it split one Minespine run in two and sent the 13 s fragment
+            elif self.fight and now - self.bar_seen < (BAR_GONE_GRACE * 4 if self.fight.bossrush and self.bossrush_space else BAR_GONE_GRACE):
                 # The bar can hide for a while (effects, BREAK, ultimate animations, menus): the fight stays open and
                 # continues when the bar comes back. A "Catch Countdown" means the boss was caught.
                 self.watch_end_note(im)
@@ -2465,12 +2477,16 @@ def fmt(n):
     return f'{n / 1e6:.2f}M' if n >= 1e6 else f'{n / 1e3:.1f}K' if n >= 1e4 else f'{n:,.0f}'
 
 _last_status = [None]
+_status_logged = {}
 _meter = [None]
 def console_out(kind, data):
     if kind == 'status':
         if _meter[0]: _meter[0].status_text = data
-        if data != _last_status[0]:
-            print('\n' + time.strftime('%H:%M:%S'), data, flush=True); log.info(data)
+        # a status flipping between two messages several times a second ("can't see the game window" / "waiting for
+        # a boss bar": 25,000 lines, meter.log rotating every ~14 h) goes to the log once a minute per message
+        now = time.time()
+        if data != _last_status[0] and now - _status_logged.get(data, 0) >= 60:
+            print('\n' + time.strftime('%H:%M:%S'), data, flush=True); log.info(data); _status_logged[data] = now
         _last_status[0] = data
     elif kind == 'fight':                             # the overlay's other messages (fight_end, end_hide) aren't printed
         s = f"x{data['xn']}" if data.get('xn') else ''
