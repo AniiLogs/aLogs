@@ -268,6 +268,32 @@ def same_name(a, b):
     a, b = (a or '').strip().casefold(), (b or '').strip().casefold()
     return bool(a and b) and (a == b or (min(len(a), len(b)) >= 4 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85))
 
+def vote(votes, key, value):
+    """One read's value for `key` into `votes`; returns the value most reads so far agree on (the first seen on a tie;
+    a read that found nothing doesn't vote)."""
+    if value not in (None, ''): votes.setdefault(key, collections.Counter())[value] += 1
+    c = votes.get(key)
+    return max(c, key=lambda v: (c[v], -list(c).index(v))) if c else value
+
+def party_slots(players, party):
+    """Each result-screen (or Battle Data) column takes the Party screen's player of the same slot: both list players
+    by badge, 1P to 4P, left to right (a run as 2P with three real players lined up on all three screens, 30 Oct). The
+    name comes from the Party screen, read clearly there, with its AI flag and you; the column's own read only checks it.
+    A misread like 'Dyn*ht' no longer has to be guessed at. A column that clearly reads as another member's name (the
+    order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read."""
+    if not party: return
+    by_slot = {m['slot']: m for m in party}
+    sim = lambda a, b: difflib.SequenceMatcher(None, (a or '').casefold(), (b or '').casefold()).ratio()
+    for p in players:
+        m = by_slot.get(p['slot'])
+        other = max((x for x in party if x is not m), key=lambda x: sim(x['name'], p['name']), default=None)
+        if other and sim(other['name'], p['name']) >= 0.8 and (m is None or sim(other['name'], p['name']) >= sim(m['name'], p['name']) + 0.3):
+            log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, the Party screen's {other['name']!r} (slot {other['slot'] + 1}), not slot {p['slot'] + 1}'s {m and m['name']!r}")
+            m = other
+        if m is None: continue
+        if p['name'] and sim(m['name'], p['name']) < 0.3: log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, taken as slot {p['slot'] + 1}'s {m['name']!r}")
+        p.update(name=m['name'], ai=bool(m.get('ai')), self=bool(m.get('self')))
+
 def own_name(known, names, party):
     """Which name on the result screen is the player running the meter. You aren't always the 1P slot (in someone
     else's party you're 2P-4P), so only a sure answer counts: your saved name is among the slots, or the prep screen
@@ -308,6 +334,8 @@ TEXT_DIAGNOSTICS = ('battle_data', 'nobar')   # their .txt (what was read off th
 TEST_FRAME_DAYS = 7                 # Save test pictures: each day's folder is kept this long...
 TEST_FRAME_BYTES = 3 << 30          # ...and all of them together at most this much (oldest days go first)
 BATTLE_DATA_WAIT = 45               # seconds a best run waits for Battle Data before it goes with the result screen alone
+BATTLE_DATA_SETTLE = 4              # ...and once Battle Data is in, for its later reads to vote (each screen is read up to
+SCREEN_READS = 4                    # SCREEN_READS times; the value most reads agree on wins: one misread is outvoted)
 FIGHT_LOG_DAYS = 30                 # each fight's per-frame CSV is kept this long (its result in logs/fights stays)
 LEFTOVER_HOURS = 6                  # "only until its data is saved": anything a crash or diagnostics left behind
 KEEP_FOLDERS = {'submit_queue', 'fights', 'characters'}   # working folders the cleanup never removes, even when empty
@@ -1104,18 +1132,32 @@ class Meter:
         if self.fight: self.end_fight('Battle Data screen')           # can show up while the bar dropout is still bridged
         # once per appearance: a Battle Data screen left open (or reopened from a menu) is read once, not every 30 s
         shown_already = now - getattr(self, 'bd_seen', 0) < 6; self.bd_seen = now
-        if shown_already or now - self.battle_saved < 30: return
-        self.battle_saved = now; log.info(f'Battle Data screen detected (header OCR {head!r})')
+        # read again while it's up (SCREEN_READS in all, 0.5 s apart): each card value is the one most reads agree on
+        again = shown_already and now - self.battle_saved < 30 and getattr(self, 'bd_reads', 0) < SCREEN_READS             and now - getattr(self, 'bd_last', 0) >= 0.5
+        if (shown_already or now - self.battle_saved < 30) and not again: return
+        self.bd_last = now
+        if not again:
+            self.battle_saved = now; self.bd_reads = 0; self.bd_votes = {}; self.bd_shot = None
+            log.info(f'Battle Data screen detected (header OCR {head!r})')
+        self.bd_reads += 1
         # the four stat rows of all cards (dark text on light cards)
         rows = im.crop((int(ux + u * 0.125), int(H * 0.564), int(ux + u * 0.875), int(H * 0.73))).convert('L')
         # smooth (LANCZOS) enlarging keeps the small 720p digits apart, so no card goes missing
         k = max(1.0, 2 * 2000 / u); rows = rows.resize((int(rows.width * k), int(rows.height * k)), Image.LANCZOS)
         text = self.ocr.read({'d': ImageOps.expand(rows, border=20, fill=255)}).get('d', '')
-        cards = parse_battle_data(text); vals = [c['avg_dps'] for c in cards]
-        log.info(f'Battle Data: OCR {text!r} -> {cards}')   # whole: a run can be re-read from the log
+        read = parse_battle_data(text)
+        log.info(f'Battle Data read {self.bd_reads}: OCR {text!r} -> {read}')   # whole: a run can be re-read from the log
+        n = vote(self.bd_votes, 'cards', len(read) or None) or 0
+        cards = [{k: vote(self.bd_votes, (i, k), read[i][k] if i < len(read) else None) for k in ('avg_dps', 'break', 'taken', 'heal')}
+                 for i in range(n)]
+        vals = [c['avg_dps'] for c in cards if c['avg_dps'] is not None]
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
+        if again:                                                  # a later read: only the agreed numbers change
+            if lf: self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
+                                                          'screenshot': self.bd_shot, 'reads': self.bd_reads})
+            return
         stamp = time.strftime('%Y%m%d_%H%M%S'); out_dir = os.path.join(HERE, 'logs', 'battle_data'); os.makedirs(out_dir, exist_ok=True)
-        shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0])))
+        shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0]))); self.bd_shot = os.path.relpath(shot, HERE) if shot else None
         msg = f'Battle Data screen saved: {os.path.relpath(shot, HERE) if shot else "numbers only (no picture kept)"}'
         if vals: msg += f' - game team DPS {sum(vals):,} (players {", ".join(f"{v:,}" for v in vals)})'
         f = self.awaiting[0] if self.awaiting and now <= self.awaiting[1] else None
@@ -1644,8 +1686,12 @@ class Meter:
         """Fight result right after a boss: Challenge Rating (stars), Challenge Score, Completion Time and one
         highlight stat per player. It doesn't name the boss, so it is tied to the fight the meter just tracked.
         Rows go to logs/results.csv; a 'New Best Record' also updates that boss in scores.csv."""
-        if now - self.result_seen < 30: return                         # once per appearance
-        self.result_seen = now
+        # read again while it's up (SCREEN_READS in all, 0.4 s apart; the Battle Data click often ends it after one or
+        # two): each value is the one most reads agree on, and later reads only update the run's numbers
+        again = now - self.result_seen < 30
+        if again and (getattr(self, 'result_reads', 0) >= SCREEN_READS or now - getattr(self, 'result_last', 0) < 0.4): return
+        if not again: self.result_seen = now; self.result_reads = 0; self.result_votes = {}; self.result_shot = None
+        self.result_last = now; self.result_reads += 1
         if self.fight: self.end_fight('result screen')
         k = u / 2000; crops = {
             'rating': R.prep_short(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41), k),     # short: tiled
@@ -1659,23 +1705,20 @@ class Meter:
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
         t = self.ocr.read(crops)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
-        rating, score, secs = first_num(t.get('rating')), num(t.get('score')), first_num(t.get('time'))
+        V = lambda key, value: vote(self.result_votes, key, value)
+        rating, score, secs = V('rating', first_num(t.get('rating'))), V('score', num(t.get('score'))), V('time', first_num(t.get('time')))
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         full = clear_stars(f[0].row['puppetId'] if f else None)
         # the grade above the full rating is the kill, "Eliminate": the full stars
         if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = full
         players = []
-        party_names = [m['name'] for m in self.party_for_result(now) or []]
         for i in range(4):
-            name = (t.get(f'name{i}') or '').strip(' /|')
-            # the Party screen read this run's names clearly: a result-screen misread ('Ky ru', 'Shadow)') takes the
-            # party name it's closest to, when that's a clear match
-            close = difflib.get_close_matches(name, party_names, n=1, cutoff=0.6) if name and party_names else []
-            if close: name = close[0]
+            name = V(f'name{i}', (t.get(f'name{i}') or '').strip(' /|'))
             parts = [p.strip() for p in (t.get(f'stat{i}') or '').split(' / ') if p.strip()]
-            value = next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None)
-            label = canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS)
-            if name or value is not None: players.append({'name': name, 'stat': label, 'value': value})
+            value = V(f'value{i}', next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
+            label = V(f'label{i}', canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS))
+            if name or value is not None: players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
+        party_slots(players, self.party_for_result(now))
         mine = self.character_name if character_verified(self.uid) else \
             own_name(self.character_name, [p['name'] for p in players], self.party_for_result(now))
         if mine and mine != self.character_name:
@@ -1695,9 +1738,19 @@ class Meter:
         elif f and secs is not None and secs < self.args.duration:
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
         boss = f[0].title if f else '(unknown - meter saw no fight)'
-        log.info(f'result screen: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
+        log.info(f'result screen read {self.result_reads}: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
+        if again:                                                  # a later read: only the agreed numbers change
+            party = self.party_for_result(now)
+            you = next((m['name'] for m in party or [] if m.get('self')), None)
+            for p in players:
+                p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
+                p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
+            if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
+                                                   'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players,
+                                                   'screenshot': self.result_shot, 'reads': self.result_reads})
+            return
         d = os.path.join(HERE, 'logs', 'screens'); os.makedirs(d, exist_ok=True)
-        shot = self.picture(im, 'screens', 'result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
+        shot = self.picture(im, 'screens', 'result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True); self.result_shot = os.path.relpath(shot, HERE) if shot else None
         path = os.path.join(HERE, 'logs', 'results.csv'); new = not os.path.exists(path)
         with open(path, 'a', newline='', encoding='utf-8') as fh:
             w = csv.writer(fh)
@@ -1709,14 +1762,10 @@ class Meter:
                         fi and fi.damage, fi and round(fi.elapsed), fi and round(fi.damage / fi.elapsed) if fi and fi.elapsed > 1 else None,
                         fi and os.path.basename(fi.log.name), os.path.relpath(shot, HERE) if shot else ''])
         party = self.party_for_result(now)
-        if party:                                               # AI flags and you come from the prep screen
-            for p in players:
-                best = max(party, key=lambda m: difflib.SequenceMatcher(None, m['name'].casefold(), p['name'].casefold()).ratio())
-                if difflib.SequenceMatcher(None, best['name'].casefold(), p['name'].casefold()).ratio() >= 0.75:
-                    p['name'] = best['name']                    # "PuffiMD" on the result screen is the party's "PuffTMD"
-                p['ai'] = any(m['ai'] and m['name'] == p['name'] for m in party)
         you = next((m['name'] for m in party or [] if m.get('self')), None)
-        for p in players: p['self'] = bool((self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
+        for p in players:
+            p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
+            p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
@@ -1798,8 +1847,8 @@ class Meter:
             s['submit'] = False
             S.write_json(path, s, indent=1, ensure_ascii=False)
         if self.submitter and s.get('result') and f.bossrush and 'submit' not in s:
-            if s.get('battle_data'): self.decide_run(path)
-            else: self.pending_run = (path, time.time() + BATTLE_DATA_WAIT)
+            # Battle Data in: decided a few seconds later, after more reads of both screens have voted (vote_reads)
+            self.pending_run = (path, time.time() + (BATTLE_DATA_SETTLE if s.get('battle_data') else BATTLE_DATA_WAIT))
 
     def run_to_send(self, f):
         """Is this fight's run waiting for its Battle Data, or going to the leaderboard and not sent yet? (Then its
