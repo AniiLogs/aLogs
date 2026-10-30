@@ -181,10 +181,18 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 /* the sidebar foot: account (sign in / signed in as) above the meter state */
 .nav-foot { display: grid; gap: 10px; }
 .nav-meter { display: flex; align-items: center; gap: 8px; }
-.nav-account { justify-self: start; max-width: 100%; padding: 7px 14px; border: 1px solid var(--accent); border-radius: 999px;
-  background: var(--accent); color: var(--on-accent); font-weight: 700; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-account.is-signed-in { background: transparent; color: var(--accent); font-weight: 600; }
+/* signed in: the Discord pill (discord-button) with the name cut short to fit, and a chevron; its menu opens above */
+.nav-account-wrap { position: relative; display: grid; }
+.nav .nav-account { display: flex; justify-content: flex-start; gap: 8px; min-width: 0; }
 .nav-account[hidden] { display: none; }
+.nav-account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.nav-chevron { flex: none; font-size: 11px; opacity: 0.85; }
+.nav-avatar { width: 20px; height: 20px; flex: none; border-radius: 50%; object-fit: cover; }
+.nav-account-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 5; display: grid; gap: 2px; padding: 6px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+.nav-account-menu[hidden] { display: none; }
+.nav .nav-account-menu button { padding: 8px 10px; border-radius: 8px; color: var(--text); font-size: 13px; }
+.nav .nav-account-menu button:hover { background: var(--panel-2); }
 
 /* Sign in with Discord: Discord's own look (blurple, white logo and text), the same everywhere */
 .discord-button { display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border: 0; border-radius: 8px;

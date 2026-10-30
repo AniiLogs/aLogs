@@ -357,14 +357,37 @@
   const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
   let accountShown = null;
   // the sidebar: "Sign in to sync" while signed out, your name (opens the account settings) once signed in
-  function showNavAccount(name) {
+  // The account in the sidebar: a Discord-styled pill (avatar or Discord logo, your name, a chevron) like the site's,
+  // opening a small menu above it. Signed out, the "Sign in with Discord" pill takes its place.
+  function showNavAccount(name, avatar = null) {
     $("[data-nav-sign-in]").hidden = Boolean(name);
     const nav = $("[data-nav-account]");
     nav.hidden = !name;
-    nav.textContent = name ? `Signed in as ${name}` : "";
+    $("[data-nav-account-name]").textContent = name || "";
+    nav.title = name ? `Signed in as ${name}` : "";
+    const img = $("[data-nav-avatar]");
+    img.hidden = !(name && avatar);
+    if (name && avatar) img.src = avatar; else img.removeAttribute("src");
+    $(".discord-logo", nav).style.display = name && avatar ? "none" : "";
+    if (!name) closeAccountMenu();
   }
+  const accountMenu = $("[data-nav-account-menu]");
+  function closeAccountMenu() { accountMenu.hidden = true; $("[data-nav-account]").setAttribute("aria-expanded", "false"); }
   $("[data-nav-sign-in]").addEventListener("click", (event) => signIn(event.currentTarget));
-  $("[data-nav-account]").addEventListener("click", () => { $('[data-page="dps"]').click(); showDpsTab("leaderboard"); });
+  $("[data-nav-account]").addEventListener("click", (event) => {
+    event.stopPropagation();
+    accountMenu.hidden = !accountMenu.hidden;
+    event.currentTarget.setAttribute("aria-expanded", String(!accountMenu.hidden));
+  });
+  $$("[data-account-go]").forEach((item) => item.addEventListener("click", () => {
+    closeAccountMenu();
+    const go = item.dataset.accountGo;
+    if (go === "profile") { $('[data-page="site"]').click(); $('[data-site-tab="/?view=profile"]').click(); }
+    else if (go === "account") { $('[data-page="dps"]').click(); showDpsTab("leaderboard"); }
+    else $("[data-sign-out]").click();
+  }));
+  document.addEventListener("click", (event) => { if (!event.target.closest(".nav-account-wrap")) closeAccountMenu(); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeAccountMenu(); });
   async function showAccount() {
     const token = get("leaderboard.token") || "";
     const state = $("[data-account-state]");
@@ -380,7 +403,7 @@
       const body = await response.json().catch(() => ({}));
       state.textContent = response.ok ? `Signed in as ${body.account?.name || "your Discord account"}.`
         : "This sign-in no longer works (signed out or revoked). Sign in again.";
-      showNavAccount(response.ok ? body.account?.name || "Discord" : null);   // signed out: the sidebar offers sign-in
+      showNavAccount(response.ok ? body.account?.name || "Discord" : null, response.ok ? body.account?.avatarUrl || null : null);   // signed out: the sidebar offers sign-in
       // testers: the Beta Menu (the site answers beta and permissions next to account, not inside it)
       showBeta(response.ok && (body.beta ?? body.account?.beta) === true, body.permissions || body.account?.permissions || []);
     } catch {
