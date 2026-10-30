@@ -334,8 +334,11 @@ TEXT_DIAGNOSTICS = ('battle_data', 'nobar')   # their .txt (what was read off th
 TEST_FRAME_DAYS = 7                 # Save test pictures: each day's folder is kept this long...
 TEST_FRAME_BYTES = 3 << 30          # ...and all of them together at most this much (oldest days go first)
 BATTLE_DATA_WAIT = 45               # seconds a best run waits for Battle Data before it goes with the result screen alone
-BATTLE_DATA_SETTLE = 4              # ...and once Battle Data is in, for its later reads to vote (each screen is read up to
-SCREEN_READS = 4                    # SCREEN_READS times; the value most reads agree on wins: one misread is outvoted)
+RESULT_PAUSE = 5                    # seconds the automatic Battle Data session stays on the result screen before clicking,
+BATTLE_DATA_PAUSE = 5               # and holds on Battle Data once it's open, so each is read many times (inputs held)
+BATTLE_DATA_SETTLE = 6              # ...then a run is decided this long after Battle Data is in, once those reads voted
+SCREEN_READS = 10                   # reads of each screen per appearance; the value most reads agree on wins
+HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 FIGHT_LOG_DAYS = 30                 # each fight's per-frame CSV is kept this long (its result in logs/fights stays)
 LEFTOVER_HOURS = 6                  # "only until its data is saved": anything a crash or diagnostics left behind
 KEEP_FOLDERS = {'submit_queue', 'fights', 'characters'}   # working folders the cleanup never removes, even when empty
@@ -1128,12 +1131,16 @@ class Meter:
         if heads.get('me') and heads.get('uid'): self.test_frame(im, 'menu', now)
         if not is_bd: return
         self.test_frame(im, 'battle_data', now)
-        self.end_auto('Battle Data is open')
+        # Battle Data is open: keep the inputs held BATTLE_DATA_PAUSE more seconds while it's read again and again
+        if self.auto_until and not getattr(self, 'bd_hold', False):
+            self.bd_hold = True; self.auto_until = min(self.auto_until, now + BATTLE_DATA_PAUSE)
+            log.info(f'Battle Data is open: holding {BATTLE_DATA_PAUSE} s while it is read')
         if self.fight: self.end_fight('Battle Data screen')           # can show up while the bar dropout is still bridged
-        # once per appearance: a Battle Data screen left open (or reopened from a menu) is read once, not every 30 s
+        # one appearance is one Battle Data (left open, or reopened from a menu, it isn't a new one for 30 s), read again
+        # while it's up (SCREEN_READS in all, 0.5 s apart): each card value is the one most reads agree on
         shown_already = now - getattr(self, 'bd_seen', 0) < 6; self.bd_seen = now
-        # read again while it's up (SCREEN_READS in all, 0.5 s apart): each card value is the one most reads agree on
-        again = shown_already and now - self.battle_saved < 30 and getattr(self, 'bd_reads', 0) < SCREEN_READS             and now - getattr(self, 'bd_last', 0) >= 0.5
+        again = (shown_already and now - self.battle_saved < 30 and getattr(self, 'bd_reads', 0) < SCREEN_READS
+                 and now - getattr(self, 'bd_last', 0) >= 0.5)
         if (shown_already or now - self.battle_saved < 30) and not again: return
         self.bd_last = now
         if not again:
@@ -1230,7 +1237,7 @@ class Meter:
         # run is still being seen (SH reads ~1/s and drops it at the fade), and not just after a scene load's fade-in
         if now - getattr(self, 'sh_run_seen', 0) > 4 or now - getattr(self, 'egg_space_at', 0) < 8: return
         if self.hwnd and not wc.is_foreground(self.hwnd): return          # only while you're in the game
-        seconds = max(5, min(60, int(r.get('hold_seconds') or 60)))
+        seconds = max(HOLD_MIN, min(60, int(r.get("hold_seconds") or 60)))
         self.egg_hold = [now + seconds, 0.0, self.space]
         if r.get('hold_inputs', True): self.hold.start(seconds)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
@@ -1689,7 +1696,7 @@ class Meter:
         # read again while it's up (SCREEN_READS in all, 0.4 s apart; the Battle Data click often ends it after one or
         # two): each value is the one most reads agree on, and later reads only update the run's numbers
         again = now - self.result_seen < 30
-        if again and (getattr(self, 'result_reads', 0) >= SCREEN_READS or now - getattr(self, 'result_last', 0) < 0.4): return
+        if again and (getattr(self, 'result_reads', 0) >= SCREEN_READS or now - getattr(self, 'result_last', 0) < 0.45): return
         if not again: self.result_seen = now; self.result_reads = 0; self.result_votes = {}; self.result_shot = None
         self.result_last = now; self.result_reads += 1
         if self.fight: self.end_fight('result screen')
@@ -1778,8 +1785,10 @@ class Meter:
     #    keyboard/mouse and hides the controller) until Battle Data opens, the screen changes, or time runs out.
     def start_auto(self, now):
         r = C.load()['results']
-        self.auto_until = now + max(5, min(120, int(r.get('hold_seconds') or 60)))
-        self.clicks = 0; self.unread = 0; self.last_click = 0.0; self.hold_started = now
+        self.auto_until = now + max(HOLD_MIN, min(120, int(r.get("hold_seconds") or 60)))
+        # the first click waits RESULT_PAUSE (open_battle_data retries 1 s after last_click), so the result screen is read
+        # again and again first; the inputs are held meanwhile
+        self.clicks = 0; self.unread = 0; self.last_click = now + RESULT_PAUSE - 1.0; self.hold_started = now; self.bd_hold = False
         if r.get('hold_inputs'): self.hold.start(self.auto_until - now)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
 
