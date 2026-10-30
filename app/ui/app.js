@@ -81,7 +81,7 @@
   // ---------------------------------------------------------------- the AniiLogs website
   // The live site in a second webview (site.rs) laid exactly over the frame under the tabs, so it is always the same as
   // aniilogs.github.io. It is hidden whenever another page is open, and follows the frame when the window is resized.
-  let sitePage = "/leaderboard/";
+  let sitePage = "/";                 // Home first (inside aLogs the site hides its logo, its only way home)
   let siteSignedIn = false;   // the site view got its one-time sign-in from the app's account
   async function siteHandoff() {
     const token = get("leaderboard.token");
