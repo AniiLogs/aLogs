@@ -323,15 +323,6 @@
             </select></label>
         </div>
         <div class="group">
-          <h2>Updates</h2>
-          <label class="toggle"><input type="checkbox" data-k="app.auto_download"><span></span>
-            <div><strong>Download updates automatically</strong><small>New versions download in the background, so updating is just a restart. When off, aLogs still tells you about updates and downloads one only when you click.</small></div></label>
-          <label class="toggle"><input type="checkbox" data-k="app.beta_updates"><span></span>
-            <div><strong>Get beta updates</strong><small>Public betas of the next version, before it's released. They may have rough edges. While you're on a beta, betas keep coming either way until the release catches up.</small></div></label>
-          <div class="row"><button type="button" data-check-update>Check for updates</button><span class="hint" data-update-note></span></div>
-          <p class="hint">aLogs always checks for updates and shows them in the sidebar. Nothing installs until you choose: <strong>Install now</strong> closes aLogs, shows a progress bar while it installs and opens the new version; <strong>Next time aLogs opens</strong> installs it then. No installer to click through either way.</p>
-        </div>
-        <div class="group">
           <h2>Setup guide</h2>
           <label class="toggle"><input type="checkbox" data-k="app.show_guide"><span></span>
             <div><strong>Show the setup guide when aLogs starts</strong><small>Signing in, leaderboards and result screens, step by step. Turns itself off once you finish or skip it.</small></div></label>
@@ -411,6 +402,15 @@
           <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
           <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
           <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>
+        </div>
+        <div class="group">
+          <h2>Updates</h2>
+          <label class="toggle"><input type="checkbox" data-k="app.auto_download"><span></span>
+            <div><strong>Download updates automatically</strong><small>New versions download in the background, so updating is just a restart. When off, aLogs still tells you about updates and downloads one only when you click.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="app.beta_updates"><span></span>
+            <div><strong>Get beta updates</strong><small>Public betas of the next version, before it's released. They may have rough edges. While you're on a beta, betas keep coming either way until the release catches up.</small></div></label>
+          <div class="row"><button type="button" data-check-update>Check for updates</button><span class="hint" data-update-note></span></div>
+          <p class="hint">aLogs always checks for updates and shows them in the sidebar. Nothing installs until you choose: <strong>Install now</strong> closes aLogs, shows a progress bar while it installs and opens the new version; <strong>Next time aLogs opens</strong> installs it then. No installer to click through either way.</p>
         </div>
         <div class="group">
           <h2>Source code</h2>

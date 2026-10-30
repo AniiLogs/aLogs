@@ -36,8 +36,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **aLogs updates itself:** it checks for new versions on its own and shows them in the sidebar, with a progress
   bar while one downloads. **Install now** closes aLogs, installs with just a progress bar (no installer to click
   through) and opens the new version; **Next time aLogs opens** installs it then. Updates download in the background
-  unless you turn that off (General Settings › Updates), nothing installs without your choice, and only one downloaded update
-  is ever kept. Betas update the same way: General Settings › Updates › Get beta updates, and anyone already on a beta keeps getting
+  unless you turn that off (About › Updates), nothing installs without your choice, and only one downloaded update
+  is ever kept. Betas update the same way: About › Updates › Get beta updates, and anyone already on a beta keeps getting
   betas until the release catches up. About shows exactly which build you have (for example "0.1.28 · RC10").
   (This version still installs the usual way.)
 - **Setup guide:** a few short steps when aLogs starts: sign in with Discord, choose what goes to the leaderboards,
