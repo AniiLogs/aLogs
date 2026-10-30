@@ -1538,16 +1538,22 @@ class Meter:
         alone = 'no team' in (t.get('chat') or '').lower()
         known = self.character_name; members = []
         for i in range(4):
-            words = [w for w in re.split(r'[\s/|]+', t.get(f'n{i}') or '') if len(w) >= 2 and not re.fullmatch(r'[1-4Il]P', w)]
+            pill = t.get(f'n{i}') or ''
+            words = [w for w in re.split(r'[\s/|]+', pill) if len(w) >= 2 and not re.fullmatch(r'[1-4Il]P', w)]
             name = max(words, key=len) if words else ''        # the name: the longest word (marks and icons are 1-2 letters)
             if not name: continue
-            mine = bool(known and same_name(known, name)) or (alone and not known and i == 0)
+            # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
+            # and the result screen and Battle Data list players by badge, 1P to 4P (the pill's place if it misread)
+            badge = re.match(r'\s*([1-4Il])\s*P', pill)
+            slot = int(badge.group(1).translate(str.maketrans('Il', '11'))) - 1 if badge else i
             card = t.get(f'a{i}') or ''
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
+            # you: your saved name, else the card with CP (the game shows it only on your own), else 1P when on your own
+            mine = bool(known and same_name(known, name)) or (not known and bool(cp)) or (alone and not known and not cp and slot == 0)
             # a card read that missed (an effect over it) keeps the last read of that slot
-            old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == i and m['name'] == name), {})
-            members.append({'slot': i, 'name': name, 'self': mine,
+            old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == slot and m['name'] == name), {})
+            members.append({'slot': slot, 'name': name, 'self': mine,
                             'ai': not mine and (alone or name.casefold() in self.INTERLINK_NPCS),
                             'aniimo': pet.group(1).strip() if pet else old.get('aniimo'),
                             'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
@@ -1557,6 +1563,7 @@ class Meter:
                     and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None
         if row: self.prep_boss = (now, row)
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}{', no team (the others are AI)' if alone else ''}")
+        members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge
         self.set_party(members, now)
         title = re.sub(r'^[\W\d_]+', '', (t.get('title') or '').split('/')[-1]).strip()   # '.1 / Wind Champion'
         if title and self.party: self.party['title'] = title
