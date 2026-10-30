@@ -1564,27 +1564,34 @@ class Meter:
 
     def party_screen(self, im, now, u, ux, H):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
-        name, the voice icon), and whether the others are AI - "No team available. Cannot chat." at the bottom left
-        means you're on your own (every other slot is the game's), and the NPCs' own names say it in a team too. Read
-        in the bright-text preparation: the 1P name is yellow, which the white-text one loses. Feeds the same party as
-        the old prep screen, so the result screen can tell which name is you and fix its own misreads."""
+        name, the voice icon), and who is who. Every real player's card shows CP and the game's AI teammates' don't
+        (with real players in the party "No team available. Cannot chat." still shows, so it says nothing about AI).
+        You: your saved name, else the yellow name. Read in the bright-text preparation (the yellow name is lost to the
+        white-text one). Feeds the same party as the old prep screen, so the result screen can tell which name is you
+        and fix its own misreads."""
         if now - getattr(self, 'party_seen', 0) < 2: return
         self.party_seen = now; k = u / 2000
         keep_sample(im, 'party')
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
         crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
-        crops['chat'] = R.prep_text(im, box(0.035, 0.915, 0.23, 0.955), k)
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
         crops['title'] = R.prep_bright(im, box(0.325, 0.14, 0.435, 0.168), k)      # your title over the 1P name
         t = self.ocr.read(crops)
         # (Season Buffs' "Lv. 4" and Challenge's "4/4" are too small and short for OCR to read reliably: left out)
-        alone = 'no team' in (t.get('chat') or '').lower()
         known = self.character_name; members = []
+        def yellow(i):                                     # your own name is yellow (the others' white)
+            x0, y0, x1, y1 = (int(v) for v in box(*self.PARTY_SLOTS[i]))
+            px = [im.getpixel((x, y))[:3] for x in range(x0, x1, 3) for y in range(y0, y1, 3)]
+            # (yellow from (224,192,80) to (240,224,128) by scene; the yellowish 1P badge alone is ~1% of a pill, a name 3.5-5%)
+            return sum(1 for r, g, b in px if r >= 0xc8 and g >= 0xa8 and r - b >= 0x50) > 0.025 * len(px)
         for i in range(4):
             pill = t.get(f'n{i}') or ''
-            words = [w for w in re.split(r'[\s/|]+', pill) if len(w) >= 2 and not re.fullmatch(r'[1-4Il]P', w)]
-            name = max(words, key=len) if words else ''        # the name: the longest word (marks and icons are 1-2 letters)
+            # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
+            # as one letter, or two odd ones ('iA')
+            words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4Il]P', w)
+                     and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()))]
+            name = ''.join(words)
             if not name: continue
             # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
             # and the result screen and Battle Data list players by badge, 1P to 4P (the pill's place if it misread)
@@ -1593,12 +1600,12 @@ class Meter:
             card = t.get(f'a{i}') or ''
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
-            # you: your saved name, else the card with CP (the game shows it only on your own), else 1P when on your own
-            mine = bool(known and same_name(known, name)) or (not known and bool(cp)) or (alone and not known and not cp and slot == 0)
+            mine = bool(known and same_name(known, name)) or (not known and yellow(i))
             # a card read that missed (an effect over it) keeps the last read of that slot
             old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == slot and m['name'] == name), {})
             members.append({'slot': slot, 'name': name, 'self': mine,
-                            'ai': not mine and (alone or name.casefold() in self.INTERLINK_NPCS),
+                            # AI: no CP on the card (a card that didn't read falls back to the NPCs' names)
+                            'ai': not mine and (not cp if card.strip() else name.casefold() in self.INTERLINK_NPCS),
                             'aniimo': pet.group(1).strip() if pet else old.get('aniimo'),
                             'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
                             'cp': int(cp.group(1)) if cp else old.get('cp')})
@@ -1606,7 +1613,7 @@ class Meter:
         row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
                     and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None
         if row: self.prep_boss = (now, row)
-        log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}{', no team (the others are AI)' if alone else ''}")
+        log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}")
         members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge
         self.set_party(members, now)
         title = re.sub(r'^[\W\d_]+', '', (t.get('title') or '').split('/')[-1]).strip()   # '.1 / Wind Champion'
