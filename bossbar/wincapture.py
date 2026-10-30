@@ -42,6 +42,12 @@ class SharedCapture:
     NAME, MAGIC, HEADER, SLOTS, SLOT_BASE, PICTURE_BASE, PICTURE = r'Local\aLogs.Capture.v2', 0x50434C41, 4096, 16, 64, 320, 64
     SOURCES = {1: 'window copy (tabbed out)', 3: 'Desktop Duplication', 4: 'window capture'}
     AREA_KEEP = 2.0            # seconds an area stays asked for after its last use
+    # seconds read() may wait for its picture. The app copies a reader's picture in place with its seq odd the whole
+    # time (10-35 ms for a 4K frame) and serves each reader at the pace it reads, so the meter ran in step with the
+    # app and kept arriving mid-copy: 4 tries 2 ms apart gave up on up to half the frames (meter.log 2026-10-30,
+    # Desktop Duplication: 146 without a picture a minute at 10 ms copies, 631 at 33 ms; the 3 ms window copy: 0).
+    # Waiting returns the picture being written, newer than any it could have had; a new area waits the same way.
+    WAIT = 0.12
 
     def __init__(self, tag=0):
         """`tag` > 0: a second reader in this process with a slot of its own (e.g. the damage-number recorder's middle
@@ -52,6 +58,7 @@ class SharedCapture:
         self.screen_copy = False; self.copy_us = 0     # the last picture: our overlays may be in it (flags bit 1), copy time
         self.source = ''                               # where the last picture came from (flags bits 4-7)
         self.areas = []; self.box = None; self.request = 0
+        self.boxes = {}                                # request id -> box, for our last few requests (read)
         k = self.k = ctypes.windll.kernel32
         k.OpenFileMappingW.restype = W.HANDLE; k.OpenFileMappingW.argtypes = [W.DWORD, W.BOOL, W.LPCWSTR]
         k.MapViewOfFile.restype = ctypes.c_void_p
@@ -91,7 +98,7 @@ class SharedCapture:
             free = [i for i in range(self.SLOTS) if self._u64(base, self.SLOT_BASE + i * 16) < now_ms
                     or self._u32(base, self.SLOT_BASE + i * 16 + 12) == pid]
             if not free: return False
-            self.slot = free[0]; self.box = None
+            self.slot = free[0]; self.box = None; self.boxes = {}   # the slot's picture is someone else's
             ctypes.c_uint8.from_address(base + self.PICTURE_BASE + self.slot * self.PICTURE + 60).value = 0   # no shrink (the slot's last owner may have asked)
         at = self.SLOT_BASE + self.slot * 16
         ctypes.c_uint32.from_address(base + at + 12).value = pid
@@ -109,6 +116,7 @@ class SharedCapture:
             self.box = box; self.request = (self.request % 0xFFFFFFFF) + 1
             for k, v in enumerate(box): ctypes.c_uint16.from_address(base + at + 2 * k).value = v
             ctypes.c_uint32.from_address(base + at + 8).value = self.request
+            self.boxes = {r: b for r, b in list(self.boxes.items())[-3:]}; self.boxes[self.request] = box
 
     def read(self, hwnd, top_fraction=None):
         """The newest picture of this window (its top `top_fraction`, or all of it) as a PIL image, or None (app not
@@ -126,10 +134,19 @@ class SharedCapture:
         self._ask_area(base, now, (0, 0, 65535, top))
         if self._u64(base, 40) != (hwnd or 0): return None
         at = self.PICTURE_BASE + self.slot * self.PICTURE
-        for _ in range(4):
+        # tabbed out on Windows 10 the window copy comes 4 times a second: a new area isn't worth waiting for there
+        until = now + self.WAIT; area_until = now if self.source == self.SOURCES[1] else until
+        while True:
             seq = self._u64(base, at + 16)
-            if seq & 1: time.sleep(0.002); continue
-            if self._u32(base, at + 12) != self.request: return None              # our area isn't in yet
+            if seq & 1:                                                           # being written: it's nearly done
+                if time.time() >= until: return None
+                time.sleep(0.001); continue
+            # the picture of an earlier request whose box holds all we want does too: a box shrinking after a whole
+            # frame (AREA_KEEP) lost a frame each time, and between fights that flip-flopped every few seconds
+            box = self.boxes.get(self._u32(base, at + 12))
+            if box is None or box[:3] != (0, 0, 65535) or box[3] < top:          # our area isn't in yet
+                if time.time() >= area_until: return None
+                time.sleep(0.002); continue
             flags = self._u32(base, at + 48)
             # tabbed out on Windows 10 the app copies the window only 4 times a second (source 1): older is fine then
             fresh = 600 if flags >> 4 & 15 == 1 else max(150, 2 * self.interval)
@@ -156,7 +173,7 @@ class SharedCapture:
                 self.screen_copy, self.copy_us = bool(flags & 2), self._u32(base, at + 52)
                 self.source = self.SOURCES.get(flags >> 4 & 15, '?')
                 return im
-        return None
+            if time.time() >= until: return None                                 # rewritten while we read it
 
     def read_area(self, hwnd, area, shrink=1):
         """The part `area` (x0, y0, x1, y1 as shares of the client, 0-1) of the newest picture, as a PIL image, or None.
