@@ -16,11 +16,12 @@ export function changelogNotes(version) {
   return rest.slice(0, end >= 0 ? end : undefined).trim().replace(/\n(?![\n#-]|$)\s*/gu, " ");
 }
 
-export function feed({ version, rc, notes, url, installer }) {
+export function feed({ version, rc, beta, notes, url, installer }) {
   const sig = `${installer}.sig`;
   if (!existsSync(sig)) throw new Error(`${sig} is missing: this build wasn't signed for updates (build it with npm run build:rc).`);
   return {
-    version: `${version}+rc.${rc}`,
+    version: `${version}+rc.${rc}`,   // the updater orders builds by this, so it stays the RC number
+    ...(beta ? { beta } : {}),        // what players call it (B2), shown in the sidebar
     notes,
     pub_date: new Date().toISOString(),
     platforms: { "windows-x86_64": { signature: readFileSync(sig, "utf8").trim(), url } },

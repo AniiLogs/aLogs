@@ -10,7 +10,7 @@
 //   a beta also updates the app's beta feed (update-feed.mjs), so testers get it through the app
 //   add --dry-run to print what would happen, publish nothing
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { changelogNotes, feed, feedRelease, putJson } from "./update-feed.mjs";
 
 const REPO = "AniiLogs/aniilogs.github.io";
@@ -25,6 +25,10 @@ const rc = (name) => { const m = /^aLogs_(.+)_RC(\d+)_x64-setup\.exe$/u.exec(nam
 const newest = readdirSync(nsis).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
 if (!newest) throw new Error(`No test build of ${version} in ${nsis}: run npm run build:rc first.`);
 const installer = `${nsis}/${newest}`;
+// which beta this build is (B2), from the build itself (tauri-build.mjs); 0 for a build from before betas were numbered
+const built_as = JSON.parse(readFileSync("src-tauri/build.json", "utf8"));
+const beta = built_as.version === version && built_as.rc === rc(newest) ? built_as.beta ?? 0 : 0;
+const buildName = beta ? `B${beta}` : `RC${rc(newest)}`;
 
 // The GitHub login Git already uses on this PC.
 const credential = execFileSync("git", ["credential", "fill"], { input: "protocol=https\nhost=github.com\n\n" }).toString();
@@ -50,9 +54,9 @@ const betaTag = new RegExp(`^companion-v${version.replace(/\./gu, "\\.")}-beta(\
 // tester uploads from before this script (test-<version>-rc<n>) count as tester links too
 const isTest = (r) => r.tag_name === "test-build" || /^test-.+-rc\d+$/u.test(r.tag_name);
 let tag, name, asset, body, stale, fold = null;
-const built = `${version} RC${rc(newest)}, ${new Date().toISOString().slice(0, 10)}`;
+const built = `${version} ${buildName}, ${new Date().toISOString().slice(0, 10)}`;
 if (mode === "test") {
-  tag = "test-build"; name = `aLogs test build (${version} RC${rc(newest)})`; asset = "aLogs-Test-Setup.exe";
+  tag = "test-build"; name = `aLogs test build (${version} ${buildName})`; asset = "aLogs-Test-Setup.exe";
   body = `Test build for testers, replaced by each new one (this link always gives the newest). Not a release: ${built}.`;
   stale = releases.filter(isTest);
 } else {
@@ -93,9 +97,15 @@ const uploaded = await github(`https://uploads.github.com/repos/${REPO}/releases
   body: readFileSync(installer),
 });
 if (mode === "beta") {                            // the app's beta feed points at this build
-  const json = feed({ version, rc: rc(newest), notes: body, url: uploaded.browser_download_url, installer });
+  const json = feed({ version, rc: rc(newest), beta, notes: body, url: uploaded.browser_download_url, installer });
   await putJson({ headers, repo: REPO, release: await feedRelease({ headers, repo: REPO }), name: "beta.json", json });
-  console.log(`beta feed: ${json.version}`);
+  console.log(`beta feed: ${json.version} (${buildName})`);
+  if (beta) {                                     // the next build is the next beta: commit betas.json with this
+    const betas = JSON.parse(readFileSync("betas.json", "utf8"));
+    betas[version] = Math.max(betas[version] ?? 0, beta);
+    writeFileSync("betas.json", JSON.stringify(betas, null, 2) + "\n");
+    console.log(`betas.json: ${version} B${betas[version]} published (commit it)`);
+  }
 }
 const latest = await github(`https://api.github.com/repos/${REPO}/releases/latest`).catch(() => null);
 console.log(`published ${release.html_url}\ndownload  ${uploaded.browser_download_url} (${uploaded.size} bytes)\nlatest release is still ${latest?.tag_name}`);

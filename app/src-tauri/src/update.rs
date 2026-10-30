@@ -37,6 +37,20 @@ pub fn build_rc() -> u64 {
     serde_json::from_str::<Value>(BUILD).ok().and_then(|v| v["rc"].as_u64()).unwrap_or(0)
 }
 
+/// This build's public beta number (B2: 2), 0 for a build from before betas were numbered.
+pub fn build_beta() -> u64 {
+    serde_json::from_str::<Value>(BUILD).ok().and_then(|v| v["beta"].as_u64()).unwrap_or(0)
+}
+
+/// What players call this build: "B2", or "RC53" for one from before betas were numbered.
+pub fn build_name() -> String {
+    match (build_beta(), build_rc()) {
+        (0, 0) => String::new(),
+        (0, rc) => format!("RC{rc}"),
+        (beta, _) => format!("B{beta}"),
+    }
+}
+
 fn feed_rc(v: &semver::Version) -> u64 {
     v.build.as_str().strip_prefix("rc.").and_then(|n| n.parse().ok()).unwrap_or(0)
 }
@@ -87,13 +101,15 @@ fn verified(app: &AppHandle, info: &Value) -> Result<Vec<u8>, String> {
 
 /// What the window shows about the update found, if any.
 fn describe(app: &AppHandle) -> Option<Value> {
+    // the feed also says which beta it is (B3), for the sidebar; older feeds don't
+    let found_beta = app.state::<Pending>().0.lock().unwrap().as_ref().and_then(|u| u.raw_json["beta"].as_u64());
     let found = app.state::<Pending>().0.lock().unwrap().as_ref().map(|u| u.version.clone());
     let disk = saved();
     let version = found.or_else(|| disk.as_ref().and_then(|d| d["version"].as_str().map(String::from)))?;
     let r = rank(&version)?;
     let on_disk = disk.as_ref().is_some_and(|d| d["version"].as_str() == Some(version.as_str()));
     Some(json!({
-        "version": format!("{}.{}.{}", r.0, r.1, r.2), "rc": r.3, "downloaded": on_disk,
+        "version": format!("{}.{}.{}", r.0, r.1, r.2), "rc": r.3, "beta": found_beta, "downloaded": on_disk,
         "next_start": on_disk && disk.as_ref().is_some_and(|d| d["next_start"].as_bool() == Some(true)),
     }))
 }
@@ -252,10 +268,16 @@ pub fn start(app: &AppHandle) {
     });
 }
 
-/// This build's RC number, for About ("0.1.28 · RC10"), so everyone can tell exactly which build they're on.
+/// This build's RC number (log reports and test results: every build, counting up).
 #[tauri::command]
 pub fn build_number() -> u64 {
     build_rc()
+}
+
+/// This build's name for About ("0.1.28 · B2"), so everyone can tell exactly which build they're on.
+#[tauri::command]
+pub fn build_label() -> String {
+    build_name()
 }
 
 #[tauri::command]

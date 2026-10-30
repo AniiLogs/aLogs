@@ -1595,7 +1595,7 @@
   // update button restart aLogs into it. Before that, About's button still links to the download page.
   function showUpdate(info) {
     if (!info) return;
-    const label = `aLogs ${info.version}${info.rc ? ` (build ${info.rc})` : ""}`;
+    const label = `aLogs ${info.version}${info.beta ? ` B${info.beta}` : info.rc ? ` (build ${info.rc})` : ""}`;
     $("[data-update-box]").hidden = false;
     $("[data-update-progress]").hidden = true;
     $("[data-update-title]").textContent = info.next_start ? `${label} installs next time aLogs opens`
@@ -1646,8 +1646,8 @@
     let version = "";
     try {
       version = await window.__TAURI__.app.getVersion();
-      const rc = await invoke("build_number").catch(() => 0);
-      $("[data-app-version]").textContent = rc ? `${version} · RC${rc}` : version;
+      const build = await invoke("build_label").catch(() => "");
+      $("[data-app-version]").textContent = build ? `${version} · ${build}` : version;
     } catch {
       // version is cosmetic
     }

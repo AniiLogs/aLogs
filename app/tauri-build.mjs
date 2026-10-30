@@ -11,8 +11,11 @@ import { signUpdate, verifyUpdate } from "./sign-update.mjs";
 const version = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
 const counter = join("src-tauri", "target", "release", "bundle", `rc-${version}.txt`);   // the RC numbers of a version keep counting up
 const rc = (existsSync(counter) ? Number(readFileSync(counter, "utf8")) || 0 : 0) + 1;
-writeFileSync("src-tauri/build.json", JSON.stringify({ version, rc }) + "\n");
-console.log(`building ${version} RC${rc}`);
+// what players see: the beta this build would be (B1, B2, ...), one past the last one published (betas.json); the RC
+// number stays underneath, counting every build, for the updater
+const beta = (JSON.parse(readFileSync("betas.json", "utf8"))[version] ?? 0) + 1;
+writeFileSync("src-tauri/build.json", JSON.stringify({ version, rc, beta }) + "\n");
+console.log(`building ${version} B${beta} (RC${rc})`);
 
 const key = join(homedir(), ".tauri", "alogs-updater.key");
 if (!existsSync(key)) throw new Error(`No update-signing key at ${key}: run npx tauri signer generate --ci -p "" -w "${key}"`);

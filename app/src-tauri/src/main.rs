@@ -456,7 +456,8 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
         }
     }
     let info = format!(
-        "aLogs {version} (RC {})\nmeter running: {meter_on}\nsent: {}\n",
+        "aLogs {version} ({}, RC {})\nmeter running: {meter_on}\nsent: {}\n",
+        update::build_name(),
         update::build_number(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
     );
@@ -647,7 +648,7 @@ fn main() {
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
             update::update_state, update::check_update, update::install_update, update::install_update_later,
-            update::build_number
+            update::build_number, update::build_label
         ])
         .setup(move |app| {
             let show = MenuItem::with_id(app, "show", "Open", true, None::<&str>)?;
