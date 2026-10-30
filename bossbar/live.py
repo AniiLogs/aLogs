@@ -420,7 +420,8 @@ def save_picture(im, folder, name):
     if im.width > 1920: im = im.resize((1920, round(im.height * 1920 / im.width)), Image.LANCZOS)
     path = os.path.join(d, name + '.jpg'); im.convert('RGB').save(path, quality=85); return path
 
-SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest), whatever Keep screenshots says
+SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest); they age out like every screenshot
+                           # (clean_old_screenshots: Keep screenshots, e.g. 7 days, or a few hours when it's 0)
 SAMPLE_GAP = 600           # seconds between two samples of one kind (one a run, not one a read)
 _sample_at = {}
 
