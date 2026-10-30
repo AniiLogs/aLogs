@@ -483,10 +483,14 @@ fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<boo
     let share = |v: f64, size: f64| ((v / size).clamp(0.0, 1.0) * 65535.0) as u16;
     let area = [share(x0, cw), share(y0, ch), share(x1, cw), share(y1, ch)];
     let (w, h, px) = reader.read(game.0 as isize, area, 250)?;
-    // the button itself can be in the picture (Desktop Duplication): its own icon isn't one of the game's
+    // the button itself can be in the picture (Desktop Duplication): its own icon isn't one of the game's. Only when it
+    // overlaps the strip: dragged just above Chat it shares Chat's columns, and skipping those lost Chat, which left a
+    // controller's two-icon row (Chat, Emoticon) with one icon, so the button hid as soon as a controller was used
     let mut p = POINT::default();
     let _ = unsafe { ClientToScreen(game, &mut p) };
-    let skip = LAST_LAYOUT.lock().unwrap().map(|l| (((l.x - p.x) as f64 - bx) / k, ((l.x + l.w - p.x) as f64 - bx) / k));
+    let (sy0, sy1) = (p.y as f64 + y0, p.y as f64 + y1);
+    let skip = LAST_LAYOUT.lock().unwrap().filter(|l| (l.y as f64) < sy1 && ((l.y + l.h) as f64) > sy0)
+        .map(|l| (((l.x - p.x) as f64 - bx) / k, ((l.x + l.w - p.x) as f64 - bx) / k));
     let row = icon_row(w, h, &px, skip);
     if let Some(r) = row {
         let close = |a: (f64, bool), b: (f64, bool)| (a.0 - b.0).abs() < 6.0 && a.1 == b.1;
@@ -807,7 +811,13 @@ mod tests {
             let data = std::fs::read(&path).unwrap();
             let (w, h) = (u32::from_le_bytes(data[0..4].try_into().unwrap()), u32::from_le_bytes(data[4..8].try_into().unwrap()));
             // the button sat left of Chat in some recordings (x 215-300 at 4K): skipped, as the app skips it
-            let row = icon_row(w, h, &data[8..], Some((215.0, 300.0)));
+            // (ALOGS_ROW_SKIP="<left>,<right>" in 4K units for another spot, "none" for none)
+            let skip = match std::env::var("ALOGS_ROW_SKIP").ok().as_deref() {
+                Some("none") => None,
+                Some(v) => v.split_once(',').and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?))),
+                None => Some((215.0, 300.0)),
+            };
+            let row = icon_row(w, h, &data[8..], skip);
             println!("{}: {:?}", path.file_name().unwrap().to_string_lossy(), row);
         }
     }
