@@ -171,6 +171,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   row went away (a menu, the map, a cutscene). It now goes with the icons within about a third of a second and comes
   back as quickly. The button's settings have their own section in General Settings, "The button over the game",
   where you can also pick how quickly it goes: at once, or after 0.15 to 1.5 seconds.
+- **Overworld HP follows your hits right away:** the meter could take an overworld boss's bar for an Interlink one
+  when a hit flashed white at its right end, and then read the first ~9% of damage as still full and every HP after
+  a few % high. Out in the world a bar is now always read as an overworld bar. Bars shorter than usual (Minespine's)
+  also weren't found again after effects covered them, so the HP labels came back late; they're found again at once.
 - **The result says who went down:** after an overworld boss falls, the DPS window reads "Defeated Alpha Jabster ·
   8 s" instead of just "Defeated".
 - **New spots for the DPS window, clear of the game's own notes:** placed from the game's own screen layout, so it

@@ -3044,6 +3044,8 @@ class Meter:
             if found and not self.plausible_bar(found, im): found = None
             if found and found.get('world') and ((self.fight and self.fight.bossrush) or self.bossrush_space):
                 found = R.as_bossrush_bar(found)                    # Interlink at x1: the xN box can be gone
+            elif found and not self.bossrush_space and scene_of(self.space) is not None and self.args.replay is None:
+                found = R.as_world_bar(found)                       # the open world: a hit flash is no xN box
             if found:
                 self.end_auto('boss bar is back')
                 old = self.bar

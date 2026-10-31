@@ -179,7 +179,9 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
         est = SPAN_PER_THICKNESS * thick
         rb = None
         if lb is not None:
-            for x in range(min(W - 1, int(lb + 1.25 * est)), int(lb + 0.8 * est), -1):   # rightmost bracket-like line
+            # rightmost bracket-like line. Overworld bars differ in length per boss (Minespine's 1389 px at 4K is 0.78 of
+            # the estimate, which kept its right bracket out of a 0.8-1.25 window: "no right bracket" all fight, B8)
+            for x in range(min(W - 1, int(lb + 1.25 * est)), int(lb + 0.55 * est), -1):
                 if _is_bracket(px, x, yc, thick, W, H): rb = x; break
     if lb is not None and rb is not None: span = rb - lb
     elif not cropped: return 'no left bracket' if lb is None else 'no right bracket'
@@ -187,7 +189,9 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
         span = est; lb = start - TRACK[0] * span
     world = False
     if not cropped:
-        if abs(lb + span / 2 - W / 2) > 0.04 * W: return 'not centred on screen'     # the boss bar is top-centre
+        # the boss bar is top-centre: overworld bars within a few px, Interlink's (its xN box adds to the right) 0.021 W;
+        # a hit flash's white edge taken for the right bracket was 0.034 W off (B8)
+        if abs(lb + span / 2 - W / 2) > 0.03 * W: return 'not centred on screen'
         # Boss rush bars end in a dark box with white "xN" digits; bosses out in the world (Alphas) have none and
         # their track runs on to the right bracket - with full HP that part is still red fill.
         x_from, x_to = int(lb + TRACK[1] * span + 0.01 * span), int(lb + 0.99 * span)
@@ -213,6 +217,13 @@ def as_bossrush_bar(bar):
     track: the dark right end is the empty box, not track. Only live HP red there says the track runs on."""
     if not bar.get('world') or bar.get('right_red', 0) > 0.2: return bar
     return {**bar, 'world': False, 'track_right': round(bar['left_bracket'] + TRACK[1] * bar['span'])}
+
+def as_world_bar(bar):
+    """Out in the open world (the game log says so) a bar is never Interlink's: a white hit flash near the right end
+    looks like the xN box, and an overworld bar read with Interlink's shorter track showed 100% through the first ~9%
+    of damage and read high after (B8: 79.3% for 72.3%). The track runs on to the right bracket."""
+    if bar.get('world'): return bar
+    return {**bar, 'world': True, 'track_right': round(bar['left_bracket'] + WORLD_TRACK_RIGHT * bar['span'])}
 
 def measure_fill(im, bar):
     """Fraction of the track still filled with live HP (white flash and ghost ignored)."""
