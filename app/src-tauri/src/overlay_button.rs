@@ -88,6 +88,32 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
+/// Whether the game's process runs as administrator (None: Windows won't say). Elevated, it gets keys and clicks that
+/// a normal aLogs never sees: the hotkey and the button then do nothing.
+fn game_elevated(game: HWND) -> Option<bool> {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows::Win32::System::Threading::{OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(game, Some(&mut pid));
+        // an elevated process can't even be opened for this from a normal one: that alone says "yes"
+        let process = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+            Ok(p) => p,
+            Err(_) => return Some(true),
+        };
+        let mut token = HANDLE::default();
+        let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token).is_ok();
+        let _ = CloseHandle(process);
+        if !opened { return Some(true); }
+        let mut info = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        let ok = GetTokenInformation(token, TokenElevation, Some(&mut info as *mut _ as *mut _), std::mem::size_of::<TOKEN_ELEVATION>() as u32, &mut len).is_ok();
+        let _ = CloseHandle(token);
+        ok.then_some(info.TokenIsElevated != 0)
+    }
+}
+
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == 0 && (wparam.0 as u32 == WM_LBUTTONDOWN || wparam.0 as u32 == WM_LBUTTONUP) {
         let hwnd = HWND(WINDOW.load(Ordering::SeqCst) as _);
@@ -779,6 +805,7 @@ unsafe fn run() {
     let mut hotkey: Option<(u32, u32)> = None; // (key, modifiers), registered while the game is in front
     let mut reader = crate::capture::AppReader::new();
     let mut homeland = (0u64, false); // (checked at, the meter says you're in a homeland: nothing is captured there)
+    let mut logged_game: isize = 0; // the game window last noted in app.log
     let mut row_seen = 0u64; // when the game's icon row was last seen (hidden 1.5 s without it: a bright scene can hide it a frame or two)
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -804,6 +831,14 @@ unsafe fn run() {
         }
         if (msg.message == WM_TIMER && msg.hwnd == hwnd) || (msg.message == WM_REFRESH && msg.hwnd == hwnd) {
             let game = HWND(crate::capture::find_game() as _);
+            if !game.is_invalid() && game.0 as isize != logged_game {
+                logged_game = game.0 as isize;
+                crate::app_log(&format!("button: game window found; the game runs as administrator: {}", match game_elevated(game) {
+                    Some(true) => "yes (Windows then keeps its keys and clicks from aLogs; run aLogs as administrator too, or the game normally)",
+                    Some(false) => "no",
+                    None => "unknown",
+                }));
+            }
             let front = GetForegroundWindow();
             let in_front = !game.is_invalid() && (front == game || front == hwnd || press().is_some());
             game_in_front = !game.is_invalid() && (front == game || front == hwnd);
@@ -813,7 +848,9 @@ unsafe fn run() {
             if want_key != hotkey {
                 let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
                 hotkey = want_key.filter(|&(vk, mods)| {
-                    RegisterHotKey(Some(hwnd), HOTKEY_ID, HOT_KEY_MODIFIERS(mods) | MOD_NOREPEAT, vk).is_ok()
+                    let ok = RegisterHotKey(Some(hwnd), HOTKEY_ID, HOT_KEY_MODIFIERS(mods) | MOD_NOREPEAT, vk).is_ok();
+                    if !ok { crate::app_log(&format!("button: the hotkey (key {vk}) couldn't be claimed: another program has it")); }
+                    ok
                 });
             }
             // in the icon row: only while the game shows it (capture off: we can't see it, so while in front)
