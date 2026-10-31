@@ -13,7 +13,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   screen: your team (each Aniimo's name and level, the MVP's damage, damage taken and healing shares), your
   Training Style (from the Core gizmo you started with), the Alpha Transformation, how many Holo-gizmos of each
   series you collected, and your coins. With automatic clicks on (the same setting as View Battle Data), it then
-  opens the Gizmo screen, goes through each series (scrolling long lists) to note which gizmos you picked, and
+  opens the Gizmo screen, opens its All list and scrolls through it to note every gizmo you picked, and
   goes back to the Victory screen; your inputs are held meanwhile. The icons are matched against your own game install; aLogs ships no game
   art.
 - **Your EXP on your profile:** besides your level, the EXP card the game shows when you gain EXP now sends
