@@ -131,6 +131,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **Sanctum Helper's maps only in Egg Heist:** the island or Sanctum map could pop up out in the world or in
+  Interlink. Sanctum Helper now waits until the game's own log says you're on the Egg Heist island or in a Sanctum.
 - **Keyboard, mouse and controllers stopping after a restart:** setting up controller blocking right after HidHide
   had been removed (by aLogs or by HidHide's own uninstaller) could leave Windows looking for a driver that was gone,
   and then no keyboard, mouse or controller worked after the next restart. Set up now asks you to restart Windows
