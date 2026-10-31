@@ -9,6 +9,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Holo-Battle Sim on the leaderboards:** after a win, aLogs reads the line under "Victory" (the battle time, the
   stage such as "Training of Water" or "Trial of Fire", and the difficulty) and sends your time to that stage's board,
   with the Victory screen as proof.
+- **Every Interlink run for your Battle History:** each finished run is sent, not only new bests, so you can look
+  back at all of them on the site. With it go a picture of the Party screen from just before the fight, your team of
+  three Aniimo and the buffs your leader chose (Season Buffs with their levels, and the Special Offering), read from
+  the icons on the Party screen. aLogs compares them with the icons in your own game install; it ships no game art.
 - **An on/off switch for screen capture, in the game's own icon row:** the aLogs icon sits just left of the game's
   Chat icon at the bottom left (it follows Chat when the row moves), drawn like the game's icons, with its hotkey
   under it: Insert by default, a key the game doesn't use; change it, make it a combination like Ctrl+Ins, or turn it
