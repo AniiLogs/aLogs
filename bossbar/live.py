@@ -970,16 +970,20 @@ class Meter:
             self.logw = LogWatcher(args.player_log, self.events); self.logw.start()
 
     # -- capture
-    def grab(self, partial=False, top_only=False):
+    def grab(self, partial=False, top_only=False, parts=None):
         """The game frame. `partial`: only its top part (TOP_PART) - enough to follow a locked boss bar, title, xN
         and timer, and noticeably cheaper at 4K. Coordinates are the same either way; frame_size is the full size.
         `partial` can also be a fraction of the height (the band down to the bar during a fight).
         `top_only`: the top part too, painted into a frame-sized image (the rest black) for the code that expects a
-        whole frame; frame_full says whether the frame is whole."""
+        whole frame; frame_full says whether the frame is whole.
+        `parts`: only these boxes (shares of the frame, 0-1), painted into a frame-sized image (the rest black), for a
+        screen read (screen_parts); the image's info['parts'] says so, and frame_full is True for the screen read."""
         part = (TOP_PART if partial is True else partial) if partial else (TOP_PART if top_only else None)
-        self.frame_full = not (partial or top_only)
+        if parts and self.args.replay is None: part = None
+        else: parts = None
+        self.frame_full = not (partial or top_only) or bool(parts)
         self.load_counts = c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
-        c['whole' if part is None else 'part'] += 1
+        c['parts' if parts else 'whole' if part is None else 'part'] = c.get('parts' if parts else 'whole' if part is None else 'part', 0) + 1
         if self.args.replay is not None:
             im = Image.open(self.args.replay.pop(0)).convert('RGB') if self.args.replay else None
             if im is not None: self.frame_size = im.size
@@ -1000,9 +1004,10 @@ class Meter:
             if not getattr(self, 'no_app_said', False):
                 self.no_app_said = True; self.out('status', 'Waiting for aLogs to share the game picture')
             return None
-        im = wc.grab_window(self.hwnd, part)
+        im = wc.grab_parts(self.hwnd, parts) if parts else wc.grab_window(self.hwnd, part)
         self.capture_stats(t0, im, 'shared ' + (wc.shared.source or 'capture'))
         if im is None: return None
+        if parts: im.info['parts'] = True
         self.use_screen = wc.shared.screen_copy        # our overlays can be in the picture: hide them from capture
         if (w, h) != self.last_size:
             log.info(f'frame size {w}x{h} ({wc.shared.source})')
@@ -1069,7 +1074,7 @@ class Meter:
                      else 'Holo-Battle Sim' if self.holosim_space else 'world' if self.space else '?')
             fmt = lambda v: '?' if v is None else f'{v:g}%'
             log.info(f"load: CPU meter {fmt(cpu and cpu['meter'])}, aLogs app {fmt(cpu and cpu['app'])}, game {fmt(cpu and cpu['game'])}, whole PC "
-                     f"{fmt(cpu and cpu['pc'])} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, "
+                     f"{fmt(cpu and cpu['pc'])} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, {c.get('parts', 0) / span:.1f} box frames/s, "
                      f"{c['reads'] / span:.1f} text reads/s | {where}, {'fight' if self.fight else 'idle' if self.idle() else 'busy'}"
                      f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'} | {gpu_text} | {ram_text} | {hitch_text} | {peak_text}")
             self.load_counts = {'whole': 0, 'part': 0, 'reads': 0}
@@ -1322,14 +1327,58 @@ class Meter:
         """Between fights only the frame's top part is copied (where a boss bar appears; ~3x cheaper at 4K) unless
         the whole frame is needed: for a screen read, the end-screen note, Egg Heist's fade or diagnostic frames."""
         if self.end_sig is not None or getattr(self, 'egg_hold', None) or getattr(self, 'sim_tour', None) or self.sanctum_in_run(now): return True
-        bg = getattr(self, 'screen_bg', None)
-        if bg is None or (not bg.busy and self.screen_read_due(now)): return True
         cap = self.args.cfg['capture']; a = self.after_fight
         if a and cap['end_screens'] and now - a[2] >= 3: return True
-        return bool(cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30)
+        if cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30: return True
+        bg = getattr(self, 'screen_bg', None)
+        if bg is None: return True
+        if not bg.busy and self.screen_read_due(now):
+            # only for a screen read: just its boxes (screen_parts), unless a screen is up (then whole frames until it's gone)
+            return True if now < getattr(self, 'full_until', 0) else 'screen'
+        return False
+
+    FULL_HOLD_S = 3.0      # whole frames for this long after a screen read saw text (B8)
+
+    def screen_parts(self, now):
+        """The boxes a screen read needs, as shares of the frame: the top part (where a boss bar shows; it's also
+        where most screens' titles are) and the boxes below it that this read looks at (screen_crops). About half of a
+        whole frame at 4K; nothing else leaves the graphics card. A screen found in them gets whole frames (read_screen)."""
+        W, H = self.frame_size
+        if not W or not H: return None
+        u = min(W, H * 16 / 9); ux = (W - u) / 2; pad = 0.004
+        skip = self.PLACE_SKIP.get(self.place(now), set()) if now - getattr(self, 'full_read_at', 0) < self.FULL_READ_S else set()
+        out = [(0.0, 0.0, 1.0, TOP_PART)]
+        for name, kind, (x0, y0, x1, y1) in self.SCREEN_BOXES:
+            if name in skip or y1 <= TOP_PART: continue
+            out.append((max(0.0, (ux + u * x0) / W - pad), max(0.0, y0 - pad), min(1.0, (ux + u * x1) / W + pad), min(1.0, y1 + pad)))
+        return out
+
+    @staticmethod
+    def screen_spotted(heads):
+        """Which screen read_screen would act on (its own tests, roughly), or None: the cue for whole frames (B8)."""
+        g = lambda k: (heads.get(k) or '').lower()
+        head = g('h'); hl = re.sub(r'[^a-z]', '', head)
+        tests = (('result', 'score' in g('lbl') and 'time' in g('lbl')), ('Holo-Battle Sim result', 'battle time' in g('sv')),
+                 ('challenge', 'challenge' in g('cs')), ('battle prep', 'score' in g('bs')), ('Catch Countdown', 'catch' in g('cc')),
+                 ('Egg Heist rank', 'rank info' in head), ('profile', head.strip().startswith('profile')),
+                 ('party', head.strip().startswith('party')), ('Holo-Battle', hl.startswith('holobattlei')),
+                 ('Egg Heist', 'adventure' in g('eh') or re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', g('ep')) is not None
+                  or re.fullmatch(r'\s*[x×]\s*\d{1,6}\s*', g('es')) is not None),
+                 ('menu', bool(g('me') and g('uid'))), ('Battle Data', 'battle' in hl and 'dat' in hl),
+                 ('EXP card', 'level' in g('pl')), ('catch card', bool(re.search(r'view|close', g('pb'))) and '/' in g('pc')))
+        return next((name for name, hit in tests if hit), None)
 
     def read_screen(self, im, now, heads):
         self.screens_gone(now)
+        # a screen the meter reads is up: its readers look at more of the frame than the boxes. A frame of only the
+        # boxes (screen_parts) is read again whole at once; whole frames go on until FULL_HOLD_S after the last one
+        spotted = self.screen_spotted(heads)
+        if spotted and self.args.replay is None:
+            self.full_until = now + self.FULL_HOLD_S
+            if im.info.get('parts'):
+                if now - getattr(self, 'parts_said', 0) > 60:
+                    self.parts_said = now; log.info(f"screen read: {spotted} spotted, whole frames while it's up")
+                self.last_results = 0; return
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
         self.game_menu(heads.get('me', ''), heads.get('uid', ''), im, u, ux, H)
         self.profile_notes(heads, im, now, u, ux, H)
@@ -2955,9 +3004,9 @@ class Meter:
         # a whole test picture now and then (at most one try a second: without a bar found there's nothing to save)
         if partial and self.fight and self.test_frame_due('fight', time.time()) and time.time() - getattr(self, 'test_try', 0) >= 1:
             partial = False; self.test_try = time.time()
-        top_only = (not partial and self.fight is None and self.bar is None and self.args.replay is None
-                    and not self.full_frame_due(time.time()))
-        im = self.grab(partial, top_only)
+        due = (not partial and self.fight is None and self.bar is None and self.args.replay is None) and self.full_frame_due(time.time())
+        top_only = not partial and self.fight is None and self.bar is None and self.args.replay is None and not due
+        im = self.grab(partial, top_only, self.screen_parts(time.time()) if due == 'screen' else None)
         self.away_note(im)
         self.hit_watch(time.time())
         if im is None:

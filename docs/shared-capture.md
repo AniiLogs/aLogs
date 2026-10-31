@@ -24,6 +24,13 @@ PrintWindow and BitBlt screen copies (v1) were removed: ~50 ms per 4K frame, and
 4. When `served id == request id`, the slot's seq is even and the picture time is fresh, copy your part from the
    pool (4096 + offset, stride, at client position x, y), then check the seq again.
 
+A reader that needs several separate parts of the frame (since B8) writes up to 7 of them (shares, as above) at
+2056 + 120·i, their count first, then the box around them all in the picture slot and the new request id. The app
+copies each part in the same pass and writes them one after another from the slot's offset (stride 0; each part
+w·4 bytes a row), with each part's x, y, w, h in client pixels next to its shares. An app from before B8 ignores the
+parts and sends the box around them, so the reader handles both (bossbar/wincapture.py `read_rects`). The meter uses
+this for screen reads between fights: the top band plus the screens' text boxes, about half of a 4K frame.
+
 A reader can also ask the graphics card to shrink its area first (picture slot byte 60: 2 or 4; byte 61 says what
 was used): the card averages it down through mip levels and only the smaller picture leaves it. The damage-number
 recorder (bossbar/dmgnumbers.py) uses this to keep 60 frames a second of a 4K screen's middle at 1080p size.

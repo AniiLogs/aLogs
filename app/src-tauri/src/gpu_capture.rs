@@ -38,7 +38,7 @@ use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDe
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 
 /// Staging textures kept between frames (one per area size the readers ask for), the least recently used going first.
-const STAGING_KEPT: usize = 8;
+const STAGING_KEPT: usize = 24;
 /// ...and at most this much memory for each kind (a 4K frame is 33 MB: eight of those held 265 MB).
 const STAGING_BYTES: usize = 128 << 20;
 

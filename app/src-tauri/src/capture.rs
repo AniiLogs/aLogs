@@ -36,6 +36,12 @@
 //!      56 u16 client width, height when it was taken
 //!      60 u8 shrink wanted (reader: 1, 2 or 4; the card averages the area down by that)   61 u8 shrink used (app):
 //!         the picture is then w / shrink by h / shrink pixels (rounded down), x, y, w, h still in client pixels
+//!   2056 rectangles (B8): SLOTS x 120, for a reader that needs several separate parts of the frame (the meter's
+//!      boxes) instead of the one box around them all:
+//!      0 u32 count (0: the single area above, as before; at most 7)   4 u32 unused
+//!      8 7 x 16 { u16 x0, y0, x1, y1 shares (reader), u16 x, y, w, h client pixels (app, w = 0: off the image) }
+//!      The reader writes them before its request id, as with the area. Its picture is then the parts one after
+//!      another in its pool part, each w * 4 bytes a row (stride 0 at 36); 40-46 is the box around them; shrink 1.
 //!   2048 u64 heartbeat (unix ms): the capture thread is alive; readers let go of the mapping once it's a few
 //!      seconds old (the app was closed)
 //!   4096 pixels: the readers' pictures, BGRA, top row first, in a pool of two full frames.
@@ -71,6 +77,9 @@ const SLOT_BASE: usize = 64;
 const PICTURE_BASE: usize = 320;
 const PICTURE_SIZE: usize = 64;
 const HEARTBEAT: usize = 2048;
+const RECT_BASE: usize = 2056;
+const RECT_SIZE: usize = 120;
+const RECTS: usize = 7;
 const MAX_W: usize = 3840;
 const MAX_H: usize = 2160;
 /// Room for the readers' pictures: two whole frames (say a full frame for the meter plus everyone's small areas).
@@ -170,6 +179,23 @@ impl Shared {
             Area { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
         };
         (area, request)
+    }
+
+    /// The separate parts slot `slot` wants (client pixels), when it asks for several instead of one area.
+    fn rects(&self, slot: usize, width: u32, height: u32) -> Option<Vec<Area>> {
+        let at = RECT_BASE + slot * RECT_SIZE;
+        let count = (self.get_u32(at) as usize).min(RECTS);
+        if count == 0 {
+            return None;
+        }
+        Some((0..count).map(|k| {
+            let share = [0, 2, 4, 6].map(|j| self.get_u16(at + 8 + 16 * k + j) as u64);
+            let x0 = (share[0] * width as u64 / 65535).min(width as u64 - 1) as u32;
+            let y0 = (share[1] * height as u64 / 65535).min(height as u64 - 1) as u32;
+            let x1 = ((share[2] * width as u64 + 65534) / 65535).clamp(x0 as u64 + 1, width as u64) as u32;
+            let y1 = ((share[3] * height as u64 + 65534) / 65535).clamp(y0 as u64 + 1, height as u64) as u32;
+            Area { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+        }).collect())
     }
 
     fn pool(&self) -> *mut u8 {
@@ -589,6 +615,7 @@ fn serve(
         }
         readers[i] = Reader::default();
         shared.write(PICTURE_BASE + i * PICTURE_SIZE + 16, || shared.put_u32(PICTURE_BASE + i * PICTURE_SIZE + 12, 0));
+        shared.put_u32(RECT_BASE + i * RECT_SIZE, 0); // the next reader of this slot may not know about parts
     }
     let mut result = None;
     // first every due reader's area is queued on the graphics card, then read one after another below: the round
@@ -600,12 +627,15 @@ fn serve(
         let at = PICTURE_BASE + slot * PICTURE_SIZE;
         let shrink = match unsafe { *shared.base.add(at + 60) } { 2 => 2u32, 4 => 4, _ => 1 };
         if r.request == request && r.generation == generation && r.shrink == shrink && shared.get_u32(at + 12) == request { continue; }
-        let (x0, y0) = ((cx + area.x as i32).max(0), (cy + area.y as i32).max(0));
-        let (x1, y1) = ((cx + (area.x + area.w) as i32).min(iw as i32), (cy + (area.y + area.h) as i32).min(ih as i32));
-        if x1 <= x0 || y1 <= y0 { continue; }
-        let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
-        let shrink = if w / shrink == 0 || h / shrink == 0 { 1 } else { shrink };
-        gpu.queue(x0 as u32, y0 as u32, w, h, shrink);
+        if let Some(parts) = shared.rects(slot, width, height) {
+            for p in parts.iter().filter_map(|p| on_image(*p, cx, cy, iw, ih)) {
+                gpu.queue(p.x, p.y, p.w, p.h, 1);
+            }
+            continue;
+        }
+        let Some(p) = on_image(area, cx, cy, iw, ih) else { continue };
+        let shrink = if p.w / shrink == 0 || p.h / shrink == 0 { 1 } else { shrink };
+        gpu.queue(p.x, p.y, p.w, p.h, shrink);
     }
     for slot in (0..SLOTS).filter(|&i| active[i] && only.map_or(true, |o| o == i)) {
         let r = readers[slot];
@@ -622,6 +652,20 @@ fn serve(
         if r.request == request && r.generation == generation && r.shrink == shrink && shared.get_u32(at + 12) == request {
             shared.put_u64(at + 24, now); // same image, same area: still current
             readers[slot].last = now;
+            continue;
+        }
+        if let Some(parts) = shared.rects(slot, width, height) {
+            match serve_parts(shared, gpu, slot, &parts, (cx, cy, iw, ih), (width, height), flags, trust_black, readers, &active, request, now) {
+                Some(Some(shown)) => {
+                    result = Some(result.unwrap_or(false) || shown);
+                    readers[slot] = Reader { last: now, request, generation, shrink: 1, ..readers[slot] };
+                }
+                Some(None) => {}
+                None => {
+                    gpu.end_round();
+                    return None;
+                }
+            }
             continue;
         }
         // the part of the area that's on the image (a window partly off its screen is cut to what's on it)
@@ -676,6 +720,76 @@ fn serve(
         shared.put_u32(56, shared.get_u32(56).wrapping_add(1));
     }
     Some(result.unwrap_or(true))
+}
+
+/// `area` (client pixels) as image pixels, cut to what's on the image (a window partly off its screen).
+fn on_image(area: Area, cx: i32, cy: i32, iw: u32, ih: u32) -> Option<Area> {
+    let (x0, y0) = ((cx + area.x as i32).max(0), (cy + area.y as i32).max(0));
+    let (x1, y1) = ((cx + (area.x + area.w) as i32).min(iw as i32), (cy + (area.y + area.h) as i32).min(ih as i32));
+    (x1 > x0 && y1 > y0).then(|| Area { x: x0 as u32, y: y0 as u32, w: (x1 - x0) as u32, h: (y1 - y0) as u32 })
+}
+
+/// Writes a reader's picture made of several parts (see the layout: rectangles), one after another in its part
+/// of the pool. Some(Some(shown)): written; Some(None): skipped this time (nothing on the image, no room);
+/// None: the graphics card failed.
+#[allow(clippy::too_many_arguments)]
+fn serve_parts(
+    shared: &Shared, gpu: &mut dyn Picture, slot: usize, parts: &[Area], image: (i32, i32, u32, u32), size: (u32, u32),
+    flags: u32, trust_black: bool, readers: &mut [Reader; SLOTS], active: &[bool; SLOTS], request: u32, now: u64,
+) -> Option<Option<bool>> {
+    let (cx, cy, iw, ih) = image;
+    let on: Vec<Option<Area>> = parts.iter().map(|p| on_image(*p, cx, cy, iw, ih)).collect();
+    let bytes: usize = on.iter().flatten().map(|p| p.w as usize * p.h as usize * 4).sum();
+    if bytes == 0 {
+        return Some(None);
+    }
+    if readers[slot].room < bytes || readers[slot].request != request {
+        match place(readers, active, slot, bytes) {
+            Some(offset) => (readers[slot].offset, readers[slot].room) = (offset, bytes),
+            None => return Some(None),
+        }
+    }
+    let at = PICTURE_BASE + slot * PICTURE_SIZE;
+    let rects = RECT_BASE + slot * RECT_SIZE;
+    let started = Instant::now();
+    let mut shown = false;
+    let ok = shared.write(at + 16, || {
+        let (mut offset, mut bx0, mut by0, mut bx1, mut by1) = (readers[slot].offset, i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for (k, p) in on.iter().enumerate() {
+            let Some(p) = p else {
+                for j in 0..4 {
+                    shared.put_u16(rects + 8 + 16 * k + 8 + 2 * j, 0);
+                }
+                continue;
+            };
+            let out = unsafe { shared.pool().add(offset) };
+            if !gpu.read(p.x, p.y, p.w, p.h, out, p.w as usize * 4, 1) {
+                return false;
+            }
+            shown |= painted(out, p.w, p.h, p.w as usize * 4);
+            let (x, y) = (p.x as i32 - cx, p.y as i32 - cy);
+            for (j, v) in [x, y, p.w as i32, p.h as i32].into_iter().enumerate() {
+                shared.put_u16(rects + 8 + 16 * k + 8 + 2 * j, v as u16);
+            }
+            (bx0, by0, bx1, by1) = (bx0.min(x), by0.min(y), bx1.max(x + p.w as i32), by1.max(y + p.h as i32));
+            offset += p.w as usize * p.h as usize * 4;
+        }
+        unsafe { *shared.base.add(at + 61) = 1 };
+        shared.put_u64(at + 24, now);
+        shared.put_u32(at + 32, readers[slot].offset as u32);
+        shared.put_u32(at + 36, 0);
+        for (k, v) in [bx0, by0, bx1 - bx0, by1 - by0].into_iter().enumerate() {
+            shared.put_u16(at + 40 + 2 * k, v as u16);
+        }
+        shared.put_u32(at + 48, (shown || trust_black) as u32 | flags);
+        shared.put_u32(at + 52, started.elapsed().as_micros().min(u32::MAX as u128) as u32);
+        shared.put_u16(at + 56, size.0 as u16);
+        shared.put_u16(at + 58, size.1 as u16);
+        shared.put_u16(at + 62, gpu.captured_at().map_or(0, |t| t.elapsed().as_millis().min(u16::MAX as u128) as u16));
+        shared.put_u32(at + 12, request);
+        true
+    });
+    ok.then_some(Some(shown))
 }
 
 /// The app's own reader (the capture button over the game, overlay_button.rs): request slot SLOTS - 1, kept under
@@ -1044,6 +1158,24 @@ for part in (0.42, None, 0.42):
         if im is not None: ok += 1; size = im.size
         time.sleep(0.05)
     print(f'part {part}: {ok} frames in 1.5 s, last {size if ok else None}, {ms / max(ok, 1) * 1000:.1f} ms per read, source {wc.shared.source!r}, overlays {wc.shared.screen_copy}', flush=True)
+# several parts (B8): the same pixels as a whole frame there, black elsewhere
+from PIL import ImageChops
+rects = [(0, 0, 1, 0.42), (0.3, 0.5, 0.4, 0.6), (0.6, 0.7, 0.9, 0.8)]
+ok = 0; t = time.time(); ms = 0
+while time.time() - t < 1.5:
+    t0 = time.perf_counter(); im = wc.shared.read_rects(hwnd, rects); ms += time.perf_counter() - t0
+    if im is not None: ok += 1; parts = im
+    time.sleep(0.05)
+whole = None
+for _ in range(20):
+    whole = wc.shared.read(hwnd, None)
+    if whole is not None: break
+    time.sleep(0.05)
+W, H = whole.size
+def box(r): return (int(r[0] * W), int(r[1] * H), int(r[2] * W), int(r[3] * H))
+same = [ImageChops.difference(parts.crop(box(r)), whole.crop(box(r))).getbbox() for r in rects]
+black = parts.crop((int(0.05 * W), int(0.9 * H), int(0.25 * W), H)).getbbox() is None
+print(f'parts: {ok} frames in 1.5 s, {ms / max(ok, 1) * 1000:.1f} ms per read, size {parts.size}, same as whole {same}, rest black {black}', flush=True)
 "#;
 
     fn meter_reader_beside_corner(hwnd: HWND, next: impl FnMut(&Shared, &mut [Reader; SLOTS])) {
@@ -1066,7 +1198,7 @@ for part in (0.42, None, 0.42):
         let mut readers = [Reader::default(); SLOTS];
         let started = Instant::now();
         let (mut corner, mut copy_us, mut copies) = (0, 0u64, 0u64);
-        while started.elapsed().as_millis() < 5000 {
+        while started.elapsed().as_millis() < 9000 {
             shared.put_u64(SLOT_BASE + 15 * 16, now_ms() + 2000);
             shared.put_u32(SLOT_BASE + 15 * 16 + 8, 16);
             let before = readers;

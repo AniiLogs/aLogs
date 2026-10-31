@@ -66,6 +66,7 @@ class SharedCapture:
         k.UnmapViewOfFile.argtypes = [ctypes.c_void_p]; k.CloseHandle.argtypes = [W.HANDLE]
         self.handle = None
 
+    RECT_BASE, RECT_SIZE, RECTS = 2056, 120, 7   # several separate parts instead of one box (B8 apps, read_rects)
     HEARTBEAT, HEARTBEAT_STALE = 2048, 5000   # the app's capture thread stamps this; older than 5 s: the app is gone
 
     def _close(self):
@@ -114,6 +115,7 @@ class SharedCapture:
         at = self.PICTURE_BASE + self.slot * self.PICTURE
         if box != self.box or self._u32(base, at + 8) != self.request:
             self.box = box; self.request = (self.request % 0xFFFFFFFF) + 1
+            ctypes.c_uint32.from_address(base + self.RECT_BASE + self.slot * self.RECT_SIZE).value = 0   # one area, no parts
             for k, v in enumerate(box): ctypes.c_uint16.from_address(base + at + 2 * k).value = v
             ctypes.c_uint32.from_address(base + at + 8).value = self.request
             self.boxes = {r: b for r, b in list(self.boxes.items())[-3:]}; self.boxes[self.request] = box
@@ -172,7 +174,86 @@ class SharedCapture:
             if self._u64(base, at + 16) == seq:
                 self.screen_copy, self.copy_us = bool(flags & 2), self._u32(base, at + 52)
                 self.source = self.SOURCES.get(flags >> 4 & 15, '?')
+                self._times(base, at)
                 return im
+            if time.time() >= until: return None                                 # rewritten while we read it
+
+    def _times(self, base, at):
+        self.picture_time = self._u64(base, at + 24) / 1000      # when the app took it (to tell frames apart)
+        # when the game showed it: the app writes the image's age then (window capture's own frame time; 0
+        # when the source doesn't say), so fight times follow the game, not when the meter got to reading
+        self.frame_time = self.picture_time - self._u16(base, at + 62) / 1000
+
+    @classmethod
+    def merge_rects(cls, rects, most=None):
+        """`rects` (shares 0-65535: x0, y0, x1, y1) cut to `most` (RECTS) by joining the two whose joined box adds
+        the least area, until few enough."""
+        most = most or cls.RECTS; rs = [tuple(r) for r in rects]
+        area = lambda r: (r[2] - r[0]) * (r[3] - r[1])
+        join = lambda a, b: (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+        while len(rs) > most:
+            i, j = min(((i, j) for i in range(len(rs)) for j in range(i + 1, len(rs))),
+                       key=lambda ij: area(join(rs[ij[0]], rs[ij[1]])) - area(rs[ij[0]]) - area(rs[ij[1]]))
+            rs[i] = join(rs[i], rs[j]); del rs[j]
+        return rs
+
+    def read_rects(self, hwnd, rects):
+        """Only the parts `rects` (shares of the client, 0-1: x0, y0, x1, y1; joined down to RECTS) of the newest
+        picture, pasted in place on a black frame of the client's size, as a PIL image, or None. Much less leaves the
+        graphics card than the whole frame. An app from before B8 sends the box around them all instead (same result)."""
+        import time
+        now = time.time()
+        if self.last_call: self.interval = min(1000.0, max(25.0, 0.7 * self.interval + 0.3 * (now - self.last_call) * 1000))
+        self.last_call = now
+        base = self._open(now)
+        if not base or not self._request(base, int(now * 1000)): return None
+        want = tuple(sorted(self.merge_rects([tuple(min(65535, max(0, int(v * 65535) + (k >= 2))) for k, v in enumerate(r))
+                                              for r in rects])))
+        at = self.PICTURE_BASE + self.slot * self.PICTURE; ra = self.RECT_BASE + self.slot * self.RECT_SIZE
+        if want != self.box or self._u32(base, at + 8) != self.request or self._u32(base, ra) != len(want):
+            self.box = want; self.request = (self.request % 0xFFFFFFFF) + 1
+            ctypes.c_uint8.from_address(base + at + 60).value = 0
+            for k, r in enumerate(want):
+                for j, v in enumerate(r): ctypes.c_uint16.from_address(base + ra + 8 + 16 * k + 2 * j).value = v
+            ctypes.c_uint32.from_address(base + ra).value = len(want)
+            whole = tuple(f(r[k] for r in want) for k, f in enumerate((min, min, max, max)))   # for apps before B8
+            for k, v in enumerate(whole): ctypes.c_uint16.from_address(base + at + 2 * k).value = v
+            ctypes.c_uint32.from_address(base + at + 8).value = self.request
+            self.boxes = {r: b for r, b in list(self.boxes.items())[-3:]}; self.boxes[self.request] = want
+        if self._u64(base, 40) != (hwnd or 0): return None
+        until = now + self.WAIT
+        while True:
+            seq = self._u64(base, at + 16)
+            if seq & 1 or self._u32(base, at + 12) != self.request:      # being written, or our parts aren't in yet
+                if time.time() >= until: return None
+                time.sleep(0.002 if not seq & 1 else 0.001); continue
+            flags = self._u32(base, at + 48)
+            fresh = 600 if flags >> 4 & 15 == 1 else max(150, 2 * self.interval)
+            if not flags & 1 or int(time.time() * 1000) - self._u64(base, at + 24) > fresh: return None
+            if ctypes.c_uint8.from_address(base + at + 61).value > 1: return None
+            offset, stride = self._u32(base, at + 32), self._u32(base, at + 36)
+            cw, ch = self._u16(base, at + 56), self._u16(base, at + 58)
+            if not cw or not ch: return None
+            full = Image.new('RGB', (cw, ch))
+            if stride:                                  # an app before B8: one box around them all
+                x, y, w, h = (self._u16(base, at + 40 + 2 * k) for k in range(4))
+                if w and h and x + w <= cw and y + h <= ch:
+                    im = Image.frombuffer('RGB', (w, h), (ctypes.c_char * (stride * h)).from_address(base + self.HEADER + offset),
+                                          'raw', 'BGRX', stride, 1)
+                    full.paste(im, (x, y))
+            else:                                       # the parts one after another, each w * 4 bytes a row
+                for k in range(len(want)):
+                    x, y, w, h = (self._u16(base, ra + 8 + 16 * k + 8 + 2 * j) for j in range(4))
+                    if not w or not h: continue
+                    if x + w > cw or y + h > ch: return None
+                    im = Image.frombuffer('RGB', (w, h), (ctypes.c_char * (w * 4 * h)).from_address(base + self.HEADER + offset),
+                                          'raw', 'BGRX', w * 4, 1)
+                    full.paste(im, (x, y)); offset += w * 4 * h
+            if self._u64(base, at + 16) == seq:
+                self.screen_copy, self.copy_us = bool(flags & 2), self._u32(base, at + 52)
+                self.source = self.SOURCES.get(flags >> 4 & 15, '?')
+                self._times(base, at)
+                return full
             if time.time() >= until: return None                                 # rewritten while we read it
 
     def read_area(self, hwnd, area, shrink=1):
@@ -271,6 +352,11 @@ class SharedAudio:
         return n, SharedCapture._u64(self.base, 16) / 1000, ctypes.c_float.from_address(self.base + 24).value
 
 audio = SharedAudio()
+
+def grab_parts(hwnd, rects):
+    """Only the parts `rects` (shares 0-1) of the game's client area, the rest black (SharedCapture.read_rects)."""
+    try: return shared.read_rects(hwnd, rects) if shared.app_present() else None
+    except Exception: return None
 
 def grab_window(hwnd, top_fraction=None):
     """The game's client area (or just its top part) as a PIL image, or None: the app's shared frame, None until

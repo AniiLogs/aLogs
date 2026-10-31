@@ -154,6 +154,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **aLogs steps aside for the game:** aLogs, the meter and Sanctum Helper now run at a lower priority by default
   (General Settings, where you can pick Normal or Higher), and the overlay redraws its numbers 4 times a second
   instead of on every reading. The numbers are the same.
+- **Lighter capture between fights:** when the meter looks for the game's screens (results, Battle Data, menus and so
+  on), only the top of the screen and the few small spots those screens use now leave your graphics card, about half
+  of a whole 4K picture, and all of them in a single pass. Whole pictures come back the moment one of those screens is
+  up, and the proof pictures sent to the leaderboards are whole, sharp pictures taken once the screen has stopped
+  moving. Fight times also follow when the game showed each picture, not when the meter got to it.
 - **Searchable long lists:** Sanctum Helper's layout list and other long dropdowns now show what you type and narrow
   the list as you type (anywhere in the name), with arrow keys, Enter and Esc.
 - **On/off switches in the sidebar:** DPS Meter and Sanctum Helper each have a switch on their sidebar row, always
