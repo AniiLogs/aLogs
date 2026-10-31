@@ -295,6 +295,50 @@ class SharedCapture:
                 return im
         return None
 
+    # Every aLogs overlay window's spot (B9), so each reader covers all of them in its own picture of the screen while
+    # they stay in screenshots and recordings: 1352 + 144 * owner {u64 updated (unix ms), u32 pid, u32 count (<= 8),
+    # 8 x i32 x0, y0, x1, y1 (screen px)}; owners 0 the meter, 1 Sanctum Helper, 2 the app (the button over the game).
+    # A block not updated for 3 s is stale (its program closed). 1344 u64 "clean until" (unix ms): a proof is being
+    # taken; every program keeps its overlays out of screen captures until then.
+    CLEAN_UNTIL, OVERLAY_BASE, OVERLAY_BLOCK, OVERLAY_MAX, OVERLAY_STALE = 1344, 1352, 144, 8, 3000
+    OWNER_METER, OWNER_SANCTUM, OWNER_APP = 0, 1, 2
+
+    def publish_overlays(self, owner, rects):
+        """Our overlay windows' spots (screen px: x0, y0, x1, y1) for the other readers to cover."""
+        import os, time
+        base = self._open(time.time())
+        if not base: return
+        at = self.OVERLAY_BASE + owner * self.OVERLAY_BLOCK; rects = list(rects)[:self.OVERLAY_MAX]
+        for k, r in enumerate(rects):
+            for j, v in enumerate(r[:4]): ctypes.c_int32.from_address(base + at + 16 + 16 * k + 4 * j).value = int(v)
+        ctypes.c_uint32.from_address(base + at + 8).value = os.getpid()
+        ctypes.c_uint32.from_address(base + at + 12).value = len(rects)
+        ctypes.c_uint64.from_address(base + at).value = int(time.time() * 1000)
+
+    def overlays(self, skip_owner=None):
+        """Every other aLogs program's overlay spots now (screen px), to cover in our pictures."""
+        import time
+        base = self._open(time.time())
+        if not base: return []
+        now = int(time.time() * 1000); out = []
+        for owner in range(3):
+            if owner == skip_owner: continue
+            at = self.OVERLAY_BASE + owner * self.OVERLAY_BLOCK
+            if now - self._u64(base, at) > self.OVERLAY_STALE: continue
+            for k in range(min(self.OVERLAY_MAX, self._u32(base, at + 12))):
+                out.append(tuple(ctypes.c_int32.from_address(base + at + 16 + 16 * k + 4 * j).value for j in range(4)))
+        return out
+
+    def set_clean_until(self, ms):
+        import time
+        base = self._open(time.time())
+        if base: ctypes.c_uint64.from_address(base + self.CLEAN_UNTIL).value = int(ms)
+
+    def clean_now(self):
+        import time
+        base = self._open(time.time())
+        return bool(base) and time.time() * 1000 < self._u64(base, self.CLEAN_UNTIL)
+
     def switched_off(self):
         """The player turned screen capture off (the overlay button or the app): nothing is captured, the meter rests."""
         import time

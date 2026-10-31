@@ -1030,8 +1030,11 @@ class Meter:
         recordings: cover where they are (and were a moment ago, while the picture may be older) in R.COVER, so the
         meter never reads its own numbers. The bar readers look past it (the HP % label sits on the bar). The overlay
         keeps own_rects (screen pixels: x0, y0, x1, y1, until)."""
-        rects = getattr(self, 'own_rects', None)
-        if not rects or not getattr(self, 'own_in_capture', False): return   # out of captures: nothing of ours to cover
+        rects = list(getattr(self, 'own_rects', None) or []) if getattr(self, 'own_in_capture', False) else []
+        # Sanctum Helper's map and notes, the app's button: their spots, which they share (wincapture.overlays)
+        try: rects += [(*r, 0) for r in wc.shared.overlays(skip_owner=wc.shared.OWNER_METER)]
+        except Exception: pass
+        if not rects: return
         now = time.time(); ox, oy = self.origin
         from PIL import ImageDraw
         d = None
@@ -2788,8 +2791,13 @@ class Meter:
         # proofs are the game alone: the overlay steps out of captures (poll_tick) before the first look, so nothing of
         # ours is in the picture and nothing is blacked out (Windows 10 shows it in captures the rest of the time)
         self.proof_until = time.time() + 3
+        try: wc.shared.set_clean_until((time.time() + 3) * 1000)      # Sanctum Helper and the app's button too
+        except Exception: pass
         try: return self._settled(im)
-        finally: self.proof_until = time.time() + 0.1      # back in captures once the proof is taken
+        finally:
+            self.proof_until = time.time() + 0.1      # back in captures once the proof is taken
+            try: wc.shared.set_clean_until((time.time() + 0.1) * 1000)
+            except Exception: pass
 
     def _settled(self, im):
         last = im; sig = screen_sig(im) if im is not None else None
@@ -3486,6 +3494,13 @@ def run_overlay(meter, hide):
         else: own['cur'].pop(win, None)
         own['old'] = [r for r in own['old'] if r[4] > now]
         meter.own_rects = [(*r, 0) for r in own['cur'].values()] + own['old']
+        publish_own(now)
+    def publish_own(now):
+        """Our spots for Sanctum Helper and the app to cover in their pictures (and again each second: a stale block
+        is taken for a closed meter)."""
+        own['published'] = now
+        try: wc.shared.publish_overlays(wc.shared.OWNER_METER, [r[:4] for r in meter.own_rects if not r[4] or r[4] > now])
+        except Exception: pass
     def present(win, image, x, y):
         """With the game font: the window is this RGBA image, with real per-pixel alpha (layered.py)."""
         placed[win] = ('img', image, x, y)
@@ -3905,6 +3920,7 @@ def run_overlay(meter, hide):
         # read its own HP labels on the boss bar
         # the HP labels sit on the boss bar, which the meter must read: those stay out of captures. The DPS window stays
         # in screenshots and recordings (unless the player chose otherwise), blacked out of the meter's own pictures
+        if time.time() - own.get('published', 0) > 1: publish_own(time.time())
         # Every overlay window shows in screenshots and recordings (unless the player chose otherwise), on any Windows.
         # Where the meter's picture is of the screen (Desktop Duplication) it covers them in its own copy (mask_own),
         # and they step out of captures only while a proof is taken, so a proof is the game alone.

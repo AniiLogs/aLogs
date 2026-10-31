@@ -36,6 +36,12 @@
 //!      56 u16 client width, height when it was taken
 //!      60 u8 shrink wanted (reader: 1, 2 or 4; the card averages the area down by that)   61 u8 shrink used (app):
 //!         the picture is then w / shrink by h / shrink pixels (rounded down), x, y, w, h still in client pixels
+//!   1344 u64 clean until (unix ms): a proof is being taken (the meter); every aLogs program keeps its overlay windows
+//!      out of screen captures until then (B9)
+//!   1352 overlay windows (B9): 3 x 144 { u64 updated (unix ms), u32 pid, u32 count (<= 8), 8 x i32 x0, y0, x1, y1
+//!      (screen px) }, owners 0 the meter, 1 Sanctum Helper, 2 the app (the button over the game). Overlays stay in
+//!      screenshots and recordings; every reader of a screen copy covers all of them in its own picture. A block not
+//!      updated for 3 s is stale (its program closed).
 //!   2056 rectangles (B8): SLOTS x 120, for a reader that needs several separate parts of the frame (the meter's
 //!      boxes) instead of the one box around them all:
 //!      0 u32 count (0: the single area above, as before; at most 7)   4 u32 unused
@@ -800,7 +806,32 @@ pub struct AppReader {
     area: [u16; 4],
 }
 
+const CLEAN_UNTIL: usize = 1344;
+const OVERLAY_BASE: usize = 1352;
+const OVERLAY_BLOCK: usize = 144;
+const OVERLAY_MAX: usize = 8;
+pub const OWNER_APP: usize = 2;
+
 impl AppReader {
+    /// Our overlay windows' spots (screen px: x0, y0, x1, y1), for the other readers to cover (see the layout).
+    pub fn publish_overlays(&self, owner: usize, rects: &[(i32, i32, i32, i32)]) {
+        let (s, at) = (&self.shared, OVERLAY_BASE + owner * OVERLAY_BLOCK);
+        let n = rects.len().min(OVERLAY_MAX);
+        for (k, r) in rects.iter().take(n).enumerate() {
+            for (j, v) in [r.0, r.1, r.2, r.3].into_iter().enumerate() {
+                s.put_u32(at + 16 + 16 * k + 4 * j, v as u32);
+            }
+        }
+        s.put_u32(at + 8, std::process::id());
+        s.put_u32(at + 12, n as u32);
+        s.put_u64(at, now_ms());
+    }
+
+    /// A proof is being taken: overlays out of screen captures now.
+    pub fn clean_now(&self) -> bool {
+        now_ms() < self.shared.get_u64(CLEAN_UNTIL)
+    }
+
     pub fn new() -> Option<AppReader> {
         Shared::create().map(|shared| AppReader { shared, request: 0, area: [0; 4] })
     }

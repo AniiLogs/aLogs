@@ -31,6 +31,15 @@ w·4 bytes a row), with each part's x, y, w, h in client pixels next to its shar
 parts and sends the box around them, so the reader handles both (bossbar/wincapture.py `read_rects`). The meter uses
 this for screen reads between fights: the top band plus the screens' text boxes, about half of a 4K frame.
 
+## Overlays in captures (B9)
+aLogs' overlays stay in screenshots and recordings. Where the picture is a copy of the screen (Desktop Duplication),
+each program lists where its overlay windows are (1352 + 144·owner: updated time, pid, count, up to 8 screen rects;
+owners 0 the meter, 1 Sanctum Helper, 2 the app's button) and every reader covers all of them in its own picture
+before reading (the meter in magenta, which its bar readers look past; Sanctum Helper in black). A block not updated
+for 3 s is stale. While the meter takes a leaderboard proof it sets "clean until" (1344, unix ms) and every program
+keeps its overlays out of screen captures until then, so a proof is the game alone. A Sanctum Helper map drawn over
+the game itself isn't listed: it covers what Sanctum Helper reads, so it stays out of screen copies.
+
 A reader can also ask the graphics card to shrink its area first (picture slot byte 60: 2 or 4; byte 61 says what
 was used): the card averages it down through mip levels and only the smaller picture leaves it. The damage-number
 recorder (bossbar/dmgnumbers.py) uses this to keep 60 frames a second of a 4K screen's middle at 1080p size.

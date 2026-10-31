@@ -816,8 +816,10 @@ unsafe fn run() {
         return;
     };
     WINDOW.store(hwnd.0 as isize, Ordering::SeqCst);
-    // kept out of screen captures, so the row check sees the game's own icons, not this button's pill
-    let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+    // in screen captures like every aLogs overlay (General Settings › Overlays show in recordings and screenshots);
+    // the row check skips the button's own columns, and the other readers cover its spot (capture.rs, overlay windows)
+    let mut excluded: Option<bool> = None;
+    let mut in_recordings = (0u64, true); // (read at, the setting)
     let _ = SetTimer(Some(hwnd), TIMER_FOLLOW, ROW_CHECK_MS, None);
     let _ = SetTimer(Some(hwnd), TIMER_PAD, 33, None);
     // the hook on a thread of its own that does nothing else: Windows waits for it on every mouse event, and this
@@ -941,6 +943,20 @@ unsafe fn run() {
                     }
                 }
             }
+            // out of captures when the player hid overlays from them, or for the moment a proof is taken
+            if now.saturating_sub(in_recordings.0) >= 2000 {
+                let v = crate::read_settings().pointer("/overlay/in_recordings").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                in_recordings = (now, v);
+            }
+            let exclude = !in_recordings.1 || reader.as_ref().is_some_and(|r| r.clean_now());
+            if excluded != Some(exclude) {
+                let _ = SetWindowDisplayAffinity(hwnd, if exclude { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE });
+                excluded = Some(exclude);
+            }
+            if let Some(r) = reader.as_ref() {
+                let spot = LAST_LAYOUT.lock().unwrap().filter(|_| wanted).map(|l| (l.x, l.y, l.x + l.w, l.y + l.h));
+                r.publish_overlays(crate::capture::OWNER_APP, spot.as_slice());
+            }
             if wanted != shown {
                 crate::app_log(&format!("button: {} (game in front {in_front}, row {row}, homeland {})", if wanted { "shown" } else { "hidden" }, homeland.1));
                 shown = wanted;
@@ -1021,7 +1037,7 @@ mod look {
     fn render_row_button() {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, always: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new() });
+            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, always: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new(), hide_ms: ROW_GONE_MS });
             let k = 1.0;
             let icon = (ROW_ICON * k).round() as i32;
             let font = (ROW_FONT * k).round() as i32;
