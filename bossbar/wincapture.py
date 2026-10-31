@@ -365,9 +365,9 @@ def grab_window(hwnd, top_fraction=None):
     except Exception: return None
 
 WDA_EXCLUDEFROMCAPTURE = 0x11
-def hide_from_capture(hwnd):
-    """Keep our own overlay window out of screen captures (Windows 10 2004+)."""
-    return bool(user32.SetWindowDisplayAffinity(W.HWND(hwnd), WDA_EXCLUDEFROMCAPTURE))
+def hide_from_capture(hwnd, on=True):
+    """Keep our own overlay window out of screen captures (Windows 10 2004+); on=False shows it in them again."""
+    return bool(user32.SetWindowDisplayAffinity(W.HWND(hwnd), WDA_EXCLUDEFROMCAPTURE if on else 0))
 
 def is_foreground(hwnd):
     return user32.GetForegroundWindow() == hwnd

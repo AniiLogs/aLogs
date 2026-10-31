@@ -185,7 +185,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   over at the new defaults. New example pictures in DPS Meter › Overlay.
 - **The DPS window shows in screenshots and recordings on Windows 10 again:** to keep the meter from reading its own
   numbers, every overlay was kept out of screen captures there. Now only the HP labels on the boss bar are; the DPS
-  window and its notes show in OBS and screenshots like they do on Windows 11. The DPS window also has a lock (on by
+  window and its notes show in OBS and screenshots like they do on Windows 11. Leaderboard proof pictures stay the
+  game alone: the overlay steps out of captures for the moment one is taken. The DPS window also has a lock (on by
   default: your clicks go through it to the game) and a button to put it back in its default spots.
 - **Wrong boss level from a misread title:** "Lv.64" could be read as "Lv064" and taken as level 6, which gave the
   fight the wrong max HP and so the wrong damage and DPS. Fixed.

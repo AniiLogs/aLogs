@@ -1019,12 +1019,18 @@ class Meter:
             canvas.paste(im, (0, 0)); return canvas
         return im
 
+    def capture_clean(self, now=None):
+        """Pictures now must be of the game alone, with no overlay in them and nothing blacked out: a proof is being
+        taken (settled_frame sets proof_until). The overlay steps out of captures for that moment (under a second);
+        the rest of the time the DPS window and its notes show in OBS and screenshots."""
+        return (now or time.time()) < getattr(self, 'proof_until', 0)
+
     def mask_own(self, im):
         """The picture is of the screen (Desktop Duplication), and the DPS window is left in screenshots and recordings:
         black out where it is (and was a moment ago, while the picture may be older), so the meter never reads its own
         numbers. The overlay keeps own_rects (screen pixels: x0, y0, x1, y1, until)."""
         rects = getattr(self, 'own_rects', None)
-        if not rects: return
+        if not rects or not getattr(self, 'own_in_capture', False): return   # out of captures: nothing of ours to cover
         now = time.time(); ox, oy = self.origin
         from PIL import ImageDraw
         d = None
@@ -2756,6 +2762,13 @@ class Meter:
         three looks, about 0.75 s), so a proof isn't caught sliding in or fading. The frame it was spotted in when a
         look fails, or in a replay."""
         if self.args.replay is not None: return im
+        # proofs are the game alone: the overlay steps out of captures (poll_tick) before the first look, so nothing of
+        # ours is in the picture and nothing is blacked out (Windows 10 shows it in captures the rest of the time)
+        self.proof_until = time.time() + 3
+        try: return self._settled(im)
+        finally: self.proof_until = time.time() + 0.1      # back in captures once the proof is taken
+
+    def _settled(self, im):
         last = im; sig = screen_sig(im) if im is not None else None
         for _ in range(3):
             time.sleep(SETTLE_S)
@@ -3433,7 +3446,7 @@ def run_overlay(meter, hide):
     # Where the DPS window is drawn (screen pixels), for the meter to black out of its pictures of the screen
     # (Meter.mask_own): with that, the DPS window and its notes can stay in screenshots and recordings on Windows 10
     # too. A spot it just left is kept a moment: the picture being read can be a little older than the move.
-    meter.own_rects = []
+    meter.own_rects = []; meter.own_in_capture = None       # None: not set yet (poll_tick sets it either way)
     def own_spot(win, rect):
         if win is not dw: return
         now = time.time()
@@ -3859,6 +3872,19 @@ def run_overlay(meter, hide):
         if meter.use_screen and not hidden['on']: log.info('overlay: HP labels hidden from capture (the picture is of the screen); the DPS window stays in it')
         if hide: hide_all()
         elif meter.use_screen or hidden['on']: hide_all(keep_dps=True)   # windows made since too
+        # the DPS window in captures (blacked out of the meter's pictures), except while proofs are taken: then it steps
+        # out, so a proof has neither the overlay nor a black box in it
+        # (only where the meter's picture is of the screen: window capture never sees our windows, so there it simply
+        # stays in captures, unless the player hid it)
+        want_in = not hide and not (meter.use_screen and meter.capture_clean())
+        if want_in != meter.own_in_capture:
+            # in: the meter starts covering it first, then it shows in captures; out: it leaves captures, then the
+            # covering stops (proofs wait SETTLE_S before their first look, many frames after this)
+            if want_in: meter.own_in_capture = True
+            try:
+                wc.hide_from_capture(layered.top_hwnd(dw), not want_in)
+                meter.own_in_capture = want_in
+            except Exception: meter.own_in_capture = True if want_in else None   # unknown: keep covering, try again
         front = game_in_front()
         if AWAY['on'] != (not front):
             AWAY['on'] = not front
