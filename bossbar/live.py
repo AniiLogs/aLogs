@@ -1328,6 +1328,7 @@ class Meter:
         return bool(cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30)
 
     def read_screen(self, im, now, heads):
+        self.screens_gone(now)
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
         self.game_menu(heads.get('me', ''), heads.get('uid', ''), im, u, ux, H)
         self.profile_notes(heads, im, now, u, ux, H)
@@ -1563,6 +1564,7 @@ class Meter:
                         os.path.relpath(shot, HERE) if shot else ''])
         if self.submitter and self.uid:
             self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None)
+        self.screen_settled('sim_result', time.time())
         self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s")
 
     # The Gizmo screen (UI_Pb_Tower_BuffDetail), opened by clicking the Victory screen's Holo-gizmo row: the series
@@ -1755,6 +1757,7 @@ class Meter:
         if self.submitter and self.uid:
             self.submitter.enqueue(S.egg_match_payload(match, getattr(self, 'egg_season', None), self.uid),
                                    os.path.relpath(shot, HERE) if shot else None)
+        self.screen_settled('egg_result', time.time())
         self.out('status', f"Egg Heist match recorded: {'escaped' if outcome == 'success' else outcome}"
                  + (f', {loot:,} loot' if loot is not None else '') + (f' ({difficulty})' if difficulty else ''))
 
@@ -1793,6 +1796,7 @@ class Meter:
             if new: w.writerow(['time', 'uid', 'cycle', 'screen', 'boss', 'score', 'stars', 'screenshot'])
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, season, 'egg_rank', st['name'],
                         st['points'], st['stars'], os.path.relpath(shot, HERE) if shot else ''])
+        self.screen_settled('egg_rank', time.time())
         self.out('status', f"Egg Heist rank recorded: {st['name']}"
                  + (f" - {st['points']:,} rank points" if st['points'] is not None else '')
                  + (f" - {st['stars']:,} stars" if st['stars'] is not None else ''))
@@ -2127,6 +2131,7 @@ class Meter:
         self.icon_read = threading.Thread(target=read, daemon=True); self.icon_read.start()
 
     def set_party(self, members, now):
+        self.screen_settled('party', now)
         """This run's party (from the old prep screen or the Party screen), each slot's name voted over a few reads."""
         if not members: return
         # the same party is read every few seconds: keep each slot's most common reading (OCR slips now and then)
@@ -2244,6 +2249,7 @@ class Meter:
                                  **({'team': self.party.get('team'), 'teams': self.party.get('teams'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)
+        self.screen_settled('result', time.time())
         self.out('status', f'result recorded: {boss} - score {score}, {rating} stars, {secs}s')
         self.end_sig = screen_sig(im)                           # the note stays only while this screen does
 
@@ -2692,10 +2698,32 @@ class Meter:
         if now - self.test_since > self.TEST_FRAMES_HOURS * 3600 or self.test_count >= self.TEST_FRAMES_MAX: return False
         return now - self.test_last.get(kind, 0) >= self.TEST_FRAMES_GAP.get(kind, 8)
 
+    def screen_up(self, kind, now):
+        """A screen the meter read (each kind test_frame gets, but always): when it first showed and how many reads
+        saw it. Once it's gone (no read for 3 s), one line: how long it stayed up and how many reads it took, so the
+        proof screens' timing is known before capture changes (B7 plan: settle, then grab)."""
+        seen = self.screens_up = getattr(self, 'screens_up', None) or {}
+        first, last, n, settle = seen.get(kind, (now, now, 0, None))
+        seen[kind] = (first, now, n + 1, settle)
+        self.screens_gone(now)
+
+    def screen_settled(self, kind, now):
+        """The reader got what it needed from this screen (its numbers read): how long after it first showed."""
+        seen = getattr(self, 'screens_up', None) or {}
+        if kind in seen and seen[kind][3] is None: seen[kind] = seen[kind][:3] + (now - seen[kind][0],)
+
+    def screens_gone(self, now):
+        seen = getattr(self, 'screens_up', None) or {}
+        for kind, (first, last, n, settle) in list(seen.items()):
+            if now - last >= 3:
+                log.info(f'screen up: {kind} for {last - first:.1f} s ({n} read{"" if n == 1 else "s"}' + (f', read after {settle:.1f} s' if settle is not None else '') + ')')
+                del seen[kind]
+
     def test_frame(self, im, kind, now):
         """Captures & logs › Save test pictures: whole frames at the player's own resolution, lossless, for the
         accuracy tests (tests/resolutions.py, tests/bar_resolutions.py) - fights every 5 s and each screen the meter
         reads. Saved in the background so the meter never waits; logs/test_frames/<day>/<kind>/."""
+        if kind != 'fight': self.screen_up(kind, now)
         if not getattr(self, 'frame_full', True) or not self.test_frame_due(kind, now): return
         self.test_last[kind] = now; self.test_count += 1
         d = os.path.join(HERE, 'logs', 'test_frames', time.strftime('%Y%m%d'), kind); os.makedirs(d, exist_ok=True)
