@@ -778,8 +778,8 @@ class Fight:
         self.frames = os.path.join(HERE, 'logs', name) if debug_dir else None
         if self.frames: os.makedirs(self.frames, exist_ok=True)
 
-    def update(self, fill, fill_rgb, edge_rgb, xn_ocr, timer_ocr, cum, duration):
-        now = time.time(); note = ''
+    def update(self, fill, fill_rgb, edge_rgb, xn_ocr, timer_ocr, cum, duration, at=None):
+        now = at or time.time(); note = ''          # at: when the game showed the frame (wincapture's frame_time)
         if self.timer is None: self.timer = Timer(duration)
         if xn_ocr is not None and not 1 <= xn_ocr <= 16: xn_ocr = None
         # a real reading starts with the live-HP red at the bar's left end; flashes, the ghost covering the whole
@@ -845,7 +845,8 @@ class Fight:
             if self.first_damage is None:
                 if fill is not None and self.low_pending is None: self.first_damage = self.damage   # from a real reading
             elif self.damage - self.first_damage > self.max_hp * 0.0012:             # a real hit (1 px of the bar is ~0.07%)
-                self.hit = True; self.t0 = self.last_at
+                # the hit came between the last reading and this one: the middle of the two (half the error)
+                self.hit = True; self.t0 = (self.last_at + now) / 2
                 note = (note + f' first hit, {self.t0 - self.created:.1f}s after the bar showed up').strip()
         self.last_at = now
         self.seg_info = seg                      # {'grade', 'size_hp', 'left_hp'} of the current star segment, or None
@@ -2873,6 +2874,12 @@ class Meter:
                 and not self.auto_until and not getattr(self, 'sim_tour', None) and not getattr(self, 'egg_hold', None)
                 and not (a and time.time() < a[1]) and not self.sanctum_in_run(time.time()))
 
+    def frame_at(self):
+        """When the game showed the frame just read (the app's capture time), or None (a replay, or no such time):
+        fight readings use it so a fight's times follow the game."""
+        t = getattr(wc.shared, 'frame_time', None)
+        return t if t and self.args.replay is None and 0 <= time.time() - t < 1.0 else None
+
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight: 30 (the default since B6)
         or 60 for the finest timing. A player's game stuttered at 4K with the meter at 60 (B5); the bar's HP and the
@@ -2993,7 +3000,7 @@ class Meter:
                         self.hidden_drop = (fill, run[1] + counts, now if counts else run[2]); ok = self.hidden_drop[1] >= 3
                     if ok:
                         self.hidden_drop = None
-                        self.fight.update(fill, fill_rgb, edge_rgb, None, None, self.cum, self.args.duration)
+                        self.fight.update(fill, fill_rgb, edge_rgb, None, None, self.cum, self.args.duration, self.frame_at())
                         self.emit_fight(im, self.bar); self.bar_seen = now        # the bar is there, just not findable
                 self.snapshot(now); return
             else:
@@ -3046,7 +3053,7 @@ class Meter:
                 self.brk_at = now                                   # readings, sized for that pace
                 gauge, kind, _ = R.measure_break(im, bar)
                 self.fight.brk.feed(gauge, kind, now)
-            self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.cum, self.args.duration)
+            self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.cum, self.args.duration, self.frame_at())
         snap = dict(bar=bar, fill=fill, fill_rgb=fill_rgb, edge_rgb=edge_rgb, xn_digits=xn_digits, xn_ocr=xn)
         if text: snap['ocr'] = text
         self.snapshot(now, **snap)

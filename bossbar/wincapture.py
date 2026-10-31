@@ -208,6 +208,9 @@ class SharedCapture:
             im.load()
             if self._u64(base, at + 16) == seq:
                 self.picture_time = self._u64(base, at + 24) / 1000      # when the app took it (to tell frames apart)
+                # when the game showed it: the app writes the image's age then (window capture's own frame time; 0
+                # when the source doesn't say), so fight times follow the game, not when the meter got to reading
+                self.frame_time = self.picture_time - self._u16(base, at + 62) / 1000
                 return im
         return None
 

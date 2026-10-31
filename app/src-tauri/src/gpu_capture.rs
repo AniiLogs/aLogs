@@ -102,11 +102,13 @@ pub struct Gpu {
     /// Areas whose copy off the card is already on its way this round (queue): (x, y, w, h, shrink), its staging
     /// texture and the picture's size. read() then only waits once for all of them.
     queued: Vec<((u32, u32, u32, u32, u32), ID3D11Texture2D, u32, u32)>,
+    /// When Windows captured the newest image (window capture's own frame time), if known.
+    pub captured_at: Option<std::time::Instant>,
 }
 
 impl Gpu {
     fn new(device: ID3D11Device, context: ID3D11DeviceContext) -> Gpu {
-        Gpu { device, context, cache: None, staging: Vec::new(), shrinkers: Vec::new(), generation: 0, queued: Vec::new() }
+        Gpu { device, context, cache: None, staging: Vec::new(), shrinkers: Vec::new(), generation: 0, queued: Vec::new(), captured_at: None }
     }
 
     /// Keeps the top-left `width` x `height` of `source` as the newest image (a copy on the card).
@@ -371,6 +373,18 @@ impl WindowCapture {
             }
         }
         let Some(frame) = newest else { return Ok(false) };
+        // when Windows captured it (its QPC time, 100 ns units), as a moment on this clock: readers then time a fight
+        // by when the game showed a frame, not by when they got around to reading it (B8)
+        self.gpu.captured_at = frame.SystemRelativeTime().ok().and_then(|t| {
+            let (mut count, mut freq) = (0i64, 0i64);
+            unsafe {
+                windows::Win32::System::Performance::QueryPerformanceCounter(&mut count).ok()?;
+                windows::Win32::System::Performance::QueryPerformanceFrequency(&mut freq).ok()?;
+            }
+            let now_100ns = (count as i128 * 10_000_000 / freq.max(1) as i128) as i64;
+            let age = std::time::Duration::from_nanos(((now_100ns - t.Duration).max(0) as u64).saturating_mul(100));
+            std::time::Instant::now().checked_sub(age.min(std::time::Duration::from_secs(60)))
+        });
         let result = (|| {
             let content = frame.ContentSize()?;
             let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;

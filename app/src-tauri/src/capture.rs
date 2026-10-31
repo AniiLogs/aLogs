@@ -368,6 +368,8 @@ trait Picture {
     fn queue(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) {}
     /// The round is over: copies queued but not read are dropped.
     fn end_round(&mut self) {}
+    /// When the newest image was captured, if the source says (window capture does).
+    fn captured_at(&self) -> Option<Instant> { None }
 }
 
 impl Picture for Gpu {
@@ -388,6 +390,9 @@ impl Picture for Gpu {
     }
     fn end_round(&mut self) {
         Gpu::end_round(self);
+    }
+    fn captured_at(&self) -> Option<Instant> {
+        self.captured_at
     }
 }
 
@@ -653,6 +658,8 @@ fn serve(
             shared.put_u32(at + 52, started.elapsed().as_micros().min(u32::MAX as u128) as u32);
             shared.put_u16(at + 56, width as u16);
             shared.put_u16(at + 58, height as u16);
+            // how old the image already was (ms, from its capture time; 0 when the source doesn't say): bytes 62-63
+            shared.put_u16(at + 62, gpu.captured_at().map_or(0, |t| t.elapsed().as_millis().min(u16::MAX as u128) as u16));
             shared.put_u32(at + 12, request);
             result = Some(result.unwrap_or(false) || shown);
             true
