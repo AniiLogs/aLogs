@@ -1144,6 +1144,7 @@ class Meter:
             if self.last_screen and why != 'meter closed' and f.hit and not unattended:
                 try:          # the overlay's final numbers: showing them must never keep the fight from closing
                     self.out('fight_end', {'damage': f.damage, 'max_hp': f.max_hp, 'elapsed': f.elapsed, 'defeated': f.defeated,
+                                           'title': f.title,
                                            'avg': f.damage / f.elapsed if f.elapsed > 1 else 0, 'bossrush': f.bossrush,
                                            'holosim': self.holosim_space,
                                            'screen': self.last_screen})
@@ -3733,7 +3734,8 @@ def run_overlay(meter, hide):
     def final_lines(d):
         """The fight's result, left in the stats spot for a few seconds: the final hit is counted by then."""
         return [(f"{fmt(d['avg'])} DPS", '#ffd36a', 0.0235, 'ib'),
-                (('Defeated' if d['defeated'] else 'Fight over') + f" · {d['elapsed']:.0f} s", '#ffffff', 0.015),
+                ((f"Defeated {d['title']}" if d['defeated'] and d.get('title') else 'Defeated' if d['defeated'] else 'Fight over')
+                 + f" · {d['elapsed']:.0f} s", '#ffffff', 0.015),     # which boss went down, by its name on the bar
                 (f"Team damage {fmt(d['damage'])} / {fmt(d['max_hp'])}", '#ffffff', 0.015)]
 
     def break_text(b):

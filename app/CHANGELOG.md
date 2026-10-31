@@ -171,6 +171,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   row went away (a menu, the map, a cutscene). It now goes with the icons within about a third of a second and comes
   back as quickly. The button's settings have their own section in General Settings, "The button over the game",
   where you can also pick how quickly it goes: at once, or after 0.15 to 1.5 seconds.
+- **The result says who went down:** after an overworld boss falls, the DPS window reads "Defeated Alpha Jabster ·
+  8 s" instead of just "Defeated".
 - **New spots for the DPS window, clear of the game's own notes:** placed from the game's own screen layout, so it
   no longer covers the tips the game shows next to the minimap during boss fights, Interlink's Settle Early button, or
   the messages at the top. Out in the world it now sits between the minimap and the boss bar, centred and a little
