@@ -138,6 +138,41 @@ class LogWatcher(threading.Thread):
             except OSError: pass
             time.sleep(0.25)
 
+class CpuLoad:
+    """CPU used since the last sample, as % of the whole PC (all cores = 100): the meter, the game and everything,
+    from GetProcessTimes / GetSystemTimes. For the once-a-minute "load:" line, so a lag report shows what each
+    took; None where Windows doesn't answer."""
+    def __init__(self):
+        import ctypes.wintypes as W
+        k = ctypes.windll.kernel32; self.last = None
+        k.GetCurrentProcess.restype = k.OpenProcess.restype = ctypes.c_void_p          # 64-bit handles
+        k.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]; k.CloseHandle.argtypes = [ctypes.c_void_p]
+        k.GetProcessTimes.argtypes = [ctypes.c_void_p] + [ctypes.POINTER(W.FILETIME)] * 4
+    @staticmethod
+    def _ft(ft): return (ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 1e7          # 100 ns units -> s
+    def _proc(self, handle):
+        k = ctypes.windll.kernel32; ft = [ctypes.wintypes.FILETIME() for _ in range(4)]
+        if not k.GetProcessTimes(handle, *[ctypes.byref(f) for f in ft]): return None
+        return self._ft(ft[2]) + self._ft(ft[3])                                        # kernel + user
+    def _pid(self, pid):
+        if not pid: return None
+        k = ctypes.windll.kernel32; h = k.OpenProcess(0x1000, False, pid)                # QUERY_LIMITED_INFORMATION
+        if not h: return None
+        try: return self._proc(h)
+        finally: k.CloseHandle(h)
+    def sample(self, game_pid, app_pid=0):
+        k = ctypes.windll.kernel32; idle, kern, user = (ctypes.wintypes.FILETIME() for _ in range(3))
+        if not k.GetSystemTimes(ctypes.byref(idle), ctypes.byref(kern), ctypes.byref(user)): return None
+        total = self._ft(kern) + self._ft(user); busy = total - self._ft(idle)          # kernel time includes idle
+        me = self._proc(k.GetCurrentProcess())
+        game, app = self._pid(game_pid), self._pid(app_pid)
+        now, self.last, last = (total, busy, me, game, game_pid, app), (total, busy, me, game, game_pid, app), self.last
+        if not last or now[0] <= last[0]: return None
+        span = now[0] - last[0]
+        pct = lambda a, b: round(100 * (a - b) / span, 1) if a is not None and b is not None else None
+        return {'pc': pct(now[1], last[1]), 'meter': pct(now[2], last[2]),
+                'game': pct(now[3], last[3]) if now[4] == last[4] else None, 'app': pct(now[5], last[5])}
+
 def scene_of(space_id):
     """'100-<playerId>-<sceneId>' -> sceneId (homeland 550, open world 3000 ...); instances return None."""
     m = re.match(r'^\d+-\d+-(\d+)$', space_id or ''); return int(m.group(1)) if m else None
@@ -939,6 +974,8 @@ class Meter:
         whole frame; frame_full says whether the frame is whole."""
         part = (TOP_PART if partial is True else partial) if partial else (TOP_PART if top_only else None)
         self.frame_full = not (partial or top_only)
+        self.load_counts = c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
+        c['whole' if part is None else 'part'] += 1
         if self.args.replay is not None:
             im = Image.open(self.args.replay.pop(0)).convert('RGB') if self.args.replay else None
             if im is not None: self.frame_size = im.size
@@ -988,6 +1025,30 @@ class Meter:
                      f"(max {st['max']:.0f})" + (f", the app's copy {st['app_us'] / n / 1000:.1f} ms" if st['app_us'] else '')
                      + (f", {st['none']} without a picture" if st['none'] else ''))
             self.cap_stats = {**st, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
+            self.load_line(now)
+
+    def load_line(self, now):
+        """Once a minute (with the capture line): what the last minute cost - CPU for the meter, the game and the whole
+        PC (% of all cores), whole frames vs top parts copied, screen text reads, and where you were. Added for lag
+        reports the logs couldn't explain (B4: camera stutter at 4K)."""
+        try:
+            pid = ctypes.wintypes.DWORD()
+            if self.hwnd: ctypes.windll.user32.GetWindowThreadProcessId(self.hwnd, ctypes.byref(pid))
+            try: app = int(os.environ.get('ALOGS_PARENT') or 0)          # the aLogs app: its GPU capture runs there
+            except ValueError: app = 0
+            cpu = (getattr(self, 'cpu_load', None) or setattr(self, 'cpu_load', CpuLoad()) or self.cpu_load).sample(pid.value, app)
+            c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
+            span = now - getattr(self, 'load_since', now - 60); self.load_since = now
+            where = ('homeland' if scene_of(self.space) == HOMELAND_SCENE else 'Interlink' if self.bossrush_space
+                     else 'Holo-Battle Sim' if self.holosim_space else 'world' if self.space else '?')
+            fmt = lambda v: '?' if v is None else f'{v:g}%'
+            log.info(f"load: CPU meter {fmt(cpu and cpu['meter'])}, aLogs app {fmt(cpu and cpu['app'])}, game {fmt(cpu and cpu['game'])}, whole PC "
+                     f"{fmt(cpu and cpu['pc'])} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, "
+                     f"{c['reads'] / span:.1f} text reads/s | {where}, {'fight' if self.fight else 'idle' if self.idle() else 'busy'}"
+                     f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'}")
+            self.load_counts = {'whole': 0, 'part': 0, 'reads': 0}
+        except Exception as e:
+            log.info(f'load: not measured ({e!r})')
 
     def snapshot(self, now, **d):
         """Once a second: one line of what the meter currently sees."""
@@ -1185,7 +1246,9 @@ class Meter:
         if bg.busy or not getattr(self, 'frame_full', True) or not self.screen_read_due(now, quick): return
         self.last_results = now; self.screen_read_sig = getattr(self, "top_sig", None)
         crops = self.screen_crops(im, quick)
-        if crops: bg.submit(crops, (im, now))
+        if crops:
+            bg.submit(crops, (im, now))
+            if getattr(self, 'load_counts', None): self.load_counts['reads'] += 1
         else: self.read_screen(im, now, {})                            # nothing on screen to read
 
     def screen_read_due(self, now, quick=False):

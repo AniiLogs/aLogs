@@ -147,6 +147,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   no longer tracks the map at all outside Egg Heist. In a homeland (yours or anyone's) nothing is captured at all
   for now: the meter, Sanctum Helper and the capture button over the game all rest there until the game's log
   says you've left. A player at 4K saw their whole PC lag in their homeland, and the camera stutter out in the world, with B4.
+  The meter's log now has a line a minute on what that minute cost: CPU for the meter, the aLogs app, the game
+  and the whole PC, full-size copies, text reads and where you were, so a lag report shows where the time went.
 - **The meter stuck on screen after a fight (B3, B4):** a mix-up in the new "team leader has ended the challenge"
   check made the meter fail on every frame once a fight ended, so the overlay stayed up and no end screen was read
   or sent (most visible in Holo-Battle Sim). Fixed.
