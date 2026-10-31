@@ -11,6 +11,7 @@ Usage:
 import argparse, collections, csv, ctypes, difflib, json, logging, logging.handlers, os, platform, queue, re, sys, threading, time
 from PIL import Image, ImageOps, ImageStat
 import reader as R
+import pcstats
 import wincapture as wc
 import xn_digits as X
 from inputblock import InputBlock
@@ -986,6 +987,8 @@ class Meter:
             self.hwnd = wc.find_window(self.args.title)
             if not self.hwnd: return None
             log.info(f'game window found: hwnd {self.hwnd}, client {wc.client_rect(self.hwnd)}')
+            try: log.info(pcstats.system_line(self.hwnd))            # the PC behind this log, for lag reports
+            except Exception as e: log.info(f'PC: not read ({e!r})')
         x, y, w, h = wc.client_rect(self.hwnd)
         self.origin = (x, y); self.frame_size = (w, h)       # where the frame sits on screen (for the HP labels)
         t0 = time.perf_counter()
@@ -1037,6 +1040,15 @@ class Meter:
             try: app = int(os.environ.get('ALOGS_PARENT') or 0)          # the aLogs app: its GPU capture runs there
             except ValueError: app = 0
             cpu = (getattr(self, 'cpu_load', None) or setattr(self, 'cpu_load', CpuLoad()) or self.cpu_load).sample(pid.value, app)
+            ours = [os.getpid(), app, pcstats.sanctum_pid()]           # aLogs' programs: meter, app, Sanctum Helper
+            gpu = (getattr(self, 'gpu_load', None) or setattr(self, 'gpu_load', pcstats.GpuLoad()) or self.gpu_load).sample()
+            gpu_text = (f"GPU game {gpu['by_pid'].get(pid.value, 0):.0f}%, aLogs {sum(gpu['by_pid'].get(q, 0) for q in ours if q):.0f}%, "
+                        f"whole card {gpu['total']:.0f}%") if gpu else 'GPU ?'
+            mem = pcstats.ram()
+            ours_mb = sum(m for m in (pcstats.process_mb(q) for q in ours if q) if m)
+            ram_text = f"RAM {mem[0]:.1f} GB free of {mem[1]:.0f}, aLogs {ours_mb:.0f} MB" if mem else 'RAM ?'
+            h = getattr(self, 'hitches', None) or [0, 0.0]; self.hitches = [0, 0.0]
+            hitch_text = f"{h[0]} PC stalls (longest {h[1]:.0f} ms)" if h[0] else 'no PC stalls'
             c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
             span = now - getattr(self, 'load_since', now - 60); self.load_since = now
             where = ('homeland' if scene_of(self.space) == HOMELAND_SCENE else 'Interlink' if self.bossrush_space
@@ -1045,7 +1057,7 @@ class Meter:
             log.info(f"load: CPU meter {fmt(cpu and cpu['meter'])}, aLogs app {fmt(cpu and cpu['app'])}, game {fmt(cpu and cpu['game'])}, whole PC "
                      f"{fmt(cpu and cpu['pc'])} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, "
                      f"{c['reads'] / span:.1f} text reads/s | {where}, {'fight' if self.fight else 'idle' if self.idle() else 'busy'}"
-                     f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'}")
+                     f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'} | {gpu_text} | {ram_text} | {hitch_text}")
             self.load_counts = {'whole': 0, 'part': 0, 'reads': 0}
         except Exception as e:
             log.info(f'load: not measured ({e!r})')
@@ -3152,7 +3164,11 @@ class Meter:
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
             elif self.idle(): interval = max(interval, IDLE_INTERVAL)
             if getattr(self, 'homeland_rest', False): interval = max(interval, 1.0)          # only the game log is read
-            time.sleep(max(0, interval - (time.time() - t)))
+            nap = max(0, interval - (time.time() - t)); woke = time.perf_counter(); time.sleep(nap)
+            late = (time.perf_counter() - woke - nap) * 1000
+            if late > 100:                                   # Windows let the meter sleep 100+ ms too long: a PC-wide stall
+                h = self.hitches = getattr(self, 'hitches', None) or [0, 0.0]
+                h[0] += 1; h[1] = max(h[1], late)
         self.end_auto('meter closed')
         if getattr(self, 'egg_hold', None): self.egg_hold_end('meter closed')
         self.hold.stop()
