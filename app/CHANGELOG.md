@@ -146,7 +146,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   second and reads the screen 4 times a second instead of as fast as it can; tabbed out mid-fight it looks twice a
   second; and fights now run at 30 looks a second by default instead of 60 (pick 60 in DPS Meter › Meter for the
   finest timing; a 60 you picked yourself stays). The settings' wording now says what each choice does. Damage and
-  DPS come out the same.
+  DPS come out the same. Reading white text on screen (the Victory line, the HP check while tabbed out, the
+  Interlink leader note) is also 15-20 times quicker, with the same result: at 4K one read took up to 1.4 s.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.
 - **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
   could go unnoticed until the next day. It now looks every 30 minutes, and a new version shows as a green-outlined
@@ -164,7 +165,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   and the whole PC, full-size copies, text reads and where you were, so a lag report shows where the time went, plus
   how busy the graphics card is (the game, aLogs, the whole card), free memory, and any moments the whole PC froze.
   When it finds the game it also notes the PC's graphics card, CPU, memory, monitor and how the game's window is
-  shown. Never other programs' names.
+  shown, and the longest single look and screen read each minute. Never other programs' names.
 - **The meter stuck on screen after a fight (B3, B4):** a mix-up in the new "team leader has ended the challenge"
   check made the meter fail on every frame once a fight ended, so the overlay stayed up and no end screen was read
   or sent (most visible in Holo-Battle Sim). Fixed.

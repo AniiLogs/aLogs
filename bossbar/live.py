@@ -903,9 +903,11 @@ class OcrWorker(threading.Thread):
             self.wake.clear()
             if self.stop or self.job is None: continue                  # woken to close
             crops, meta = self.job
+            t0 = time.perf_counter()
             try: text = self.ocr.read(crops)
             except Exception as e:
                 log.warning(f'background OCR failed: {e!r}'); text = {}
+            self.longest = max(getattr(self, 'longest', 0.0), (time.perf_counter() - t0) * 1000)   # for the load line
             self.result = (text, meta); self.job = None
     def close(self):
         self.stop = True; self.wake.set()
@@ -1030,6 +1032,12 @@ class Meter:
             self.cap_stats = {**st, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
             self.load_line(now)
 
+    def peak(self, kind, ms):
+        """The longest of `kind` this minute ('look': one whole step, 'prep': preparing a screen read's crops), for the
+        load line: an average hides a single long burst of work."""
+        p = self.peaks = getattr(self, 'peaks', None) or {}
+        p[kind] = max(p.get(kind, 0.0), ms)
+
     def load_line(self, now):
         """Once a minute (with the capture line): what the last minute cost - CPU for the meter, the game and the whole
         PC (% of all cores), whole frames vs top parts copied, screen text reads, and where you were. Added for lag
@@ -1049,6 +1057,11 @@ class Meter:
             ram_text = f"RAM {mem[0]:.1f} GB free of {mem[1]:.0f}, aLogs {ours_mb:.0f} MB" if mem else 'RAM ?'
             h = getattr(self, 'hitches', None) or [0, 0.0]; self.hitches = [0, 0.0]
             hitch_text = f"{h[0]} PC stalls (longest {h[1]:.0f} ms)" if h[0] else 'no PC stalls'
+            p = getattr(self, 'peaks', None) or {}; self.peaks = {}
+            bg = getattr(self, 'screen_bg', None); ocr_ms = getattr(bg, 'longest', 0.0) if bg else 0.0
+            if bg: bg.longest = 0.0
+            peak_text = (f"longest look {p.get('look', 0):.0f} ms, longest screen read {p.get('prep', 0):.0f} ms to prepare + "
+                         f"{ocr_ms:.0f} ms to read")
             c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
             span = now - getattr(self, 'load_since', now - 60); self.load_since = now
             where = ('homeland' if scene_of(self.space) == HOMELAND_SCENE else 'Interlink' if self.bossrush_space
@@ -1057,7 +1070,7 @@ class Meter:
             log.info(f"load: CPU meter {fmt(cpu and cpu['meter'])}, aLogs app {fmt(cpu and cpu['app'])}, game {fmt(cpu and cpu['game'])}, whole PC "
                      f"{fmt(cpu and cpu['pc'])} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, "
                      f"{c['reads'] / span:.1f} text reads/s | {where}, {'fight' if self.fight else 'idle' if self.idle() else 'busy'}"
-                     f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'} | {gpu_text} | {ram_text} | {hitch_text}")
+                     f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'} | {gpu_text} | {ram_text} | {hitch_text} | {peak_text}")
             self.load_counts = {'whole': 0, 'part': 0, 'reads': 0}
         except Exception as e:
             log.info(f'load: not measured ({e!r})')
@@ -1257,7 +1270,9 @@ class Meter:
         if done: self.read_screen(done[1][0], done[1][1], done[0])
         if bg.busy or not getattr(self, 'frame_full', True) or not self.screen_read_due(now, quick): return
         self.last_results = now; self.screen_read_sig = getattr(self, "top_sig", None)
+        t0 = time.perf_counter()
         crops = self.screen_crops(im, quick)
+        self.peak('prep', (time.perf_counter() - t0) * 1000)
         if crops:
             bg.submit(crops, (im, now))
             if getattr(self, 'load_counts', None): self.load_counts['reads'] += 1
@@ -3147,7 +3162,8 @@ class Meter:
         while not self.stop:
             t = time.time()
             if self.asked_to_stop(): break
-            try: self.step()
+            try:
+                t0 = time.perf_counter(); self.step(); self.peak('look', (time.perf_counter() - t0) * 1000)
             except Exception as e:
                 log.exception('error in step'); self.out('status', f'error: {e!r} (details in logs/meter.log)')
             self.write_status(time.time())

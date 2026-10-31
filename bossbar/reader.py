@@ -313,12 +313,13 @@ def prep_white(img, box, scale, size=4):
     """Only near-white, unsaturated pixels count as text, so bright sky or sand around a box stays blank."""
     c = img.crop(tuple(int(v) for v in box)).convert('RGB'); k = size / scale
     c = c.resize((max(1, int(c.width * k)), max(1, int(c.height * k))), Image.BICUBIC)
-    out = Image.new('L', c.size, 255); src = c.load(); dst = out.load()
-    for y in range(c.height):
-        for x in range(c.width):
-            r, g, b = src[x, y]
-            if min(r, g, b) > 165 and max(r, g, b) - min(r, g, b) < 50: dst[x, y] = 0
-    return out
+    # bright (every channel over 165) and grey (channels within 50): whole-image operations, not a pixel loop
+    # (75-1400 ms a box at 4K that way; the same picture in 6-100 ms)
+    r, g, b = c.split()
+    low = ImageChops.darker(ImageChops.darker(r, g), b); high = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    text = ImageChops.multiply(low.point(lambda v: 255 if v > 165 else 0),
+                               ImageChops.subtract(high, low).point(lambda v: 255 if v < 50 else 0))
+    return ImageChops.invert(text)
 
 def prep_grey(img, box, scale, size=3, pad=24):
     """Dark grey text on a light card -> black on white; coloured marks next to it (an element icon after a name)
