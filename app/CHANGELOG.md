@@ -7,7 +7,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### New
 - **Holo-Battle Sim on the leaderboards:** after a win, aLogs reads the line under "Victory" (the battle time, the
-  stage such as "Training of Water" or "Trial of Fire", and the difficulty) and sends your time to that stage's board,
+  stage such as "Earth Training" or last season's "Training of Water", and the difficulty; any season's stages) and sends your time to that stage's board,
   with the Victory screen as proof.
 - **Your EXP on your profile:** besides your level, the EXP card the game shows when you gain EXP now sends
   your EXP and the EXP needed for the next level, so your profile can show how far along the level you are.

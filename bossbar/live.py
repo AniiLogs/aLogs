@@ -178,18 +178,29 @@ def first_num(s):
     nums = re.findall(r'\d+', (s or '').replace('O', '0'))
     return int(max(nums, key=lambda n: (nums.count(n), -nums.index(n)))) if nums else None
 
-# between the stage and its difficulty: " - ", which OCR sometimes reads with a stray letter ("j- Challenge")
-SIM_STAGE = re.compile(r'(Training|Trial|Crucible)\s*of\s*(Grass|Water|Fire).{0,6}?(Easy|Normal|Hard|Challenge)', re.I)
+# Holo-Battle Sim's stage line, as the game's rogue_difficulty_data names it (interfaceName). Season 1: "Training of
+# Water - Hard" (Easy, "Common" for Normal, Hard) and "Trial of Fire - Challenge". Season 2 on: "Earth Training -
+# Easy" ... "- Trial". Each season brings new elements (Grass/Water/Fire, then Earth/Lightning/Dark), so any word is
+# taken as the element. Between the stage and its difficulty: " - ", which OCR sometimes reads with a stray letter.
+SIM_DIFF = r'(Easy|Common|Normal|Hard|Challenge|Trial)\b'
+SIM_STAGE_OF = re.compile(r'\b(Training|Trial|Crucible)\s*of\s*([A-Za-z]{3,12}).{0,6}?' + SIM_DIFF, re.I)
+SIM_STAGE = re.compile(r'\b([A-Za-z]{3,12})\s*(Training|Trial).{0,6}?' + SIM_DIFF, re.I)
 
 def parse_sim(text):
-    """Holo-Battle Sim's Victory line "Battle time 00:08:22 Training of Water - Hard" -> {'time_s': 502, 'trial':
-    'Training of Water', 'element': 'Water', 'difficulty': 'Hard'}, or None unless the time and the stage both read."""
+    """Holo-Battle Sim's Victory line "Battle time 00:08:22 Earth Training - Hard" (or Season 1's "Training of Water -
+    Hard") -> {'time_s': 502, 'trial': 'Earth Training', 'element': 'Earth', 'difficulty': 'Hard'}, or None unless the
+    time and the stage both read. The stage name is kept as the game shows it."""
     t = re.search(r'(\d{1,2})\s*[:.]\s*(\d{2})\s*[:.]\s*(\d{2})', text or '')
-    s = SIM_STAGE.search(text or '')
-    if not t or not s or int(t.group(2)) > 59 or int(t.group(3)) > 59: return None
-    kind, element, difficulty = (g.capitalize() for g in s.groups())
+    if not t or int(t.group(2)) > 59 or int(t.group(3)) > 59: return None
+    rest = (text or '')[t.end():]
+    s = SIM_STAGE_OF.search(rest)
+    if s: kind, element, difficulty = (g.capitalize() for g in s.groups()); trial = f'{kind} of {element}'
+    else:
+        s = SIM_STAGE.search(rest)
+        if not s or s.group(1).lower() in ('time', 'battle'): return None
+        element, kind, difficulty = (g.capitalize() for g in s.groups()); trial = f'{element} {kind}'
     return {'time_s': int(t.group(1)) * 3600 + int(t.group(2)) * 60 + int(t.group(3)),
-            'trial': f'{kind} of {element}', 'element': element, 'difficulty': difficulty}
+            'trial': trial, 'element': element, 'difficulty': difficulty}
 
 def last_uid(path):
     """Your player id from the end of the game log (last 32 MB), the newest of: a personal-space id
