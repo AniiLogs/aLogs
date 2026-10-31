@@ -14,8 +14,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   Training Style (from the Core gizmo you started with), the Alpha Transformation, how many Holo-gizmos of each
   series you collected, and your coins. With automatic clicks on (the same setting as View Battle Data), it then
   opens the Gizmo screen, opens its All list and scrolls through it to note every gizmo you picked, and
-  goes back to the Victory screen; your inputs are held meanwhile. The icons are matched against your own game install; aLogs ships no game
-  art.
+  goes back to the Victory screen; your inputs are held meanwhile. The icons are matched against your own game
+  install; aLogs ships no game art.
 - **Your EXP on your profile:** besides your level, the EXP card the game shows when you gain EXP now sends
   your EXP and the EXP needed for the next level, so your profile can show how far along the level you are.
 - **Every Interlink run for your Battle History:** each finished run is sent, not only new bests, so you can look
