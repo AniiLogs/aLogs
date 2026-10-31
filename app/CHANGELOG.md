@@ -142,11 +142,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ### Fixed
 - **The capture on/off button in a homeland (B5):** B5 stopped all capture in homelands, and with it the button's
   look at the game's icon row, so the button never showed at home. It now shows whenever the game is in front there.
-- **Less load during fights at 4K:** while a boss's HP bar is hidden by effects, the meter now looks 10 times a
+- **Less load during fights:** while a boss's HP bar is hidden by effects, the meter now looks 10 times a
   second and reads the screen 4 times a second instead of as fast as it can; tabbed out mid-fight it looks twice a
-  second; and a new "Automatic" fight rate (the default) runs fights at 30 looks a second at 4K and 60 below. You can
-  still pick 60 or 30 in DPS Meter › Meter, whose wording now says what each choice does. Damage and DPS come out
-  the same.
+  second; and fights now run at 30 looks a second by default instead of 60 (pick 60 in DPS Meter › Meter for the
+  finest timing; a 60 you picked yourself stays). The settings' wording now says what each choice does. Damage and
+  DPS come out the same.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.
 - **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
   could go unnoticed until the next day. It now looks every 30 minutes, and a new version shows as a green-outlined

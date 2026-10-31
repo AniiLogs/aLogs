@@ -108,9 +108,9 @@
             </select></label>
           <label class="field"><span>How often the meter reads the boss bar during a fight</span>
             <select data-k="capture.fight_rate" data-type="number">
-              <option value="0">Automatic (default): 30 times a second at 4K, 60 below</option><option value="60">60 times a second (finest timing)</option><option value="30">30 times a second (lighter)</option>
+              <option value="30">30 times a second (default)</option><option value="60">60 times a second (finest timing, heavier)</option>
             </select></label>
-          <p class="hint">Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s. Out in the world with no boss around, the meter looks 4 times a second whatever you pick here, and not at all in a homeland. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
+          <p class="hint">Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s. Out in the world with no boss around, the meter looks 4 times a second whatever you pick here. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
           <!-- Read my damage numbers (experimental, bossbar/dmgnumbers.py): paused 2026-10-28, see the meter's DAMAGE_NUMBERS -->
         </div>
         <div class="group">
