@@ -140,6 +140,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **The meter stuck on screen after a fight (B3, B4):** a mix-up in the new "team leader has ended the challenge"
+  check made the meter fail on every frame once a fight ended, so the overlay stayed up and no end screen was read
+  or sent (most visible in Holo-Battle Sim). Fixed.
+- **Holo-Battle Sim wins at 4K:** the Victory title could read as "Victor" and the stage with a stray letter
+  ("Hardk"), and the win was skipped. Both now read.
 - **Sanctum Helper's maps only in Egg Heist:** the island or Sanctum map could pop up out in the world or in
   Interlink. Sanctum Helper now waits until the game's own log says you're on the Egg Heist island or in a Sanctum.
 - **Keyboard, mouse and controllers stopping after a restart:** setting up controller blocking right after HidHide

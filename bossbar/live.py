@@ -182,7 +182,7 @@ def first_num(s):
 # Water - Hard" (Easy, "Common" for Normal, Hard) and "Trial of Fire - Challenge". Season 2 on: "Earth Training -
 # Easy" ... "- Trial". Each season brings new elements (Grass/Water/Fire, then Earth/Lightning/Dark), so any word is
 # taken as the element. Between the stage and its difficulty: " - ", which OCR sometimes reads with a stray letter.
-SIM_DIFF = r'(Easy|Common|Normal|Hard|Challenge|Trial)\b'
+SIM_DIFF = r'(Easy|Common|Normal|Hard|Challenge|Trial)(?![A-Za-z]{2})'   # ('Hardk': a stray letter after it)
 SIM_STAGE_OF = re.compile(r'\b(Training|Trial|Crucible)\s*of\s*([A-Za-z]{3,12}).{0,6}?' + SIM_DIFF, re.I)
 SIM_STAGE = re.compile(r'\b([A-Za-z]{3,12})\s*(Training|Trial).{0,6}?' + SIM_DIFF, re.I)
 
@@ -1003,7 +1003,7 @@ class Meter:
         if self.numbers: self.numbers.fight_ended()
         if self.fight:
             f = self.fight
-            self.last_fight = f; self.fight_ended_at = time.time()   # for the leader's "ended the challenge" line
+            self.fight_ended_at = time.time()   # for the leader's "ended the challenge" line (last_fight is set below)
             # The bar vanishes the moment a boss is killed or caught, before the last hit shows - but it also hides
             # during ultimates, so a vanished bar alone proves nothing. Count the rest only with confirmation: the
             # game's Catch Countdown, or the bar staying gone for the whole grace period with the boss nearly down.
@@ -1395,7 +1395,7 @@ class Meter:
                            'title2': R.prep_text(im, (ux + u * 0.43, H * 0.13, ux + u * 0.57, H * 0.20), u / 2000, thr=200),
                            **sim_team_crops(im, u, ux, H)})
         sim = parse_sim(t.get('w')) or parse_sim(t.get('b'))
-        won = 'victory' in f"{t.get('title') or ''} {t.get('title2') or ''}".lower()
+        won = 'victo' in f"{t.get('title') or ''} {t.get('title2') or ''}".lower()        # ('Victor': the y cut off at 4K)
         if not sim:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
         self.sim_seen = now
@@ -2499,7 +2499,7 @@ class Meter:
         is looked for while an Interlink fight's bar is hidden or just gone (about once a second): a quick check for a
         line of white text over the dark strip first, the OCR only then. The run then goes with extra.endedByLeader."""
         if now - getattr(self, 'leader_look', 0) < 1.0 or not getattr(self, 'frame_full', True): return
-        f = self.fight or getattr(self, 'last_fight', None)
+        f = self.fight or (self.last_fight[0] if self.last_fight else None)     # last_fight: (Fight, ended at)
         if not f or not f.bossrush or (not self.fight and now - getattr(self, 'fight_ended_at', 0) > 20): return
         self.leader_look = now
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; x0, y0, x1, y1 = self.LEADER_NOTE
