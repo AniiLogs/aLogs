@@ -151,6 +151,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   And each look at the screen's text only checks the screens that can appear where you are (Interlink's in
   Interlink, Egg Heist's in Egg Heist, and so on), with a full check of everything every few seconds so nothing
   is missed.
+- **One switch for the meter:** DPS Meter › "Run the DPS meter" is now the same switch as the button over the game
+  and its shortcut key, so the button never says on while the meter is off. Off, aLogs doesn't look at the game at
+  all (no overlay, results, submissions or Sanctum Helper maps); only the button keeps watching its spot in the
+  game's icon row. If you had the meter turned off, the switch starts off.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.
 - **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
   could go unnoticed until the next day. It now looks every 30 minutes, and a new version shows as a green-outlined

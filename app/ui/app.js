@@ -235,9 +235,12 @@
   // ---------------------------------------------------------------- screen capture switch
   // General › Screen capture: the same switch as the button over the game (overlay_button.rs); the button's own
   // changes (a click, its right-click menu) arrive as "capture-switch" events.
+  let captureOn = true;      // the switch as last shown (the sidebar's "Meter off" follows it)
   function showCaptureSwitch(info) {
     if (!info) return;
     $("[data-capture-on]").checked = info.capture_on;
+    $("[data-capture-meter]").checked = info.capture_on;   // DPS Meter › Run the DPS meter: the same switch
+    captureOn = info.capture_on;
     $("[data-capture-button]").checked = info.show;
     $("[data-capture-lock]").checked = info.locked;
     $("[data-capture-always]").checked = Boolean(info.always);
@@ -256,6 +259,7 @@
   }
   const setSwitch = async (change) => showCaptureSwitch(await invoke("set_capture_switch", change));
   $("[data-capture-on]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
+  $("[data-capture-meter]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
   $("[data-capture-button]").addEventListener("change", (event) => setSwitch({ show: event.target.checked }));
   $("[data-capture-lock]").addEventListener("change", (event) => setSwitch({ locked: event.target.checked }));
   $("[data-capture-always]").addEventListener("change", (event) => setSwitch({ always: event.target.checked }));
@@ -1376,10 +1380,10 @@
     const running = Boolean(status.running);
     $("[data-meter-dot]").classList.toggle("on", running);
     // the meter always runs while aLogs is open; a gap only means it is (re)starting
-    const meterOn = get("meter.enabled") !== false;
+    const meterOn = captureOn;                               // the button over the game is the meter's switch
     $("[data-meter-state]").textContent = !meterOn ? "Meter off" : running ? "Meter running" : "Meter starting…";
     const fresh = running && status.time && Date.now() / 1000 - status.time < 5;
-    text("game", !meterOn ? "Meter off (DPS Meter › Meter)" : !running ? "Meter starting…" : !fresh ? "Starting…"
+    text("game", !meterOn ? "Meter off (the button over the game, or DPS Meter › Meter)" : !running ? "Meter starting…" : !fresh ? "Starting…"
       : status.game_window ? "Game window found" : "Waiting for the game");
     text("capture", fresh && status.frame ? `${status.frame[0]}×${status.frame[1]} via ${status.capture}` : "");
     text("bar", fresh ? (status.boss_bar ? "Boss bar on screen" : "No boss bar") : "—");
@@ -1706,7 +1710,13 @@
     } catch {
       // older app without the updater
     }
-    void captureSwitch();
+    void captureSwitch().then(async () => {
+      if (get("meter.enabled") === false) {               // "Run the DPS meter" was its own setting before B7
+        set("meter.enabled", true);
+        await saveChanges();
+        await setSwitch({ captureOn: false });
+      }
+    });
     if (settings.app.show_guide !== false) openGuide();
     // once a second while the window is up; nothing while it sits in the tray, and fresh the moment it's shown
     setInterval(() => { if (!document.hidden) void refresh(); }, 1000);
