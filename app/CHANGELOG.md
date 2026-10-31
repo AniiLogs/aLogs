@@ -141,10 +141,12 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Fixed
 - **Less load while you're not fighting:** out in the world with no boss bar, the meter now looks at the game 4
-  times a second instead of up to 20 (a boss bar is still picked up within a quarter second), and Sanctum Helper
+  times a second instead of up to 20 (a boss bar is still picked up within a quarter second) and reads the screen's
+  text at most once a second (turning the camera used to set off a whole 4K copy and text read every look, which
+  made the camera stutter); Sanctum Helper looks for the party screen once a second instead of twice, and
   no longer tracks the map at all outside Egg Heist. In a homeland (yours or anyone's) nothing is captured at all
   for now: the meter, Sanctum Helper and the capture button over the game all rest there until the game's log
-  says you've left. A player saw their whole PC lag in their homeland with B4 at 4K.
+  says you've left. A player at 4K saw their whole PC lag in their homeland, and the camera stutter out in the world, with B4.
 - **The meter stuck on screen after a fight (B3, B4):** a mix-up in the new "team leader has ended the challenge"
   check made the meter fail on every frame once a fight ended, so the overlay stayed up and no end screen was read
   or sent (most visible in Holo-Battle Sim). Fixed.

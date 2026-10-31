@@ -1193,7 +1193,11 @@ class Meter:
         of the frame, which every look has), about every 1.5 s when it didn't, at once in quick mode."""
         last, cur = getattr(self, 'screen_read_sig', None), getattr(self, 'top_sig', None)
         changed = last is None or cur is None or screen_changed(cur, last, limit=6)
-        return now - self.last_results >= (0.0 if quick else 0.1 if changed else 1.5)
+        # idle out in the world, turning the camera changes every frame: a whole 4K copy and ~17 text reads every look
+        # made the camera stutter on a player's PC (B4). Once a second is enough for the screens read there.
+        gap = 0.0 if quick else 0.1 if changed else 1.5
+        if not quick and self.idle(): gap = max(gap, 1.0)
+        return now - self.last_results >= gap
 
     def full_frame_due(self, now):
         """Between fights only the frame's top part is copied (where a boss bar appears; ~3x cheaper at 4K) unless
