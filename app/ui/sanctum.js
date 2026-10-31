@@ -144,6 +144,7 @@
         settings.sanctum = { ...(settings.sanctum || {}), enabled: on };
         await invoke("save_settings", { settings });
         state.enabled = on;
+        document.dispatchEvent(new CustomEvent("sanctum-enabled", { detail: on }));   // the sidebar's switch follows
         toast(on ? "Sanctum Helper is starting" : "Sanctum Helper stopped");
       } catch (error) {
         toast(String(error), true);
@@ -356,6 +357,10 @@
     const enabled = body.querySelector("input[type=checkbox]");
     if (activeTab === "status" && enabled) enabled.checked = state.enabled;
   }
+  // the sidebar's Sanctum Helper switch (app.js): this page shows it at once
+  document.addEventListener("sanctum-enabled", (event) => {
+    if (state.enabled !== event.detail) { state.enabled = event.detail; draw(true); }
+  });
 
   async function refresh() {
     if (document.hidden || !root.closest(".page").classList.contains("is-active")) return;

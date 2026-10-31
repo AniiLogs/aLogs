@@ -742,17 +742,10 @@ pub fn start() {
                 if shared.get_u32(60) != off as u32 {
                     shared.write(8, || shared.put_u32(60, off as u32));
                 }
-                // Switched off: nothing is captured, with one exception (the allow-list): the app's own look at the
-                // small strip under the game's icon row (AppReader, slot SLOTS - 1), so the on/off button can still
-                // hide with those icons. It stays in the app, is never saved or sent, and only while the button can
-                // show; the meter and Sanctum Helper get nothing.
-                let only = off.then_some(SLOTS - 1);
-                if off && !shared.active(SLOTS - 1, now) {
-                    source = None;
-                    shared.mark_invalid();
-                    std::thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
+                // Switched off is the DPS meter's switch: the meter sees the flag and stops asking (it rests), and
+                // Sanctum Helper has its own switch (it isn't running when off), so the readers left (Sanctum Helper
+                // when on, the button's look at its icon row) keep their pictures. Nobody asking: nothing is captured.
+                let only: Option<usize> = None;
                 // the next reader due (each at its own pace), or nobody: sleep
                 let due = (0..SLOTS)
                     .filter(|&i| shared.active(i, now) && only.map_or(true, |o| o == i))

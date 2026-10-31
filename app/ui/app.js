@@ -240,6 +240,7 @@
     if (!info) return;
     $("[data-capture-on]").checked = info.capture_on;
     $("[data-capture-meter]").checked = info.capture_on;   // DPS Meter › Run the DPS meter: the same switch
+    $('[data-nav-switch="dps"]').setAttribute("aria-checked", String(Boolean(info.capture_on)));
     captureOn = info.capture_on;
     $("[data-capture-button]").checked = info.show;
     $("[data-capture-lock]").checked = info.locked;
@@ -260,6 +261,32 @@
   const setSwitch = async (change) => showCaptureSwitch(await invoke("set_capture_switch", change));
   $("[data-capture-on]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
   $("[data-capture-meter]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
+  // the sidebar's switches: flipping one doesn't open its page
+  async function setSanctum(on) {
+    try {
+      const stored = await invoke("get_settings");
+      stored.sanctum = { ...(stored.sanctum || {}), enabled: on };
+      await invoke("save_settings", { settings: stored });
+      settings.sanctum = { ...(settings.sanctum || {}), enabled: on };
+      showSanctumSwitch(on);
+      document.dispatchEvent(new CustomEvent("sanctum-enabled", { detail: on }));   // its page's toggle follows
+      toast(on ? "Sanctum Helper is starting" : "Sanctum Helper stopped");
+    } catch (error) {
+      toast(String(error), true);
+    }
+  }
+  const showSanctumSwitch = (on) => $('[data-nav-switch="sanctum"]').setAttribute("aria-checked", String(on !== false));
+  document.addEventListener("sanctum-enabled", (event) => showSanctumSwitch(event.detail));
+  for (const sw of $$("[data-nav-switch]")) {
+    const flip = (event) => {
+      event.preventDefault(); event.stopPropagation();
+      const on = sw.getAttribute("aria-checked") !== "true";
+      if (sw.dataset.navSwitch === "dps") void setSwitch({ captureOn: on });
+      else void setSanctum(on);
+    };
+    sw.addEventListener("click", flip);
+    sw.addEventListener("keydown", (event) => { if (event.key === " " || event.key === "Enter") flip(event); });
+  }
   $("[data-capture-button]").addEventListener("change", (event) => setSwitch({ show: event.target.checked }));
   $("[data-capture-lock]").addEventListener("change", (event) => setSwitch({ locked: event.target.checked }));
   $("[data-capture-always]").addEventListener("change", (event) => setSwitch({ always: event.target.checked }));
@@ -1695,6 +1722,7 @@
       const overlay = stored?.overlay;                    // settings from before 0.1.28: hide_from_capture, the opposite
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
       settings = merge(DEFAULTS, stored);
+      showSanctumSwitch(settings.sanctum?.enabled ?? true);
       // the fight rate's default was 60 before B6, now 30: a rate nobody picked is 30
       if (settings.capture.fight_rate !== 30 && !(settings.user_set || []).includes("capture.fight_rate")) settings.capture.fight_rate = 30;
     } catch {

@@ -13,8 +13,9 @@
     <aside class="nav">
       <div class="brand"><img class="mark" src="img/alogs-mark.png" alt=""><span>aLogs<small class="brand-sub">Aniiloger's Companion App</small></span></div>
       <button type="button" data-page="dashboard" class="is-active">Dashboard</button>
-      <button type="button" data-page="dps">DPS Meter</button>
-      <button type="button" data-page="sanctum">Sanctum Helper</button>
+      <!-- each with its on/off switch, always in view: the same switches as on their pages -->
+      <button type="button" data-page="dps"><span>DPS Meter</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="dps" title="DPS meter on/off (also the button over the game and its key)"></span></button>
+      <button type="button" data-page="sanctum"><span>Sanctum Helper</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="sanctum" title="Sanctum Helper on/off"></span></button>
       <button type="button" data-page="site">AniiLogs</button>
       <button type="button" data-page="photos">Photos</button>
       <button type="button" data-page="general">General Settings</button>
@@ -99,7 +100,7 @@
       <div class="dps-panel is-active" data-panel="meter">
         <div class="group">
           <label class="toggle"><input type="checkbox" data-capture-meter><span></span>
-            <div><strong>Run the DPS meter</strong><small>The same switch as the button over the game and its shortcut key. When off, aLogs doesn't look at the game at all: no overlay, no saved results or Battle Data, nothing sent to the leaderboards, and no Sanctum Helper maps. Only the button keeps an eye on the game's icon row so it can sit there. The AniiLogs pages still work.</small></div></label>
+            <div><strong>Run the DPS meter</strong><small>The same switch as the DPS Meter switch in the sidebar, the button over the game and its shortcut key. When off, the meter doesn't look at the game: no overlay, no saved results or Battle Data, nothing sent to the leaderboards. Sanctum Helper has its own switch; the button keeps an eye on the game's icon row so it can sit there.</small></div></label>
         </div>
         <div class="group">
           <label class="field"><span>How often the meter looks for a boss bar in Interlink and around a fight</span>
@@ -315,7 +316,7 @@
         <div class="group">
           <h2>Screen capture</h2>
           <label class="toggle"><input type="checkbox" data-capture-on><span></span>
-            <div><strong>Screen capture</strong><small>Off: aLogs doesn't look at the game at all. No DPS meter, no Sanctum Helper, nothing read or sent until you turn it back on.</small></div></label>
+            <div><strong>DPS meter (the button over the game)</strong><small>Off: the meter doesn't look at the game, so nothing is read or sent until you turn it back on. The same switch as DPS Meter › Run the DPS meter and the sidebar's DPS Meter switch. Sanctum Helper has its own switch.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-button><span></span>
             <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while capture is on and dim while it's off. It shows only when the game shows its icons. Click it, or press its hotkey, to switch. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-lock><span></span>
