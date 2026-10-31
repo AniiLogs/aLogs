@@ -92,15 +92,17 @@ class LogWatcher(threading.Thread):
             with open(self.path, 'rb') as f:
                 f.seek(max(0, size - span)); tail = f.read(span)
         except OSError: return
-        rush = set(); last = None
+        rush = set(); sim = set(); last = None
         for raw in tail.split(b'\n'):
             m = self.RX_ENTER.search(raw.decode('utf-8', 'replace')) if b'createVoxelScene' in raw else None
             if m: last = m.group(1)
             elif b'fb_bossrush' in raw and last: rush.add(last)
+            elif b'fb_roguelike' in raw and last: sim.add(last)
         if last:
             self.current = last
             self.events.put(('enter', last, None))
             if last in rush: self.events.put(('bossrush', last, None))
+            if last in sim: self.events.put(('holosim', last, None))
 
     def run(self):
         pos = None; buf = b''
@@ -119,7 +121,8 @@ class LogWatcher(threading.Thread):
                             if uid and uid != self.uid:
                                 self.uid = uid; self.events.put(('uid', uid.decode(), None))
                             if b'createVoxelScene' not in raw: continue
-                        if b'createVoxelScene' not in raw and b'clearSpace' not in raw and b'bossrush' not in raw:
+                        if (b'createVoxelScene' not in raw and b'clearSpace' not in raw and b'bossrush' not in raw
+                                and b'fb_roguelike' not in raw):
                             if b'][info]' in raw and len(self.delays) < 20: self._delay(raw.decode('utf-8', 'replace'))
                             continue
                         line = raw.decode('utf-8', 'replace'); d = self._delay(line)
@@ -128,6 +131,7 @@ class LogWatcher(threading.Thread):
                         m = self.RX_LEAVE.search(line)
                         if m: self.events.put(('leave', m.group(1), d)); continue
                         if 'fb_bossrush' in line: self.events.put(('bossrush', self.current, d))
+                        elif 'fb_roguelike' in line: self.events.put(('holosim', self.current, d))   # Holo-Battle Sim
             except OSError: pass
             time.sleep(0.25)
 
@@ -888,6 +892,7 @@ class Meter:
         except (OSError, ValueError, TypeError): self.bar_spots = []
         self.switch_votes = []; self.stop = False; self.space = None; self.bossrush_space = False
         self.rush_spaces = set()     # spaces the game log called Interlink (re-entered for each of its bosses)
+        self.sim_spaces = set(); self.holosim_space = False   # ...and Holo-Battle Sim (one space for a whole run)
         self.duds = []; self.dud_cand = None   # bar-like shapes that never named a boss (dud_check)
         self.hidden_drop = None      # (fill, readings in a row, last counted) of a big drop read at the locked spot
         self.events = queue.Queue(); self.logw = None; self.awaiting = None; self.last_results = 0.0; self.battle_saved = 0.0
@@ -1030,6 +1035,7 @@ class Meter:
                 try:          # the overlay's final numbers: showing them must never keep the fight from closing
                     self.out('fight_end', {'damage': f.damage, 'max_hp': f.max_hp, 'elapsed': f.elapsed, 'defeated': f.defeated,
                                            'avg': f.damage / f.elapsed if f.elapsed > 1 else 0, 'bossrush': f.bossrush,
+                                           'holosim': self.holosim_space,
                                            'screen': self.last_screen})
                 except Exception: log.exception('final numbers not shown')
             self.out('status', f'fight over ({why}): {f.title} Lv {f.level} - {f.damage:,} team damage in {f.elapsed:.0f}s'
@@ -1435,7 +1441,7 @@ class Meter:
     # each a name in dark text with its rarity, six to a view (a longer list scrolls). "All" lists every one.
     GIZMO_TITLE = (0.06, 0.03, 0.14, 0.085)
     GIZMO_ALL = (0.054, 0.16)                 # "All": every picked gizmo in one list (it scrolls)
-    GIZMO_LIST = (0.305, 0.11, 0.80, 0.95)
+    GIZMO_LIST = (0.305, 0.11, 0.60, 0.95)    # the names' column (descriptions run on to the right)
     GIZMO_BACK = (0.05, 0.056)
     SIM_TOUR_S = 40
 
@@ -1448,7 +1454,7 @@ class Meter:
             return False
         gizmos = self.sim_pending[0]['setup'].get('gizmos') or []
         if not gizmos: return False
-        self.sim_tour = {'stage': 'open', 'next': now + 1.0, 'until': now + self.SIM_TOUR_S, 'tries': 0,
+        self.sim_tour = {'stage': 'open', 'next': now + 0.5, 'until': now + self.SIM_TOUR_S, 'tries': 0,
                          'want': sum(g.get('count') or 0 for g in gizmos), 'found': [], 'scrolls': 0, 'idle': 0}
         r = C.load()['results']
         if r.get('hold_inputs', True): self.hold.start(self.SIM_TOUR_S)
@@ -1488,18 +1494,21 @@ class Meter:
         if stage == 'open':                                     # the first icon of the Victory screen's gizmo row
             tour['tries'] += 1
             if tour['tries'] > 3: self.sim_tour_end('the Gizmo screen did not open'); return False
-            wc.click_at(*at(SIM_GIZMO_X, 0.545)); tour.update(stage='wait', next=now + 1.0)
+            wc.click_at(*at(SIM_GIZMO_X, 0.545)); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
         on_page = 'gizmo' in re.sub(r'[^a-z]', '', (self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0],
                     H * self.GIZMO_TITLE[1], ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or '').lower())
         if stage == 'wait':
-            if on_page: wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.8)
-            else: tour.update(stage='open', next=now + 0.5)
+            # looked at about every 0.25 s; clicked again only when the screen hasn't come after 1.5 s
+            if on_page: wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.5)
+            else:
+                tour['waited'] += 1
+                tour.update(stage='open' if tour['waited'] >= 6 else 'wait', next=now + 0.25)
             return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
         # 'read': the names in view; scroll on until all are read or two looks in a row bring nothing new
         x0, y0, x1, y1 = self.GIZMO_LIST
-        text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k)}).get('n') or ''
+        text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k, size=2)}).get('n') or ''
         found = tour['found']; before = len(found)
         norm = lambda x: re.sub(r'[^a-z]', '', x.lower())
         for line in text.split(' / '):
@@ -1509,7 +1518,7 @@ class Meter:
             if score >= 0.85 and name not in found: found.append(name)
         tour['idle'] = 0 if len(found) > before else tour['idle'] + 1
         if len(found) < tour['want'] and tour['idle'] < 2 and tour['scrolls'] < 20:
-            tour['scrolls'] += 1; tour['next'] = now + 0.6
+            tour['scrolls'] += 1; tour['next'] = now + 0.35
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -2)
             return True
         wc.click_at(*at(*self.GIZMO_BACK)); self.sim_tour_end('done')
@@ -2284,7 +2293,7 @@ class Meter:
             if kind == 'enter':
                 m = re.match(r'^\d+-(\d+)-\d+$', sid or '')
                 if m and not self.uid: self.set_uid(m.group(1))       # someone's home is theirs: only before any UID
-                self.space = sid; self.bossrush_space = sid in self.rush_spaces
+                self.space = sid; self.bossrush_space = sid in self.rush_spaces; self.holosim_space = sid in self.sim_spaces
                 self.duds = []; self.dud_cand = None
                 # the timer check may already have ended this fight; the log only ends it if it is still running
                 if self.fight and time.time() - self.fight.created > 5: self.end_fight('scene changed (game log)')
@@ -2295,6 +2304,10 @@ class Meter:
                 if sid == self.space:
                     self.bossrush_space = True
                     if self.fight and self.fight.bossrush: self.fight.scene_ok = True
+            elif kind == 'holosim':
+                sid = sid or self.space
+                if sid: self.sim_spaces.add(sid)
+                if sid == self.space: self.holosim_space = True
             elif kind == 'uid': self.set_uid(sid)
             elif kind == 'leave': self.egg_space_at = time.time()   # the fade that follows is a load, not a match's end (egg_fade)
 
@@ -2912,7 +2925,7 @@ class Meter:
         self.last_screen = (self.origin[0], self.origin[1], self.frame_size[0], self.frame_size[1])
         self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'xn': f.seg, 'fill': f.seg_fill,
                            'damage': f.damage, 'elapsed': f.elapsed, 'avg': f.avg, 'recent': f.recent,
-                           'bossrush': f.bossrush, 'seg_size': si.get('size_hp'), 'seg_left': si.get('left_hp'),
+                           'bossrush': f.bossrush, 'holosim': self.holosim_space, 'seg_size': si.get('size_hp'), 'seg_left': si.get('left_hp'),
                            'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], bar['span']),
                            'break': f.brk.info(time.time()), 'screen': self.last_screen})
 
@@ -3515,7 +3528,7 @@ def run_overlay(meter, hide):
                 if latest is not None: show_fight(latest); latest = None
                 if k == 'fight_end':                                    # the result stays up for a while
                     hide_hp()
-                    keep = 10 if d['bossrush'] else meter.args.cfg['overlay'].get('result_seconds', 10)
+                    keep = 10 if d['bossrush'] else 0 if d.get('holosim') else meter.args.cfg['overlay'].get('result_seconds', 10)
                     if show_dps_window and dps_at['shown'] and keep > 0:
                         show_dps(d['screen'], d['bossrush'], final_lines(d)); dps_at['hide_at'] = time.time() + keep
                     elif dps_at['shown']: hide_dps()
@@ -3535,6 +3548,9 @@ def run_overlay(meter, hide):
         except queue.Empty: pass
         if latest is not None: show_fight(latest)
         if meter.fight and time.time() - meter.bar_seen >= BAR_HIDDEN and dps_at.get('hp_up'): hide_hp(); dps_at['hp_up'] = False
+        # Holo-Battle Sim: the numbers too, while its bar is gone (the floor's menus, gizmo picks, the next floor)
+        if (meter.fight and meter.holosim_space and dps_at['shown'] and not dps_at['hide_at']
+                and time.time() - meter.bar_seen >= 2): hide_dps()
         if dps_at['hide_at'] and time.time() > dps_at['hide_at'] and not meter.fight: hide_dps(); dps_at['hide_at'] = None
     th = threading.Thread(target=meter.run, daemon=True); th.start()
     def backstop():

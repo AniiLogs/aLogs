@@ -13,7 +13,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   screen: your team (each Aniimo's name and level, the MVP's damage, damage taken and healing shares), your
   Training Style (from the Core gizmo you started with), the Alpha Transformation, how many Holo-gizmos of each
   series you collected, and your coins. With automatic clicks on (the same setting as View Battle Data), it then
-  opens the Gizmo screen, opens its All list and scrolls through it to note every gizmo you picked, and
+  opens the Gizmo screen, opens its All list and scrolls through it to note every gizmo you picked (a few seconds), and
   goes back to the Victory screen; your inputs are held meanwhile. The icons are matched against your own game
   install; aLogs ships no game art.
 - **Your EXP on your profile:** besides your level, the EXP card the game shows when you gain EXP now sends
@@ -143,6 +143,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The meter stuck on screen after a fight (B3, B4):** a mix-up in the new "team leader has ended the challenge"
   check made the meter fail on every frame once a fight ended, so the overlay stayed up and no end screen was read
   or sent (most visible in Holo-Battle Sim). Fixed.
+- **A quieter meter in Holo-Battle Sim:** the numbers show only while a boss's HP bar is up, and go away when it
+  does (no result left on screen between floors). The game's own log says when you're in Holo-Battle Sim.
 - **Holo-Battle Sim wins at 4K:** the Victory title could read as "Victor" and the stage with a stray letter
   ("Hardk"), and the win was skipped. Both now read.
 - **Sanctum Helper's maps only in Egg Heist:** the island or Sanctum map could pop up out in the world or in

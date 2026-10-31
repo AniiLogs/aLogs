@@ -4,7 +4,7 @@ Resolution-independent: the white [ ] brackets at the ends of the boss bar are t
 fraction of the bracket span, measured once on a 2000x1125 screenshot (span 789 px) and checked on a 4K crop.
 """
 import csv, difflib, json, os, re, struct, subprocess, tempfile, threading, time
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageOps
 from hpcalc import max_hp, break_points
 
 import settings as C
@@ -325,12 +325,13 @@ def prep_grey(img, box, scale, size=3, pad=24):
     stay blank, so they don't take the line with them."""
     c = img.crop(tuple(int(v) for v in box)).convert('RGB'); k = size / scale
     c = c.resize((max(1, int(c.width * k)), max(1, int(c.height * k))), Image.BICUBIC)
-    out = Image.new('L', c.size, 255); src = c.load(); dst = out.load()
-    for y in range(c.height):
-        for x in range(c.width):
-            r, g, b = src[x, y]
-            if max(r, g, b) < 135 and max(r, g, b) - min(r, g, b) < 45: dst[x, y] = 0
-    return ImageOps.expand(out, border=pad, fill=255)
+    # dark (brightest channel under 135) and grey (channels within 45): whole-image operations, not a pixel loop
+    # (a 4K Gizmo list took 1.75 s that way)
+    r, g, b = c.split()
+    high = ImageChops.lighter(ImageChops.lighter(r, g), b); low = ImageChops.darker(ImageChops.darker(r, g), b)
+    text = ImageChops.multiply(high.point(lambda v: 255 if v < 135 else 0),
+                               ImageChops.subtract(high, low).point(lambda v: 255 if v < 45 else 0))
+    return ImageOps.expand(ImageOps.invert(text), border=pad, fill=255)
 
 def prep_bright(img, box, scale, size=2):
     """Any bright text (pink difficulty, orange numbers, yellow titles) on a darker background: brightness,
