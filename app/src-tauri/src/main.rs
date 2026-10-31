@@ -104,6 +104,29 @@ pub(crate) fn game_title() -> String {
     if title.is_empty() { "Aniimo".into() } else { title }
 }
 
+/// Sets one setting (a JSON pointer such as "/sanctum/enabled") in settings.json and writes it back, for the app's own
+/// switches (the button over the game turning Sanctum Helper off and on). The meter and Sanctum Helper pick it up.
+pub(crate) fn write_setting(pointer: &str, value: Value) {
+    let mut settings = read_settings();
+    let mut at = &mut settings;
+    let keys: Vec<&str> = pointer.trim_start_matches('/').split('/').collect();
+    for key in &keys[..keys.len() - 1] {
+        if !at.get(*key).is_some_and(Value::is_object) { at[*key] = json!({}); }
+        at = &mut at[*key];
+    }
+    at[keys[keys.len() - 1]] = value;
+    let path = settings_path();
+    let tmp = path.with_extension("json.tmp");
+    if let Ok(text) = serde_json::to_string_pretty(&settings) {
+        if fs::write(&tmp, text).is_ok() {
+            for _ in 0..10 {
+                if fs::rename(&tmp, &path).is_ok() { break; }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+}
+
 pub(crate) fn read_settings() -> Value {
     match read_json(&settings_path()) {
         Value::Object(map) => Value::Object(map),

@@ -225,6 +225,28 @@ fn changed() {
     }
 }
 
+/// The button over the game (a click, its key, the controller combo) is the master switch: off turns off the DPS meter
+/// and Sanctum Helper; on brings the meter back and Sanctum Helper as it was. The sidebar and settings switches each
+/// control only their own part (set_capture alone for the meter).
+static SANCTUM_WAS_ON: AtomicBool = AtomicBool::new(true);
+pub fn master_toggle() {
+    let on = !CAPTURE_ON.load(Ordering::SeqCst);
+    let settings = crate::read_settings();
+    let sanctum_on = settings.pointer("/sanctum/enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
+    if !on {
+        SANCTUM_WAS_ON.store(sanctum_on, Ordering::SeqCst);
+        if sanctum_on { crate::write_setting("/sanctum/enabled", serde_json::Value::Bool(false)); }
+    } else if SANCTUM_WAS_ON.load(Ordering::SeqCst) && !sanctum_on {
+        crate::write_setting("/sanctum/enabled", serde_json::Value::Bool(true));
+    }
+    let sanctum_now = if on { SANCTUM_WAS_ON.load(Ordering::SeqCst) || sanctum_on } else { false };
+    if let Some(app) = APP.get() {
+        let _ = app.emit("sanctum-switch", sanctum_now);   // the sidebar's Sanctum Helper switch follows
+    }
+    crate::app_log(&format!("button: everything switched {}", if on { "on" } else { "off" }));
+    set_capture(on);
+}
+
 pub fn set_capture(on: bool) {
     crate::app_log(&format!("button: capture switched {}", if on { "on" } else { "off" }));
     with_state(|_| CAPTURE_ON.store(on, Ordering::SeqCst));
@@ -737,7 +759,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
                     let (cx, cy) = (rect.left + l.w / 2, rect.top + l.icon / 2);
                     with_state(|s| (s.x, s.y) = (Some(cx - base / 2), Some(cy - base / 2)));
                 }
-                Some(_) => set_capture(!CAPTURE_ON.load(Ordering::SeqCst)),
+                Some(_) => master_toggle(),
                 None => {}
             }
             LRESULT(0)
@@ -749,7 +771,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
         }
         WM_HOTKEY if wparam.0 as i32 == HOTKEY_ID => {
             crate::app_log("button: hotkey pressed");
-            set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
+            master_toggle();
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -817,14 +839,14 @@ unsafe fn run() {
                 // the window got this press itself (WM_LBUTTONDOWN within a moment of the hook's): it handled it
                 if down != 0 && WINDOW_DOWN_AT.load(Ordering::SeqCst) + 250 < down {
                     crate::app_log("button: a click the game held on to - switching from the mouse hook");
-                    set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
+                    master_toggle();
                 }
             }
             let want = STATE.lock().unwrap().as_ref().map_or(0, |s| s.pad_buttons);
             // all of the combo's buttons held (a press, not a hold: once until they're let go)
             let down = want != 0 && game_in_front && crate::gamepad::held() & want == want;
             if down && !pad_was {
-                set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
+                master_toggle();
             }
             pad_was = down;
             continue;

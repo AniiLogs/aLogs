@@ -254,6 +254,11 @@
     try {
       showCaptureSwitch(await invoke("capture_switch"));
       await window.__TAURI__.event.listen("capture-switch", (event) => showCaptureSwitch(event.payload));
+      // the button over the game is the master switch: it turns Sanctum Helper off and back on too
+      await window.__TAURI__.event.listen("sanctum-switch", (event) => {
+        settings.sanctum = { ...(settings.sanctum || {}), enabled: Boolean(event.payload) };
+        document.dispatchEvent(new CustomEvent("sanctum-enabled", { detail: Boolean(event.payload) }));
+      });
     } catch {
       // an app without the switch
     }
