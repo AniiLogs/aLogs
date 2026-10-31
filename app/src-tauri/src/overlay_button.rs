@@ -767,8 +767,12 @@ unsafe fn run() {
             // in a homeland the meter captures nothing for now (heavy on the game already), and neither does this
             if now.saturating_sub(homeland.0) >= 1000 {
                 let status = std::fs::read_to_string(crate::data_dir().join("status.json")).unwrap_or_default();
-                let at_home = serde_json::from_str::<serde_json::Value>(&status)
-                    .ok().and_then(|v| v.get("homeland").and_then(|h| h.as_bool())).unwrap_or(false);
+                // only while the meter is writing it (about once a second): a meter stopped in a homeland left it
+                // saying "homeland" for good
+                let secs = (now / 1000) as f64;
+                let at_home = serde_json::from_str::<serde_json::Value>(&status).ok()
+                    .filter(|v| v.get("time").and_then(|t| t.as_f64()).is_some_and(|t| (secs - t).abs() < 10.0))
+                    .and_then(|v| v.get("homeland").and_then(|h| h.as_bool())).unwrap_or(false);
                 homeland = (now, at_home);
             }
             if s.show && in_front && !homeland.1 {
@@ -782,8 +786,10 @@ unsafe fn run() {
             // screen, in menus and on the map); without the app's capture it can't tell, so it stays
             let row = if !(s.show && in_front) {
                 false // no need to look (and no capture asked for) while it can't show anyway
-            } else if s.always {
-                true // the player wants it whenever the game is in front (the row is still read for the label)
+            } else if s.always || homeland.1 {
+                // the player wants it whenever the game is in front (the row is still read for the label); in a
+                // homeland the row isn't looked at, so it shows whenever the game is (B5 hid it there altogether)
+                true
             } else if reader.is_none() {
                 s.x.is_some()
             } else {

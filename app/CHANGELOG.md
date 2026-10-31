@@ -140,6 +140,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **The capture on/off button in a homeland (B5):** B5 stopped all capture in homelands, and with it the button's
+  look at the game's icon row, so the button never showed at home. It now shows whenever the game is in front there.
 - **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
   could go unnoticed until the next day. It now looks every 30 minutes, and a new version shows as a green-outlined
   "Update available" button above "Meter running"; click it for Install now or Next time aLogs opens.
