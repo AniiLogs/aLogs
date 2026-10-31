@@ -986,11 +986,13 @@ class Meter:
             key = ev[:4]
             if now - seen.get(key, -1e9) >= 60: self.profile_note(ev)
             seen[key] = now
-            # a new level goes on the profile, beside the character (sent once per level, not with every EXP gain)
-            if ev[0] == 'exp' and self.submitter and self.uid and getattr(self, 'level_sent', None) != (self.uid, ev[1]):
-                self.level_sent = (self.uid, ev[1])
+            # the level and EXP progress go on the profile, beside the character (exp_settled only lets forward
+            # progress through, and a waiting send is replaced by the newer one, so a run of EXP gains sends once)
+            if ev[0] == 'exp' and self.submitter and self.uid and getattr(self, 'level_sent', None) != (self.uid, *ev[1:4]):
+                self.level_sent = (self.uid, *ev[1:4])
                 server = S.game_server()
-                self.submitter.character_stats(self.uid, {'level': int(ev[1]), **({'server': server} if server else {})})
+                self.submitter.character_stats(self.uid, {'level': int(ev[1]), 'exp': ev[2], 'expNeeded': ev[3],
+                                                          **({'server': server} if server else {})})
         self.profile_seen = {k: t for k, t in seen.items() if now - t < 120}
 
     def exp_settled(self, now):

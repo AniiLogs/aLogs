@@ -203,8 +203,8 @@ class Submitter(threading.Thread):
 
 
     def character_stats(self, uid, stats):
-        """Your character's Collection Progress from the game's Profile screen (live.profile_stats), or its level (from
-        the EXP card), for your profile. Sent after the character's link (queue files go in name order), and only for a
+        """Your character's Collection Progress from the game's Profile screen (live.profile_stats), or its level and EXP
+        progress (from the EXP card), for your profile. Sent after the character's link (queue files go in name order), and only for a
         character you proved. The two queue separately, so a level doesn't replace numbers still waiting to go."""
         self.refresh()
         if not self.config or not self.config['link_character'] or not uid: return
