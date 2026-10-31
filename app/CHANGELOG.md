@@ -167,6 +167,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   Helper". Each turns off only its own part, so you can run either one alone. The button over the game (and its key
   or controller combo) is the master switch: off turns off both, on brings back what was on. If you had the meter
   turned off, its switch starts off.
+- **The button over the game keeps up with the screen:** it lingered about a second and a half after the game's icon
+  row went away (a menu, the map, a cutscene). It now goes with the icons within about a third of a second and comes
+  back as quickly.
 - **Wrong boss level from a misread title:** "Lv.64" could be read as "Lv064" and taken as level 6, which gave the
   fight the wrong max HP and so the wrong damage and DPS. Fixed.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.

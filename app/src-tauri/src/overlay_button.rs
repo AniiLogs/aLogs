@@ -69,6 +69,8 @@ const PILL_BG: [u8; 3] = [227, 227, 227];
 const PILL_TEXT: [u8; 3] = [37, 44, 53];
 const WM_REFRESH: u32 = WM_APP + 1;
 const TIMER_FOLLOW: usize = 1;
+const ROW_CHECK_MS: u32 = 125; // the icon row is looked at 8 times a second (a 1400x135 strip at 4K)
+const ROW_GONE_MS: u64 = 300; // missing this long in fresh pictures: the game hid its icons, so the button goes too
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 
@@ -568,7 +570,7 @@ fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<boo
     let (y0, y1) = (ch - (2160.0 - ROW_SCAN_TOP) * k, ch - (2160.0 - ROW_SCAN_BOTTOM) * k);
     let share = |v: f64, size: f64| ((v / size).clamp(0.0, 1.0) * 65535.0) as u16;
     let area = [share(x0, cw), share(y0, ch), share(x1, cw), share(y1, ch)];
-    let (w, h, px) = reader.read(game.0 as isize, area, 250)?;
+    let (w, h, px) = reader.read(game.0 as isize, area, ROW_CHECK_MS)?;
     // the button itself can be in the picture (Desktop Duplication): its own icon isn't one of the game's. Only when it
     // overlaps the strip: dragged just above Chat it shares Chat's columns, and skipping those lost Chat, which left a
     // controller's two-icon row (Chat, Emoticon) with one icon, so the button hid as soon as a controller was used
@@ -808,7 +810,7 @@ unsafe fn run() {
     WINDOW.store(hwnd.0 as isize, Ordering::SeqCst);
     // kept out of screen captures, so the row check sees the game's own icons, not this button's pill
     let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-    let _ = SetTimer(Some(hwnd), TIMER_FOLLOW, 250, None);
+    let _ = SetTimer(Some(hwnd), TIMER_FOLLOW, ROW_CHECK_MS, None);
     let _ = SetTimer(Some(hwnd), TIMER_PAD, 33, None);
     // the hook on a thread of its own that does nothing else: Windows waits for it on every mouse event, and this
     // thread is sometimes busy (the icon-row check), which would make the whole PC's mouse lag
@@ -828,7 +830,10 @@ unsafe fn run() {
     let mut reader = crate::capture::AppReader::new();
     let mut homeland = (0u64, false); // (checked at, the meter says you're in a homeland: nothing is captured there)
     let mut logged_game: isize = 0; // the game window last noted in app.log
-    let mut row_seen = 0u64; // when the game's icon row was last seen (hidden 1.5 s without it: a bright scene can hide it a frame or two)
+    let mut row_seen = 0u64; // when the game's icon row was last seen (hidden 1.5 s without a picture to tell)
+    // when the row went missing in fresh pictures (0: it hasn't): hidden once it's been gone ROW_GONE_MS, so the button
+    // leaves with the game's icons (B8: it lingered 1.5 s); a bright flash over the row lasts a frame or two
+    let mut row_missed = 0u64;
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
         if msg.message == WM_TIMER && msg.hwnd == hwnd && msg.wParam.0 == TIMER_PAD {
@@ -891,8 +896,10 @@ unsafe fn run() {
             }
             if s.show && in_front && !homeland.1 {
                 if let Some(r) = reader.as_mut() {
-                    if row_visible(r, game) == Some(true) {
-                        row_seen = now;
+                    match row_visible(r, game) {
+                        Some(true) => (row_seen, row_missed) = (now, 0),
+                        Some(false) if row_missed == 0 => row_missed = now,
+                        _ => {}
                     }
                 }
             }
@@ -907,7 +914,8 @@ unsafe fn run() {
             } else if reader.is_none() {
                 s.x.is_some()
             } else {
-                now.saturating_sub(row_seen) < 1500 || press().is_some()
+                (now.saturating_sub(row_seen) < 1500 && (row_missed == 0 || now.saturating_sub(row_missed) < ROW_GONE_MS))
+                    || press().is_some()
             };
             let wanted = s.show && in_front && row;
             if wanted {
