@@ -33,6 +33,8 @@ DAMAGE_NUMBERS = False  # the damage-number recorder (dmgnumbers.py, capture.dam
 INK_MIN = 40            # black pixels a prepared white-text crop needs before it is worth reading (screen_crops)
 EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to its end screen (egg_fade)
 AWAY_INTERVAL = 0.25    # between fights while the game isn't the active window (a running fight keeps 1/30 s)
+IDLE_INTERVAL = 0.25    # out in the world with no boss bar and nothing to watch: 4 looks a second (a player's lag
+                        # report, B4: 8-13 whole 4K window copies a second while just standing at home)
 CONFIRM_GAP = 0.09      # a reading that confirms an earlier one (a big drop, a refill, a counter vote) must come at
                         # least this long after it, so a one-off effect lasting a few fast frames can't confirm itself
 XN_STALE = 40           # s a boss rush counter read keeps bounding refills (the late bars take 15-25 s each)
@@ -2711,6 +2713,15 @@ class Meter:
             except OSError: pass
         self.hit_at = now
 
+    def idle(self):
+        """Nothing on screen to keep up with: no fight or boss bar, no automatic clicks or holds, not in Interlink (its
+        bosses and result screens come quickly) or an Egg Heist run, and no end screens to save. A boss bar is still
+        found within a quarter second."""
+        a = self.after_fight
+        return (self.args.replay is None and not self.fight and self.bar is None and not self.bossrush_space
+                and not self.auto_until and not getattr(self, 'sim_tour', None) and not getattr(self, 'egg_hold', None)
+                and not (a and time.time() < a[1]) and not self.sanctum_in_run(time.time()))
+
     def fight_interval(self):
         """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
         rate = self.args.cfg.get('capture', {}).get('fight_rate', 60)
@@ -3048,6 +3059,7 @@ class Meter:
             if getattr(self, 'capture_off', False): interval = max(interval, AWAY_INTERVAL)   # resting
             if not self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
+            elif self.idle(): interval = max(interval, IDLE_INTERVAL)
             time.sleep(max(0, interval - (time.time() - t)))
         self.end_auto('meter closed')
         if getattr(self, 'egg_hold', None): self.egg_hold_end('meter closed')

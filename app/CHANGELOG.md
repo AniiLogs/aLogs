@@ -140,6 +140,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **Less load while you're not fighting:** out in the world with no boss bar, the meter now looks at the game 4
+  times a second instead of up to 20 (a boss bar is still picked up within a quarter second), and Sanctum Helper
+  no longer tracks the map at all outside Egg Heist. A player saw the game lag again with B4 at 4K.
 - **The meter stuck on screen after a fight (B3, B4):** a mix-up in the new "team leader has ended the challenge"
   check made the meter fail on every frame once a fight ended, so the overlay stayed up and no end screen was read
   or sent (most visible in Holo-Battle Sim). Fixed.
