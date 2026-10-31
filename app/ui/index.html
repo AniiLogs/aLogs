@@ -142,7 +142,10 @@
         </div>
         <div class="group">
           <h2>Placement</h2>
-          <p class="hint">Where the DPS window sits in each mode. You can also drag it anywhere; it remembers that per mode.</p>
+          <p class="hint">Where the DPS window sits in each mode. Unlock it to drag it anywhere; it remembers that per mode.</p>
+          <label class="toggle"><input type="checkbox" data-k="overlay.dps_locked"><span></span>
+            <div><strong>Lock the DPS window</strong><small>Locked, it stays put and your clicks go through it to the game. Unlock it to drag it somewhere else, then lock it again.</small></div></label>
+          <div class="row"><button type="button" data-dps-reset>Put the DPS window back in its default spots</button></div>
           <h3 class="mode-head">Overworld</h3>
           <div class="picks">
             <label class="pick"><input type="radio" name="world_position" value="map" data-k="overlay.world_position">

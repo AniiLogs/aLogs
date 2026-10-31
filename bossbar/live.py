@@ -3480,9 +3480,14 @@ def run_overlay(meter, hide):
     dw.dragging = False
     dps_at = {'base': None, 'h': 1, 'shown': False, 'hide_at': None, 'lines': None, 'key': None}
     drag = {}
-    def dps_start(e): drag['x'], drag['y'] = e.x_root - dw.winfo_x(), e.y_root - dw.winfo_y(); dw.dragging = True
-    def dps_move(e): dw.geometry(f'+{e.x_root - drag["x"]}+{e.y_root - drag["y"]}')
+    def dps_locked(): return bool(meter.args.cfg['overlay'].get('dps_locked', True))
+    def dps_start(e):
+        if dps_locked(): return
+        drag['x'], drag['y'] = e.x_root - dw.winfo_x(), e.y_root - dw.winfo_y(); dw.dragging = True
+    def dps_move(e):
+        if dw.dragging: dw.geometry(f'+{e.x_root - drag["x"]}+{e.y_root - drag["y"]}')
     def dps_drop(e=None):
+        if not dw.dragging: return
         dw.dragging = False
         if dps_at['base']:
             pos[dps_at['key']] = [(dw.winfo_x() - dps_at['base'][0]) / dps_at['h'], (dw.winfo_y() - dps_at['base'][1]) / dps_at['h']]
@@ -3524,6 +3529,17 @@ def run_overlay(meter, hide):
             base, key = (ux + u * 0.024, oy + H * 0.415), 'dps_offset_world'             # under the quest list
         else: base, key = (ux + u * 0.168, oy + H * 0.09), 'dps_offset_map'              # right of the minimap
         dps_at['base'], dps_at['h'], dps_at['key'] = base, H, key
+        # Overlay › Lock the DPS window: locked, clicks go through it to the game; unlocked, it takes them (to drag it)
+        locked = dps_locked()
+        if dps_at.get('locked') != locked:
+            dps_at['locked'] = locked
+            try: layered.click_through(layered.top_hwnd(dw), locked)
+            except Exception: pass
+        # Overlay › Put the DPS window back: the app bumps dps_reset, and every mode's dragged spot is forgotten
+        reset = meter.args.cfg['overlay'].get('dps_reset', 0)
+        if reset != pos.get('dps_reset_seen', 0):
+            for k in [k for k in pos if k.startswith('dps_offset')]: del pos[k]
+            pos['dps_reset_seen'] = reset; save_positions()
         if lines is not None and lines != dps_at['lines']:
             dps_at['lines'] = lines; render_stats(lines, H)
         x, y = base; off = pos.get(key)

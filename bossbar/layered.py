@@ -88,6 +88,9 @@ def park(hwnd):
     return bool(user32.SetWindowPos(hwnd, None, -32000, -32000, 0, 0, 0x0001 | 0x0004 | 0x0010))
 
 WS_EX_TRANSPARENT, WS_EX_NOACTIVATE = 0x20, 0x08000000
-def click_through(hwnd):
-    """Clicks go to whatever is under the window, even where it is drawn (a full-screen effect over other apps)."""
-    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, user32.GetWindowLongW(hwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
+def click_through(hwnd, on=True):
+    """Clicks go to whatever is under the window, even where it is drawn (a full-screen effect over other apps).
+    on=False: the window takes clicks again (the DPS window unlocked, to drag it)."""
+    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    style = style | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE if on else style & ~WS_EX_TRANSPARENT
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)

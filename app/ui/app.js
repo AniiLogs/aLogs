@@ -282,6 +282,18 @@
       toast(String(error), true);
     }
   }
+  // Overlay › Placement: forget every mode's dragged spot (the meter watches overlay.dps_reset)
+  $("[data-dps-reset]")?.addEventListener("click", async () => {
+    try {
+      const stored = await invoke("get_settings");
+      stored.overlay = { ...(stored.overlay || {}), dps_reset: (Number(stored.overlay?.dps_reset) || 0) + 1 };
+      await invoke("save_settings", { settings: stored });
+      settings.overlay = { ...(settings.overlay || {}), dps_reset: stored.overlay.dps_reset };
+      toast("The DPS window goes back to its default spots the next time it shows");
+    } catch (error) {
+      toast(String(error), true);
+    }
+  });
   const showSanctumSwitch = (on) => $('[data-nav-switch="sanctum"]').setAttribute("aria-checked", String(on !== false));
   document.addEventListener("sanctum-enabled", (event) => showSanctumSwitch(event.detail));
   for (const sw of $$("[data-nav-switch]")) {

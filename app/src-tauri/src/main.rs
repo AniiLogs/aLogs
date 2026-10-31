@@ -368,7 +368,18 @@ fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Re
     }
     let autostart = settings.pointer("/app/start_with_windows").and_then(Value::as_bool).unwrap_or(false);
     set_autostart(autostart)?;
-    if ["overlay", "game"].iter().any(|k| old.get(*k) != settings.get(*k)) {
+    // the overlay is set up when the meter starts, so most of its settings restart the meter (ending a fight); the
+    // DPS window's lock, its reset and its spots the meter reads as they change
+    let live = |v: Option<&Value>| {
+        let mut v = v.cloned().unwrap_or(Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            for k in ["dps_locked", "dps_reset", "world_position", "rush_position"] {
+                o.remove(k);
+            }
+        }
+        v
+    };
+    if old.get("game") != settings.get("game") || live(old.get("overlay")) != live(settings.get("overlay")) {
         stop_meter_inner(&meter);
     }
     ensure_meter(&app)?;
