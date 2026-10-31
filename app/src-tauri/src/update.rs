@@ -201,8 +201,11 @@ pub async fn check(app: &AppHandle) -> Result<Option<Value>, String> {
     Ok(info)
 }
 
-/// Runs the downloaded installer with only its progress bar (/P: no pages or questions), as an update (/UPDATE),
-/// opening aLogs again when it's done (/R), and closes aLogs so its files can be replaced. The meter saves first.
+/// Installs the downloaded update the way Discord does: aLogs closes into a small "Updating aLogs" window (a copy of
+/// this program, outside the install folder so it can be replaced, named so the installer's "is aLogs running?"
+/// check doesn't stop it), which runs the installer silently (/S, no Windows installer pages), as an update
+/// (/UPDATE) that opens aLogs again when it's done (/R). The meter saves first. Without the copy, the installer's
+/// own progress window as before (/P).
 fn run_installer(app: &AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let info = saved().ok_or("The update isn't downloaded.")?;
@@ -212,12 +215,85 @@ fn run_installer(app: &AppHandle) -> Result<(), String> {
         let _ = window.hide();
     }
     super::signal_meter_stop(true);
-    std::process::Command::new(update_dir().join("aLogs-update.exe"))
-        .args(["/P", "/UPDATE", "/R"])
-        .creation_flags(0x0000_0008)                     // DETACHED_PROCESS: it outlives aLogs
-        .spawn()
-        .map_err(|e| format!("Couldn't start the update: {e}"))?;
+    let installer = update_dir().join("aLogs-update.exe");
+    let label = match info["beta"].as_u64() {
+        Some(b) => format!("{} B{b}", info["version"].as_str().unwrap_or("")),
+        None => info["version"].as_str().unwrap_or("").split('+').next().unwrap_or("").to_string(),
+    };
+    let splash = splash_copy();
+    let started = match &splash {
+        Some(exe) => std::process::Command::new(exe)
+            .arg("--update-splash").arg(&installer).arg(&label).args(std::env::current_exe().ok())
+            .creation_flags(0x0000_0008)                 // DETACHED_PROCESS: it outlives aLogs
+            .spawn(),
+        None => std::process::Command::new(&installer)
+            .args(["/P", "/UPDATE", "/R"])
+            .creation_flags(0x0000_0008)
+            .spawn(),
+    };
+    started.map_err(|e| format!("Couldn't start the update: {e}"))?;
     std::process::exit(0);
+}
+
+/// This program copied to %TEMP%\aLogs-updating\aLogs-updating.exe for the updating window (None if it can't be).
+fn splash_copy() -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("aLogs-updating");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).ok()?;
+    let exe = dir.join("aLogs-updating.exe");
+    std::fs::copy(std::env::current_exe().ok()?, &exe).ok()?;
+    Some(exe)
+}
+
+/// The updating window (main.rs --update-splash <installer> <label> <installed aLogs>): shown at once, the installer runs silently
+/// behind it, then it says "Starting aLogs…" while the installer opens the new aLogs, and closes. It stays up at least
+/// 2.5 s so it never just flickers. If the installer fails, it says so and opens the installed aLogs as it was.
+pub fn splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
+    let installer = args.first().cloned().unwrap_or_default();
+    let label = args.get(1).cloned().unwrap_or_default();
+    let installed = args.get(2).map(PathBuf::from);
+    let result = tauri::Builder::default()
+        .setup(move |app| {
+            let to: String = label.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == ' ').collect();
+            let url = format!("updating.html?to={}", to.replace(' ', "%20"));
+            tauri::WebviewWindowBuilder::new(app, "updating", tauri::WebviewUrl::App(url.into()))
+                .title("Updating aLogs")
+                .inner_size(340.0, 400.0)
+                .resizable(false)
+                .decorations(false)
+                .transparent(false)
+                .center()
+                .always_on_top(true)
+                .build()?;
+            let handle = app.handle().clone();
+            let installed = installed.clone();
+            let installer = installer.clone();
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                std::thread::sleep(std::time::Duration::from_millis(400));     // the window draws first
+                let _ = handle.emit("update-step", "installing");
+                let ok = std::process::Command::new(&installer)
+                    .args(["/S", "/UPDATE", "/R"])
+                    .status()
+                    .is_ok_and(|s| s.success());
+                let _ = handle.emit("update-step", if ok { "starting" } else { "failed" });
+                let shown = started.elapsed().as_millis() as u64;
+                let wait = if ok { 2500u64.saturating_sub(shown).max(1200) } else { 6000 };
+                std::thread::sleep(std::time::Duration::from_millis(wait));
+                if !ok {
+                    if let Some(exe) = &installed {
+                        let _ = std::process::Command::new(exe).spawn();       // aLogs as it was
+                    }
+                }
+                handle.exit(0);
+            });
+            Ok(())
+        })
+        .run(context);
+    if let Err(e) = result {
+        eprintln!("updating window: {e}");
+        let _ = std::process::Command::new(&args.first().cloned().unwrap_or_default()).args(["/P", "/UPDATE", "/R"]).spawn();
+    }
 }
 
 /// At start, before the meter or the window: removes an update that's installed now, and installs one that was set
@@ -241,14 +317,15 @@ pub fn at_start(app: &AppHandle) {
     }
 }
 
-/// Installer copies the updater plugin itself may leave in %TEMP% (aLogs-<version>-updater-*): gone after 10 minutes.
+/// Installer copies the updater plugin itself may leave in %TEMP% (aLogs-<version>-updater-*), and the updating
+/// window's copy of aLogs (aLogs-updating): gone after 10 minutes.
 fn clean_installer_copies() {
     let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let old = entry.metadata().and_then(|m| m.modified()).map_or(false, |t| t < cutoff);
-        if name.starts_with("aLogs-") && name.contains("-updater-") && entry.path().is_dir() && old {
+        if (name == "aLogs-updating" || name.starts_with("aLogs-") && name.contains("-updater-")) && entry.path().is_dir() && old {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }

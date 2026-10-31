@@ -210,12 +210,10 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .nav-update { display: grid; gap: 8px; padding: 10px; border-radius: 10px; background: var(--panel, rgba(255, 255, 255, 0.05));
   border: 1px solid var(--line, rgba(255, 255, 255, 0.1)); font-size: 12.5px; }
 .nav-update-title { font-weight: 600; line-height: 1.3; }
-/* an update is out: a pulsing dot on About in the sidebar too (it went with the move to the sidebar box, RC17) */
-.nav button.has-update { display: flex; align-items: center; justify-content: space-between; }
-.nav button.has-update::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); animation: update-pulse 1.8s ease-out infinite; }
-@keyframes update-pulse { to { box-shadow: 0 0 0 8px transparent; } }
-@media (prefers-reduced-motion: reduce) { .nav button.has-update::after { animation: none; } }
+/* an update is out: a button outlined in the accent green above "Meter running"; it opens the box above */
+.nav .nav-update-pill { width: 100%; padding: 8px 10px; border: 1.5px solid var(--accent); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text); font-weight: 650; text-align: left; cursor: pointer; }
+.nav .nav-update-pill:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .nav-update-actions { display: grid; gap: 6px; }
 .nav .nav-update-actions button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2);
   color: var(--text); font-size: 12.5px; text-align: center; }

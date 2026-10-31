@@ -1,0 +1,26 @@
+/* The updating window: aLogs' own colours (app.css's default theme), one card, nothing to click. */
+:root { --bg: #0b1215; --panel: #121d21; --line: #315057; --text: #f4f4e9; --muted: #9bb5b2; --accent: #62d9b3; --coral: #f48972;
+  color-scheme: dark; }   /* app.css's "Night" (the default theme) */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: grid; place-items: center; overflow: hidden; background: var(--bg); color: var(--text);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif; user-select: none; cursor: default; }
+.splash { display: grid; justify-items: center; gap: 10px; width: 100%; height: 100%; padding: 46px 28px 24px;
+  background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%), var(--panel);
+  border: 1px solid var(--line); }   /* square: the window itself is (no rounded corners without a frame) */
+.mark-wrap { position: relative; display: grid; place-items: center; width: 132px; height: 132px; margin-bottom: 8px; }
+.mark { width: 96px; height: 96px; animation: breathe 2.2s ease-in-out infinite; }
+.ring { position: absolute; inset: 0; border-radius: 50%; border: 3px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-top-color: var(--accent); animation: spin 1.1s linear infinite; }
+h1 { margin: 6px 0 0; font-size: 19px; font-weight: 700; letter-spacing: 0.01em; }
+.step { margin: 0; color: var(--muted); min-height: 1.5em; text-align: center; }
+.to { margin: auto 0 0; color: var(--muted); font-size: 12px; }
+.bar { position: relative; width: 78%; height: 4px; overflow: hidden; border-radius: 999px; background: var(--line); }
+.bar span { position: absolute; inset: 0 auto 0 0; width: 34%; border-radius: inherit; background: var(--accent); animation: slide 1.4s ease-in-out infinite; }
+body.failed .ring { border-top-color: var(--coral); animation: none; }
+body.failed .bar span { background: var(--coral); animation: none; width: 100%; }
+body.done .bar span { animation: none; width: 100%; transition: width 0.4s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe { 50% { transform: scale(0.93); opacity: 0.85; } }
+@keyframes slide { 0% { left: -34%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .ring, .mark, .bar span { animation: none; } }

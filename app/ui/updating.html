@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Updating aLogs</title>
+  <!-- the small window shown while an update installs (main.rs --update-splash): the installer runs silently behind it -->
+  <link rel="stylesheet" href="updating.css">
+</head>
+<body>
+  <main class="splash" data-tauri-drag-region>
+    <div class="mark-wrap" data-tauri-drag-region>
+      <span class="ring"></span>
+      <img class="mark" src="img/alogs-mark.png" alt="" data-tauri-drag-region>
+    </div>
+    <h1 data-title>Updating aLogs</h1>
+    <p class="step" data-step>Installing the update…</p>
+    <div class="bar"><span></span></div>
+    <p class="to" data-to></p>
+  </main>
+  <script src="updating.js"></script>
+</body>
+</html>

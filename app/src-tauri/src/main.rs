@@ -638,6 +638,13 @@ fn main() {
     if hidhide::installed() {
         let _ = hidhide::set_active(false);
     }
+    let mut context = tauri::generate_context!();
+    // an update installing: only the small "Updating aLogs" window (run from a copy outside the install folder)
+    if let Some(at) = args.iter().position(|a| a == "--update-splash") {
+        context.config_mut().app.windows.clear();
+        update::splash(context, args[at + 1..].to_vec());
+        return;
+    }
     let minimized = std::env::args().any(|a| a == "--minimized");
     tauri::Builder::default()
         .manage(Meter { child: Mutex::new(None), quitting: AtomicBool::new(false) })
@@ -712,7 +719,7 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running the app");
 }
 

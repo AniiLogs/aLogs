@@ -1607,10 +1607,10 @@
   function showUpdate(info) {
     if (!info) return;
     const label = `aLogs ${info.version}${info.beta ? ` B${info.beta}` : info.rc ? ` (build ${info.rc})` : ""}`;
-    $("[data-update-box]").hidden = false;
+    const opened = !$("[data-update-box]").hidden;
+    $("[data-update-pill]").hidden = opened;
+    $("[data-update-pill]").textContent = info.next_start ? `${label} · installs next start` : `Update available · ${label}`;
     $("[data-update-progress]").hidden = true;
-    $('[data-page="about"]').classList.add("has-update");
-    $('[data-page="about"]').title = `${label} is out`;
     $("[data-update-title]").textContent = info.next_start ? `${label} installs next time aLogs opens`
       : info.downloaded ? `${label} is ready to install` : `${label} is available`;
     $("[data-install-later]").hidden = Boolean(info.next_start);
@@ -1618,7 +1618,11 @@
     $("[data-update-note]").textContent = $("[data-update-title]").textContent + ".";
   }
   function showProgress(p) {                         // the download, from update.rs (update-progress)
-    $("[data-update-box]").hidden = false;
+    if ($("[data-update-box]").hidden) {             // a download on its own (automatic): on the button
+      $("[data-update-pill]").hidden = false;
+      $("[data-update-pill]").textContent = p.percent >= 0 ? `Downloading an update · ${p.percent}%` : "Downloading an update…";
+      return;
+    }
     $("[data-update-progress]").hidden = false;
     $("[data-update-bar]").style.width = `${Math.max(2, p.percent)}%`;
     $("[data-update-title]").textContent = p.percent >= 0 ? `Downloading the update · ${p.percent}%` : "Downloading the update…";
@@ -1633,6 +1637,10 @@
     }
   }
   $("[data-install-update]").addEventListener("click", installUpdate);
+  $("[data-update-pill]").addEventListener("click", () => {
+    $("[data-update-pill]").hidden = true;
+    $("[data-update-box]").hidden = false;
+  });
   $("[data-install-later]").addEventListener("click", async () => {
     for (const button of $$("[data-update-box] button")) button.disabled = true;
     try {
@@ -1648,7 +1656,7 @@
     note.textContent = "Checking…";
     try {
       const info = await invoke("check_update");
-      if (info) showUpdate(info);
+      if (info) { showUpdate(info); $("[data-update-pill]").click(); }      // asked for: straight to the choice
       else note.textContent = "aLogs is up to date.";
     } catch (error) {
       note.textContent = `Couldn't check: ${error}`;
