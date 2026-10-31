@@ -897,7 +897,13 @@ unsafe fn run() {
             if s.show && in_front && !homeland.1 {
                 if let Some(r) = reader.as_mut() {
                     match row_visible(r, game) {
-                        Some(true) => (row_seen, row_missed) = (now, 0),
+                        Some(true) => {
+                            // a miss that came back within 2 s: how long the game's flashes hide the row (tunes ROW_GONE_MS)
+                            if row_missed != 0 && now.saturating_sub(row_missed) < 2000 {
+                                crate::app_log(&format!("button: icon row missed for {} ms, then back", now - row_missed));
+                            }
+                            (row_seen, row_missed) = (now, 0)
+                        }
                         Some(false) if row_missed == 0 => row_missed = now,
                         _ => {}
                     }
