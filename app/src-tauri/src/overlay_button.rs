@@ -733,6 +733,7 @@ unsafe fn run() {
     let mut drawn: Option<(Layout, bool, Option<String>, Option<PathBuf>)> = None;
     let mut hotkey: Option<(u32, u32)> = None; // (key, modifiers), registered while the game is in front
     let mut reader = crate::capture::AppReader::new();
+    let mut homeland = (0u64, false); // (checked at, the meter says you're in a homeland: nothing is captured there)
     let mut row_seen = 0u64; // when the game's icon row was last seen (hidden 1.5 s without it: a bright scene can hide it a frame or two)
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -763,7 +764,14 @@ unsafe fn run() {
             // in the icon row: only while the game shows it (capture off: we can't see it, so while in front)
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
             // the row is checked dragged or not: it also tells keyboard from controller (the label under the button)
-            if s.show && in_front {
+            // in a homeland the meter captures nothing for now (heavy on the game already), and neither does this
+            if now.saturating_sub(homeland.0) >= 1000 {
+                let status = std::fs::read_to_string(crate::data_dir().join("status.json")).unwrap_or_default();
+                let at_home = serde_json::from_str::<serde_json::Value>(&status)
+                    .ok().and_then(|v| v.get("homeland").and_then(|h| h.as_bool())).unwrap_or(false);
+                homeland = (now, at_home);
+            }
+            if s.show && in_front && !homeland.1 {
                 if let Some(r) = reader.as_mut() {
                     if row_visible(r, game) == Some(true) {
                         row_seen = now;

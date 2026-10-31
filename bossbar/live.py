@@ -33,6 +33,7 @@ DAMAGE_NUMBERS = False  # the damage-number recorder (dmgnumbers.py, capture.dam
 INK_MIN = 40            # black pixels a prepared white-text crop needs before it is worth reading (screen_crops)
 EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to its end screen (egg_fade)
 AWAY_INTERVAL = 0.25    # between fights while the game isn't the active window (a running fight keeps 1/30 s)
+HOMELAND_SCENE = 550    # a homeland's scene id ('100-<player id>-550'): nothing is captured there for now
 IDLE_INTERVAL = 0.25    # out in the world with no boss bar and nothing to watch: 4 looks a second (a player's lag
                         # report, B4: 8-13 whole 4K window copies a second while just standing at home)
 CONFIRM_GAP = 0.09      # a reading that confirms an earlier one (a big drop, a refill, a counter vote) must come at
@@ -2751,6 +2752,14 @@ class Meter:
         if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
             wc.audio.want(time.time())
         self.game_events()
+        # In a homeland (anyone's, scene 550) nothing is captured for now: it's heavy on the game already, and a
+        # player's whole PC lagged there with aLogs running (B4). The game log says when you leave.
+        home = self.args.replay is None and scene_of(self.space) == HOMELAND_SCENE
+        if home != getattr(self, 'homeland_rest', False):
+            self.homeland_rest = home
+            log.info('in a homeland: not capturing until you leave' if home else 'left the homeland: capturing again')
+        if home:
+            self.bar = None; self.out('status', 'In a homeland: not capturing there'); return
         self.check_pending_run(time.time())
         # while a fight's bar is locked, the top of the frame is all that's needed (cheaper capture)
         partial = self.fight is not None and self.bar is not None and time.time() - self.bar_seen < 1.0 \
@@ -3032,6 +3041,7 @@ class Meter:
         C.write_status({
             'time': now, 'pid': os.getpid(), 'status': self.status_text,
             'game_window': bool(self.hwnd), 'capture': wc.shared.source or None,
+            'homeland': bool(getattr(self, 'homeland_rest', False)),   # nothing captured there (the app's button too)
             'frame': list(self.last_size) if self.last_size else None, 'boss_bar': self.bar is not None,
             'fight': f and {'boss': f.title, 'level': f.level, 'segment': f.seg, 'damage': f.damage, 'max_hp': f.max_hp,
                             'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent)},
@@ -3060,6 +3070,7 @@ class Meter:
             if not self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
             elif self.idle(): interval = max(interval, IDLE_INTERVAL)
+            if getattr(self, 'homeland_rest', False): interval = max(interval, 1.0)          # only the game log is read
             time.sleep(max(0, interval - (time.time() - t)))
         self.end_auto('meter closed')
         if getattr(self, 'egg_hold', None): self.egg_hold_end('meter closed')
