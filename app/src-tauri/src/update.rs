@@ -254,7 +254,8 @@ fn clean_installer_copies() {
     }
 }
 
-/// Starts the checks: a minute after start (the meter and window come first), then every 6 hours.
+/// Starts the checks: a minute after start (the meter and window come first), then every 30 minutes (was 6 hours:
+/// aLogs left open all day didn't notice a beta published that afternoon).
 pub fn start(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -263,7 +264,7 @@ pub fn start(app: &AppHandle) {
             if let Err(e) = tauri::async_runtime::block_on(check(&app)) {
                 eprintln!("update check: {e}");
             }
-            std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+            std::thread::sleep(std::time::Duration::from_secs(30 * 60));
         }
     });
 }

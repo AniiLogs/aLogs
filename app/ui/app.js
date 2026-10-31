@@ -1609,6 +1609,8 @@
     const label = `aLogs ${info.version}${info.beta ? ` B${info.beta}` : info.rc ? ` (build ${info.rc})` : ""}`;
     $("[data-update-box]").hidden = false;
     $("[data-update-progress]").hidden = true;
+    $('[data-page="about"]').classList.add("has-update");
+    $('[data-page="about"]').title = `${label} is out`;
     $("[data-update-title]").textContent = info.next_start ? `${label} installs next time aLogs opens`
       : info.downloaded ? `${label} is ready to install` : `${label} is available`;
     $("[data-install-later]").hidden = Boolean(info.next_start);

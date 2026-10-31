@@ -140,6 +140,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
+  could go unnoticed until the next day. It now looks every 30 minutes, and About in the sidebar has its pulsing
+  dot back while an update is waiting.
 - **Less load while you're not fighting:** out in the world with no boss bar, the meter now looks at the game 4
   times a second instead of up to 20 (a boss bar is still picked up within a quarter second) and reads the screen's
   text at most once a second (turning the camera used to set off a whole 4K copy and text read every look, which
