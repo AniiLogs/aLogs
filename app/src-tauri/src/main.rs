@@ -63,6 +63,22 @@ fn signal_meter_stop(on: bool) {
     }
 }
 
+/// One line in the app's own log (data folder, app.log; in the logs a player sends): what the app itself did, such as
+/// the on/off button's clicks, which the meter's log can't show. Kept under 512 KB (the older half goes).
+pub(crate) fn app_log(line: &str) {
+    use std::io::Write;
+    let path = data_dir().join("app.log");
+    if fs::metadata(&path).map_or(false, |m| m.len() > 512 * 1024) {
+        if let Ok(old) = fs::read(&path) {
+            let _ = fs::write(&path, &old[old.len() / 2..]);
+        }
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{now:.3} {line}");
+    }
+}
+
 pub(crate) fn data_dir() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
     let dir = PathBuf::from(base).join(APP_DIR).join("meter");
@@ -466,6 +482,7 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
     );
     files.push(("app.txt".into(), info.into_bytes()));
     add(&mut files, "meter.log", logs.join("meter.log"));
+    add(&mut files, "app.log", data.join("app.log"));
     let mut fights: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&logs)
         .map(|dir| {
             dir.flatten()

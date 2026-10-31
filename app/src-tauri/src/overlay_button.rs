@@ -19,7 +19,7 @@
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Emitter};
@@ -77,6 +77,35 @@ const APP_ICON: &[u8] = include_bytes!("../icons/128x128@2x.png");
 
 static CAPTURE_ON: AtomicBool = AtomicBool::new(true);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
+// Clicks the game takes: while the game holds the mouse (in combat, turning the camera) Windows gives it every click,
+// even one on this button over it, so the window never hears it. A low-level mouse hook sees them anyway: a left press
+// and release over the shown button that the window didn't get are a click all the same (seen in the 33 ms timer).
+static HOOK_DOWN_AT: AtomicU64 = AtomicU64::new(0);   // ms: a left press over the button, seen by the hook
+static HOOK_CLICK_AT: AtomicU64 = AtomicU64::new(0);  // ms: ...and its release over the button
+static WINDOW_DOWN_AT: AtomicU64 = AtomicU64::new(0); // ms: the last press the window itself got
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == 0 && (wparam.0 as u32 == WM_LBUTTONDOWN || wparam.0 as u32 == WM_LBUTTONUP) {
+        let hwnd = HWND(WINDOW.load(Ordering::SeqCst) as _);
+        let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+        let mut rect = RECT::default();
+        if !hwnd.is_invalid() && IsWindowVisible(hwnd).as_bool() && GetWindowRect(hwnd, &mut rect).is_ok()
+            && info.pt.x >= rect.left && info.pt.x < rect.right && info.pt.y >= rect.top && info.pt.y < rect.bottom {
+            if wparam.0 as u32 == WM_LBUTTONDOWN {
+                HOOK_DOWN_AT.store(now_ms(), Ordering::SeqCst);
+            } else if HOOK_DOWN_AT.load(Ordering::SeqCst) != 0 {
+                HOOK_CLICK_AT.store(now_ms(), Ordering::SeqCst);
+            }
+        } else if wparam.0 as u32 == WM_LBUTTONUP {
+            HOOK_DOWN_AT.store(0, Ordering::SeqCst); // let go somewhere else: not a click on the button
+        }
+    }
+    CallNextHookEx(None, code, wparam, lparam)
+}
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
@@ -171,6 +200,7 @@ fn changed() {
 }
 
 pub fn set_capture(on: bool) {
+    crate::app_log(&format!("button: capture switched {}", if on { "on" } else { "off" }));
     with_state(|_| CAPTURE_ON.store(on, Ordering::SeqCst));
     eprintln!("screen capture switched {}", if on { "on" } else { "off" });
     changed();
@@ -642,12 +672,14 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             LRESULT(1)
         }
         WM_LBUTTONDOWN => {
+            WINDOW_DOWN_AT.store(now_ms(), Ordering::SeqCst);
             let mut at = POINT::default();
             let _ = GetCursorPos(&mut at);
             let mut rect = RECT::default();
             let _ = GetWindowRect(hwnd, &mut rect);
             set_press(Some(Press { start: at, window: POINT { x: rect.left, y: rect.top }, dragging: false }));
             SetCapture(hwnd);
+            crate::app_log(&format!("button: pressed at ({}, {}), capture {}", at.x, at.y, if CAPTURE_ON.load(Ordering::SeqCst) { "on" } else { "off" }));
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
@@ -666,6 +698,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
         }
         WM_LBUTTONUP => {
             let p = press();
+            crate::app_log(&format!("button: released ({})", match &p { Some(q) if q.dragging => "dragged", Some(_) => "a click", None => "no press seen" }));
             set_press(None);
             let _ = ReleaseCapture();
             match p {
@@ -684,10 +717,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             LRESULT(0)
         }
         WM_CAPTURECHANGED => {
+            if press().is_some() { crate::app_log("button: the press was taken away before the release (mouse capture lost)"); }
             set_press(None); // the press is over even without a button-up (it kept the button showing everywhere)
             LRESULT(0)
         }
         WM_HOTKEY if wparam.0 as i32 == HOTKEY_ID => {
+            crate::app_log("button: hotkey pressed");
             set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
             LRESULT(0)
         }
@@ -727,6 +762,16 @@ unsafe fn run() {
     let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
     let _ = SetTimer(Some(hwnd), TIMER_FOLLOW, 250, None);
     let _ = SetTimer(Some(hwnd), TIMER_PAD, 33, None);
+    // the hook on a thread of its own that does nothing else: Windows waits for it on every mouse event, and this
+    // thread is sometimes busy (the icon-row check), which would make the whole PC's mouse lag
+    std::thread::spawn(|| unsafe {
+        if SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), None, 0).is_err() {
+            crate::app_log("button: the mouse hook didn't start (clicks the game takes won't reach the button)");
+            return;
+        }
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+    });
     let mut pad_was = false; // the controller hotkey's buttons were all held at the last check
     let mut game_in_front = false; // from the last 250 ms check (finding the game window is too slow for 30/s)
     let mut shown = false;
@@ -738,6 +783,16 @@ unsafe fn run() {
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
         if msg.message == WM_TIMER && msg.hwnd == hwnd && msg.wParam.0 == TIMER_PAD {
+            let click = HOOK_CLICK_AT.load(Ordering::SeqCst);
+            if click != 0 && now_ms().saturating_sub(click) >= 50 {
+                let down = HOOK_DOWN_AT.swap(0, Ordering::SeqCst);
+                HOOK_CLICK_AT.store(0, Ordering::SeqCst);
+                // the window got this press itself (WM_LBUTTONDOWN within a moment of the hook's): it handled it
+                if down != 0 && WINDOW_DOWN_AT.load(Ordering::SeqCst) + 250 < down {
+                    crate::app_log("button: a click the game held on to - switching from the mouse hook");
+                    set_capture(!CAPTURE_ON.load(Ordering::SeqCst));
+                }
+            }
             let want = STATE.lock().unwrap().as_ref().map_or(0, |s| s.pad_buttons);
             // all of the combo's buttons held (a press, not a hold: once until they're let go)
             let down = want != 0 && game_in_front && crate::gamepad::held() & want == want;
@@ -806,6 +861,7 @@ unsafe fn run() {
                 }
             }
             if wanted != shown {
+                crate::app_log(&format!("button: {} (game in front {in_front}, row {row}, homeland {})", if wanted { "shown" } else { "hidden" }, homeland.1));
                 shown = wanted;
                 let _ = ShowWindow(hwnd, if wanted { SW_SHOWNOACTIVATE } else { SW_HIDE });
                 if wanted {
