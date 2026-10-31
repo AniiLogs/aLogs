@@ -109,7 +109,9 @@
       if (onChange) onChange(value);
       else change(key, value);
     });
-    return el("div", { class: "setting" }, el("div", {}, el("strong", { textContent: title }), hint && el("small", { textContent: hint })), input);
+    const row = el("div", { class: "setting" }, el("div", {}, el("strong", { textContent: title }), hint && el("small", { textContent: hint })), input);
+    if (options.length > 10 && window.makeCombobox) queueMicrotask(() => window.makeCombobox(input));   // long lists: searchable
+    return row;
   }
   const group = (title, ...children) => el("div", { class: "group" }, title && el("h2", { textContent: title }), children);
   const card = (label, value, sub, good) => el("article", { class: "card" }, el("h2", { textContent: label }), el("p", { class: good ? "good" : "", textContent: value }), el("small", { textContent: sub || "" }));
@@ -310,6 +312,7 @@
     const image = el("img", { class: "layout-image", alt: picked.title });
     const select = el("select", {}, layouts.map((l) => el("option", { value: l.number, textContent: `${l.title} · ${l.difficulties.join(" / ")} · blue door ${l.compass}`, selected: l.number === browserLayout })));
     select.addEventListener("change", () => { browserLayout = Number(select.value); draw(true); });
+    if (window.makeCombobox) queueMicrotask(() => window.makeCombobox(select));   // 33 layouts: searchable
     const keys = picked.keyRooms === 1 ? "1 key room" : `${picked.keyRooms} key rooms`;
     const nests = picked.nests === 1 ? "1 possible egg nest spot" : `${picked.nests} possible egg nest spots`;
     loadLayoutImage(picked.number, image);

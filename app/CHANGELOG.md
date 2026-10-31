@@ -151,6 +151,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   And each look at the screen's text only checks the screens that can appear where you are (Interlink's in
   Interlink, Egg Heist's in Egg Heist, and so on), with a full check of everything every few seconds so nothing
   is missed.
+- **Searchable long lists:** Sanctum Helper's layout list and other long dropdowns now show what you type and narrow
+  the list as you type (anywhere in the name), with arrow keys, Enter and Esc.
 - **On/off switches in the sidebar:** DPS Meter and Sanctum Helper each have a switch on their sidebar row, always
   in view. The DPS Meter one is the same switch as DPS Meter › "Run the DPS meter", the button over the game and its
   shortcut key's "on", so it never says on while the meter is off; Sanctum Helper's is the same as "Run Sanctum
