@@ -293,6 +293,12 @@ def click_at(x, y):
     user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
     user32.SetCursorPos(p.x, p.y)
 
+KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B
+def press_key(vk):
+    """One key press (down, then up) to the window in front."""
+    import time
+    user32.keybd_event(vk, 0, 0, 0); time.sleep(0.04); user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+
 MOUSEEVENTF_WHEEL = 0x0800
 def scroll_at(x, y, notches):
     """Turn the mouse wheel `notches` at a screen point (negative: down, toward the end of a list), then put the

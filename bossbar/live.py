@@ -1401,15 +1401,19 @@ class Meter:
                            'title2': R.prep_text(im, (ux + u * 0.43, H * 0.13, ux + u * 0.57, H * 0.20), u / 2000, thr=200),
                            **sim_team_crops(im, u, ux, H)})
         sim = parse_sim(t.get('w')) or parse_sim(t.get('b'))
-        won = 'victo' in f"{t.get('title') or ''} {t.get('title2') or ''}".lower()        # ('Victor': the y cut off at 4K)
+        # the pale gold title over a light background often doesn't read ('Victor', 'Vi<ory', nothing): a win is a
+        # title that looks like Victory, or no 'Defeat' read and the team's cards reading as they do on a Victory
+        title = f"{t.get('title') or ''} {t.get('title2') or ''}".lower()
+        names = sorted({n for n, _ in self.icons.heads.values()}) if self.icons else ()
+        team = parse_sim_team(t, names)
+        won = bool(re.search(r'victo|v[il1]\W?[c<(]?t?ory', title)) or ('defe' not in title and len(team['team']) >= 3)
         if not sim:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
         self.sim_seen = now
         log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
                  f"{sim['difficulty']}, battle time {sim['time_s']} s")
         if not won: return
-        names = sorted({n for n, _ in self.icons.heads.values()}) if self.icons else ()
-        sim['setup'] = {**parse_sim_team(t, names), **self.sim_pictures(im, u, ux, H), **self.sim_prep_for(sim)}
+        sim['setup'] = {**team, **self.sim_pictures(im, u, ux, H), **self.sim_prep_for(sim)}
         counts = sim['setup'].pop('gizmoCounts')
         if sim['setup'].get('gizmos') and len(sim['setup']['gizmos']) == len(counts):
             sim['setup']['gizmos'] = [{**g, 'count': n} for g, n in zip(sim['setup']['gizmos'], counts)]
@@ -1505,6 +1509,14 @@ class Meter:
                 tour['waited'] += 1
                 tour.update(stage='open' if tour['waited'] >= 6 else 'wait', next=now + 0.25)
             return True
+        if stage == 'back':           # the back arrow didn't always take (the tour was left on the Gizmo screen): Esc
+            if not on_page: self.sim_tour_end('done'); return True
+            tour['backs'] += 1
+            if tour['backs'] > 4: self.sim_tour_end('the Gizmo screen did not close'); return False
+            if tour['backs'] % 2: wc.press_key(wc.VK_ESCAPE)
+            else: wc.click_at(*at(*self.GIZMO_BACK))
+            tour['next'] = now + 0.4
+            return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
         # 'read': the names in view; scroll on until all are read or two looks in a row bring nothing new
         x0, y0, x1, y1 = self.GIZMO_LIST
@@ -1521,7 +1533,7 @@ class Meter:
             tour['scrolls'] += 1; tour['next'] = now + 0.35
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -2)
             return True
-        wc.click_at(*at(*self.GIZMO_BACK)); self.sim_tour_end('done')
+        wc.click_at(*at(*self.GIZMO_BACK)); tour.update(stage='back', backs=0, next=now + 0.4)
         return True
 
     def sim_pictures(self, im, u, ux, H):
