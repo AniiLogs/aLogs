@@ -1009,6 +1009,7 @@ class Meter:
         if im is None: return None
         if parts: im.info['parts'] = True
         self.use_screen = wc.shared.screen_copy        # our overlays can be in the picture: hide them from capture
+        if self.use_screen: self.mask_own(im)
         if (w, h) != self.last_size:
             log.info(f'frame size {w}x{h} ({wc.shared.source})')
             self.last_size = (w, h)
@@ -1017,6 +1018,20 @@ class Meter:
             if canvas is None or canvas.size != (w, h): canvas = self.canvas = Image.new('RGB', (w, h))
             canvas.paste(im, (0, 0)); return canvas
         return im
+
+    def mask_own(self, im):
+        """The picture is of the screen (Desktop Duplication), and the DPS window is left in screenshots and recordings:
+        black out where it is (and was a moment ago, while the picture may be older), so the meter never reads its own
+        numbers. The overlay keeps own_rects (screen pixels: x0, y0, x1, y1, until)."""
+        rects = getattr(self, 'own_rects', None)
+        if not rects: return
+        now = time.time(); ox, oy = self.origin
+        from PIL import ImageDraw
+        d = None
+        for x0, y0, x1, y1, until in list(rects):
+            if until and until < now: continue
+            d = d or ImageDraw.Draw(im)
+            d.rectangle((x0 - ox, y0 - oy, x1 - ox - 1, y1 - oy - 1), fill=(0, 0, 0))
 
     def capture_stats(self, t0, im, source):
         """Once a minute, one line on how the game is captured: where frames come from, how many arrived and how
@@ -3412,15 +3427,29 @@ def run_overlay(meter, hide):
     # Over the game only: while another window is in front (you tabbed out), every overlay window stays parked off
     # screen; each remembers where it belongs and comes back when the game is in front again.
     AWAY = {'on': False}; placed = {}
+    # Where the DPS window is drawn (screen pixels), for the meter to black out of its pictures of the screen
+    # (Meter.mask_own): with that, the DPS window and its notes can stay in screenshots and recordings on Windows 10
+    # too. A spot it just left is kept a moment: the picture being read can be a little older than the move.
+    meter.own_rects = []
+    def own_spot(win, rect):
+        if win is not dw: return
+        now = time.time()
+        keep = [r for r in meter.own_rects if r[4] and r[4] > now]
+        cur = [r for r in meter.own_rects if not r[4]]
+        if cur and rect and tuple(cur[0][:4]) == tuple(rect): return
+        meter.own_rects = keep + [(*r[:4], now + 0.5) for r in cur] + ([(*rect, 0)] if rect else [])
     def present(win, image, x, y):
         """With the game font: the window is this RGBA image, with real per-pixel alpha (layered.py)."""
         placed[win] = ('img', image, x, y)
+        own_spot(win, (int(x), int(y), int(x) + image.width, int(y) + image.height))
         if not AWAY['on']: layered.show(layered.top_hwnd(win), image, x, y)
     def place(win, x, y):
         """Without the game font: move the window there (a plain Tk window)."""
         placed[win] = ('geo', x, y)
+        win.update_idletasks()
+        own_spot(win, (int(x), int(y), int(x) + win.winfo_reqwidth(), int(y) + win.winfo_reqheight()))
         if not AWAY['on']: win.geometry(f'+{int(x)}+{int(y)}')
-    def park(win): placed.pop(win, None); win.geometry(OFF)
+    def park(win): placed.pop(win, None); own_spot(win, None); win.geometry(OFF)
 
     def compose(lines, H, divider=False, center=False, backdrop=None):
         """The stats as one RGBA image in the game font: lines [(text, colour, size, 'i'/'b')], optional divider.
@@ -3656,11 +3685,12 @@ def run_overlay(meter, hide):
 
     for w in [dw] + [L['win'] for L in hp.values()]: w.update_idletasks()
     hidden = {'on': False, 'done': set()}
-    def hide_all():
-        """Every overlay window (the DPS window, HP labels, result notes, the alert) out of screen captures."""
+    def hide_all(keep_dps=False):
+        """Every overlay window (the DPS window, HP labels, result notes, the alert) out of screen captures.
+        keep_dps: all but the DPS window (and its notes), which the meter blacks out of its own pictures instead."""
         hidden['on'] = True
         for w in root.winfo_children():
-            if not isinstance(w, tk.Toplevel) or w in hidden['done']: continue
+            if not isinstance(w, tk.Toplevel) or w in hidden['done'] or (keep_dps and w is dw): continue
             try: wc.hide_from_capture(ctypes.windll.user32.GetParent(w.winfo_id()) or w.winfo_id()); hidden['done'].add(w)
             except Exception: pass
     if hide: hide_all()   # on request; otherwise the meter shows up in screenshots and recordings
@@ -3803,8 +3833,11 @@ def run_overlay(meter, hide):
     def poll_tick():
         # the app's picture is of the screen (Desktop Duplication): keep our windows out of it, or the meter would
         # read its own HP labels on the boss bar
-        if meter.use_screen and not hidden['on']: log.info('overlay hidden from capture (the picture is of the screen)')
-        if meter.use_screen or hidden['on']: hide_all()   # windows made since (result notes) too
+        # the HP labels sit on the boss bar, which the meter must read: those stay out of captures. The DPS window stays
+        # in screenshots and recordings (unless the player chose otherwise), blacked out of the meter's own pictures
+        if meter.use_screen and not hidden['on']: log.info('overlay: HP labels hidden from capture (the picture is of the screen); the DPS window stays in it')
+        if hide: hide_all()
+        elif meter.use_screen or hidden['on']: hide_all(keep_dps=True)   # windows made since too
         front = game_in_front()
         if AWAY['on'] != (not front):
             AWAY['on'] = not front
