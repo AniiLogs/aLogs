@@ -1238,6 +1238,26 @@ class Meter:
                     # Holo-Battle Sim's Victory screen: "Battle time 00:08:22 Training of Water - Hard" under the title
                     ('sv', 'text', (0.36, 0.198, 0.65, 0.233)))
     QUICK_BOXES = ('h', 'cs', 'lbl', 'cc')   # while a fight's bar is hidden: Catch Countdown and the result screens
+    # The boxes that can't show where you are (the game log says where): left out of a screen read, which then does a
+    # third of the work. The header ('h') and the menu ('me', 'uid') can show anywhere and are always read. Every
+    # FULL_READ_S, and wherever the game log hasn't said, every box is read anyway, so a screen that turns up
+    # somewhere unexpected is still caught within seconds.
+    #   cs/lbl: Interlink's result screen · bs: Interlink's battle prep (the lobby, out in the world too)
+    #   cc: Catch Countdown · pl/pe: the EXP card · pc/pb: the catch card · eh/ep/es: Egg Heist's end and rank screens
+    #   sv: Holo-Battle Sim's Victory line
+    PLACE_SKIP = {'interlink': {'cc', 'pl', 'pe', 'pc', 'pb', 'eh', 'ep', 'es', 'sv'},
+                  'holo-sim': {'cs', 'lbl', 'bs', 'cc', 'pc', 'pb', 'eh', 'ep', 'es'},
+                  'egg heist': {'cs', 'lbl', 'bs', 'cc', 'sv', 'pc', 'pb'},
+                  'world': {'cs', 'lbl', 'sv'}}
+    FULL_READ_S = 5.0
+
+    def place(self, now):
+        """Where the game log has you, for PLACE_SKIP: 'interlink', 'holo-sim', 'egg heist', 'world', or None (not known)."""
+        if self.args.replay is not None or not self.space: return None
+        if self.bossrush_space: return 'interlink'
+        if self.holosim_space: return 'holo-sim'
+        if self.sanctum_in_run(now): return 'egg heist'
+        return 'world'
 
     def screen_crops(self, im, quick):
         """The boxes to read, prepared for OCR. A white-text box whose prepared crop has almost no black pixels is
@@ -1245,8 +1265,13 @@ class Meter:
         there's nothing in it to read (reads as '', like before, at no cost)."""
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
         prep = {'text': R.prep_text, 'bright': R.prep_bright}; out = {}
+        now = time.time(); skip = set()
+        if not quick and now - getattr(self, 'full_read_at', 0) < self.FULL_READ_S:
+            skip = self.PLACE_SKIP.get(self.place(now), set())
+        elif not quick: self.full_read_at = now                    # this one reads every box
         for name, kind, (x0, y0, x1, y1) in self.SCREEN_BOXES:
             if quick and name not in self.QUICK_BOXES: continue
+            if name in skip: continue
             crop = prep[kind](im, (ux + u * x0, H * y0, ux + u * x1, H * y1), u / 2000)
             if kind == 'text' and sum(crop.histogram()[:128]) < INK_MIN: continue
             out[name] = crop

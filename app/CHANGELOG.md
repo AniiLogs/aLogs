@@ -148,6 +148,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   finest timing; a 60 you picked yourself stays). The settings' wording now says what each choice does. Damage and
   DPS come out the same. Reading white text on screen (the Victory line, the HP check while tabbed out, the
   Interlink leader note) is also 15-20 times quicker, with the same result: at 4K one read took up to 1.4 s.
+  And each look at the screen's text only checks the screens that can appear where you are (Interlink's in
+  Interlink, Egg Heist's in Egg Heist, and so on), with a full check of everything every few seconds so nothing
+  is missed.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.
 - **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
   could go unnoticed until the next day. It now looks every 30 minutes, and a new version shows as a green-outlined
