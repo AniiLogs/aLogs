@@ -258,7 +258,8 @@ fn priority_class(settings: &Value) -> Option<u32> {
         Some("low") => Some(BELOW_NORMAL_PRIORITY_CLASS),
         Some("normal") => Some(NORMAL_PRIORITY_CLASS),
         Some("high") => Some(ABOVE_NORMAL_PRIORITY_CLASS),
-        _ => None,
+        // not chosen: lower, so the game (and OBS) always come first (B8; was Windows' normal)
+        _ => Some(BELOW_NORMAL_PRIORITY_CLASS),
     }
 }
 

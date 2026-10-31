@@ -2,7 +2,7 @@
   const invoke = window.__TAURI__.core.invoke;
   // Same defaults as bossbar/settings.py (the meter fills in anything missing the same way).
   const DEFAULTS = {
-    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, priority: "", auto_download: true, beta_updates: false,
+    app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, priority: "low", auto_download: true, beta_updates: false,
       photos_auto: false, photos_auto_since: 0 },
     meter: { enabled: true },
     audio_cues: { boss_kill: true },
@@ -1728,6 +1728,7 @@
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
       settings = merge(DEFAULTS, stored);
       showSanctumSwitch(settings.sanctum?.enabled ?? true);
+      if (!settings.app.priority) settings.app.priority = "low";   // "Not set" before B8: lower is the default now
       // the fight rate's default was 60 before B6, now 30: a rate nobody picked is 30
       if (settings.capture.fight_rate !== 30 && !(settings.user_set || []).includes("capture.fight_rate")) settings.capture.fight_rate = 30;
     } catch {

@@ -3300,6 +3300,7 @@ def load_positions():
         with open(SETTINGS, encoding='utf-8') as f: return json.load(f)
     except (OSError, ValueError): return {}
 
+OVERLAY_REDRAW = 0.25   # s between redraws of the overlay's numbers (4 a second)
 BAR_HIDDEN = 0.5   # s without the game's boss bar before the labels around it are hidden too
 
 def run_overlay(meter, hide):
@@ -3712,6 +3713,7 @@ def run_overlay(meter, hide):
         except Exception:
             if time.time() - poll_error['at'] > 60: poll_error['at'] = time.time(); log.exception('overlay: error (it keeps going)')
         root.after(15, poll)    # tabbing in/out and new readings show within a frame or two
+    drawn = {'at': 0.0, 'pending': None}     # the overlay's last redraw, and the newest reading waiting for its turn
     def poll_tick():
         # the app's picture is of the screen (Desktop Duplication): keep our windows out of it, or the meter would
         # read its own HP labels on the boss bar
@@ -3733,8 +3735,9 @@ def run_overlay(meter, hide):
             while True:
                 k, d = q.get_nowait()
                 if k == 'fight': latest = d; continue
-                if latest is not None: show_fight(latest); latest = None
+                if latest is not None: show_fight(latest); latest = None; drawn['pending'] = None; drawn['at'] = time.time()
                 if k == 'fight_end':                                    # the result stays up for a while
+                    drawn['pending'] = None                              # a reading still waiting is from before the end
                     hide_hp()
                     keep = 10 if d['bossrush'] else 0 if d.get('holosim') else meter.args.cfg['overlay'].get('result_seconds', 10)
                     if show_dps_window and dps_at['shown'] and keep > 0:
@@ -3754,7 +3757,11 @@ def run_overlay(meter, hide):
                 elif k == 'end_hide':
                     if dps_at.get('end'): hide_dps(); dps_at['end'] = False
         except queue.Empty: pass
-        if latest is not None: show_fight(latest)
+        # the numbers redrawn at most 4 times a second (B8: every new reading, up to 60 a second, redrew the window);
+        # the newest waits for its turn, and a fight's end shows at once (above)
+        if latest is not None: drawn['pending'] = latest
+        if drawn['pending'] is not None and time.time() - drawn['at'] >= OVERLAY_REDRAW:
+            show_fight(drawn['pending']); drawn['pending'] = None; drawn['at'] = time.time()
         if meter.fight and time.time() - meter.bar_seen >= BAR_HIDDEN and dps_at.get('hp_up'): hide_hp(); dps_at['hp_up'] = False
         # Holo-Battle Sim: the numbers too, while its bar is gone (the floor's menus, gizmo picks, the next floor)
         if (meter.fight and meter.holosim_space and dps_at['shown'] and not dps_at['hide_at']
