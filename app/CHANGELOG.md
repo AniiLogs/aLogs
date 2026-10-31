@@ -171,6 +171,12 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   row went away (a menu, the map, a cutscene). It now goes with the icons within about a third of a second and comes
   back as quickly. The button's settings have their own section in General Settings, "The button over the game",
   where you can also pick how quickly it goes: at once, or after 0.15 to 1.5 seconds.
+- **New spots for the DPS window, clear of the game's own notes:** placed from the game's own screen layout, so it
+  no longer covers the tips the game shows next to the minimap during boss fights, Interlink's Settle Early button, or
+  the messages at the top. Out in the world it now sits between the minimap and the boss bar, centred and a little
+  higher (or top right, under the game's buttons, which replaces "under the quest list": quests, items and friend
+  notes appear there). In Interlink, "under the stars and timer" moved below Settle Early. Spots you had dragged start
+  over at the new defaults. New example pictures in DPS Meter › Overlay.
 - **The DPS window shows in screenshots and recordings on Windows 10 again:** to keep the meter from reading its own
   numbers, every overlay was kept out of screen captures there. Now only the HP labels on the boss bar are; the DPS
   window and its notes show in OBS and screenshots like they do on Windows 11. The DPS window also has a lock (on by

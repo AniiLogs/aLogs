@@ -1744,6 +1744,7 @@
       settings = merge(DEFAULTS, stored);
       showSanctumSwitch(settings.sanctum?.enabled ?? true);
       if (!settings.app.priority) settings.app.priority = "low";   // "Not set" before B8: lower is the default now
+      if (settings.overlay.world_position === "quests") settings.overlay.world_position = "right";   // B9: under the quests is gone
       // the fight rate's default was 60 before B6, now 30: a rate nobody picked is 30
       if (settings.capture.fight_rate !== 30 && !(settings.user_set || []).includes("capture.fight_rate")) settings.capture.fight_rate = 30;
     } catch {

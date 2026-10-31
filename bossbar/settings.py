@@ -48,7 +48,7 @@ DEFAULTS = {
         'in_recordings': True,               # overlays show in recordings and screenshots (General Settings; shared
                                              # with Sanctum Helper). Replaced hide_from_capture, its opposite.
         'backdrop': 0,                       # dark panel behind the DPS window, % opacity (0 = none)
-        'world_position': 'map',             # out in the world: 'map' (right of the minimap) or 'quests' (under the quest list)
+        'world_position': 'map',             # out in the world: 'map' (right of the minimap) or 'right' (top right)
         'dps_locked': True,                  # the DPS window can't be dragged, and clicks go through it to the game
         'dps_reset': 0,                      # the app bumps this to put the DPS window back in its default spots
         'rush_position': 'corner',           # Interlink's DPS window: 'corner' (top left, by Esc) or 'panel' (under the stars/timer)
@@ -98,6 +98,7 @@ def load():
     overlay = stored.get('overlay') if isinstance(stored.get('overlay'), dict) else {}
     if 'in_recordings' not in overlay and 'hide_from_capture' in overlay:      # settings from before 0.1.28
         overlay['in_recordings'] = not overlay['hide_from_capture']
+    if overlay.get('world_position') == 'quests': overlay['world_position'] = 'right'   # B9: under the quests is gone
     return _merge(DEFAULTS, stored)
 
 def save(settings):

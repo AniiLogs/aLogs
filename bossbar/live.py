@@ -3547,16 +3547,33 @@ def run_overlay(meter, hide):
         if BACKDROP:                                  # without the game font: a solid panel (no partial see-through here)
             dc.tag_lower(dc.create_rectangle(0, 0, box[2] + pad, box[3] + pad, fill=BG, outline=''))
         dc.config(width=box[2] + pad, height=box[3] + pad)
-    def show_dps(screen, bossrush, lines=None):
+    # The spots (B9), from the game's own HUD layout (its prefabs, as shares of the 16:9 area: x of the width, y of the
+    # height), placed clear of where the game shows its own notes and tips:
+    #   minimap (0.043-0.144, 0.039-0.218); team panel beside it (0.137-0.264, 0.021-0.069); the AI helper's tips
+    #   under that during boss fights (0.136-0.400, 0.141-0.214); boss bar from x 0.302-0.32; one-line system messages
+    #   top centre (0.381-0.619, 0.148-0.281); Interlink's stars/timer panel to y 0.326 and its Settle Early button
+    #   (0.025-0.194, 0.347-0.391); item and friend toasts on the left from y 0.394-0.455; top right free from x 0.70.
+    MINIMAP_RIGHT, BAR_LEFT = 0.195, 0.32     # the party count and menu icons right of the minimap end at ~0.19
+    MAP_TOP, MAP_SCALE = 0.069, 0.85          # between the team panel and the AI tips: 0.071 tall, so a little smaller
+    def show_dps(screen, bossrush, lines=None, bar=None):
         # the game's HUD is a 16:9 area (centred on ultrawide): spots and text size follow its height, which is the
         # screen's on 16:9 and ultrawide, and the width's 9/16 on 16:10, where the HUD keeps to the top
         ox, oy, W, H = screen; u = min(W, H * 16 / 9); ux = ox + (W - u) / 2; H = u * 9 / 16
+        scale = 1.0
         if bossrush and meter.args.cfg['overlay'].get('rush_position') == 'panel':
-            base, key = (ux + u * 0.024, oy + H * 0.335), 'dps_offset_rush'              # under the stars/timer panel
-        elif bossrush: base, key = (ux + u * 0.068, oy + H * 0.022), 'dps_offset_rush_top'  # top left, right of Esc
-        elif meter.args.cfg['overlay'].get('world_position') == 'quests':
-            base, key = (ux + u * 0.024, oy + H * 0.415), 'dps_offset_world'             # under the quest list
-        else: base, key = (ux + u * 0.168, oy + H * 0.09), 'dps_offset_map'              # right of the minimap
+            base, key = (ux + u * 0.025, oy + H * 0.398), 'dps_offset2_rush'             # under Settle Early
+        elif bossrush: base, key = (ux + u * 0.068, oy + H * 0.022), 'dps_offset2_rush_top'  # top left, right of Esc
+        elif meter.args.cfg['overlay'].get('world_position') in ('right', 'quests'):
+            base, key = (ux + u * 0.705, oy + H * 0.10), 'dps_offset2_right'             # top right, under the buttons
+        else:
+            # right of the minimap: centred in the gap to the boss bar's left end (where the bar is, else where it
+            # usually starts), on a fixed width so it doesn't shift as the numbers change
+            scale = MAP_SCALE
+            left = ux + u * MINIMAP_RIGHT
+            right = bar[0] if bar and left < bar[0] < ux + u * 0.5 else ux + u * BAR_LEFT
+            if dps_at.get('bar_left') is None or abs(dps_at['bar_left'] - right) > H * 0.01: dps_at['bar_left'] = right
+            width = H * 0.21 * scale
+            base, key = (max(left + H * 0.01, (left + dps_at['bar_left']) / 2 - width / 2), oy + H * MAP_TOP), 'dps_offset2_map'
         dps_at['base'], dps_at['h'], dps_at['key'] = base, H, key
         # Overlay › Lock the DPS window: locked, clicks go through it to the game; unlocked, it takes them (to drag it)
         locked = dps_locked()
@@ -3569,8 +3586,8 @@ def run_overlay(meter, hide):
         if reset != pos.get('dps_reset_seen', 0):
             for k in [k for k in pos if k.startswith('dps_offset')]: del pos[k]
             pos['dps_reset_seen'] = reset; save_positions()
-        if lines is not None and lines != dps_at['lines']:
-            dps_at['lines'] = lines; render_stats(lines, H)
+        if lines is not None and (lines != dps_at['lines'] or dps_at.get('scale') != scale):
+            dps_at['lines'] = lines; dps_at['scale'] = scale; render_stats(lines, H * scale)
         x, y = base; off = pos.get(key)
         if off: x += off[0] * H; y += off[1] * H
         if dw.dragging: x, y = dw.winfo_x(), dw.winfo_y()
@@ -3582,7 +3599,7 @@ def run_overlay(meter, hide):
         if not dps_at['shown'] or not meter.last_screen: return
         H = dps_at['h']                                # the HUD height show_dps placed it by
         lines = [(t, '#ffffff' if i else '#ffd36a', 0.0165 if i else 0.02) for i, t in enumerate(text.split('\n')) if t]
-        dps_at['lines'] = lines; render_stats(lines, H)
+        dps_at['lines'] = lines; render_stats(lines, H * dps_at.get('scale', 1.0))   # the spot's size (smaller by the minimap)
         if dps_at.get('img') is not None: present(dw, dps_at['img'], dw.winfo_x(), dw.winfo_y())
     def hide_dps(): park(dw); dps_at['shown'] = False
     def end_note_result(d):
@@ -3817,7 +3834,7 @@ def run_overlay(meter, hide):
 
     def show_fight(d):
         dps_at['bossrush'] = d['bossrush']
-        if show_dps_window: show_dps(d['screen'], d['bossrush'], stat_lines(d))
+        if show_dps_window: show_dps(d['screen'], d['bossrush'], stat_lines(d), d.get('bar'))
         if time.time() - meter.bar_seen < BAR_HIDDEN: show_hp(d); dps_at['hp_up'] = True
 
     poll_error = {'at': 0.0}
@@ -3860,7 +3877,7 @@ def run_overlay(meter, hide):
                     hide_hp()
                     keep = 10 if d['bossrush'] else 0 if d.get('holosim') else meter.args.cfg['overlay'].get('result_seconds', 10)
                     if show_dps_window and dps_at['shown'] and keep > 0:
-                        show_dps(d['screen'], d['bossrush'], final_lines(d)); dps_at['hide_at'] = time.time() + keep
+                        show_dps(d['screen'], d['bossrush'], final_lines(d), d.get('bar')); dps_at['hide_at'] = time.time() + keep
                     elif dps_at['shown']: hide_dps()
                 elif k == 'status' and d.startswith('fight over'):
                     hide_hp()
