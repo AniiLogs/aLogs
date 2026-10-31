@@ -186,8 +186,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Overlays show in screenshots and recordings on every PC:** on Windows 10, aLogs kept its overlays out of all screen
   captures (OBS, Game Bar, screenshots) so the meter wouldn't read its own numbers, whatever "Overlays show in
   recordings and screenshots" said. Now the setting does what it says: the DPS window, its notes, the HP labels, the
-  button over the game, and Sanctum Helper's map panel and notifications show in captures, and aLogs looks past them
-  instead. Leaderboard proof pictures stay the game alone: the
+  button over the game, and all of Sanctum Helper's maps and notifications show in captures (also the big map, the
+  see-through map, labels on the in-game map and the map over the game's minimap), and aLogs looks past them instead.
+  Sanctum Helper's big map and see-through outlines now stay below the boss bar, so the meter always sees it. Leaderboard proof pictures stay the game alone: the
   overlays step out of captures for the moment one is taken, and a copy with the DPS window on it is kept next to it on
   your PC, with the test pictures (Captures & logs › Open the test pictures folder), never sent. The DPS window also
   has a lock (on by default: your clicks go through it to the game) and a button to put it back in its default spots.
