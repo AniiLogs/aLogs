@@ -351,15 +351,17 @@ def _slot(cycle, boss_id):
 
 def _lineup(summary):
     """{'lineup': each slot's player and lead Aniimo from the Party screen, 'title': your title} for a run's extra."""
-    # the site shows only your own team: the others' entries carry just their slot, name and AI flag
+    # every player's card: lead Aniimo, level and CP (shown on the site, the user's call 2026-10-31), and the rest of
+    # the team from the pictures in the card's team row (icons.py; unread ones left out)
+    teams = summary.get('teams') or []
     def entry(m):
-        e = {'slot': m.get('slot'), 'name': (m.get('name') or '')[:40] or None, 'ai': m.get('ai')}
-        if m.get('self'):
-            lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
-            lead = {k: v for k, v in lead.items() if v is not None}
-            # the rest of your team from the pictures in your card's team row (icons.py; unread ones left out)
-            rest = [{'aniimo': n[:40]} for n in summary.get('team') or [] if n]
-            e.update(self=True, **lead, **({'team': [lead] + rest} if lead.get('aniimo') or rest else {}))
+        e = {'slot': m.get('slot'), 'name': (m.get('name') or '')[:40] or None, 'ai': m.get('ai'), 'self': True if m.get('self') else None}
+        lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
+        lead = {k: v for k, v in lead.items() if v is not None}
+        slot = m.get('slot')
+        team = teams[slot] if isinstance(slot, int) and slot < len(teams) and teams[slot] else             summary.get('team') if m.get('self') else None          # a run saved before every card was read
+        rest = [{'aniimo': n[:40]} for n in team or [] if n]
+        e.update(**lead, **({'team': [lead] + rest} if lead.get('aniimo') or rest else {}))
         return {k: v for k, v in e.items() if v is not None}
     lineup = [entry(m) for m in summary.get('party') or []]
     return {'lineup': lineup} if lineup else {}

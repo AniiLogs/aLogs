@@ -1689,8 +1689,7 @@ class Meter:
         # the screen itself goes with the run (its lineup and the leader's buffs): the last capture before the fight,
         # since anyone can still change their team until it starts. Kept in memory; saved when the result is in.
         if self.party: self.party['picture'] = im
-        mine = next((i for i, m in enumerate(members) if m['self']), None)
-        if mine is not None: self.read_party_icons(im, members[mine]['pill'], u, ux, H, now)
+        self.read_party_icons(im, [(m['slot'], m['pill']) for m in members], u, ux, H, now)
 
     # Your card's team row: your three other Aniimo as pictures, each a slice of the game's head portrait cut by a
     # window left of its skill badge. Shares of the UI width (x) from the card box's left / of the screen height (y)
@@ -1703,8 +1702,8 @@ class Meter:
     SEASON_LEVEL = (0.0153, 0.900, 0.0273, 0.923)   # x from the square's left
     OFFERING = (0.4338, 0.865, 0.4575, 0.909)       # the Special Offering circle ('+' or '...' when none)
 
-    def read_party_icons(self, im, card, u, ux, H, now):
-        """Your team and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
+    def read_party_icons(self, im, cards, u, ux, H, now):
+        """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
         the background (a few seconds a read). Each tile keeps its last three answers; the most common one stands, so a
         team changed before the fight follows within a read or two. Nothing is read until the icons are loaded."""
         if self.icons_state is None:
@@ -1718,16 +1717,17 @@ class Meter:
             threading.Thread(target=load, daemon=True).start()
         if self.icons_state != 'ready' or (self.icon_read and self.icon_read.is_alive()): return
         votes = self.party['votes']                          # this party (it's rebuilt each read, its votes carry on)
-        a, b = self.PARTY_CARDS[card][:2]
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
         def read():
-            ic, team, buffs = self.icons, [], []
-            for i in range(3):
-                t = a + self.TEAM_PITCH * i; wx0, wy0, wx1, wy1 = self.TEAM_WINDOW; sx, sy, side = self.TEAM_SQUARE
-                r = ic.head(im, box(t + wx0, b + wy0, t + wx1, b + wy1), (ux + u * (t + sx), H * (b + sy), u * side))
-                # accepted only when clearly ahead (checked on 48 tiles: no wrong answer passes); an Aniimo whose
-                # portrait isn't in the install (Leafy, 30 Oct) scores low against everything and stays unread
-                team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
+            ic, teams, buffs = self.icons, {}, []
+            for slot, card in cards:                        # every player's card has the same team row
+                a, b = self.PARTY_CARDS[card][:2]; team = teams[slot] = []
+                for i in range(3):
+                    t = a + self.TEAM_PITCH * i; wx0, wy0, wx1, wy1 = self.TEAM_WINDOW; sx, sy, side = self.TEAM_SQUARE
+                    r = ic.head(im, box(t + wx0, b + wy0, t + wx1, b + wy1), (ux + u * (t + sx), H * (b + sy), u * side))
+                    # accepted only when clearly ahead (checked on 48 tiles: no wrong answer passes); an Aniimo whose
+                    # portrait isn't in the install (Leafy, 30 Oct) scores low against everything and stays unread
+                    team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
             for sq in self.SEASON_BUFFS:
                 r = ic.buff(im, box(*sq), 'season')
                 if not r or r[1] < 0.8 or r[2] < 0.2: continue
@@ -1745,15 +1745,20 @@ class Meter:
                 buffs.append({'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)})
             party = self.party
             if not party or party['votes'] is not votes: return          # a new party came in meanwhile
-            hist = party.setdefault('team_reads', [collections.deque(maxlen=3) for _ in range(3)])
+            reads = party.setdefault('team_reads', {})
             def pick(h):                                    # agreed by two of the last three reads (or the only read)
                 names = [n for n in h if n]
                 n = max(set(names), key=names.count) if names else None
                 return n if n and (names.count(n) >= 2 or len(h) == 1) else None
-            for i, name in enumerate(team): hist[i].append(name)
-            party['team'] = [pick(h) for h in hist]
+            out = party.setdefault('teams', [None] * 4)    # by slot, 1P..4P
+            for slot, team in teams.items():
+                hist = reads.setdefault(slot, [collections.deque(maxlen=3) for _ in range(3)])
+                for i, name in enumerate(team): hist[i].append(name)
+                out[slot] = [pick(h) for h in hist]
+            mine = next((m['slot'] for m in party['members'] if m['self']), None)
+            if mine is not None: party['team'] = out[mine]
             if buffs or 'buffs' not in party: party['buffs'] = buffs
-            log.info(f"Party screen icons: team {party['team']}, buffs {party.get('buffs')}")
+            log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
         self.icon_read = threading.Thread(target=read, daemon=True); self.icon_read.start()
 
     def set_party(self, members, now):
@@ -1767,7 +1772,7 @@ class Meter:
         for m in members: m['name'] = votes[m['slot']].most_common(1)[0][0]
         changed = not same or [(m['name'], m['ai'], m['self']) for m in members] != \
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
-        kept = {k: self.party[k] for k in ('team_reads', 'team', 'buffs') if k in self.party} if same else {}
+        kept = {k: self.party[k] for k in ('team_reads', 'teams', 'team', 'buffs') if k in self.party} if same else {}
         self.party = {'at': now, 'members': members, 'votes': votes, **kept}      # the icon reads carry on too
         if changed:
             log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
@@ -1868,7 +1873,7 @@ class Meter:
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
-                                 **({'team': self.party.get('team'), 'buffs': self.party.get('buffs')} if party else {}),
+                                 **({'team': self.party.get('team'), 'teams': self.party.get('teams'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)
         self.out('status', f'result recorded: {boss} - score {score}, {rating} stars, {secs}s')
