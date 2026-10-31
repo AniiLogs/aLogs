@@ -316,7 +316,7 @@
           <label class="toggle"><input type="checkbox" data-k="app.close_to_tray"><span></span>
             <div><strong>Closing the window keeps aLogs in the tray</strong><small>When off, closing the window quits aLogs and stops the meter.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="overlay.in_recordings"><span></span>
-            <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them). On Windows 10 the HP labels on the boss bar are kept out of full-screen captures, so the meter never reads itself; the DPS window and its notes still show.</small></div></label>
+            <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them).</small></div></label>
         </div>
         <div class="group">
           <h2>Screen capture</h2>
@@ -429,7 +429,7 @@
         <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
         <div class="group">
           <p>The meter only reads the game: its picture (built-in Windows capture), its sound during boss fights, its text log and its data files. It never changes the game's memory or files.</p>
-          <p class="notice" data-win10-capture hidden><strong>On Windows 10:</strong> aLogs captures the whole screen without a border (Desktop Duplication: Windows 10 can't capture just the game window without a yellow border; Windows 11 can). So it keeps the DPS window and Sanctum Helper's map out of screen captures, or it would read its own overlays: OBS <strong>Game Capture</strong> is unaffected (it never shows overlay windows), but OBS <strong>Display Capture</strong>, screenshots and Game Bar won't show them. While you're tabbed out, aLogs copies the game window itself a few times a second instead (not while the game is minimized).</p>
+          <p class="notice" data-win10-capture hidden><strong>On Windows 10:</strong> aLogs captures the whole screen without a border (Desktop Duplication: Windows 10 can't capture just the game window without a yellow border; Windows 11 can). The meter covers its own overlays in that picture, so they still show in OBS, screenshots and Game Bar; Sanctum Helper keeps its map out of screen captures for now, or it would read it. While you're tabbed out, aLogs copies the game window itself a few times a second instead (not while the game is minimized).</p>
           <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
           <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
           <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>

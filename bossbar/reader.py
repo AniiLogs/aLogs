@@ -30,6 +30,10 @@ def is_flash(p): return min(p[:3]) >= 235                                       
 def is_white(p): return min(p[:3]) >= 190                                                # brackets / text
 def barlike(p): return is_fill(p) or is_ghost(p) or is_flash(p)
 def colored(p): return is_fill(p) or is_ghost(p)                                         # no white: walls/sky are white
+# Where the meter's own overlay windows are in its picture of the screen (Meter.mask_own paints them this magenta):
+# not the game, so neither fill nor empty track - the readers look past it.
+COVER = (255, 0, 255)
+def covered(p): return p[0] >= 250 and p[1] <= 5 and p[2] >= 250
 
 def _bar_run(px, y, x0, x1, gap):
     """Longest run of fill/ghost pixels on row y, allowing short white gaps (the hit flash)."""
@@ -254,6 +258,8 @@ def measure_fill_any(im, bar, jump=70):
         v = seen.get(x)
         if v is None: v = seen[x] = _median_px(px, x, rows)
         return v
+    if any(covered(px[x, yc]) for x in range(left, right, 3)):
+        return _fill_past_cover(med, left, right, jump)
     fill_color = med(left + 2); edge = right
     for x in range(left + 3, right - 2):
         a = med(x - 2)
@@ -261,6 +267,22 @@ def measure_fill_any(im, bar, jump=70):
             edge = x - 1; break
     frac = max(0.0, min(1.0, (edge - left + 1) / (right - left)))
     return frac, fill_color, _median_px(px, min(right - 1, edge + 3), rows)
+
+def _fill_past_cover(med, left, right, jump):
+    """measure_fill_any where one of our own HP labels covers part of the bar (Meter.mask_own): the same walk, over
+    the columns the game shows. An edge whose two sides lie either side of a covered stretch is somewhere under it:
+    read as the stretch's right end, the most HP it can be, so the fight (where HP never goes up) keeps its last
+    reading until the edge comes out on the left - never a drop that didn't happen."""
+    xs = [x for x in range(left, right) if not covered(med(x))]
+    if len(xs) < 6: return 1.0, med(left + 2), med(right - 1)
+    fill_color = med(xs[2]); edge = right
+    for i in range(3, len(xs) - 2):
+        x = xs[i]; a = med(xs[i - 2])
+        if _diff(a, med(x)) > jump and _diff(a, med(xs[i + 2])) > jump:
+            edge = x - 1 if xs[i] - xs[i - 2] > 2 else xs[i - 1]     # a covered stretch just before: under it
+            break
+    frac = max(0.0, min(1.0, (edge - left + 1) / (right - left)))
+    return frac, fill_color, med(min(right - 1, edge + 3))
 
 # Break gauge: the thin line under the HP bar. It starts full and drains as break damage lands (white, orange for
 # about the last 30%); at zero the boss is broken (the empty part of the HP track turns yellow with "250%") for
@@ -287,10 +309,13 @@ def measure_break(im, bar):
             if not (test(px[x0, y]) and test(px[x0 + 3, y])): continue
             if not any(_dark(px[x0, y - d]) for d in range(1, gap + 2)) or not any(_dark(px[x0, y + d]) for d in range(1, gap + 2)):
                 continue
-            x = x0; miss = 0
-            while x < right and (test(px[x, y]) or miss < 2):
-                miss = 0 if test(px[x, y]) else miss + 1; x += 1
-            return max(0.0, min(1.0, (x - miss - left) / (right - left))), kind, broken
+            # along the line to its end; our own labels (covered) are looked past, the end is the last line pixel seen
+            x = x0; miss = 0; last = x0
+            while x < right and (test(px[x, y]) or covered(px[x, y]) or miss < 2):
+                if test(px[x, y]): miss = 0; last = x
+                elif not covered(px[x, y]): miss += 1
+                x += 1
+            return max(0.0, min(1.0, (last + 1 - left) / (right - left))), kind, broken
     # no line: empty (broken, or about to refill) - only trust that when the rim is where the line would be
     return (0.0 if broken else None), None, broken
 

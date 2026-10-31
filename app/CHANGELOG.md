@@ -183,13 +183,13 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   higher (or top right, under the game's buttons, which replaces "under the quest list": quests, items and friend
   notes appear there). In Interlink, "under the stars and timer" moved below Settle Early. Spots you had dragged start
   over at the new defaults. New example pictures in DPS Meter › Overlay.
-- **The DPS window shows in screenshots and recordings on Windows 10 again:** to keep the meter from reading its own
-  numbers, every overlay was kept out of screen captures there. Now only the HP labels on the boss bar are; the DPS
-  window and its notes show in OBS and screenshots like they do on Windows 11. Leaderboard proof pictures stay the
-  game alone: the overlay steps out of captures for the moment one is taken. A copy with the DPS window on it is kept
-  next to each proof on your PC, with the test pictures (Captures & logs › Open the test pictures folder), and is
-  never sent. The DPS window also has a lock (on by
-  default: your clicks go through it to the game) and a button to put it back in its default spots.
+- **Overlays show in screenshots and recordings on every PC:** on Windows 10, aLogs kept its overlays out of all screen
+  captures (OBS, Game Bar, screenshots) so the meter wouldn't read its own numbers, whatever "Overlays show in
+  recordings and screenshots" said. Now the setting does what it says everywhere: the DPS window, its notes and the HP
+  labels show in captures, and the meter looks past them instead. Leaderboard proof pictures stay the game alone: the
+  overlays step out of captures for the moment one is taken, and a copy with the DPS window on it is kept next to it on
+  your PC, with the test pictures (Captures & logs › Open the test pictures folder), never sent. The DPS window also
+  has a lock (on by default: your clicks go through it to the game) and a button to put it back in its default spots.
 - **Wrong boss level from a misread title:** "Lv.64" could be read as "Lv064" and taken as level 6, which gave the
   fight the wrong max HP and so the wrong damage and DPS. Fixed.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.

@@ -1026,9 +1026,10 @@ class Meter:
         return (now or time.time()) < getattr(self, 'proof_until', 0)
 
     def mask_own(self, im):
-        """The picture is of the screen (Desktop Duplication), and the DPS window is left in screenshots and recordings:
-        black out where it is (and was a moment ago, while the picture may be older), so the meter never reads its own
-        numbers. The overlay keeps own_rects (screen pixels: x0, y0, x1, y1, until)."""
+        """The picture is of the screen (Desktop Duplication), and our overlay windows stay in screenshots and
+        recordings: cover where they are (and were a moment ago, while the picture may be older) in R.COVER, so the
+        meter never reads its own numbers. The bar readers look past it (the HP % label sits on the bar). The overlay
+        keeps own_rects (screen pixels: x0, y0, x1, y1, until)."""
         rects = getattr(self, 'own_rects', None)
         if not rects or not getattr(self, 'own_in_capture', False): return   # out of captures: nothing of ours to cover
         now = time.time(); ox, oy = self.origin
@@ -1037,7 +1038,7 @@ class Meter:
         for x0, y0, x1, y1, until in list(rects):
             if until and until < now: continue
             d = d or ImageDraw.Draw(im)
-            d.rectangle((x0 - ox, y0 - oy, x1 - ox - 1, y1 - oy - 1), fill=(0, 0, 0))
+            d.rectangle((x0 - ox, y0 - oy, x1 - ox - 1, y1 - oy - 1), fill=R.COVER)
 
     def capture_stats(self, t0, im, source):
         """Once a minute, one line on how the game is captured: where frames come from, how many arrived and how
@@ -3474,13 +3475,17 @@ def run_overlay(meter, hide):
         p = placed.get(dw)
         return [(p[1], p[2], p[3])] if p and p[0] == 'img' and dps_at.get('shown') else []
     meter.overlay_now = overlay_now
+    own = {'cur': {}, 'old': []}
     def own_spot(win, rect):
-        if win is not dw: return
-        now = time.time()
-        keep = [r for r in meter.own_rects if r[4] and r[4] > now]
-        cur = [r for r in meter.own_rects if not r[4]]
-        if cur and rect and tuple(cur[0][:4]) == tuple(rect): return
-        meter.own_rects = keep + [(*r[:4], now + 0.5) for r in cur] + ([(*rect, 0)] if rect else [])
+        """Where each overlay window is (the DPS window, its notes, the HP labels), for Meter.mask_own; a spot just left
+        is kept half a second, as the picture being read can be a little older than the move."""
+        now = time.time(); prev = own['cur'].get(win)
+        if prev == rect: return
+        if prev: own['old'].append((*prev, now + 0.5))
+        if rect: own['cur'][win] = rect
+        else: own['cur'].pop(win, None)
+        own['old'] = [r for r in own['old'] if r[4] > now]
+        meter.own_rects = [(*r, 0) for r in own['cur'].values()] + own['old']
     def present(win, image, x, y):
         """With the game font: the window is this RGBA image, with real per-pixel alpha (layered.py)."""
         placed[win] = ('img', image, x, y)
@@ -3745,14 +3750,18 @@ def run_overlay(meter, hide):
 
     for w in [dw] + [L['win'] for L in hp.values()]: w.update_idletasks()
     hidden = {'on': False, 'done': set()}
-    def hide_all(keep_dps=False):
-        """Every overlay window (the DPS window, HP labels, result notes, the alert) out of screen captures.
-        keep_dps: all but the DPS window (and its notes), which the meter blacks out of its own pictures instead."""
+    def hide_all():
+        """Every overlay window (the DPS window, HP labels, result notes, the alert) out of screen captures: the
+        player's choice (General Settings › Overlays show in recordings and screenshots, off)."""
         hidden['on'] = True
         for w in root.winfo_children():
-            if not isinstance(w, tk.Toplevel) or w in hidden['done'] or (keep_dps and w is dw): continue
+            if not isinstance(w, tk.Toplevel) or w in hidden['done']: continue
             try: wc.hide_from_capture(ctypes.windll.user32.GetParent(w.winfo_id()) or w.winfo_id()); hidden['done'].add(w)
             except Exception: pass
+    def set_in_capture(on):
+        """Every overlay window in screen captures, or out of them (while a proof is taken)."""
+        for w in root.winfo_children():
+            if isinstance(w, tk.Toplevel): wc.hide_from_capture(ctypes.windll.user32.GetParent(w.winfo_id()) or w.winfo_id(), not on)
     if hide: hide_all()   # on request; otherwise the meter shows up in screenshots and recordings
 
     def show_hp(d):
@@ -3896,22 +3905,19 @@ def run_overlay(meter, hide):
         # read its own HP labels on the boss bar
         # the HP labels sit on the boss bar, which the meter must read: those stay out of captures. The DPS window stays
         # in screenshots and recordings (unless the player chose otherwise), blacked out of the meter's own pictures
-        if meter.use_screen and not hidden['on']: log.info('overlay: HP labels hidden from capture (the picture is of the screen); the DPS window stays in it')
-        if hide: hide_all()
-        elif meter.use_screen or hidden['on']: hide_all(keep_dps=True)   # windows made since too
-        # the DPS window in captures (blacked out of the meter's pictures), except while proofs are taken: then it steps
-        # out, so a proof has neither the overlay nor a black box in it
-        # (only where the meter's picture is of the screen: window capture never sees our windows, so there it simply
-        # stays in captures, unless the player hid it)
-        want_in = not hide and not (meter.use_screen and meter.capture_clean())
-        if want_in != meter.own_in_capture:
-            # in: the meter starts covering it first, then it shows in captures; out: it leaves captures, then the
-            # covering stops (proofs wait SETTLE_S before their first look, many frames after this)
-            if want_in: meter.own_in_capture = True
-            try:
-                wc.hide_from_capture(layered.top_hwnd(dw), not want_in)
-                meter.own_in_capture = want_in
-            except Exception: meter.own_in_capture = True if want_in else None   # unknown: keep covering, try again
+        # Every overlay window shows in screenshots and recordings (unless the player chose otherwise), on any Windows.
+        # Where the meter's picture is of the screen (Desktop Duplication) it covers them in its own copy (mask_own),
+        # and they step out of captures only while a proof is taken, so a proof is the game alone.
+        if hide: hide_all(); meter.own_in_capture = False
+        else:
+            want_in = not (meter.use_screen and meter.capture_clean())
+            if want_in != meter.own_in_capture:
+                # in: the meter starts covering them first, then they show in captures; out: they leave captures, then
+                # the covering stops (proofs wait SETTLE_S before their first look, many frames after this)
+                if want_in: meter.own_in_capture = True
+                try:
+                    set_in_capture(want_in); meter.own_in_capture = want_in
+                except Exception: meter.own_in_capture = True if want_in else None   # unknown: keep covering, try again
         front = game_in_front()
         if AWAY['on'] != (not front):
             AWAY['on'] = not front
