@@ -6,7 +6,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
@@ -15,11 +15,16 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WindowEvent};
 static LISTENER: Mutex<Option<TcpListener>> = Mutex::new(None);
 /// Set by "Cancel sign-in": the wait stops (it held the sign-in button for up to 5 minutes after a closed tab).
 static CANCELLED: AtomicBool = AtomicBool::new(false);
+/// Which sign-in this is (one per auth_listen_start). Each attempt has a window of its own, and only its own window's
+/// closing cancels it: a window from the attempt before, still closing when Sign in was clicked again, used to be
+/// reused (it never showed) and then cancelled the new attempt as it went.
+static ATTEMPT: AtomicU64 = AtomicU64::new(0);
 const WAIT: Duration = Duration::from_secs(5 * 60);
 
 /// Starts listening on a free local port (only reachable from this PC); returns the port for the sign-in link.
 #[tauri::command]
 pub fn auth_listen_start() -> Result<u16, String> {
+    ATTEMPT.fetch_add(1, Ordering::SeqCst);
     CANCELLED.store(false, Ordering::SeqCst);
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
@@ -28,7 +33,15 @@ pub fn auth_listen_start() -> Result<u16, String> {
     Ok(port)
 }
 
-const WINDOW: &str = "signin";
+const WINDOW: &str = "signin";      // + "-<attempt>"
+
+fn close_signin_windows(app: &AppHandle, keep: Option<&str>) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with(WINDOW) && Some(label.as_str()) != keep {
+            let _ = window.close();
+        }
+    }
+}
 
 /// Opens the sign-in window at `url` (the API's Discord start page), or brings it forward when it's already open.
 /// Closing it cancels the sign-in. Async: a window made on the main thread deadlocks on Windows (see site.rs).
@@ -38,12 +51,15 @@ pub async fn auth_window_open(app: AppHandle, url: String) -> Result<(), String>
     if !crate::site::stays_inside(&url) || url.host_str() == Some("aniilogs.github.io") {
         return Err("Not AniiLogs' sign-in page.".into());
     }
-    if let Some(window) = app.get_webview_window(WINDOW) {
+    let attempt = ATTEMPT.load(Ordering::SeqCst);
+    let label = format!("{WINDOW}-{attempt}");
+    if let Some(window) = app.get_webview_window(&label) {
         let _ = window.navigate(url);
         let _ = window.set_focus();
         return Ok(());
     }
-    let mut builder = WebviewWindowBuilder::new(&app, WINDOW, WebviewUrl::External(url))
+    close_signin_windows(&app, None);                   // an earlier attempt's window, if it's still closing
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .title("Sign in with Discord · aLogs")
         .inner_size(520.0, 780.0)
         .min_inner_size(400.0, 500.0)
@@ -66,9 +82,10 @@ pub async fn auth_window_open(app: AppHandle, url: String) -> Result<(), String>
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
     let window = builder.build().map_err(|e| e.to_string())?;
-    window.on_window_event(|event| {
-        if matches!(event, WindowEvent::Destroyed) {
-            CANCELLED.store(true, Ordering::SeqCst);    // closed before signing in: stop waiting
+    window.on_window_event(move |event| {
+        // closed before signing in: stop waiting, unless a newer attempt has started since
+        if matches!(event, WindowEvent::Destroyed) && ATTEMPT.load(Ordering::SeqCst) == attempt {
+            CANCELLED.store(true, Ordering::SeqCst);
         }
     });
     Ok(())
@@ -77,9 +94,7 @@ pub async fn auth_window_open(app: AppHandle, url: String) -> Result<(), String>
 /// Closes the sign-in window (done, failed or cancelled).
 #[tauri::command]
 pub fn auth_window_close(app: AppHandle) {
-    if let Some(window) = app.get_webview_window(WINDOW) {
-        let _ = window.close();
-    }
+    close_signin_windows(&app, None);
 }
 
 /// Stops a sign-in that's waiting for the browser.

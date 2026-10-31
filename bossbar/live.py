@@ -1451,12 +1451,15 @@ class Meter:
         # one appearance is one Battle Data (left open, or reopened from a menu, it isn't a new one for 30 s), read again
         # while it's up (SCREEN_READS in all, 0.5 s apart): each card value is the one most reads agree on
         shown_already = now - getattr(self, 'bd_seen', 0) < 6; self.bd_seen = now
-        again = (shown_already and now - self.battle_saved < 30 and getattr(self, 'bd_reads', 0) < SCREEN_READS
+        # fewer cards than the Party screen's players: read on (up to twice as often) rather than settle on them
+        party = self.party_for_result(now) or []
+        budget = SCREEN_READS * (2 if len(party) > getattr(self, 'bd_cards', 0) else 1)
+        again = (shown_already and now - self.battle_saved < 30 and getattr(self, 'bd_reads', 0) < budget
                  and now - getattr(self, 'bd_last', 0) >= 0.5)
         if (shown_already or now - self.battle_saved < 30) and not again: return
         self.bd_last = now
         if not again:
-            self.battle_saved = now; self.bd_reads = 0; self.bd_votes = {}; self.bd_shot = None
+            self.battle_saved = now; self.bd_reads = 0; self.bd_votes = {}; self.bd_shot = None; self.bd_cards = 0
             log.info(f'Battle Data screen detected (header OCR {head!r})')
         self.bd_reads += 1
         # the four stat rows of all cards (dark text on light cards)
@@ -1466,9 +1469,19 @@ class Meter:
         text = self.ocr.read({'d': ImageOps.expand(rows, border=20, fill=255)}).get('d', '')
         read = parse_battle_data(text)
         log.info(f'Battle Data read {self.bd_reads}: OCR {text!r} -> {read}')   # whole: a run can be re-read from the log
-        n = vote(self.bd_votes, 'cards', len(read) or None) or 0
+        # a read never finds a card that isn't there (each needs its own 'Average DPS'), so the most any read found
+        # is the count: settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct)
+        n = self.bd_cards = min(4, max(getattr(self, 'bd_cards', 0), len(read)))
         cards = [{k: vote(self.bd_votes, (i, k), read[i][k] if i < len(read) else None) for k in ('avg_dps', 'break', 'taken', 'heal')}
                  for i in range(n)]
+        # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),
+        # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position
+        names = self.ocr.read({i: R.prep_white(im, (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
+                                                    ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547), u / 2000)
+                               for i in range(n)}) if n else {}
+        for i, c in enumerate(cards):
+            c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
+        party_slots(cards, party)
         vals = [c['avg_dps'] for c in cards if c['avg_dps'] is not None]
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         if again:                                                  # a later read: only the agreed numbers change
@@ -1983,7 +1996,11 @@ class Meter:
                                 and int(r['puppetId']) in R.active_cycle_bosses()), None)
         if row: self.prep_boss = (now, row)
         log.info(f'battle prep screen: OCR pill {pill!r}, name {name!r} -> {boss}: best score {score}, stars {stars}')
-        if score is not None and boss: self.record_score(im, 'battle_prep', boss, score, stars)
+        # the score can read before the stars ('14026', then '14026 | 14' two seconds later sent a best without its
+        # stars, 30 Oct): only the same score and stars on two reads in a row count
+        key = (boss, score, stars)
+        agreed = getattr(self, 'prep_read', None) == key; self.prep_read = key
+        if score is not None and stars is not None and boss and agreed: self.record_score(im, 'battle_prep', boss, score, stars)
 
     def cycle_boss(self, text):
         """The boss name on the battle prep screen, matched to one of this week's three bosses. The boss art behind

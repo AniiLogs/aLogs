@@ -376,7 +376,8 @@ def run_payload(summary, uid, duration=180):
     for i, p in enumerate(res.get('players') or [{} for _ in cards]):
         c = cards[i] if i < len(cards) else {}
         players.append({k: v for k, v in {
-            'name': (p.get('name') or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),
+            # the result screen's name, else the Battle Data card's own (its slot's player from the Party screen)
+            'name': (p.get('name') or c.get('name') or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),
             'ai': p.get('ai') if isinstance(p.get('ai'), bool) else None,
             'self': True if p.get('self') else None,
             'avgDps': c.get('avg_dps'), 'breakValue': c.get('break'), 'damageTaken': c.get('taken'), 'heal': c.get('heal'),

@@ -140,6 +140,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   ask for it. Older versions keep sending to the boards they already use.
 
 ### Fixed
+- **Signing in again right after cancelling:** the Discord window sometimes didn't open on the second try. Each
+  try now gets a window of its own.
+- **Battle Data and battle prep readings:** every Battle Data card now carries its player's name (from the Party
+  screen), a four-player run no longer settles on three cards, and a boss's best score from the battle prep screen
+  is only recorded once its score and stars both read the same twice.
 - **The capture on/off button in a homeland (B5):** B5 stopped all capture in homelands, and with it the button's
   look at the game's icon row, so the button never showed at home. It now shows whenever the game is in front there.
 - **Less load during fights:** while a boss's HP bar is hidden by effects, the meter now looks 10 times a

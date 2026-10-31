@@ -202,7 +202,7 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .nav-foot { display: grid; gap: 10px; }
 .nav-meter { display: flex; align-items: center; gap: 8px; }
 /* signed in: the Discord pill (discord-button) with the name cut short to fit, and a chevron; its menu opens above */
-.nav-account-wrap { position: relative; display: grid; }
+.nav-account-wrap { position: relative; display: grid; margin-top: 6px; }   /* clear of the meter line above */
 .nav .nav-account { display: flex; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 36px; padding: 6px 12px; font-weight: 850; }
 .nav-account[hidden] { display: none; }
 .nav-account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
