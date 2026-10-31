@@ -202,6 +202,74 @@ def parse_sim(text):
     return {'time_s': int(t.group(1)) * 3600 + int(t.group(2)) * 60 + int(t.group(3)),
             'trial': trial, 'element': element, 'difficulty': difficulty}
 
+# Holo-Battle Sim's Victory screen (UI_Pb_Tower_Settlement), as fractions of the 16:9 UI area: the team on the left
+# (the MVP's big card, then four smaller ones, each with "Lv. 60" over the name), the MVP's damage / damage taken /
+# healing shares beside its card, the coins, and the Holo-gizmo series row with a count badge under each icon.
+SIM_CARDS = ((0.135, 0.385, 0.26, 0.45), (0.13, 0.555, 0.27, 0.61), (0.268, 0.575, 0.385, 0.63),
+             (0.13, 0.745, 0.25, 0.80), (0.248, 0.745, 0.37, 0.80))
+SIM_SHARES = (0.352, 0.30, 0.40, 0.40)
+SIM_COINS = (0.795, 0.285, 0.84, 0.325)
+SIM_GIZMO_X, SIM_GIZMO_PITCH, SIM_GIZMO_Y = 0.464, 0.0588, (0.5795, 0.5985)
+SIM_GIZMOS = 7
+
+def sim_badges(im, u, ux, H):
+    """The digits on the Holo-gizmo badges (dark on light grey, too small for Windows OCR on their own), pasted in
+    one line after a drawn label: 'n: / 6 / 6 / 2 / 2 / 4 / 5'. Empty slots (an X) give nothing."""
+    from PIL import ImageDraw, ImageFont
+    try: font = ImageFont.truetype('arialbd.ttf', 60)
+    except OSError: font = ImageFont.load_default()
+    k = u / 2000
+    out = Image.new('L', (140 + SIM_GIZMOS * 110, 120), 255); ImageDraw.Draw(out).text((10, 25), 'n:', fill=0, font=font)
+    for i in range(SIM_GIZMOS):
+        cx = SIM_GIZMO_X + SIM_GIZMO_PITCH * i
+        c = im.crop((int(ux + u * (cx - 0.0075)), int(H * SIM_GIZMO_Y[0]), int(ux + u * (cx + 0.0075)), int(H * SIM_GIZMO_Y[1]))).convert('L')
+        c = c.resize((max(1, int(c.width * 4 / k)), max(1, int(c.height * 4 / k))), Image.LANCZOS).point(lambda v: 0 if v < 120 else 255)
+        c.thumbnail((90, 90)); out.paste(c, (120 + i * 110, 15))
+    return out
+
+def sim_team_crops(im, u, ux, H):
+    """The Victory screen's team, shares, coins and gizmo counts, prepared for one OCR call."""
+    k = u / 2000; b = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
+    crops = {}
+    for i, box in enumerate(SIM_CARDS):
+        crops[f'c{i}w'] = R.prep_white(im, b(*box), k); crops[f'c{i}b'] = R.prep_bright(im, b(*box), k)
+    crops['share'] = R.prep_white(im, b(*SIM_SHARES), k)
+    crops['coins'] = R.prep_bright(im, b(*SIM_COINS), k)
+    crops['gizmos'] = sim_badges(im, u, ux, H)
+    return crops
+
+def parse_sim_team(t, names=()):
+    """What sim_team_crops() read -> {'team': [{'name', 'level', 'mvp'}], 'mvpShares': {'damage', 'taken', 'healing'},
+    'gizmoCounts': [6, 6, 2, ...], 'coins': 8550}. A card's name is matched to the game's Aniimo names when given
+    ('Ir?sahs' -> 'Irisalis'); a card that doesn't read is left out, so the team may be short but never wrong."""
+    team = []
+    for i in range(len(SIM_CARDS)):
+        reads = []
+        for v in (t.get(f'c{i}w'), t.get(f'c{i}b')):
+            m = re.search(r'L\W?v\W*(\d{1,3})\W+(\S.{1,24})', v or '')
+            if m and 1 <= int(m.group(1)) <= 100: reads.append((int(m.group(1)), m.group(2).strip()))
+        if not reads: continue
+        # the game name the card's reads come closest to (one read can be 'Ir?sahs', the other 'Irisalis'); else,
+        # as the names come from the head portraits and a few Aniimo have none (Leafy), a read that is a plain name
+        norm = lambda x: re.sub(r'[^a-z]', '', x.lower())
+        score, name = max(((difflib.SequenceMatcher(None, norm(r), norm(n)).ratio(), n) for _, r in reads for n in names),
+                          default=(0, None))
+        if score < 0.7:
+            plain = [r for _, r in reads if re.fullmatch(r"[A-Z][a-z]+(?:[ '-][A-Z][a-z]+)?", r)]
+            if not plain: continue
+            name = plain[0]
+        team.append({'name': name, 'level': reads[0][0], 'mvp': i == 0})
+    shares = []
+    for part in (t.get('share') or '').split(' / '):      # OCR's line breaks (a '%' itself can read as '0/0')
+        part = re.sub(r'\s*(%|[0oO]\s*/\s*[0oO]|[0oO]/[0oO])\s*$', '', part.strip())   # '%' reads as '0/0'
+        n = re.findall(r'\d{1,3}', part)
+        if n and int(n[-1]) <= 100: shares.append(int(n[-1]))
+    coins = re.sub(r'[^\d]', '', t.get('coins') or '')
+    return {'team': team,
+            'mvpShares': dict(zip(('damage', 'taken', 'healing'), shares)) if len(shares) == 3 else None,
+            'gizmoCounts': [int(n) for n in re.findall(r'\d{1,2}', (t.get('gizmos') or '').split(':', 1)[-1])][:SIM_GIZMOS],
+            'coins': int(coins) if coins and len(coins) <= 7 else None}
+
 def last_uid(path):
     """Your player id from the end of the game log (last 32 MB), the newest of: a personal-space id
     ('100-<uid>-<scene>'), the 'callerId=<uid>' of the game's service calls, or your profile files the game downloads
@@ -1315,21 +1383,32 @@ class Meter:
             log.info(f'bar sample not saved: {e!r}')
 
     def sim_result(self, im, now, u, ux, H):
-        """Holo-Battle Sim's end screen: "Victory" with "Battle time 00:08:22 Training of Water - Hard" under it. The
-        stage is "Training of" (Easy, Normal, Hard), "Trial of" or "Crucible of" (Challenge) Grass, Water or Fire.
-        A win goes to the leaderboards with the screen as proof."""
+        """Holo-Battle Sim's end screen: "Victory" with "Battle time 00:05:25 Earth Training - Hard" under it (Season
+        1: "Training of Water - Hard"). A win goes to the leaderboards with the screen as proof, and with the setup:
+        the team (names and levels, the MVP's shares), the Holo-gizmo counts and coins from this screen, plus the
+        Training Style and skills noted before the run (sim_prep_for)."""
         if now - getattr(self, 'sim_seen', 0) < 30: return                 # once per appearance
         box = (ux + u * 0.36, H * 0.198, ux + u * 0.65, H * 0.233)
         t = self.ocr.read({'w': R.prep_white(im, box, u / 2000), 'b': R.prep_bright(im, box, u / 2000),
-                           'title': R.prep_bright(im, (ux + u * 0.43, H * 0.13, ux + u * 0.57, H * 0.20), u / 2000)})
+                           'title': R.prep_bright(im, (ux + u * 0.43, H * 0.13, ux + u * 0.57, H * 0.20), u / 2000),
+                           # (the gold title over the faint "SUCCESS" behind it: only its brightest part reads)
+                           'title2': R.prep_text(im, (ux + u * 0.43, H * 0.13, ux + u * 0.57, H * 0.20), u / 2000, thr=200),
+                           **sim_team_crops(im, u, ux, H)})
         sim = parse_sim(t.get('w')) or parse_sim(t.get('b'))
-        won = 'victory' in (t.get('title') or '').lower()
+        won = 'victory' in f"{t.get('title') or ''} {t.get('title2') or ''}".lower()
         if not sim:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
         self.sim_seen = now
         log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
                  f"{sim['difficulty']}, battle time {sim['time_s']} s")
         if not won: return
+        names = sorted({n for n, _ in self.icons.heads.values()}) if self.icons else ()
+        sim['setup'] = {**parse_sim_team(t, names), **self.sim_pictures(im, u, ux, H), **self.sim_prep_for(sim)}
+        counts = sim['setup'].pop('gizmoCounts')
+        if sim['setup'].get('gizmos') and len(sim['setup']['gizmos']) == len(counts):
+            sim['setup']['gizmos'] = [{**g, 'count': n} for g, n in zip(sim['setup']['gizmos'], counts)]
+        else: sim['setup']['gizmos'] = [{'count': n} for n in counts] or None
+        log.info(f"Holo-Battle Sim setup: {sim['setup']}")
         shot = self.picture(im, 'screens', 'sim_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
         path = os.path.join(HERE, 'logs', 'sim_runs.csv'); new = not os.path.exists(path)
@@ -1341,6 +1420,38 @@ class Meter:
         if self.submitter and self.uid:
             self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None)
         self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s")
+
+    def sim_pictures(self, im, u, ux, H):
+        """The Victory screen's pictures, matched to the game's own (icons.py): the Training Style, from the Core
+        gizmo the run started with (Valor's Fervor Mask); the Alpha Transformation (Scorchhowl); and which series
+        each icon of the Holo-gizmo row is, left to right (the game lists them in series order, skipping empty ones).
+        Only clear matches are kept; {} without the game's icons."""
+        ic = self.icons
+        if not ic or not ic.sim_art: return {}
+        b = lambda cx, cy, r: (ux + u * (cx - r), H * cy - u * r, ux + u * (cx + r), H * cy + u * r)
+        out = {}
+        core = ic.sim_picture(im, b(0.571, 0.41, 0.04), 'core')
+        if core and core[1] >= 0.3 and core[2] >= 0.1:
+            out['style'] = ic.sim[core[0]].get('name'); out['core'] = ic.sim[core[0]].get('core')
+        tf = ic.sim_picture(im, b(0.472, 0.41, 0.032), 'transform')
+        if tf and tf[1] >= 0.35 and tf[2] >= 0.1: out['transform'] = ic.sim[tf[0]].get('transform')
+        row = []
+        for i in range(SIM_GIZMOS):
+            cx = SIM_GIZMO_X + SIM_GIZMO_PITCH * i
+            g = ic.sim_glyph(im, (ux + u * (cx - 0.02), H * 0.512, ux + u * (cx + 0.02), H * 0.578))
+            if g is None: break
+            if g[1] < 0.45 or g[2] < 0.05 or (row and int(g[0]) <= int(row[-1])): row = None; break   # unsure / out of order
+            row.append(g[0])
+        if row: out['gizmos'] = [{'series': ic.sim[s].get('name')} for s in row]
+        log.info(f'Holo-Battle Sim pictures: core {core}, transform {tf}, series row {row}')
+        return out
+
+    def sim_prep_for(self, sim):
+        """Each Aniimo's skills noted before this run (the Party screen), if seen in the last 2 hours. {} when not.
+        (The Training Style comes from the Victory screen's Core gizmo.)"""
+        prep = getattr(self, 'sim_prep', None)
+        if not prep or time.time() - prep.get('at', 0) > 7200: return {}
+        return {k: v for k, v in prep.items() if k == 'skills'}
 
     def egg_result(self, im, now, u, ux, H, title):
         """Egg Heist end screen ("Adventure Successful", or the failed one): difficulty, mode, time, objective, Loot

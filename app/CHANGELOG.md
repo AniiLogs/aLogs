@@ -9,6 +9,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Holo-Battle Sim on the leaderboards:** after a win, aLogs reads the line under "Victory" (the battle time, the
   stage such as "Earth Training" or last season's "Training of Water", and the difficulty; any season's stages) and sends your time to that stage's board,
   with the Victory screen as proof.
+- **Your Holo-Battle Sim setup with each win:** besides the time and stage, aLogs reads the rest of the Victory
+  screen: your team (each Aniimo's name and level, the MVP's damage, damage taken and healing shares), your
+  Training Style (from the Core gizmo you started with), the Alpha Transformation, how many Holo-gizmos of each
+  series you collected, and your coins. The icons are matched against your own game install; aLogs ships no game
+  art.
 - **Your EXP on your profile:** besides your level, the EXP card the game shows when you gain EXP now sends
   your EXP and the EXP needed for the next level, so your profile can show how far along the level you are.
 - **Every Interlink run for your Battle History:** each finished run is sent, not only new bests, so you can look

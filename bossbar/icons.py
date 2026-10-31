@@ -13,10 +13,12 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
-BUFF_PREFIXES = ('mres_xgui_texture_expng_', 'mres_xgui_panel_expng_', 'mres_xgui_common_expng_', 'ar_xgui_icon_skilli_')
+SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
+BUFF_PREFIXES = ('mres_xgui_texture_expng_', 'mres_xgui_panel_expng_', 'mres_xgui_common_expng_', 'ar_xgui_icon_skilli_',
+                 'ar_xgui_icon_item_i_')
 HEAD_PREFIXES = ('ar_xgui_image_pet_he_', 'ar_xgui_image_petman_')
 KIND = {'General': 'season', 'Special': 'offering'}
 
@@ -43,6 +45,17 @@ def extract(cache_dir, player_log=None):
     buff_rows = {k: r for k, r in (pm.table('bossrush_buff_data') or {}).items() if r.get('buffType') in KIND}
     icon_of = lambda r: (r.get('buffIcon') or '').lstrip('$').rsplit('.', 1)[0]
     wanted = {icon_of(r).lower() for r in buff_rows.values()}
+    # Holo-Battle Sim (Victory screen): per series id its name, the series row's icon, its Core gizmo, and the Alpha
+    # Transformation it unlocks (random_buff_series_name, rogue_transform_data)
+    sim = {}
+    for sid, r in (pm.table('random_buff_series_name') or {}).items():
+        sim[str(sid)] = {'name': en(r.get('buffSeriesName')), 'core': en(r.get('coreBuffName')),
+                         'series_icon': icon_of({'buffIcon': r.get('buffSeriesIcon')}).lower(),
+                         'core_icon': icon_of({'buffIcon': r.get('coreBuffIcon')}).lower()}
+    for sid, r in (pm.table('rogue_transform_data') or {}).items():
+        if str(sid) in sim:
+            sim[str(sid)].update(transform=en(r.get('transformName')), transform_icon=icon_of({'buffIcon': r.get('transformIcon')}).lower())
+    wanted |= {v for s in sim.values() for k, v in s.items() if k.endswith('_icon') and v}
     shipped = sorted(f for f in glob.glob(os.path.join(_bundle_dir(game), '*.uab'))
                      if os.path.basename(f).startswith(BUFF_PREFIXES + HEAD_PREFIXES))
     patches = glob.glob(os.path.join(game, 'Aniimo_Data', 'cvs', 'res', 'uab', 'win', 'DefaultPackage', 'CacheBundleFiles', '*', '*', 'cdata.uab'))
@@ -86,8 +99,20 @@ def extract(cache_dir, player_log=None):
         art[low][0].resize((BUFF_SIZE, BUFF_SIZE), Image.LANCZOS).save(os.path.join(cache_dir, 'buffs', low + '.png'))
         buffs[str(k)] = {'name': en(r.get('buffName')), 'kind': KIND[r['buffType']], 'icon': low,
                          **({'level': int(r['Bufflevel'])} if r.get('Bufflevel') else {})}
+    os.makedirs(os.path.join(cache_dir, 'sim'), exist_ok=True)
+    sim_out = {}
+    for sid, s in sim.items():
+        entry = {k: s[k] for k in ('name', 'core', 'transform') if s.get(k)}
+        for part in ('series', 'core', 'transform'):
+            low = s.get(part + '_icon')
+            if low in art:
+                img = art[low][0].copy()
+                if part == 'transform': img = img.crop((0, 0, img.width, min(img.width, img.height)))   # the head end of
+                img.thumbnail((SIM_SIZE, SIM_SIZE), Image.LANCZOS)                     # a tall portrait, as the round frame shows it
+                img.save(os.path.join(cache_dir, 'sim', f'{part}_{sid}.png')); entry[part + '_art'] = True
+        sim_out[sid] = entry
     with open(os.path.join(cache_dir, 'icons.json'), 'w', encoding='utf-8') as f:
-        json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs}, f, ensure_ascii=False)
+        json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs, 'sim': sim_out}, f, ensure_ascii=False)
     return bool(heads and buffs)
 
 
@@ -115,6 +140,12 @@ class Icons:
         for b in self.buffs.values():
             if b['icon'] not in self.buff_art:
                 self.buff_art[b['icon']] = Image.open(os.path.join(cache_dir, 'buffs', b['icon'] + '.png')).convert('RGBA').getchannel('A')
+        self.sim = meta.get('sim', {})
+        self.sim_art = {}             # (part, series id) -> RGBA picture
+        for sid, s in self.sim.items():
+            for part in ('series', 'core', 'transform'):
+                if s.get(part + '_art'):
+                    self.sim_art[(part, sid)] = Image.open(os.path.join(cache_dir, 'sim', f'{part}_{sid}.png')).convert('RGBA')
         self._sized = {}
         self._digits = None
 
@@ -170,6 +201,63 @@ class Icons:
         if not ranked: return None
         (name, (s, key)) = ranked[0]
         return name, s, s - (ranked[1][1][0] if len(ranked) > 1 else -1), key
+
+    # -- Holo-Battle Sim ---------------------------------------------------------------------------------------------
+    def sim_glyph(self, im, box):
+        """The series whose white glyph shows in `box` (one icon of the Victory screen's Holo-gizmo row), by shape:
+        (series id, overlap 0..1, margin over the next), or None for an empty slot. Each glyph and icon is cropped to
+        its own outline and compared at one size, so the icon's drawn size doesn't matter."""
+        crop = im.crop(tuple(int(v) for v in box)).convert('RGB')
+        r, g, b = crop.split()
+        low = ImageChops.darker(ImageChops.darker(r, g), b); high = ImageChops.lighter(ImageChops.lighter(r, g), b)
+        white = ImageChops.multiply(low.point(lambda v: 255 if v > 200 else 0), ImageChops.subtract(high, low).point(lambda v: 255 if v < 40 else 0))
+        def outline(m):
+            m = m.point(lambda v: 255 if v > 128 else 0); bb = m.getbbox()
+            return m.crop(bb).resize((48, 48)).point(lambda v: 255 if v > 128 else 0) if bb else None
+        shape = outline(white)
+        if shape is None or shape.histogram()[255] < 200: return None
+        res = []
+        for (part, sid), art in self.sim_art.items():
+            if part != 'series': continue
+            ref = outline(art.getchannel('A'))
+            if ref is None: continue
+            both = ImageChops.darker(shape, ref).histogram()[255]; either = ImageChops.lighter(shape, ref).histogram()[255]
+            res.append((both / either if either else 0, sid))
+        res.sort(reverse=True)
+        if not res: return None
+        return res[0][1], res[0][0], res[0][0] - (res[1][0] if len(res) > 1 else 0)
+
+    def sim_picture(self, im, box, part):
+        """The series whose `part` picture ('core': the Core gizmo, 'transform': the Alpha Transformation) shows in
+        `box` (its round frame on the Victory screen): (series id, score, margin), or None. The picture is drawn
+        smaller than the frame over a coloured disk, so it's fitted at a few sizes and offsets, compared only where
+        the picture itself is opaque."""
+        N = 80
+        crop = im.crop(tuple(int(v) for v in box)).convert('RGB').resize((N, N), Image.BILINEAR)
+        res = []
+        for (p, sid), art in self.sim_art.items():
+            if p != part: continue
+            best = -1
+            if part == 'transform':   # the portrait's head end fills the round frame: compared inside the circle
+                for inset in (0, 4, 8):
+                    side = N - 2 * inset
+                    mask = Image.new('L', (N, N), 0); ImageDraw.Draw(mask).ellipse((inset + 4, inset + 4, N - inset - 4, N - inset - 4), fill=255)
+                    bg = Image.new('RGB', art.size, (128, 128, 128)); bg.paste(art, (0, 0), art)
+                    ref = Image.new('RGB', (N, N), (128, 128, 128)); ref.paste(bg.resize((side, side), Image.BILINEAR), (inset, inset))
+                    best = max(best, ncc(crop, ref, mask))
+                res.append((best, sid)); continue
+            for side in (52, 58, 64, 70):
+                g = art.copy(); g.thumbnail((side, side), Image.BILINEAR)
+                mask = g.getchannel('A').point(lambda v: 255 if v > 160 else 0); rgb = g.convert('RGB')
+                for dx in range(-8, 9, 4):
+                    for dy in range(-8, 9, 4):
+                        x = (N - g.width) // 2 + dx; y = (N - g.height) // 2 + dy
+                        if x < 0 or y < 0 or x + g.width > N or y + g.height > N: continue
+                        best = max(best, ncc(crop.crop((x, y, x + g.width, y + g.height)), rgb, mask))
+            res.append((best, sid))
+        res.sort(reverse=True)
+        if not res: return None
+        return res[0][1], res[0][0], res[0][0] - (res[1][0] if len(res) > 1 else -1)
 
     # -- buffs ------------------------------------------------------------------------------------------------------
     def buff(self, im, box, kind, text_below=True):
