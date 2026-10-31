@@ -144,8 +144,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   look at the game's icon row, so the button never showed at home. It now shows whenever the game is in front there.
 - **Less load during fights at 4K:** while a boss's HP bar is hidden by effects, the meter now looks 10 times a
   second and reads the screen 4 times a second instead of as fast as it can; tabbed out mid-fight it looks twice a
-  second; and at 4K fights run at 30 looks a second unless you chose 60 in DPS Meter settings. Damage and DPS come
-  out the same.
+  second; and a new "Automatic" fight rate (the default) runs fights at 30 looks a second at 4K and 60 below. You can
+  still pick 60 or 30 in DPS Meter › Meter, whose wording now says what each choice does. Damage and DPS come out
+  the same.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.
 - **Updates show up again:** aLogs left open all day only looked for a new version every 6 hours, so a new beta
   could go unnoticed until the next day. It now looks every 30 minutes, and a new version shows as a green-outlined

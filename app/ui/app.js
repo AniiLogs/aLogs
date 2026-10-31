@@ -8,7 +8,7 @@
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
-    capture: { look_interval: 0.05, fight_rate: 60, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
+    capture: { look_interval: 0.05, fight_rate: 0, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
@@ -1691,6 +1691,8 @@
       const overlay = stored?.overlay;                    // settings from before 0.1.28: hide_from_capture, the opposite
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
       settings = merge(DEFAULTS, stored);
+      // the fight rate was 60 by default before "Automatic": a 60 nobody picked is Automatic now
+      if (settings.capture.fight_rate === 60 && !(settings.user_set || []).includes("capture.fight_rate")) settings.capture.fight_rate = 0;
     } catch {
       settings = structuredClone(DEFAULTS);
     }

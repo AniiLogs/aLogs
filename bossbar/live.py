@@ -2806,13 +2806,14 @@ class Meter:
                 and not (a and time.time() < a[1]) and not self.sanctum_in_run(time.time()))
 
     def fight_interval(self):
-        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30). At 4K the
-        default is 30 unless the player chose 60 themselves: each look copies 4x the pixels of 1080p off the graphics
-        card, and a player's game stuttered with the meter at 60 (B5). The bar's HP still reads the same."""
+        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight: Automatic (the default:
+        30 at 4K, 60 below), 60 or 30. At 4K each look copies 4x the pixels of 1080p off the graphics card, and a
+        player's game stuttered with the meter at 60 (B5). The bar's HP still reads the same."""
         cfg = self.args.cfg
-        rate = cfg.get('capture', {}).get('fight_rate', 60)
+        rate = cfg.get('capture', {}).get('fight_rate', 0)
         chosen = 'capture.fight_rate' in (cfg.get('user_set') or [])
-        if rate != 30 and not chosen and self.frame_size[0] >= 3000: rate = 30
+        if rate not in (30, 60) or (rate == 60 and not chosen):      # Automatic (0), or the old default 60 never picked
+            rate = 30 if self.frame_size[0] >= 3000 else 60
         return FIGHT_INTERVAL if rate == 30 else 1 / 60
 
     def step(self):

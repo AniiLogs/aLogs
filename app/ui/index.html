@@ -102,15 +102,15 @@
             <div><strong>Run the DPS meter</strong><small>When off, aLogs doesn't watch the game at all: no overlay, no saved results or Battle Data, nothing sent to the leaderboards. Sanctum Helper and the AniiLogs pages still work.</small></div></label>
         </div>
         <div class="group">
-          <label class="field"><span>How often the meter looks for a boss bar between fights</span>
+          <label class="field"><span>How often the meter looks for a boss bar in Interlink and around a fight</span>
             <select data-k="capture.look_interval" data-type="number">
               <option value="0.05">20 times a second (default)</option><option value="0.1">10 times a second</option><option value="0.25">4 times a second (lightest)</option>
             </select></label>
           <label class="field"><span>How often the meter reads the boss bar during a fight</span>
             <select data-k="capture.fight_rate" data-type="number">
-              <option value="60">60 times a second (default: finest timing)</option><option value="30">30 times a second (half the processor use)</option>
+              <option value="0">Automatic (default): 30 times a second at 4K, 60 below</option><option value="60">60 times a second (finest timing)</option><option value="30">30 times a second (lighter)</option>
             </select></label>
-          <p class="hint">Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
+          <p class="hint">Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s. Out in the world with no boss around, the meter looks 4 times a second whatever you pick here, and not at all in a homeland. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
           <!-- Read my damage numbers (experimental, bossbar/dmgnumbers.py): paused 2026-10-28, see the meter's DAMAGE_NUMBERS -->
         </div>
         <div class="group">
