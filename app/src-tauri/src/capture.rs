@@ -364,6 +364,10 @@ trait Picture {
     fn size(&self) -> (u32, u32);
     fn generation(&self) -> u64;
     fn read(&mut self, x: u32, y: u32, w: u32, h: u32, out: *mut u8, stride: usize, shrink: u32) -> bool;
+    /// Starts an area's copy ahead of read() (the graphics card: all of a round's copies, then one wait).
+    fn queue(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) {}
+    /// The round is over: copies queued but not read are dropped.
+    fn end_round(&mut self) {}
 }
 
 impl Picture for Gpu {
@@ -378,6 +382,12 @@ impl Picture for Gpu {
     }
     fn read(&mut self, x: u32, y: u32, w: u32, h: u32, out: *mut u8, stride: usize, shrink: u32) -> bool {
         Gpu::read(self, x, y, w, h, out, stride, shrink).is_ok()
+    }
+    fn queue(&mut self, x: u32, y: u32, w: u32, h: u32, shrink: u32) {
+        let _ = Gpu::queue(self, x, y, w, h, shrink);
+    }
+    fn end_round(&mut self) {
+        Gpu::end_round(self);
     }
 }
 
@@ -576,6 +586,22 @@ fn serve(
         shared.write(PICTURE_BASE + i * PICTURE_SIZE + 16, || shared.put_u32(PICTURE_BASE + i * PICTURE_SIZE + 12, 0));
     }
     let mut result = None;
+    // first every due reader's area is queued on the graphics card, then read one after another below: the round
+    // waits for the card once (the first read), not once per reader (B8; each wait was a small stall in the game)
+    for slot in (0..SLOTS).filter(|&i| active[i] && only.map_or(true, |o| o == i)) {
+        let r = readers[slot];
+        if now < r.last + shared.interval(slot) { continue; }
+        let (area, request) = shared.wanted(slot, width, height);
+        let at = PICTURE_BASE + slot * PICTURE_SIZE;
+        let shrink = match unsafe { *shared.base.add(at + 60) } { 2 => 2u32, 4 => 4, _ => 1 };
+        if r.request == request && r.generation == generation && r.shrink == shrink && shared.get_u32(at + 12) == request { continue; }
+        let (x0, y0) = ((cx + area.x as i32).max(0), (cy + area.y as i32).max(0));
+        let (x1, y1) = ((cx + (area.x + area.w) as i32).min(iw as i32), (cy + (area.y + area.h) as i32).min(ih as i32));
+        if x1 <= x0 || y1 <= y0 { continue; }
+        let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
+        let shrink = if w / shrink == 0 || h / shrink == 0 { 1 } else { shrink };
+        gpu.queue(x0 as u32, y0 as u32, w, h, shrink);
+    }
     for slot in (0..SLOTS).filter(|&i| active[i] && only.map_or(true, |o| o == i)) {
         let r = readers[slot];
         if now < r.last + shared.interval(slot) {
@@ -632,10 +658,12 @@ fn serve(
             true
         });
         if !ok {
+            gpu.end_round(); // copies queued for the rest of the round go with it
             return None;
         }
         readers[slot] = Reader { last: now, request, generation, shrink, ..readers[slot] };
     }
+    gpu.end_round();
     if let Some(shown) = result {
         shared.header((width, height), (shown || trust_black) as u32 | flags, hwnd, origin);
         shared.put_u32(56, shared.get_u32(56).wrapping_add(1));

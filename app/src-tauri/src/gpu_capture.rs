@@ -99,11 +99,14 @@ pub struct Gpu {
     shrinkers: Vec<(u32, u32, u32, ID3D11Texture2D, ID3D11ShaderResourceView)>,
     /// Counts new images, so the caller can tell an unchanged one from a new one.
     pub generation: u64,
+    /// Areas whose copy off the card is already on its way this round (queue): (x, y, w, h, shrink), its staging
+    /// texture and the picture's size. read() then only waits once for all of them.
+    queued: Vec<((u32, u32, u32, u32, u32), ID3D11Texture2D, u32, u32)>,
 }
 
 impl Gpu {
     fn new(device: ID3D11Device, context: ID3D11DeviceContext) -> Gpu {
-        Gpu { device, context, cache: None, staging: Vec::new(), shrinkers: Vec::new(), generation: 0 }
+        Gpu { device, context, cache: None, staging: Vec::new(), shrinkers: Vec::new(), generation: 0, queued: Vec::new() }
     }
 
     /// Keeps the top-left `width` x `height` of `source` as the newest image (a copy on the card).
@@ -140,6 +143,39 @@ impl Gpu {
     /// down to half or a quarter (its mip levels), and only that smaller picture leaves it: width / shrink by
     /// height / shrink (rounded down).
     pub fn read(&mut self, x: u32, y: u32, width: u32, height: u32, out: *mut u8, stride: usize, shrink: u32) -> Result<()> {
+        let key = (x, y, width, height, shrink);
+        if !self.queued.iter().any(|q| q.0 == key) {
+            self.queue(x, y, width, height, shrink)?;
+        }
+        let Some(i) = self.queued.iter().position(|q| q.0 == key) else { return Ok(()) };   // an empty area
+        let (_, staging, width, height) = self.queued.remove(i);
+        unsafe {
+            // the first map of a round waits for the card once; the copies queued with it are done by then
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            self.context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+            let source = mapped.pData as *const u8;
+            for row in 0..height as usize {
+                std::ptr::copy_nonoverlapping(
+                    source.add(row * mapped.RowPitch as usize),
+                    out.add(row * stride),
+                    width as usize * 4,
+                );
+            }
+            self.context.Unmap(&staging, 0);
+        }
+        Ok(())
+    }
+
+    /// Forgets copies queued but never read (the round is over).
+    pub fn end_round(&mut self) {
+        self.queued.clear();
+    }
+
+    /// Starts copying the area `x, y, width, height` (shrunk by `shrink`) off the card into a staging texture of its
+    /// own, without waiting: every reader's area is queued first, then read() takes them one after another, so a
+    /// round waits for the card once instead of once per reader (each wait was a small stall; B8).
+    pub fn queue(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<()> {
+        let key = (x, y, width, height, shrink);
         let Some((cache, cw, ch)) = self.cache.as_ref() else { return Err(E_FAIL.into()) };
         let (width, height) = (width.min(cw.saturating_sub(x)), height.min(ch.saturating_sub(y)));
         if width == 0 || height == 0 {
@@ -188,7 +224,8 @@ impl Gpu {
             }
             (texture.clone(), level, width >> level, height >> level)
         };
-        let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height) {
+        // a staging texture of this size that no other queued area is using
+        let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height && !self.queued.iter().any(|q| q.1 == s.2)) {
             Some(i) => {
                 let used = self.staging.remove(i);
                 self.staging.push(used);
@@ -202,25 +239,15 @@ impl Gpu {
                 self.staging.len() - 1
             }
         };
-        let staging = &self.staging[index].2;
+        let staging = self.staging[index].2.clone();
         unsafe {
             if sub == 0 {
-                self.context.CopySubresourceRegion(staging, 0, 0, 0, 0, &source, 0, Some(&area));
+                self.context.CopySubresourceRegion(&staging, 0, 0, 0, 0, &source, 0, Some(&area));
             } else {
-                self.context.CopySubresourceRegion(staging, 0, 0, 0, 0, &source, sub, None);
+                self.context.CopySubresourceRegion(&staging, 0, 0, 0, 0, &source, sub, None);
             }
-            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            self.context.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
-            let source = mapped.pData as *const u8;
-            for row in 0..height as usize {
-                std::ptr::copy_nonoverlapping(
-                    source.add(row * mapped.RowPitch as usize),
-                    out.add(row * stride),
-                    width as usize * 4,
-                );
-            }
-            self.context.Unmap(staging, 0);
         }
+        self.queued.push((key, staging, width, height));
         Ok(())
     }
 }
