@@ -2243,7 +2243,7 @@ class Meter:
             p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
         party_shot = None
         if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
-            party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
+            party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False)
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
@@ -2674,14 +2674,34 @@ class Meter:
         Battle Data opening, the screen closing) instead of waiting ~1 s for the next text read to say what's up."""
         if self.end_sig is not None and screen_changed(screen_sig(im), self.end_sig): self.hide_end_note()
 
-    def picture(self, im, folder, name, proof=False):
+    def picture(self, im, folder, name, proof=False, fresh=True):
         """A screen the meter just read. Its data goes into the records (CSV, JSON); the picture is only kept when
         Captures & logs > Keep screenshots says so, or - as leaderboard proof - until it has been sent (the submitter
-        deletes it then). None when no picture is kept."""
+        deletes it then). None when no picture is kept. A proof of the screen on show now (fresh) is a settled,
+        full-size grab (settled_frame), not the frame it was spotted in, which may be mid-animation; a picture kept
+        from earlier (the Party screen) is saved as it is."""
         keep = int(self.args.cfg['capture'].get('keep_hours', 0))
         sending = proof and self.submitter and self.submitter.config and self.submitter.config['screenshots']
         if keep == 0 and not sending: return None
+        if proof and fresh: im = self.settled_frame(im)
         return save_picture(im, folder, name, 3840 if sending else 1920)
+
+    def settled_frame(self, im):
+        """The screen once it has stopped moving: a fresh whole frame every SETTLE_S until two in a row match (at most
+        three looks, about 0.75 s), so a proof isn't caught sliding in or fading. The frame it was spotted in when a
+        look fails, or in a replay."""
+        if self.args.replay is not None: return im
+        last = im; sig = screen_sig(im) if im is not None else None
+        for _ in range(3):
+            time.sleep(SETTLE_S)
+            try: fresh = self.grab(False, False)
+            except Exception: fresh = None
+            if fresh is None: break
+            fsig = screen_sig(fresh)
+            last = fresh
+            if sig is not None and not screen_changed(fsig, sig, limit=4): break      # two in a row match: settled
+            sig = fsig
+        return last
 
     TEST_FRAMES_MAX = 300           # a day's test pictures at most
     TEST_FRAMES_HOURS = 3           # saved for this long after the option is turned on (or the meter starts with it)
@@ -3300,6 +3320,7 @@ def load_positions():
         with open(SETTINGS, encoding='utf-8') as f: return json.load(f)
     except (OSError, ValueError): return {}
 
+SETTLE_S = 0.25         # s between looks while waiting for a proof screen to stop moving
 OVERLAY_REDRAW = 0.25   # s between redraws of the overlay's numbers (4 a second)
 BAR_HIDDEN = 0.5   # s without the game's boss bar before the labels around it are hidden too
 
