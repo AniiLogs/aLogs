@@ -187,7 +187,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers, every overlay was kept out of screen captures there. Now only the HP labels on the boss bar are; the DPS
   window and its notes show in OBS and screenshots like they do on Windows 11. Leaderboard proof pictures stay the
   game alone: the overlay steps out of captures for the moment one is taken. A copy with the DPS window on it is kept
-  next to each proof on your PC (the meter's logs\proof_overlay folder, the newest 50) and is never sent. The DPS window also has a lock (on by
+  next to each proof on your PC, with the test pictures (Captures & logs › Open the test pictures folder), and is
+  never sent. The DPS window also has a lock (on by
   default: your clicks go through it to the game) and a button to put it back in its default spots.
 - **Wrong boss level from a misread title:** "Lv.64" could be read as "Lv064" and taken as level 6, which gave the
   fight the wrong max HP and so the wrong damage and DPS. Fixed.

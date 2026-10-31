@@ -2759,12 +2759,11 @@ class Meter:
         if proof: self.proof_with_overlay(im, name)
         return path
 
-    PROOF_OVERLAY_KEPT = 50     # copies in logs/proof_overlay (the newest)
-
     def proof_with_overlay(self, im, name):
         """Next to each proof (the game alone, which is what's sent), a copy with the DPS window drawn where it was on
         screen a moment later (its result note comes up just after the proof), for the player's own troubleshooting:
-        logs/proof_overlay, never sent. Drawn from the overlay's own image, so it matches the screen."""
+        with the test pictures (logs/test_frames/<day>/proof_overlay, Captures & logs › Open the test pictures folder;
+        kept 7 days like them), never sent. Drawn from the overlay's own image, so it matches the screen."""
         snap = getattr(self, 'overlay_now', None)
         if snap is None or self.args.replay is not None: return
         origin = self.origin
@@ -2774,10 +2773,9 @@ class Meter:
                 if not parts: return
                 copy = im.convert('RGBA')
                 for image, x, y in parts: copy.alpha_composite(image, (int(x - origin[0]), int(y - origin[1])))
-                save_picture(copy, 'proof_overlay', name + '_overlay', 1920)
-                d = os.path.join(HERE, 'logs', 'proof_overlay')
-                old = sorted((os.path.getmtime(os.path.join(d, f)), f) for f in os.listdir(d))[:-self.PROOF_OVERLAY_KEPT]
-                for _, f in old: os.remove(os.path.join(d, f))
+                d = os.path.join(HERE, 'logs', 'test_frames', time.strftime('%Y%m%d'), 'proof_overlay')
+                os.makedirs(d, exist_ok=True)
+                copy.convert('RGB').save(os.path.join(d, name + '_overlay.jpg'), quality=92)   # full size, like the test pictures
             except Exception as e: log.info(f'proof copy with the overlay not saved ({e!r})')
         threading.Timer(1.5, later).start()
 
