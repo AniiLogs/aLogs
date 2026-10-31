@@ -272,6 +272,18 @@ pub fn splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
                 let started = std::time::Instant::now();
                 std::thread::sleep(std::time::Duration::from_millis(400));     // the window draws first
                 let _ = handle.emit("update-step", "installing");
+                // aLogs, the meter and Sanctum Helper all closed first: a silent installer can't ask "file in use,
+                // retry?" the way the installer window could, it would just fail (at most 20 s, then it tries anyway)
+                if let Some(dir) = installed.as_ref().and_then(|e| e.parent()) {
+                    let files = [dir.join("alogs-app.exe"), dir.join("resources").join("meter").join("meter.exe"),
+                                 dir.join("resources").join("sanctumhelper").join("SanctumHelper.exe")];
+                    let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                    // a running program's file can't be opened for writing (nothing is written: it's only opened)
+                    while files.iter().any(|f| f.exists() && std::fs::OpenOptions::new().write(true).open(f).is_err())
+                        && std::time::Instant::now() < until {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                }
                 let ok = std::process::Command::new(&installer)
                     .args(["/S", "/UPDATE", "/R"])
                     .status()
