@@ -705,7 +705,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             let _ = GetWindowRect(hwnd, &mut rect);
             set_press(Some(Press { start: at, window: POINT { x: rect.left, y: rect.top }, dragging: false }));
             SetCapture(hwnd);
-            crate::app_log(&format!("button: pressed at ({}, {}), capture {}", at.x, at.y, if CAPTURE_ON.load(Ordering::SeqCst) { "on" } else { "off" }));
+            crate::app_log(&format!("button: pressed, capture {}", if CAPTURE_ON.load(Ordering::SeqCst) { "on" } else { "off" }));
             LRESULT(0)
         }
         WM_MOUSEMOVE => {

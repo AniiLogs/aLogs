@@ -64,7 +64,8 @@ fn signal_meter_stop(on: bool) {
 }
 
 /// One line in the app's own log (data folder, app.log; in the logs a player sends): what the app itself did, such as
-/// the on/off button's clicks, which the meter's log can't show. Kept under 512 KB (the older half goes).
+/// the on/off button's clicks, which the meter's log can't show. Never keys typed or where the mouse goes: only what
+/// aLogs' own controls did. Kept under 512 KB (the older half goes).
 pub(crate) fn app_log(line: &str) {
     use std::io::Write;
     let path = data_dir().join("app.log");
