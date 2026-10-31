@@ -245,6 +245,8 @@
     $("[data-capture-button]").checked = info.show;
     $("[data-capture-lock]").checked = info.locked;
     $("[data-capture-always]").checked = Boolean(info.always);
+    if (info.hide_ms !== undefined) $("[data-capture-hide]").value = String(info.hide_ms);
+    $("[data-capture-hide]").disabled = Boolean(info.always);   // always shown: nothing to hide
     $("[data-capture-default-icon]").disabled = !info.custom_icon;
     $("[data-capture-reset]").disabled = info.in_row !== false;
     if (!capturingKey) $("[data-capture-hotkey]").textContent = info.hotkey_label || "None";
@@ -295,6 +297,7 @@
   $("[data-capture-button]").addEventListener("change", (event) => setSwitch({ show: event.target.checked }));
   $("[data-capture-lock]").addEventListener("change", (event) => setSwitch({ locked: event.target.checked }));
   $("[data-capture-always]").addEventListener("change", (event) => setSwitch({ always: event.target.checked }));
+  $("[data-capture-hide]").addEventListener("change", (event) => setSwitch({ hideMs: Number(event.target.value) }));
   $("[data-capture-reset]").addEventListener("click", () => setSwitch({ resetPosition: true }));
   $("[data-capture-default-icon]").addEventListener("click", () => setSwitch({ defaultIcon: true }));
   $("[data-capture-choose-icon]").addEventListener("click", async () => showCaptureSwitch(await invoke("capture_choose_icon")));

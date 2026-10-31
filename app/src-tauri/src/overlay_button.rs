@@ -70,7 +70,7 @@ const PILL_TEXT: [u8; 3] = [37, 44, 53];
 const WM_REFRESH: u32 = WM_APP + 1;
 const TIMER_FOLLOW: usize = 1;
 const ROW_CHECK_MS: u32 = 125; // the icon row is looked at 8 times a second (a 1400x135 strip at 4K)
-const ROW_GONE_MS: u64 = 300; // missing this long in fresh pictures: the game hid its icons, so the button goes too
+const ROW_GONE_MS: u64 = 300; // default: missing this long in fresh pictures, the game hid its icons, so the button goes too
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 
@@ -155,6 +155,8 @@ struct State {
     /// label ("LB+RB+Y"), shown under the button while the game shows its controller icons.
     pad_buttons: u32,
     pad_label: String,
+    /// How long the game's icon row must be gone before the button goes too (ms; General › The button over the game)
+    hide_ms: u64,
 }
 
 fn state_path() -> PathBuf {
@@ -176,6 +178,7 @@ fn load() -> State {
         hotkey_label: v["hotkey_label"].as_str().unwrap_or("Ins").to_string(),
         pad_buttons: v["pad_buttons"].as_u64().unwrap_or(0) as u32,
         pad_label: v["pad_label"].as_str().unwrap_or("").to_string(),
+        hide_ms: v["hide_ms"].as_u64().map_or(ROW_GONE_MS, |n| n.min(2000)),
     }
 }
 
@@ -184,7 +187,7 @@ fn save(s: &State) {
         "capture_on": CAPTURE_ON.load(Ordering::SeqCst), "show": s.show, "x": s.x, "y": s.y, "locked": s.locked, "always": s.always,
         "icon": s.icon.as_ref().map(|p| p.to_string_lossy().to_string()),
         "hotkey_vk": s.hotkey_vk, "hotkey_mods": s.hotkey_mods, "hotkey_label": s.hotkey_label,
-        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label,
+        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label, "hide_ms": s.hide_ms,
     });
     let path = state_path();
     let tmp = path.with_extension("json.tmp");
@@ -212,7 +215,7 @@ pub fn info() -> Value {
     let s = STATE.lock().unwrap().get_or_insert_with(load).clone();
     json!({ "capture_on": capture_on(), "show": s.show, "locked": s.locked, "always": s.always, "custom_icon": s.icon.is_some(),
             "in_row": s.x.is_none(), "hotkey_vk": s.hotkey_vk, "hotkey_label": if s.hotkey_vk == 0 { "" } else { &s.hotkey_label },
-            "pad_buttons": s.pad_buttons, "pad_label": if s.pad_buttons == 0 { "" } else { &s.pad_label } })
+            "pad_buttons": s.pad_buttons, "pad_label": if s.pad_buttons == 0 { "" } else { &s.pad_label }, "hide_ms": s.hide_ms })
 }
 
 fn changed() {
@@ -263,6 +266,11 @@ pub fn set_shown(show: bool) {
 
 pub fn set_locked(locked: bool) {
     with_state(|s| s.locked = locked);
+    changed();
+}
+
+pub fn set_hide_ms(ms: u64) {
+    with_state(|s| s.hide_ms = ms.min(2000));
     changed();
 }
 
@@ -920,7 +928,7 @@ unsafe fn run() {
             } else if reader.is_none() {
                 s.x.is_some()
             } else {
-                (now.saturating_sub(row_seen) < 1500 && (row_missed == 0 || now.saturating_sub(row_missed) < ROW_GONE_MS))
+                (now.saturating_sub(row_seen) < 1500.max(s.hide_ms) && (row_missed == 0 || now.saturating_sub(row_missed) < s.hide_ms))
                     || press().is_some()
             };
             let wanted = s.show && in_front && row;

@@ -169,7 +169,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   turned off, its switch starts off.
 - **The button over the game keeps up with the screen:** it lingered about a second and a half after the game's icon
   row went away (a menu, the map, a cutscene). It now goes with the icons within about a third of a second and comes
-  back as quickly.
+  back as quickly. The button's settings have their own section in General Settings, "The button over the game",
+  where you can also pick how quickly it goes: at once, or after 0.15 to 1.5 seconds.
 - **Wrong boss level from a misread title:** "Lv.64" could be read as "Lv064" and taken as level 6, which gave the
   fight the wrong max HP and so the wrong damage and DPS. Fixed.
 - **The capture on/off button during fights:** it could look on but not switch when clicked mid-fight. Fixed.

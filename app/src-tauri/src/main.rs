@@ -305,7 +305,7 @@ fn capture_pad_held() -> u32 {
 
 /// The screen-capture switch and its overlay button, from the app's settings page.
 #[tauri::command]
-fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<bool>, locked: Option<bool>, always: Option<bool>, reset_position: Option<bool>, default_icon: Option<bool>, hotkey: Option<Value>, pad: Option<Value>) -> Value {
+fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<bool>, locked: Option<bool>, always: Option<bool>, hide_ms: Option<u64>, reset_position: Option<bool>, default_icon: Option<bool>, hotkey: Option<Value>, pad: Option<Value>) -> Value {
     if let Some(on) = capture_on {
         overlay_button::set_capture(on);
         sanctum::ensure(&app, &read_settings());
@@ -318,6 +318,9 @@ fn set_capture_switch(app: AppHandle, capture_on: Option<bool>, show: Option<boo
     }
     if let Some(always) = always {
         overlay_button::set_always(always);
+    }
+    if let Some(ms) = hide_ms {
+        overlay_button::set_hide_ms(ms);
     }
     if reset_position == Some(true) {
         overlay_button::reset_position();
