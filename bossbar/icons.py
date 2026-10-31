@@ -13,7 +13,7 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 2          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures
+CACHE_VERSION = 3          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
@@ -56,6 +56,13 @@ def extract(cache_dir, player_log=None):
         if str(sid) in sim:
             sim[str(sid)].update(transform=en(r.get('transformName')), transform_icon=icon_of({'buffIcon': r.get('transformIcon')}).lower())
     wanted |= {v for s in sim.values() for k, v in s.items() if k.endswith('_icon') and v}
+    # ...and every Holo-gizmo by name (the Gizmo screen lists them): series id and rarity (10 Normal, 5 Uncommon, 2 Core)
+    rarity = {10: 'Normal', 5: 'Uncommon', 2: 'Core'}
+    sim_gizmos = {}
+    for r in (pm.table('random_buff_data') or {}).values():
+        name = en(r.get('buffName')) if isinstance(r, dict) else None
+        if name and r.get('buffSeries') is not None:
+            sim_gizmos.setdefault(name, [str(r['buffSeries']), rarity.get(r.get('buffRarity'), 'Special')])
     shipped = sorted(f for f in glob.glob(os.path.join(_bundle_dir(game), '*.uab'))
                      if os.path.basename(f).startswith(BUFF_PREFIXES + HEAD_PREFIXES))
     patches = glob.glob(os.path.join(game, 'Aniimo_Data', 'cvs', 'res', 'uab', 'win', 'DefaultPackage', 'CacheBundleFiles', '*', '*', 'cdata.uab'))
@@ -112,7 +119,8 @@ def extract(cache_dir, player_log=None):
                 img.save(os.path.join(cache_dir, 'sim', f'{part}_{sid}.png')); entry[part + '_art'] = True
         sim_out[sid] = entry
     with open(os.path.join(cache_dir, 'icons.json'), 'w', encoding='utf-8') as f:
-        json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs, 'sim': sim_out}, f, ensure_ascii=False)
+        json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs, 'sim': sim_out,
+                   'sim_gizmos': sim_gizmos}, f, ensure_ascii=False)
     return bool(heads and buffs)
 
 
@@ -141,6 +149,7 @@ class Icons:
             if b['icon'] not in self.buff_art:
                 self.buff_art[b['icon']] = Image.open(os.path.join(cache_dir, 'buffs', b['icon'] + '.png')).convert('RGBA').getchannel('A')
         self.sim = meta.get('sim', {})
+        self.sim_gizmos = meta.get('sim_gizmos', {})     # Holo-gizmo name -> [series id, rarity]
         self.sim_art = {}             # (part, series id) -> RGBA picture
         for sid, s in self.sim.items():
             for part in ('series', 'core', 'transform'):

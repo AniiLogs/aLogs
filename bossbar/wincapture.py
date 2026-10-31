@@ -292,3 +292,14 @@ def click_at(x, y):
     user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
     user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
     user32.SetCursorPos(p.x, p.y)
+
+MOUSEEVENTF_WHEEL = 0x0800
+def scroll_at(x, y, notches):
+    """Turn the mouse wheel `notches` at a screen point (negative: down, toward the end of a list), then put the
+    cursor back where it was."""
+    import time
+    p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
+    user32.SetCursorPos(int(x), int(y)); time.sleep(0.03)
+    for _ in range(abs(int(notches))):
+        user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, 120 if notches > 0 else -120, 0); time.sleep(0.03)
+    user32.SetCursorPos(p.x, p.y)
