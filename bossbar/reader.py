@@ -462,6 +462,8 @@ DIGIT_FIX = str.maketrans({'O': '0', 'o': '0', 'Q': '0', 'D': '0', 'I': '1', 'l'
 def parse_title(t):
     m = re.search(r'L\s*[vVyYnN]\s*\.?\s*([0-9OoQDIlSBZG]+)', t or '')      # 'Lv', also misread as LV / LY / LN / Ly
     digits = m.group(1).translate(DIGIT_FIX) if m else ''
+    # no level starts with 0: a leading 0 is the dot after Lv read as one ('Lv064' for Lv.64 made Lv 6, B7 report)
+    if len(digits) > 1: digits = digits.lstrip('0') or '0'
     # levels are 1-80: a stray mark after the number at small sizes ('Lv. 551 Omega' for Lv 55) keeps its first two
     level = int(digits[:2]) if digits.isdigit() else None
     if level is not None and not 1 <= level <= 80: level = None
