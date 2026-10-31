@@ -1259,6 +1259,9 @@ class Meter:
         # idle out in the world, turning the camera changes every frame: a whole 4K copy and ~17 text reads every look
         # made the camera stutter on a player's PC (B4). Once a second is enough for the screens read there.
         gap = 0.0 if quick else 0.1 if changed else 1.5
+        # a fight's bar hidden: 4 reads a second for the Catch Countdown and end screens, not back to back (B5: 9-13 a
+        # second at 4K); the automatic Battle Data click still reads at once
+        if quick and not self.auto_active(): gap = 0.25
         if not quick and self.idle(): gap = max(gap, 1.0)
         return now - self.last_results >= gap
 
@@ -2791,8 +2794,13 @@ class Meter:
                 and not (a and time.time() < a[1]) and not self.sanctum_in_run(time.time()))
 
     def fight_interval(self):
-        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30)."""
-        rate = self.args.cfg.get('capture', {}).get('fight_rate', 60)
+        """Seconds between frames in a fight: DPS Meter › Meter › frames a second in a fight (60, or 30). At 4K the
+        default is 30 unless the player chose 60 themselves: each look copies 4x the pixels of 1080p off the graphics
+        card, and a player's game stuttered with the meter at 60 (B5). The bar's HP still reads the same."""
+        cfg = self.args.cfg
+        rate = cfg.get('capture', {}).get('fight_rate', 60)
+        chosen = 'capture.fight_rate' in (cfg.get('user_set') or [])
+        if rate != 30 and not chosen and self.frame_size[0] >= 3000: rate = 30
         return FIGHT_INTERVAL if rate == 30 else 1 / 60
 
     def step(self):
@@ -3133,6 +3141,12 @@ class Meter:
             self.write_status(time.time())
             if self.args.replay is not None and not self.args.replay: break
             interval = self.fight_interval() if self.fight else self.args.interval
+            if self.fight and self.args.replay is None:
+                # the bar hidden over a second (effects, BREAK, menus): whole frames to find it again and read the end
+                # screens; 10 a second finds it as quickly and is a sixth of the copying (B5: 18 whole 4K frames a second)
+                if time.time() - self.bar_seen > 1.0: interval = max(interval, 0.1)
+                # tabbed out mid-fight: only the "you're being attacked" alert needs the picture - 2 a second
+                if self.hwnd and not wc.is_foreground(self.hwnd): interval = max(interval, 0.5)
             if getattr(self, 'capture_off', False): interval = max(interval, AWAY_INTERVAL)   # resting
             if not self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
