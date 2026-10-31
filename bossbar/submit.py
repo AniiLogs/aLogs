@@ -398,7 +398,8 @@ def run_payload(summary, uid, duration=180):
         **({'buffs': [{k: v for k, v in b.items() if v is not None} for b in summary['buffs']]} if summary.get('buffs') else {}),
         'extra': {'newBest': res.get('new_best'), 'newBests': summary.get('new_bests') or [], 'trackedFromStart': meter.get('tracked_from_start'),
                   'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId')),
-                  **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {})},
+                  **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {}),
+                  **({'endedByLeader': True} if res.get('ended_by_leader') else {})},
     }
 
 def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):

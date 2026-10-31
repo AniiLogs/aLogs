@@ -9,7 +9,7 @@ Usage:
     python live.py [--interval 0.05] [--no-overlay] [--hide-from-capture] [--no-debug-frames] [--replay shots...]
 """
 import argparse, collections, csv, ctypes, difflib, json, logging, logging.handlers, os, platform, queue, re, sys, threading, time
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageStat
 import reader as R
 import wincapture as wc
 import xn_digits as X
@@ -924,6 +924,7 @@ class Meter:
         if self.numbers: self.numbers.fight_ended()
         if self.fight:
             f = self.fight
+            self.last_fight = f; self.fight_ended_at = time.time()   # for the leader's "ended the challenge" line
             # The bar vanishes the moment a boss is killed or caught, before the last hit shows - but it also hides
             # during ultimates, so a vanished bar alone proves nothing. Count the rest only with confirmation: the
             # game's Catch Countdown, or the bar staying gone for the whole grace period with the boss nearly down.
@@ -1838,6 +1839,9 @@ class Meter:
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
         elif f and secs is not None and secs < self.args.duration:
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
+        # the leader ended it ("The team leader has ended the challenge.", seen as the boss went): the site sorts out
+        # what that makes the run (ended early with every star, or not counted)
+        ended_by_leader = bool(f and getattr(self, 'leader_ended', None) is f[0])
         boss = f[0].title if f else '(unknown - meter saw no fight)'
         log.info(f'result screen read {self.result_reads}: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
         if again:                                                  # a later read: only the agreed numbers change
@@ -1847,7 +1851,7 @@ class Meter:
                 p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
                 p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
             if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
-                                                   'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players,
+                                                   'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader,
                                                    'screenshot': self.result_shot, 'reads': self.result_reads})
             return
         d = os.path.join(HERE, 'logs', 'screens'); os.makedirs(d, exist_ok=True)
@@ -1871,7 +1875,7 @@ class Meter:
         if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
             party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
-                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
+                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
                                  **({'team': self.party.get('team'), 'teams': self.party.get('teams'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
@@ -2270,6 +2274,26 @@ class Meter:
     def hide_end_note(self):
         if self.end_sig is not None: self.out('end_hide', None); self.end_sig = None
 
+    LEADER_NOTE = (0.33, 0.140, 0.67, 0.195)          # "The team leader has ended the challenge.", top center
+
+    def leader_ended_note(self, im, now):
+        """Interlink: the game's line when the party leader ends a run early. It shows top center as the boss goes, so it
+        is looked for while an Interlink fight's bar is hidden or just gone (about once a second): a quick check for a
+        line of white text over the dark strip first, the OCR only then. The run then goes with extra.endedByLeader."""
+        if now - getattr(self, 'leader_look', 0) < 1.0 or not getattr(self, 'frame_full', True): return
+        f = self.fight or getattr(self, 'last_fight', None)
+        if not f or not f.bossrush or (not self.fight and now - getattr(self, 'fight_ended_at', 0) > 20): return
+        self.leader_look = now
+        W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; x0, y0, x1, y1 = self.LEADER_NOTE
+        box = (ux + u * x0, H * y0, ux + u * x1, H * y1)
+        c = im.crop(tuple(int(v) for v in box)).convert('L'); hist = c.histogram()
+        white = sum(hist[230:]) / max(1, c.width * c.height)      # the line: ~4% white; open sky or sand: none or lots
+        if not 0.01 <= white <= 0.15 or ImageStat.Stat(c).mean[0] > 140: return
+        t = self.ocr.read({'n': R.prep_white(im, box, u / 2000)}).get('n') or ''
+        if re.search(r'leader\W+has\W+ended|ended\W+the\W+challenge', t, re.I):
+            if getattr(self, 'leader_ended', None) is not f: log.info(f'Interlink: the team leader ended the challenge ({t!r})')
+            self.leader_ended = f
+
     def watch_end_note(self, im):
         """Every frame between fights: hide the end-screen note the moment the screen under it changes (a click,
         Battle Data opening, the screen closing) instead of waiting ~1 s for the next text read to say what's up."""
@@ -2531,6 +2555,7 @@ class Meter:
                 # The bar can hide for a while (effects, BREAK, ultimate animations, menus): the fight stays open and
                 # continues when the bar comes back. A "Catch Countdown" means the boss was caught.
                 self.watch_end_note(im)
+                self.leader_ended_note(im, now)
                 self.check_battle_data(im, now)                                # end screens, Catch Countdown
                 if self.fight and self.catch_seen >= self.bar_seen - 2:
                     self.end_fight('caught (Catch Countdown)'); self.snapshot(now); return
@@ -2558,6 +2583,7 @@ class Meter:
                 self.bar = None
                 if self.fight: self.end_fight('boss bar gone')
                 self.watch_end_note(im)
+                self.leader_ended_note(im, now)
                 self.check_battle_data(im, now)
                 self.save_end_screens(im, now)
                 self.save_nobar(im, now)
