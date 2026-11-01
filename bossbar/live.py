@@ -26,6 +26,19 @@ HERE = C.DATA                     # everything the meter writes (logs, records, 
 PLAYER_LOG = os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'LocalLow', 'Aniimo', 'Aniimo', 'Player.log')
 METER_LOG = os.path.join(HERE, 'logs', 'meter.log')
 BAR_GONE_GRACE = 20     # seconds a fight waits for its bar to come back (ultimates and effects can hide it)
+# The boss HP bar's colour along its track (the same on every boss, sampled from 4K frames): the word HP on the HP
+# label takes the colour where the HP ends, light orange near full and as red as the bar when it's low
+HP_GRADIENT = ((0.0, (248, 108, 108)), (0.25, (250, 120, 104)), (0.4, (249, 131, 98)), (0.55, (251, 144, 94)),
+               (0.7, (254, 157, 91)), (0.85, (255, 167, 88)), (1.0, (255, 176, 85)))
+
+def hp_colour(frac):
+    """The HP bar's colour at this share of the track (0 the left end, 1 full)."""
+    frac = min(1.0, max(0.0, frac or 0.0))
+    for (a, ca), (b, cb) in zip(HP_GRADIENT, HP_GRADIENT[1:]):
+        if frac <= b:
+            t = (frac - a) / (b - a)
+            return tuple(round(x + (y - x) * t) for x, y in zip(ca, cb))
+    return HP_GRADIENT[-1][1]
 BAR_GONE_S = 3          # seconds a locked bar's spot must read like no HP bar at all before the fight ends
 KILL_SOUND_WINDOW = (2.5, 6.0)  # the boss kill sound counts when it started this many seconds before the countdown
 KILL_TO_COUNTDOWN = 3.0 # seconds from the killing blow to the game's Catch Countdown (the kill-cam: no HUD, slow
@@ -3914,12 +3927,15 @@ def run_overlay(meter, hide):
         out.alpha_composite(shade); out.alpha_composite(img, (edge, edge))
         return out, edge
 
-    def draw(name, text, bar, colour='#ffffff'):
+    def draw(name, text, bar, colour='#ffffff', hp=None):
         """Text at its spot next to the bar. bar = (left bracket x, bar centre y, bracket span) on screen."""
         L = hp[name]; c = L['c']; fx, fy, anchor, fs = HP_SPOTS[name]; bx, by, span = bar
         px = max(11, round(span * fs)); pad = max(2, round(px / 13)) + 3
         if GF['font']:
-            img = GF['font'].render(text, px, rgb(colour), bold=name == 'pct')
+            # the words HP (in the bar's colour where the HP ends, `hp`) and BREAK (white) with a thick outline; the
+            # numbers white with a thin one
+            lead = (2, hp or hp_colour(1.0)) if text.startswith('HP ') else (5, rgb('#ffffff')) if text.startswith('BREAK') else None
+            img = GF['font'].render(text, px, rgb(colour), bold=name == 'pct', stroke=True, lead=lead)
             W, H = img.size; tx, ty = bx + fx * span, by + fy * span
             x, y = {'w': (tx, ty - H / 2), 'ne': (tx - W, ty), 's': (tx - W / 2, ty - H), 'c': (tx - W / 2, ty - H / 2)}[anchor]
             img, edge = with_shadow(img, px); x -= edge; y -= edge     # the text itself stays on its spot
@@ -3962,12 +3978,15 @@ def run_overlay(meter, hide):
         bar = d.get('bar')
         if not bar or not show_hp_labels: hide_hp(); return
         left = max(0, d['max_hp'] - d['damage']); max_hp = d['max_hp'] or 1
+        # white with a black outline; the word HP in red (draw)
         draw('pct', f'{left / max_hp * 100:.1f}%', bar)
         if d['bossrush'] and d['xn'] and d['seg_size']: draw('bar', f"{fmt(d['seg_left'])} / {fmt(d['seg_size'])}", bar)
         else: clear('bar')
-        draw('total', f"HP {fmt(left)} / {fmt(max_hp)}", bar)
+        # the HP bar shows this bar's share in Interlink (xN bars), the whole fight's out in the world
+        shown = d['seg_left'] / d['seg_size'] if d['bossrush'] and d['xn'] and d['seg_size'] else left / max_hp
+        draw('total', f"HP {fmt(left)} / {fmt(max_hp)}", bar, hp=hp_colour(shown))
         brk = break_text(d.get('break') or {})
-        if brk: draw('break', brk[0], bar, brk[1])
+        if brk: draw('break', brk[0], bar, '#ffffff')
         else: clear('break')
 
     def stat_lines(d):

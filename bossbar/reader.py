@@ -185,8 +185,14 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
         if lb is not None:
             # rightmost bracket-like line. Overworld bars differ in length per boss (Minespine's 1389 px at 4K is 0.78 of
             # the estimate, which kept its right bracket out of a 0.8-1.25 window: "no right bracket" all fight, B8)
-            for x in range(min(W - 1, int(lb + 1.25 * est)), int(lb + 0.55 * est), -1):
-                if _is_bracket(px, x, yc, thick, W, H): rb = x; break
+            # Of the bracket-like lines there, the one that centres the bar (the game draws boss bars top-centre): the
+            # rightmost was a white UI line past Bouldus's bar (1 Nov), which made it 'not centred' all fight
+            # Looked for around the left bracket's mirror image, not from the bar's thickness: a pale damage trail
+            # along a bar's lower edge halved its measured thickness on Minespine (14 px of 27), and the estimate from
+            # it ended the search 240 px before the real bracket
+            lines = [x for x in range(min(W - 1, int(W - lb + 0.06 * W)), max(int(lb + 0.3 * W), int(W - lb - 0.06 * W)), -1)
+                     if _is_bracket(px, x, yc, thick, W, H)]
+            rb = min(lines, key=lambda x: abs(lb + (x - lb) / 2 - W / 2)) if lines else None
     if lb is not None and rb is not None: span = rb - lb
     elif not cropped: return 'no left bracket' if lb is None else 'no right bracket'
     else:

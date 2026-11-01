@@ -120,9 +120,12 @@ class GameFont:
             x += adv * s
         return field, base
 
-    def render(self, text, px, fill=(255, 255, 255), outline=(20, 26, 44), italic=False, bold=False):
-        """RGBA image of the text in the game's style (bold thickens the strokes like the HUD's numbers)."""
-        key = (text, px, fill, outline, italic, bold)
+    def render(self, text, px, fill=(255, 255, 255), outline=(20, 26, 44), italic=False, bold=False, stroke=False,
+               lead=None):
+        """RGBA image of the text in the game's style (bold thickens the strokes like the HUD's numbers). `stroke`: a
+        solid black outline instead of the faint one, so coloured text reads over any scene. `lead`: (n, colour) - the
+        first n characters in that colour, with a thicker outline ('HP' in red before white numbers)."""
+        key = (text, px, fill, outline, italic, bold, stroke, lead)
         if key in self.cache: return self.cache[key]
         field, base = self._field(text, px)
         soft = max(1.0, 64 / max(px, 1) * 2)            # edge softness in field units (sharper at larger sizes)
@@ -136,9 +139,26 @@ class GameFont:
         out = Image.new('RGBA', (W, H + dy), (0, 0, 0, 0))
         sh = Image.new('RGBA', (W, H), outline + (0,)); sh.putalpha(shadow.point(lambda v: v * 120 // 255))
         out.alpha_composite(sh, (0, dy))
-        ol = Image.new('RGBA', (W, H), outline + (0,)); ol.putalpha(rim.point(lambda v: v * 55 // 255))                  # barely-there outline
+        upto = 0
+        if lead:                                               # where the first lead[0] characters end
+            m = self.meta; s = px / m['point_size']
+            upto = min(W, round(10 * s + 2 + sum((self.glyphs.get(ord(c)) or self.glyphs.get(63))[6] for c in text[:lead[0]]) * s))
+        ol = Image.new('RGBA', (W, H), ((0, 0, 0) if stroke else outline) + (0,))
+        if stroke:
+            # a solid outline round the letters, grown from their shape (the field runs out too close for a wide one):
+            # thin round the numbers, thick round the leading word ('HP', 'BREAK')
+            alpha = ImageChops.lighter(rim, body.filter(ImageFilter.MaxFilter(max(3, round(px / 10)) | 1)))
+            if lead:
+                grow = max(5, round(px / 4)) | 1           # ~1/8 of the size on each side
+                thick = body.filter(ImageFilter.MaxFilter(grow))
+                keep = Image.new('L', (W, H), 0); keep.paste(255, (0, 0, min(W, upto + grow // 2), H))
+                alpha = ImageChops.lighter(alpha, ImageChops.multiply(thick, keep))
+            ol.putalpha(alpha)
+        else: ol.putalpha(rim.point(lambda v: v * 55 // 255))                                # barely there
         out.alpha_composite(ol)
-        fg = Image.new('RGBA', (W, H), fill + (0,)); fg.putalpha(body)
+        fg = Image.new('RGBA', (W, H), fill + (0,))
+        if lead: fg.paste(lead[1] + (0,), (0, 0, upto, H))   # the first characters in their own colour
+        fg.putalpha(body)
         out.alpha_composite(fg)
         if italic:                                            # the HUD's numbers lean ~12 degrees
             k = 0.21; out = out.transform((out.width + int(out.height * k), out.height), Image.AFFINE,
