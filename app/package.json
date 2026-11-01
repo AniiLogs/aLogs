@@ -14,6 +14,7 @@
     "notes": "node patch-notes.mjs",
     "clean:installers": "node clean-installers.mjs",
     "build:rc": "npm run notes && npm run meter:build && npm run sanctum:build && node tauri-build.mjs && npm run clean:installers",
+    "build:release": "npm run notes && npm run meter:build && npm run sanctum:build && node tauri-build.mjs --release && npm run clean:installers",
     "share": "node share.mjs --test",
     "beta": "node share.mjs --beta"
   },

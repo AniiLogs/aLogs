@@ -12,10 +12,12 @@ const version = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).ve
 const counter = join("src-tauri", "target", "release", "bundle", `rc-${version}.txt`);   // the RC numbers of a version keep counting up
 const rc = (existsSync(counter) ? Number(readFileSync(counter, "utf8")) || 0 : 0) + 1;
 // what players see: the beta this build would be (B1, B2, ...), one past the last one published (betas.json); the RC
-// number stays underneath, counting every build, for the updater
-const beta = (JSON.parse(readFileSync("betas.json", "utf8"))[version] ?? 0) + 1;
-writeFileSync("src-tauri/build.json", JSON.stringify({ version, rc, beta }) + "\n");
-console.log(`building ${version} B${beta} (RC${rc})`);
+// number stays underneath, counting every build, for the updater. A release build (npm run build:release) is no beta:
+// it shows as plain "0.1.28".
+const release = process.argv.includes("--release");
+const beta = release ? 0 : (JSON.parse(readFileSync("betas.json", "utf8"))[version] ?? 0) + 1;
+writeFileSync("src-tauri/build.json", JSON.stringify({ version, rc, beta, ...(release ? { release } : {}) }) + "\n");
+console.log(`building ${version} ${release ? "release" : `B${beta}`} (RC${rc})`);
 
 const key = join(homedir(), ".tauri", "alogs-updater.key");
 if (!existsSync(key)) throw new Error(`No update-signing key at ${key}: run npx tauri signer generate --ci -p "" -w "${key}"`);

@@ -42,8 +42,11 @@ pub fn build_beta() -> u64 {
     serde_json::from_str::<Value>(BUILD).ok().and_then(|v| v["beta"].as_u64()).unwrap_or(0)
 }
 
-/// What players call this build: "B2", or "RC53" for one from before betas were numbered.
+/// What players call this build: "B2", "RC53" for one from before betas were numbered, nothing for a release build.
 pub fn build_name() -> String {
+    if serde_json::from_str::<Value>(BUILD).ok().and_then(|v| v["release"].as_bool()) == Some(true) {
+        return String::new();
+    }
     match (build_beta(), build_rc()) {
         (0, 0) => String::new(),
         (0, rc) => format!("RC{rc}"),
