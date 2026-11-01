@@ -1,7 +1,7 @@
 {
   "name": "alogs-app",
   "private": true,
-  "version": "0.1.28",
+  "version": "0.1.29",
   "scripts": {
     "ocr:build": "cargo build --release --manifest-path ocr-helper/Cargo.toml && node -e \"require('fs').copyFileSync('ocr-helper/target/release/ocr-helper.exe', '../bossbar/ocr-helper.exe')\"",
     "meter:build": "npm run ocr:build && python ../bossbar/build_meter.py",
