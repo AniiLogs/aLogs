@@ -192,7 +192,7 @@ fn ensure_meter(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let mut guard = meter.child.lock().unwrap();
-    // DPS Meter > Meter & overlay > "Run the DPS meter": off means no meter at all (no overlay, records or submissions)
+    // DPS Meter > Meter > "Run the DPS meter": off means no meter at all (no overlay, records or submissions)
     if !read_settings().pointer("/meter/enabled").and_then(Value::as_bool).unwrap_or(true) {
         if let Some(mut child) = guard.take() {
             // asked to stop like on quit (it saves an open fight), forced only if it hangs (was killed outright)
@@ -590,14 +590,19 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let mut total = 0u64;
     for (name, bytes) in files {
-        let text = scrub.clean(&String::from_utf8_lossy(&bytes));
-        let adds = measure(&name, text.as_bytes())?;
+        // Only text is scrubbed: pictures (and anything that isn't UTF-8) go in as they are, or they'd be ruined.
+        let picture = [".jpg", ".jpeg", ".png"].iter().any(|x| name.to_ascii_lowercase().ends_with(x));
+        let body = match std::str::from_utf8(&bytes) {
+            Ok(text) if !picture => scrub.clean(text).into_bytes(),
+            _ => bytes,
+        };
+        let adds = measure(&name, &body)?;
         if total + adds > LIMIT {
             continue; // too big for what's left: the rest (smaller) may still fit
         }
         total += adds;
         zip.start_file(name, options).map_err(|e| e.to_string())?;
-        zip.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        zip.write_all(&body).map_err(|e| e.to_string())?;
     }
     let bytes = zip.finish().map_err(|e| e.to_string())?.into_inner();
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
@@ -713,6 +718,9 @@ fn main() {
     }
     let minimized = std::env::args().any(|a| a == "--minimized");
     tauri::Builder::default()
+        // opening aLogs while it runs (hidden in the tray, say) shows that window instead of nothing happening (1 Nov:
+        // "I can't get aLogs to appear again even though it's running"); registered first, as the plugin asks
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .manage(Meter { child: Mutex::new(None), quitting: AtomicBool::new(false) })
         .manage(sanctum::Sanctum::new())
         .manage(update::Pending::default())

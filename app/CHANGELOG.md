@@ -28,12 +28,11 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - A **setup guide**, a **name** (aLogs: Aniiloger's Companion App) and a **new icon**.
 
 ### Improved
-- **Screen capture rebuilt:** aLogs now watches the game on your graphics card, the way OBS does, instead of copying
-  the whole screen many times a second. Far less lag and stutter, especially at 4K and while streaming, and lighter
-  between fights. It runs at a lower priority by default (General Settings › Performance).
+- **Screen capture rebuilt:** aLogs now watches the game on your graphics card, the way OBS does. Far less lag and
+  stutter, especially at 4K and while streaming, and lighter between fights. It runs at a lower priority by default (General Settings › Performance).
 - **Overlays in recordings:** the DPS window and Sanctum Helper's maps show in screenshots and recordings on Windows
   10 and 11 when you want them; pictures sent to the leaderboards stay the game alone.
-- **A faster meter:** it finds boss bars and reads screens much faster, and changing a setting no longer restarts it.
+- **A faster meter:** it finds boss bars and reads screens much faster, and most settings apply without restarting it.
 - **New bosses right after a patch:** boss names and HP come from your own game files, including the Whisperwake
   update's new HP and BREAK formulas.
 - **Sanctum Helper** keeps up with fast turns, uses far less memory, and works on 16:10 and ultrawide screens.
@@ -77,7 +76,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Screenshots as proof:** with "Attach the result screenshot" on, a best run goes with its result screen and its
   Battle Data, each a small 1280×720 picture. Anyone can hover the picture icon next to your entry to see them
   (Summary and Battle Data tabs). Your PC keeps no copy once they're sent.
-- **An on/off switch for the meter** (DPS Meter › Meter & overlay › Run the DPS meter), for when you only want
+- **An on/off switch for the meter** (DPS Meter › Meter › Run the DPS meter), for when you only want
   Sanctum Helper or the AniiLogs pages.
 - **A much smaller app:** Sanctum Helper now uses Microsoft's .NET Desktop Runtime (9 or newer) instead of carrying
   its own ~150 MB copy. The installer offers to install the runtime if it's missing, and so does the Sanctum

@@ -75,13 +75,13 @@
       "title": "Sign in inside aLogs",
       "how": "Sidebar Discord button: Discord opens in an aLogs window, approve and you're signed in; closing it cancels.",
       "details": [
-        "Also try it from the setup guide (General Settings: turn the guide on, restart aLogs).",
+        "Also try it from the setup guide (General Settings › Open the setup guide).",
         "Closing the window should bring the Sign in button back straight away."
       ]
     },
     {
       "id": "capture-button-row",
-      "title": "Capture button follows the game's icons",
+      "title": "The button over the game follows the game's icons",
       "how": "It sits left of Chat at the icons' size, and hides in menus, loading screens and the map, even when dragged."
     },
     {
@@ -102,7 +102,7 @@
     {
       "id": "patch-notes-beta",
       "title": "Patch notes on the beta",
-      "how": "About, Patch notes: shows \"0.1.28 beta (installed)\" with its notes on top."
+      "how": "About, Patch notes: shows \"0.1.28 beta (installed; these notes grow until it's released)\" with its notes on top."
     }
   ]
 }

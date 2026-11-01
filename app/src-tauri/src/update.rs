@@ -1,8 +1,8 @@
 //! Self-update. A minute after start and every 6 hours the app reads its update feed: GitHub's latest release
 //! (releases/latest/download/latest.json) or the beta feed (the update-feed release's beta.json, which a release also
-//! points at, so testers move on to it) when General › "Get beta updates" is on or this build is a beta itself (ahead
+//! points at, so testers move on to it) when About › "Get beta updates" is on or this build is a beta itself (ahead
 //! of the latest release). Checking always runs, so you're
-//! always told about an update. With General › "Download updates automatically" on (the default) a newer build is
+//! always told about an update. With About › "Download updates automatically" on (the default) a newer build is
 //! then downloaded in the background; off, it downloads when you choose to install it. The window shows the
 //! download's progress.
 //!
@@ -179,7 +179,7 @@ async fn read_feed(app: &AppHandle, url: &str) -> Result<(Option<tauri_plugin_up
 }
 
 /// Looks for a newer build, and downloads it when that's allowed. Returns what the window shows, or None when this
-/// is the newest. Betas come with General › "Get beta updates", and also whenever this build is ahead of the latest
+/// is the newest. Betas come with About › "Get beta updates", and also whenever this build is ahead of the latest
 /// release (a beta installed by hand, or before any release has self-update): a beta tester keeps getting betas
 /// until the release catches up, then follows releases.
 pub async fn check(app: &AppHandle) -> Result<Option<Value>, String> {

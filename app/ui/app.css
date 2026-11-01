@@ -74,6 +74,7 @@ button.link { padding: 0; border: 0; background: none; color: var(--accent-text)
 .toggle input:checked + span::after { transform: translateX(16px); background: var(--on-accent); }
 .toggle input:focus-visible + span { outline: 2px solid var(--gold); outline-offset: 2px; }
 .toggle input:disabled + span { opacity: 0.4; }
+.toggle:has(input:disabled) > div, .field:has(> input:disabled) { opacity: 0.5; }   /* needs another setting on */
 .toggle strong { display: block; font-weight: 650; }
 .toggle small { display: block; color: var(--muted); font-size: 12.5px; }
 

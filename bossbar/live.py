@@ -1683,9 +1683,10 @@ class Meter:
         # run is still being seen (SH reads ~1/s and drops it at the fade), and not just after a scene load's fade-in
         if now - getattr(self, 'sh_run_seen', 0) > 4 or now - getattr(self, 'egg_space_at', 0) < 8: return
         if self.hwnd and not wc.is_foreground(self.hwnd): return          # only while you're in the game
-        seconds = max(HOLD_MIN, min(60, int(r.get("hold_seconds") or 60)))
+        # its own switch: keyboard and mouse are held whatever the result-screen block says, for as long as that allows
+        seconds = max(HOLD_MIN, min(120, int(r.get("hold_seconds") or 60)))
         self.egg_hold = [now + seconds, 0.0, self.space]
-        if r.get('hold_inputs', True): self.hold.start(seconds)
+        self.hold.start(seconds)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Egg Heist: the screen faded to black - holding inputs until the end screen is read (at most {seconds} s)')
         if before is not None: self.egg_fade_frame(before, 'before')
@@ -3210,10 +3211,10 @@ class Meter:
                 if getattr(self, 'egg_hold', None): self.egg_hold_end('screen capture switched off')
                 self.hold.stop()
                 if CT.hidden: CT.hide_controllers(False)
-                if self.fight: self.end_fight('screen capture switched off')
+                if self.fight: self.end_fight('the DPS meter was switched off')
                 self.bar = None
         if off:
-            self.out('status', 'Screen capture is off'); return
+            self.out('status', 'The DPS meter is off'); return
         # out in the world, keep the app listening for the boss kill sound while a fight is on
         if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
             wc.audio.want(time.time())
@@ -3225,7 +3226,7 @@ class Meter:
             self.homeland_rest = home
             log.info('in a homeland: not capturing until you leave' if home else 'left the homeland: capturing again')
         if home:
-            self.bar = None; self.out('status', 'In a homeland: not capturing there'); return
+            self.bar = None; self.out('status', 'In a homeland: the meter is resting'); return
         self.check_pending_run(time.time())
         # while a fight's bar is locked, the top of the frame is all that's needed (cheaper capture)
         partial = self.fight is not None and self.bar is not None and time.time() - self.bar_seen < 1.0 \
@@ -3885,7 +3886,8 @@ def run_overlay(meter, hide):
         elif not dw.dragging: place(dw, x, y)
         dps_at['shown'] = True; dps_at['end'] = True
 
-    # --- HP labels: plain white text with a soft dark shadow, like the game's own bar text, attached to the boss bar
+    # --- HP labels: white numbers with a thin black outline and a soft dark shadow, attached to the boss bar; the word HP
+    #     in the boss bar's colour where the HP ends, BREAK in its state's colour, both with a thick black outline
     #     (positions are fractions of the bracket span from the left bracket / bar centre line, so they follow the bar
     #     at any resolution). Drag one to nudge it - the offset is kept relative to the bar; double-click resets it.
     HP_SPOTS = {                                      # x, y (span fractions), which side of the text sits there, font px
@@ -3978,7 +3980,8 @@ def run_overlay(meter, hide):
         bar = d.get('bar')
         if not bar or not show_hp_labels: hide_hp(); return
         left = max(0, d['max_hp'] - d['damage']); max_hp = d['max_hp'] or 1
-        # white with a black outline; the word HP in red (draw)
+        # numbers white with a thin black outline; HP and BREAK with a thick one: HP in the bar's colour where the HP
+        # ends, BREAK white, yellow when BROKEN, grey-blue refilling, orange gauge (draw, break_text)
         draw('pct', f'{left / max_hp * 100:.1f}%', bar)
         if d['bossrush'] and d['xn'] and d['seg_size']: draw('bar', f"{fmt(d['seg_left'])} / {fmt(d['seg_size'])}", bar)
         else: clear('bar')
@@ -4216,7 +4219,8 @@ def main():
     if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
     # settings.json (edited in the desktop app) gives the defaults; command-line flags still win
     cfg = C.load()
-    ap.set_defaults(interval=cfg['capture']['look_interval'], title=cfg['game']['window_title'],
+    # a blank Game window title means "Aniimo", like the app and Sanctum Helper
+    ap.set_defaults(interval=cfg['capture']['look_interval'], title=(cfg['game']['window_title'] or '').strip() or 'Aniimo',
                     player_log=cfg['game']['player_log'] or PLAYER_LOG, no_overlay=not cfg['overlay']['show'],
                     hide_from_capture=not cfg['overlay']['in_recordings'], no_debug_frames=not cfg['capture']['debug_frames'],
                     no_auto_click=not cfg['results']['auto_open_battle_data'])

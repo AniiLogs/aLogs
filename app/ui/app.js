@@ -7,7 +7,8 @@
     meter: { enabled: true },
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
-    overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", rush_position: "corner", result_seconds: 10 },
+    overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", dps_locked: true, dps_reset: 0,
+      rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
@@ -78,6 +79,7 @@
     }
     node.hidden = false;
   }
+  window.alogsToast = toast;   // Sanctum Helper's page uses the same notice, so errors stay until closed there too
 
   // ---------------------------------------------------------------- navigation
   $$("[data-page]").forEach((button) => button.addEventListener("click", () => {
@@ -239,7 +241,7 @@
   function showCaptureSwitch(info) {
     if (!info) return;
     $("[data-capture-on]").checked = info.capture_on;
-    $("[data-capture-meter]").checked = info.capture_on;   // DPS Meter › Run the DPS meter: the same switch
+    $("[data-capture-meter]").checked = info.capture_on;   // DPS Meter › Meter › Run the DPS meter: the same switch
     $('[data-nav-switch="dps"]').setAttribute("aria-checked", String(Boolean(info.capture_on)));
     captureOn = info.capture_on;
     $("[data-capture-button]").checked = info.show;
@@ -253,14 +255,17 @@
     if (!pickingPad) $("[data-capture-pad]").textContent = info.pad_label || "None";
   }
   async function captureSwitch() {
+    // listening first, each on its own: a failed first read no longer leaves the page deaf to the button's changes
+    try { await window.__TAURI__.event.listen("capture-switch", (event) => showCaptureSwitch(event.payload)); } catch { /* none */ }
+    // the button over the game is the master switch: it turns Sanctum Helper off and back on too
     try {
-      showCaptureSwitch(await invoke("capture_switch"));
-      await window.__TAURI__.event.listen("capture-switch", (event) => showCaptureSwitch(event.payload));
-      // the button over the game is the master switch: it turns Sanctum Helper off and back on too
       await window.__TAURI__.event.listen("sanctum-switch", (event) => {
         settings.sanctum = { ...(settings.sanctum || {}), enabled: Boolean(event.payload) };
         document.dispatchEvent(new CustomEvent("sanctum-enabled", { detail: Boolean(event.payload) }));
       });
+    } catch { /* none */ }
+    try {
+      showCaptureSwitch(await invoke("capture_switch"));
     } catch {
       // an app without the switch
     }
@@ -396,6 +401,15 @@
     }
     backdropPreview();
     tokenHint();
+    dependents();
+  }
+  // Settings that only do something with another one on: greyed out while it's off. Blocking until Battle Data opens
+  // needs the automatic click (without it, it'd block your own click); the time limit also caps the Egg Heist block.
+  function dependents() {
+    const auto = Boolean(get("results.auto_open_battle_data"));
+    $('[data-k="results.hold_inputs"]').disabled = !auto;
+    $('[data-guide-k="results.hold_inputs"]').disabled = !auto;   // the setup guide's copy (fill() runs on its changes)
+    $('[data-k="results.hold_seconds"]').disabled = !auto && !get("results.egg_fade_hold");
   }
   // DPS Meter › Overlay: the background slider's preview follows the slider while it moves (saved on release)
   function backdropPreview(value = get("overlay.backdrop") || 0) {
@@ -782,6 +796,7 @@
       set(input.dataset.k, value);
       markUserSet(input.dataset.k);
       tokenHint();
+      dependents();
       scheduleSave();
     });
   }
@@ -1329,7 +1344,7 @@
   $("[data-dispute-send]").addEventListener("click", async () => {
     try {
       await invoke("send_character_dispute", { note: $("[data-dispute-note]").value.trim() });
-      toast("Dispute queued: it goes out with the game-menu proof");
+      toast("Dispute saved: it's sent with your game-menu proof within a few minutes.");
     } catch (error) {
       toast(String(error), true);
     }
@@ -1579,7 +1594,7 @@
         const plural = release.outdated === 1 ? "" : "s";
         item.append(Object.assign(document.createElement("summary"), { textContent: `${release.version} (installed, ${release.outdated} update${plural} behind)` }),
           Object.assign(document.createElement("p"), { className: "note-warn",
-            textContent: `Your version is very out of date: ${release.outdated} update${plural} have come out since. Update to get everything listed above.` }));
+            textContent: `Your version is very out of date: ${release.outdated} update${plural} ${release.outdated === 1 ? "has" : "have"} come out since. Update to get everything listed above.` }));
         if (release.intro) item.append(Object.assign(document.createElement("p"), { textContent: release.intro }));
         for (const section of release.sections) {
           item.append(Object.assign(document.createElement("h3"), { textContent: section.heading }));

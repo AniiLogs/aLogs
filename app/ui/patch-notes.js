@@ -25,9 +25,9 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
-     "**Screen capture rebuilt:** aLogs now watches the game on your graphics card, the way OBS does, instead of copying the whole screen many times a second. Far less lag and stutter, especially at 4K and while streaming, and lighter between fights. It runs at a lower priority by default (General Settings › Performance).",
+     "**Screen capture rebuilt:** aLogs now watches the game on your graphics card, the way OBS does. Far less lag and stutter, especially at 4K and while streaming, and lighter between fights. It runs at a lower priority by default (General Settings › Performance).",
      "**Overlays in recordings:** the DPS window and Sanctum Helper's maps show in screenshots and recordings on Windows 10 and 11 when you want them; pictures sent to the leaderboards stay the game alone.",
-     "**A faster meter:** it finds boss bars and reads screens much faster, and changing a setting no longer restarts it.",
+     "**A faster meter:** it finds boss bars and reads screens much faster, and most settings apply without restarting it.",
      "**New bosses right after a patch:** boss names and HP come from your own game files, including the Whisperwake update's new HP and BREAK formulas.",
      "**Sanctum Helper** keeps up with fast turns, uses far less memory, and works on 16:10 and ultrawide screens.",
      "Settings are organised in tabs, Updates moved to About, and closing aLogs is instant."
@@ -61,7 +61,7 @@ window.PATCH_NOTES = [
      "**Far less disk space:** the meter reads each screen's numbers into your records and only keeps a picture when it's needed (leaderboard proof, until it has been sent). Kept pictures are small JPEGs (~0.25 MB instead of ~5 MB), leftovers are cleared every hour, and the diagnostic captures are off by default. DPS Meter › Captures & logs › Keep screenshots can keep them for 6 hours, 1 to 7 days, or for good.",
      "**Only your best runs go to the leaderboards,** once each: a run is sent when it beats one of your bests on that boss that week: score (most stars, then highest score), fastest clear, or your own Average DPS, BREAK, damage taken or healing from Battle Data. Every other run stays in your own records. The boards can rank by each of these.",
      "**Screenshots as proof:** with \"Attach the result screenshot\" on, a best run goes with its result screen and its Battle Data, each a small 1280×720 picture. Anyone can hover the picture icon next to your entry to see them (Summary and Battle Data tabs). Your PC keeps no copy once they're sent.",
-     "**An on/off switch for the meter** (DPS Meter › Meter & overlay › Run the DPS meter), for when you only want Sanctum Helper or the AniiLogs pages.",
+     "**An on/off switch for the meter** (DPS Meter › Meter › Run the DPS meter), for when you only want Sanctum Helper or the AniiLogs pages.",
      "**A much smaller app:** Sanctum Helper now uses Microsoft's .NET Desktop Runtime (9 or newer) instead of carrying its own ~150 MB copy. The installer offers to install the runtime if it's missing, and so does the Sanctum Helper page.",
      "**Leaderboards by server:** records now say which game server they were played on (the app reads it from the game's settings, e.g. Aniimo-Americas), and the AniiLogs boards have a Server picker."
     ]

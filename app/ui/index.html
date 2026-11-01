@@ -15,7 +15,7 @@
       <div class="brand"><img class="mark" src="img/alogs-mark.png" alt=""><span>aLogs<small class="brand-sub">Aniiloger's Companion App</small></span></div>
       <button type="button" data-page="dashboard" class="is-active">Dashboard</button>
       <!-- each with its on/off switch, always in view: the same switches as on their pages -->
-      <button type="button" data-page="dps"><span>DPS Meter</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="dps" title="DPS meter on/off (also the button over the game and its key)"></span></button>
+      <button type="button" data-page="dps"><span>DPS Meter</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="dps" title="DPS meter on/off"></span></button>
       <button type="button" data-page="sanctum"><span>Sanctum Helper</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="sanctum" title="Sanctum Helper on/off"></span></button>
       <button type="button" data-page="site">AniiLogs</button>
       <button type="button" data-page="photos">Photos</button>
@@ -63,7 +63,7 @@
           <article class="card wide"><div class="card-head"><h2>Your character</h2><button type="button" data-link-start>Link character</button></div>
             <p data-s="character">Not detected yet</p>
             <small data-s="character-proof"></small>
-            <small class="block">Your UID comes from the game log each session (so the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, next to your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</small>
+            <small class="block">Your UID comes from the game log each session (so it's always the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, next to your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</small>
             <div class="notice" data-link hidden>
               <p data-link-text></p>
               <div class="row">
@@ -101,7 +101,7 @@
       <div class="dps-panel is-active" data-panel="meter">
         <div class="group">
           <label class="toggle"><input type="checkbox" data-capture-meter><span></span>
-            <div><strong>Run the DPS meter</strong><small>The same switch as the DPS Meter switch in the sidebar, the button over the game and its shortcut key. When off, the meter doesn't look at the game: no overlay, no saved results or Battle Data, nothing sent to the leaderboards. Sanctum Helper has its own switch; the button keeps an eye on the game's icon row so it can sit there.</small></div></label>
+            <div><strong>Run the DPS meter</strong><small>Also in the sidebar. When off, the meter doesn't look at the game: no overlay, no saved results or Battle Data, nothing sent to the leaderboards. The button over the game turns off the meter and Sanctum Helper together.</small></div></label>
         </div>
         <div class="group">
           <label class="field"><span>How often the meter looks for a boss bar in Interlink and around a fight</span>
@@ -175,12 +175,12 @@
         <p class="lead">After an Interlink fight the game shows its result screen, and each player's stats are one click away under <em>View Battle Data</em>. The meter saves both.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="results.auto_open_battle_data"><span></span>
-            <div><strong>Open Battle Data automatically</strong><small>Clicks the button as soon as the result screen appears (only while the game is the active window), then puts your cursor back.</small></div></label>
+            <div><strong>Open Battle Data and Holo-Battle Sim's gizmos automatically</strong><small>Clicks View Battle Data on the result screen, and opens the Gizmo screen after a Holo-Battle Sim win, so every player's stats and your setup are read while you're in the game. Then puts your cursor back.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="results.hold_inputs"><span></span>
             <div><strong>Block keyboard and mouse buttons until Battle Data opens</strong><small>So mashing buttons can't skip past the result screen. You can still move the mouse. Stops when Battle Data opens or the screen changes; Ctrl+Shift+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
           <label class="field"><span>Block for at most (seconds)</span><input type="number" min="10" max="120" step="5" data-k="results.hold_seconds" data-type="number"></label>
           <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
-            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses (and your controller, if blocked below) from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Needs Sanctum Helper running (it tells the meter you're in a run). If a loading screen follows, the block ends 5 s after the picture comes back. Ctrl+Shift+F12 stops it right away. Off by default; experimental.</small></div></label>
+            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses (and your controller, if blocked below) from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Ctrl+Shift+F12 stops it right away. Off by default; experimental.</small></div></label>
         </div>
         <div class="group">
           <h2>Controller</h2>
@@ -237,7 +237,7 @@
           <label class="toggle"><input type="checkbox" data-k="leaderboard.submit"><span></span>
             <div><strong>Submit my records</strong><small>Each fight's result (score, stars, time, team DPS), every player's Battle Data, the meter's numbers, and your weekly and per-boss best scores.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.include_screenshots"><span></span>
-            <div><strong>Attach the result screenshot</strong><small>Proof for your run: a small picture of the result screen (1280×720). Anyone can open it from the camera icon next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
+            <div><strong>Attach the result screenshot</strong><small>Proof for your run: small pictures of the result and Battle Data screens (1280×720). Anyone can open them from the picture icon next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
             <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
           <label class="toggle"><input type="checkbox" checked data-presence-toggle><span></span>
@@ -291,7 +291,7 @@
         <p class="lead">Put the photos you take in Aniimo on your AniiLogs profile. They show wherever your profile shows: only to you while it's private, to everyone once you make it public. Each keeps its date, your character, the Aniimo in it and where you took it.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="app.photos_auto"><span></span>
-            <div><strong>Upload new photos automatically</strong><small>Every photo you take from now on goes to your profile as soon as aLogs sees it. Photos you took before stay yours to pick.</small></div></label>
+            <div><strong>Upload new photos automatically</strong><small>Every photo you take from now on, on the character you're playing, goes to your profile as soon as aLogs sees it. Photos you took before stay yours to pick.</small></div></label>
           <p class="hint" data-photos-state>Looking for your photos…</p>
           <div class="row">
             <button type="button" class="primary" data-photos-upload disabled>Upload selected</button>
@@ -321,14 +321,14 @@
         <div class="group">
           <h2>Screen capture</h2>
           <label class="toggle"><input type="checkbox" data-capture-on><span></span>
-            <div><strong>DPS meter (the button over the game)</strong><small>Off: the meter doesn't look at the game, so nothing is read or sent until you turn it back on. The same switch as DPS Meter › Run the DPS meter and the sidebar's DPS Meter switch. Sanctum Helper has its own switch.</small></div></label>
+            <div><strong>DPS meter</strong><small>Off: the meter doesn't look at the game, so nothing is read or sent until you turn it back on. The same switch as DPS Meter › Meter › Run the DPS meter and the sidebar's DPS Meter switch. The button over the game turns off the meter and Sanctum Helper together.</small></div></label>
         </div>
         <div class="group">
           <h2>The button over the game</h2>
           <label class="toggle"><input type="checkbox" data-capture-button><span></span>
-            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while capture is on and dim while it's off. It shows only when the game shows its icons. Click it, or press its hotkey, to switch. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
+            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while the meter is on, dim while it's off. It shows only when the game shows its icons. Click it, or press its hotkey, to turn the DPS meter and Sanctum Helper off or on together. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-lock><span></span>
-            <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still switch capture.</small></div></label>
+            <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still turn the DPS meter and Sanctum Helper off or on.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-always><span></span>
             <div><strong>Always show the button</strong><small>Shown whenever the game is in front, even while the game hides its icons (menus, the map, loading screens), so it never disappears with a controller or an unusual layout.</small></div></label>
           <label class="field"><span>When the game hides its icons, the button goes</span>
@@ -428,10 +428,11 @@
         <header class="page-head"><h1>About</h1></header>
         <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
         <div class="group">
-          <p>The meter only reads the game: its picture (built-in Windows capture), its sound during boss fights, its text log and its data files. It never changes the game's memory or files.</p>
+          <p>The meter reads the game (its picture, its sound during boss fights, its text log and its data files) and, if you let it, clicks View Battle Data for you. It never changes the game's memory or files.</p>
           <p class="notice" data-win10-capture hidden><strong>On Windows 10:</strong> aLogs captures the whole screen without a border (Desktop Duplication: Windows 10 can't capture just the game window without a yellow border; Windows 11 can). aLogs covers its own overlays in that picture before reading it, so they still show in OBS, screenshots and Game Bar. Where a Sanctum Helper map sits on what it reads (over the game's minimap, or labels on the in-game map), Sanctum Helper reads that part without the map in it. While you're tabbed out, aLogs copies the game window itself a few times a second instead (not while the game is minimized).</p>
           <p class="hint">Data folder: <code data-s="data-dir">…</code></p>
           <p class="hint">Includes HidHide's driver by Nefarius Software Solutions (MIT License), installed only if you set up controller blocking.</p>
+          <p class="hint">Reads player names with PaddleOCR's text models (Latin and Korean) by the PaddlePaddle Authors (Apache License 2.0).</p>
           <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>
         </div>
         <div class="group">
@@ -468,7 +469,7 @@
     <div class="modal" data-report hidden>
       <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
         <h1 id="reportTitle">Report a problem</h1>
-        <p>Sends your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time, which build you have and any screenshots you add. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
+        <p>Sends your logs to the AniiLogs developers, one report for the whole app: the meter's log, your 20 newest fights' readings, your profile notes, a few small pictures the meter kept of the boss bar and the top of the screen, Sanctum Helper's log and both modules' settings (never your sign-in), with your game UID, the time, which build you have and any screenshots you add. They're kept privately and cleared once the problem is fixed (after 30 days at most).</p>
         <label class="field"><span>What went wrong (optional)</span><textarea rows="4" maxlength="2000" data-logs-note placeholder="For example: the HP number stopped going down partway through the fight"></textarea></label>
         <div class="field">
           <span>Screenshots (optional)</span>
@@ -516,7 +517,7 @@
         <div class="guide-step" data-step="3" hidden>
           <h1>Leaderboards</h1>
           <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.submit"><span></span>
-            <div><strong>Send my records to the leaderboards</strong><small>Your best Interlink runs and Egg Heist matches, under your in-game name.</small></div></label>
+            <div><strong>Send my records to the leaderboards</strong><small>Your best Interlink and Holo-Battle Sim runs and your Egg Heist matches, under your in-game name.</small></div></label>
           <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.include_screenshots"><span></span>
             <div><strong>Attach the result screenshot as proof</strong><small>A small picture of the end screen. Your PC keeps no copy once it's sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.link_character"><span></span>
@@ -528,7 +529,7 @@
             <div><strong>Open Battle Data automatically</strong><small>So every player's stats get read too.</small></div></label>
           <label class="toggle"><input type="checkbox" data-guide-k="results.hold_inputs"><span></span>
             <div><strong>Block button presses until it opens</strong><small>So mashing can't skip the result screen. Ctrl+Shift+F12 stops it right away.</small></div></label>
-          <small class="hint">Controller blocking and the Egg Heist option is in DPS Meter › Results.</small>
+          <small class="hint">Controller blocking and the Egg Heist option are in DPS Meter › Results.</small>
         </div>
         <div class="guide-step" data-step="5" hidden>
           <h1>You're set</h1>

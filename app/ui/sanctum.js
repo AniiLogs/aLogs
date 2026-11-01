@@ -55,7 +55,9 @@
     node.append(...children.flat().filter((c) => c !== null && c !== undefined && c !== false));
     return node;
   };
+  // app.js's notice when it's there (errors stay until closed, and the two never fight over the same timer)
   function toast(text, bad = false) {
+    if (window.alogsToast) return window.alogsToast(text, bad);
     const node = document.querySelector("[data-toast]");
     node.textContent = text;
     node.classList.toggle("bad", bad);
@@ -81,11 +83,14 @@
       }
     }, 250);
   }
+  // true when it went through, so a button only says it worked when it did
   async function command(name, args) {
     try {
       await invoke("sanctum_command", { command: name, args: args || null });
+      return true;
     } catch (error) {
       toast(String(error), true);
+      return false;
     }
   }
 
@@ -159,11 +164,11 @@
       card("Layout", layout ? layout.title : "Not found yet", layout ? `Blue door ${layout.compass} · via ${layout.source}` : inRun ? "Explore, or open the full map" : "Found during a run", Boolean(layout)),
     ));
     nodes.push(el("div", { class: "row" },
-      el("button", { class: "primary", textContent: "New run", title: "Forget the detected layout and start fresh", onclick: () => command("new-run").then(() => toast("New run")) }),
-      el("button", { textContent: "Position on-screen map…", onclick: () => command("position-map").then(() => toast("Drag the map on the game screen")) }),
+      el("button", { class: "primary", textContent: "New run", title: "Forget the detected layout and start fresh", onclick: () => command("new-run").then((ok) => ok && toast("New run")) }),
+      el("button", { textContent: "Position on-screen map…", onclick: () => command("position-map").then((ok) => ok && toast("Drag the map on the game screen")) }),
       el("button", { textContent: "Open log folder", onclick: () => command("open-logs") }),
     ));
-    const capture = st.sharedCapture ? "Reading the game through aLogs' shared capture." : st.windowCapture === false ? "Reading the screen (window capture doesn't work for this game window)." : "Reading the game window.";
+    const capture = st.sharedCapture ? "Reading the game through aLogs' shared capture." : st.windowCapture === false ? "Reading the screen." : "Reading the game window.";
     nodes.push(el("p", { class: "hint" }, state.running ? capture : ""));
     if (st.lastMatch) nodes.push(el("p", { class: "hint faint" }, `Last map match: ${st.lastMatch}`));
     nodes.push(group("How it works",
@@ -260,8 +265,10 @@
       ...groups.map((name) => group(name, el("div", { class: "layer-grid" }, LAYERS.filter(([g]) => g === name).map(([, key, label, icon]) => {
         const input = el("input", { type: "checkbox", checked: (s.Layers || {})[key] ?? DEFAULTS.Layers[key] });
         input.addEventListener("change", () => {
-          s.Layers = { ...(s.Layers || {}), [key]: input.checked };
-          change("Layers", { [key]: input.checked });
+          const layers = { ...(s.Layers || {}), [key]: input.checked };
+          // added to what's still waiting to save: two ticks within the 250 ms used to lose the first
+          change("Layers", { ...(pending.Layers || {}), [key]: input.checked });
+          s.Layers = layers;   // change() kept only the changed ones; the page shows them all
         });
         return el("label", { class: "layer" }, input, layerIcon(icon), el("span", { textContent: label }));
       })))),
@@ -300,7 +307,7 @@
       group("App",
         toggle("ShowNotifications", "Notifications", "A short notice in the top-right corner when the difficulty or the Sanctum is found."),
       ),
-      el("p", { class: "hint" }, "Sanctum Helper starts and stops with aLogs (General Settings › Start aLogs with Windows). The game window's title and whether overlays show in recordings are set once for all of aLogs, in General Settings."),
+      el("p", { class: "hint" }, "Sanctum Helper runs while aLogs does, unless you switch it off here, in the sidebar or with the button over the game. The game window's title and whether overlays show in recordings are set once for all of aLogs, in General Settings."),
     ];
   }
   let browserLayout = 0;
@@ -352,7 +359,9 @@
       activeTab === "status" || activeTab === "overlay" ? state.status : null,
       activeTab === "general" ? state.status?.ocrMissingLanguage : null]);
     if (!force && key === rendered) return;
-    if (!force && document.activeElement && body.contains(document.activeElement) && activeTab !== "status") return;
+    // not while you're typing in or dragging a field (it'd be rebuilt under you); a focused button (Overlay key) still updates
+    const editing = document.activeElement?.matches?.("input:not([type=checkbox]):not([type=radio]):not([type=button]), select, textarea");
+    if (!force && editing && body.contains(document.activeElement) && activeTab !== "status") return;
     rendered = key;
     for (const button of tabRow.children) button.setAttribute("aria-selected", String(button.dataset.tab === activeTab));
     subtitle.textContent = TABS.find(([id]) => id === activeTab)[2];

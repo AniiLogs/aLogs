@@ -29,8 +29,8 @@ DEFAULTS = {
         'start_with_windows': False,
         'close_to_tray': True,
         'priority': '',                      # how much of a busy PC aLogs may take: '' (not set: Windows decides), low, normal, high
-        'auto_download': True,               # the app downloads updates in the background (General › Updates)
-        'beta_updates': False,               # the app's self-update follows the beta feed too (General › Updates)
+        'auto_download': True,               # the app downloads updates in the background (About › Updates)
+        'beta_updates': False,               # the app's self-update follows the beta feed too (About › Updates)
         'photos_auto': False,                # Photos: upload new in-game photos to the profile on their own
         'photos_auto_since': 0,              # ...taken after this (unix time: when that was switched on)
     },

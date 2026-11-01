@@ -2,7 +2,7 @@
 name = "ocr-helper"
 version = "0.1.0"
 edition = "2021"
-description = "Windows' built-in OCR for the boss meter, plus a Korean model for player names: grey images in on stdin, text out on stdout"
+description = "PaddleOCR text models (Latin and Korean) for player names, with Windows OCR as a fallback"
 
 [dependencies]
 tract-onnx = "0.21"

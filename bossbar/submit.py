@@ -16,12 +16,20 @@ QUEUE = os.path.join(HERE, 'logs', 'submit_queue')
 CLIENT_VERSION = os.environ.get('ALOGS_VERSION') or 'meter-0.1'   # e.g. aLogs-0.1.28+rc.8, from the app
 log = logging.getLogger('meter')
 
-def load_config():
-    """The leaderboard settings, or None while submissions are off or no token is set."""
+def load_account():
+    """The leaderboard settings while signed in (an alb_ token), or None. Your character's link, profile numbers and
+    online status only need this: they work whether "Submit my records" is on or not."""
     c = C.load()['leaderboard']
-    if not c.get('submit') or not c.get('api_url') or not str(c.get('token', '')).startswith('alb_'): return None
-    return {'api_url': c['api_url'].rstrip('/'), 'token': c['token'], 'screenshots': bool(c.get('include_screenshots', True)),
-            'link_character': bool(c.get('link_character', True))}
+    if not str(c.get('token', '')).startswith('alb_'): return None
+    # a blank Leaderboard API field means the default one, like the app (clearing it used to stop everything)
+    api = str(c.get('api_url') or '').strip() or C.DEFAULTS['leaderboard']['api_url']
+    return {'api_url': api.rstrip('/'), 'token': c['token'], 'screenshots': bool(c.get('include_screenshots', True)),
+            'link_character': bool(c.get('link_character', True)), 'submit': bool(c.get('submit'))}
+
+def load_config():
+    """The leaderboard settings, or None while submissions are off or no token is set (run records need both)."""
+    c = load_account()
+    return c if c and c['submit'] else None
 
 def write_json(path, data, **kw):
     """Written whole or not at all (a crash mid-write left a truncated file that stopped the whole queue)."""
@@ -135,7 +143,7 @@ class Submitter(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True); self.stop = False; self.wake = threading.Event()
         os.makedirs(QUEUE, exist_ok=True)
-        self.config = load_config(); self.config_stamp = self._stamp()
+        self.account = load_account(); self.config = load_config(); self.config_stamp = self._stamp()   # signed in / sending runs
         self.linked = None                   # (uid, name, proven) last linked, so a character is sent once per change
         self.dispute = _read_json(DISPUTE)   # another account proved our UID first: what a dispute would send
         self.last_result = None              # shown in the app: (time, text)
@@ -171,7 +179,7 @@ class Submitter(threading.Thread):
         stamp = self._stamp()
         if stamp != self.config_stamp:
             self.config_stamp = stamp
-            try: self.config = load_config()
+            try: self.account = load_account(); self.config = load_config()
             except Exception: pass                                           # a save in progress: next time
 
     # -- queueing (called from the meter thread)
@@ -193,7 +201,7 @@ class Submitter(threading.Thread):
         """Link your character: the UID from the game log and your name. With proof (the game menu's name and UID, see
         live.game_menu) the site trusts it; without, it only fills in until a proof arrives."""
         self.refresh()
-        if not self.config or not self.config['link_character'] or not uid or (uid, name, bool(proof)) == self.linked: return
+        if not self.account or not self.account['link_character'] or not uid or (uid, name, bool(proof)) == self.linked: return
         if self.linked and self.linked[:2] == (uid, name) and self.linked[2] and not proof: return
         self.linked = (uid, name, bool(proof))
         write_json(os.path.join(QUEUE, _safe(f'character__{uid}') + '.json'), {'endpoint': 'characters', 'payload': {'gameUid': uid, 'name': name},
@@ -207,7 +215,7 @@ class Submitter(threading.Thread):
         progress (from the EXP card), for your profile. Sent after the character's link (queue files go in name order), and only for a
         character you proved. The two queue separately, so a level doesn't replace numbers still waiting to go."""
         self.refresh()
-        if not self.config or not self.config['link_character'] or not uid: return
+        if not self.account or not self.account['link_character'] or not uid: return
         name = f'level__{uid}' if 'level' in stats else f'stats__{uid}'
         write_json(os.path.join(QUEUE, _safe(name) + '.json'), {'endpoint': 'characters/stats', 'payload': {'gameUid': uid, 'stats': stats}, 'queued_at': time.time()})
         log.info(f'leaderboard: queued profile numbers for UID {uid}')
@@ -218,11 +226,12 @@ class Submitter(threading.Thread):
         Only for a linked character. The site counts it for 5 minutes, and keeps none if the player turned it off on
         their profile (Edit profile > Show my online status)."""
         self.refresh()
-        if not self.config or not self.config['link_character'] or not uid: return
+        if not self.account or not self.account['link_character'] or not uid: return
+        account = self.account
         def go():
             body = json.dumps({'gameUid': uid, 'state': state}).encode()
-            req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/characters/presence", data=body, method='POST',
-                                         headers={'authorization': f"Bearer {self.config['token']}", 'content-type': 'application/json',
+            req = urllib.request.Request(f"{account['api_url']}/leaderboard/characters/presence", data=body, method='POST',
+                                         headers={'authorization': f"Bearer {account['token']}", 'content-type': 'application/json',
                                                   'user-agent': CLIENT_VERSION})
             try:
                 with urllib.request.urlopen(req, timeout=10): pass
@@ -256,8 +265,8 @@ class Submitter(threading.Thread):
                 jpeg = item['proof'].lower().endswith('.jpg')                 # large proofs are JPEGs (live.save_proof)
                 body, ctype = _form(item['payload'], [('proof', 'menu.jpg' if jpeg else 'menu.png', 'image/jpeg' if jpeg else 'image/png', proof)])
                 path = 'characters/disputes' if item['endpoint'] == 'disputes' else 'characters'
-                req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/{path}", data=body, method='POST',
-                                             headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,
+                req = urllib.request.Request(f"{self.account['api_url']}/leaderboard/{path}", data=body, method='POST',
+                                             headers={'authorization': f"Bearer {self.account['token']}", 'content-type': ctype,
                                                       'user-agent': CLIENT_VERSION})
                 with urllib.request.urlopen(req, timeout=30) as r: return r.status, json.loads(r.read() or b'{}')
         files = {}; payload = item['payload']
@@ -277,8 +286,8 @@ class Submitter(threading.Thread):
             body, ctype = _multipart(payload, files)
         else: body = json.dumps(payload).encode()
         endpoint = item['endpoint'] if item.get('endpoint') in ('characters', 'characters/stats', 'disputes') else 'submissions'
-        req = urllib.request.Request(f"{self.config['api_url']}/leaderboard/{endpoint}", data=body, method='POST',
-                                     headers={'authorization': f"Bearer {self.config['token']}", 'content-type': ctype,
+        req = urllib.request.Request(f"{self.account['api_url']}/leaderboard/{endpoint}", data=body, method='POST',
+                                     headers={'authorization': f"Bearer {self.account['token']}", 'content-type': ctype,
                                               'user-agent': CLIENT_VERSION})
         with urllib.request.urlopen(req, timeout=30) as r: return r.status, json.loads(r.read() or b'{}')
 
@@ -302,7 +311,7 @@ class Submitter(threading.Thread):
             self.wake.wait(delay); self.wake.clear()
             self.refresh()                                           # sending turned on or off, signed in or out
             self.expire()
-            if not self.config: delay = 60; continue
+            if not self.account: delay = 60; continue
             os.makedirs(QUEUE, exist_ok=True)
             for name in sorted(os.listdir(QUEUE)):
                 if not name.endswith('.json'): continue
@@ -313,6 +322,8 @@ class Submitter(threading.Thread):
                     except ValueError:                                       # unreadable: set aside, not a jam
                         log.warning(f'leaderboard: {name} is unreadable, set aside'); os.replace(path, path + '.bad'); continue
                     if not isinstance(item, dict): os.replace(path, path + '.bad'); continue
+                    # run records wait while "Submit my records" is off; your character's link and numbers still go
+                    if not self.config and item.get('endpoint') not in ('characters', 'characters/stats', 'disputes'): continue
                     status, reply = self.send(item)
                     log.info(f"leaderboard: sent {name} -> {status} {reply.get('submissionId') or reply.get('gameUid') or reply.get('disputeId')}"
                              + (' (updated)' if reply.get('updated') else ''))
