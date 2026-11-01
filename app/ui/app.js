@@ -10,8 +10,8 @@
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", dps_locked: true, dps_reset: 0,
       rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
-    results: { auto_open_battle_data: true, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
-    leaderboard: { submit: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
+    results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
+    leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
     // only moves the ones not listed, so a choice is never overwritten
     user_set: [],
@@ -121,13 +121,12 @@
   }));
   new ResizeObserver(() => { if ($('[data-page-body="site"]').classList.contains("is-active")) placeSite(); }).observe($("[data-site-frame]"));
   // DPS Meter: its sections are tabs across the top of the page
-  // Tabs across the top of a page (DPS Meter, General Settings): each page switches only its own panels.
+  // Tabs across the top of a page (DPS Meter, Leaderboards, General Settings): each page switches only its own panels.
   function showTab(page, name) {
     const body = $(`[data-page-body="${page}"]`);
     $$("[data-tab]", body).forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
     $$("[data-panel]", body).forEach((panel) => panel.classList.toggle("is-active", panel.dataset.panel === name));
   }
-  const showDpsTab = (name) => showTab("dps", name);
   $$("[data-tab]").forEach((tab) => tab.addEventListener("click", () => showTab(tab.closest("[data-page-body]").dataset.pageBody, tab.dataset.tab)));
 
   // ---------------------------------------------------------------- themes
@@ -306,6 +305,7 @@
       event.preventDefault(); event.stopPropagation();
       const on = sw.getAttribute("aria-checked") !== "true";
       if (sw.dataset.navSwitch === "dps") void setSwitch({ captureOn: on });
+      else if (sw.dataset.navSwitch === "leaderboards") { set("leaderboard.submit", on); markUserSet("leaderboard.submit"); fill(); scheduleSave(on ? "Sending to the leaderboards" : "Not sending to the leaderboards"); }
       else void setSanctum(on);
     };
     sw.addEventListener("click", flip);
@@ -403,13 +403,17 @@
     tokenHint();
     dependents();
   }
-  // Settings that only do something with another one on: greyed out while it's off. Blocking until Battle Data opens
-  // needs the automatic click (without it, it'd block your own click); the time limit also caps the Egg Heist block.
+  // Settings that only do something with another one on: greyed out while it's off. The automation needs sending on
+  // (it only collects proof for the leaderboards), and everything it does needs the automation on.
   function dependents() {
-    const auto = Boolean(get("results.auto_open_battle_data"));
-    $('[data-k="results.hold_inputs"]').disabled = !auto;
-    $('[data-guide-k="results.hold_inputs"]').disabled = !auto;   // the setup guide's copy (fill() runs on its changes)
-    $('[data-k="results.hold_seconds"]').disabled = !auto && !get("results.egg_fade_hold");
+    const sending = Boolean(get("leaderboard.submit"));
+    const auto = sending && Boolean(get("leaderboard.automation"));
+    $('[data-nav-switch="leaderboards"]').setAttribute("aria-checked", String(sending));
+    $('[data-k="leaderboard.automation"]').disabled = !sending;
+    $('[data-guide-k="leaderboard.automation"]').disabled = !sending;   // the setup guide's copy (fill() runs on its changes)
+    for (const key of ["results.auto_open_battle_data", "results.sim_gizmos", "results.sim_gate", "results.egg_fade_hold",
+      "results.hold_inputs", "results.hold_seconds"]) $(`[data-k="${key}"]`).disabled = !auto;
+    $('[data-k="results.hold_controller"]').disabled = !auto || !status.hidhide_installed;
   }
   // DPS Meter › Overlay: the background slider's preview follows the slider while it moves (saved on release)
   function backdropPreview(value = get("overlay.backdrop") || 0) {
@@ -460,7 +464,7 @@
     closeAccountMenu();
     const go = item.dataset.accountGo;
     if (go === "profile") { $('[data-page="site"]').click(); $('[data-site-tab="/?view=profile"]').click(); }
-    else if (go === "account") { $('[data-page="dps"]').click(); showDpsTab("leaderboard"); }
+    else if (go === "account") { $('[data-page="leaderboards"]').click(); showTab("leaderboards", "account"); }
     else $("[data-sign-out]").click();
   }));
   document.addEventListener("click", (event) => { if (!event.target.closest(".nav-account-wrap")) closeAccountMenu(); });
@@ -1425,7 +1429,7 @@
     if (testable && why.dataset.from === "hint") { why.hidden = true; why.dataset.from = ""; }
     if (info.hiding) $("[data-hidhide-state]").textContent = "Your controller is hidden from the game right now (the meter is holding inputs).";
   }
-  // refreshed while the Results tab is open (often, so the "which one is it" light follows your presses)
+  // refreshed while Leaderboards › Automation is open (often, so the "which one is it" light follows your presses)
   setInterval(() => { if ($('[data-hidhide-test]').offsetParent) void showPads(); }, 400);
 
   // ---------------------------------------------------------------- status
@@ -1473,7 +1477,7 @@
     $("[data-hidhide-state]").textContent = status.hidhide_installed
       ? "Controller blocking is installed. Press the setup button again whenever you use a different controller."
       : "Setting it up installs a small driver (Windows asks for admin approval once). Without it, only the keyboard and mouse can be blocked.";
-    $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed;
+    $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed || !get("leaderboard.submit") || !get("leaderboard.automation");
     // Windows 10 can't capture the game window without a yellow border: About explains what that means for streams
     $("[data-win10-capture]").hidden = status.borderless_capture !== false;
   }
@@ -1559,7 +1563,7 @@
   $("[data-guide-back]").addEventListener("click", () => guideShow(guideAt - 1));
   $("[data-guide-skip]").addEventListener("click", closeGuide);
   $("[data-guide-open]").addEventListener("click", openGuide);
-  // the account step uses the same sign-in as DPS Meter › Leaderboards & account, and follows it
+  // the account step uses the same sign-in as Leaderboards › Account, and follows it
   $("[data-guide-sign-in]").addEventListener("click", (event) => signIn(event.currentTarget));
   new MutationObserver(() => { if (!guide.hidden) guideAccount(); }).observe($("[data-account-state]"), { childList: true, characterData: true, subtree: true });
 

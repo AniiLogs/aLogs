@@ -16,6 +16,7 @@
       <button type="button" data-page="dashboard" class="is-active">Dashboard</button>
       <!-- each with its on/off switch, always in view: the same switches as on their pages -->
       <button type="button" data-page="dps"><span>DPS Meter</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="dps" title="DPS meter on/off"></span></button>
+      <button type="button" data-page="leaderboards"><span>Leaderboards</span><span class="nav-switch" role="switch" aria-checked="false" tabindex="0" data-nav-switch="leaderboards" title="Sending to the leaderboards on/off"></span></button>
       <button type="button" data-page="sanctum"><span>Sanctum Helper</span><span class="nav-switch" role="switch" aria-checked="true" tabindex="0" data-nav-switch="sanctum" title="Sanctum Helper on/off"></span></button>
       <button type="button" data-page="site">AniiLogs</button>
       <button type="button" data-page="photos">Photos</button>
@@ -94,9 +95,7 @@
         <div class="tabs" role="tablist" aria-label="DPS Meter">
           <button type="button" role="tab" data-tab="meter" aria-selected="true">Meter</button>
           <button type="button" role="tab" data-tab="overlay" aria-selected="false">Overlay</button>
-          <button type="button" role="tab" data-tab="results" aria-selected="false">Results</button>
           <button type="button" role="tab" data-tab="captures" aria-selected="false">Captures &amp; logs</button>
-          <button type="button" role="tab" data-tab="leaderboard" aria-selected="false">Leaderboards &amp; account</button>
         </div>
       <div class="dps-panel is-active" data-panel="meter">
         <div class="group">
@@ -170,33 +169,6 @@
           <p class="hint">When the boss goes down, the DPS window shows the fight's final numbers for this long.</p>
         </div>
       </div>
-      <!-- Results -->
-      <div class="dps-panel" data-panel="results">
-        <p class="lead">After an Interlink fight the game shows its result screen, and each player's stats are one click away under <em>View Battle Data</em>. The meter saves both.</p>
-        <div class="group">
-          <label class="toggle"><input type="checkbox" data-k="results.auto_open_battle_data"><span></span>
-            <div><strong>Open Battle Data and Holo-Battle Sim's gizmos automatically</strong><small>Clicks View Battle Data on the result screen, and opens the Gizmo screen after a Holo-Battle Sim win, so every player's stats and your setup are read while you're in the game. Then puts your cursor back.</small></div></label>
-          <label class="toggle"><input type="checkbox" data-k="results.hold_inputs"><span></span>
-            <div><strong>Block keyboard and mouse buttons until Battle Data opens</strong><small>So mashing buttons can't skip past the result screen. You can still move the mouse. Stops when Battle Data opens or the screen changes; Ctrl+Shift+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
-          <label class="field"><span>Block for at most (seconds)</span><input type="number" min="10" max="120" step="5" data-k="results.hold_seconds" data-type="number"></label>
-          <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
-            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses (and your controller, if blocked below) from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Ctrl+Shift+F12 stops it right away. Off by default; experimental.</small></div></label>
-        </div>
-        <div class="group">
-          <h2>Controller</h2>
-          <p class="hint" data-hidhide-state>Checking controller blocking…</p>
-          <p class="hint">Press a button on a controller: its row lights up, so you can tell which one is which.</p>
-          <ul class="pads" data-pads></ul>
-          <label class="toggle"><input type="checkbox" data-k="results.hold_controller"><span></span>
-            <div><strong>Block the controller too</strong><small>Hides your controller from the game while inputs are blocked (HidHide's driver by Nefarius, built in). Needs a one-time setup below. Off by default; experimental.</small></div></label>
-          <div class="row">
-            <button type="button" data-hidhide-setup>Set up controller blocking…</button>
-            <button type="button" data-hidhide-test>Test blocking</button>
-          </div>
-          <p class="hint" data-hidhide-result hidden></p>
-        </div>
-      </div>
-
       <!-- Captures & logs -->
       <div class="dps-panel" data-panel="captures">
         <p class="lead">The meter always keeps your records: each fight's readings, results, Battle Data numbers, your scores (from Challenge Stats and the battle prep screens) and <strong>meter.log</strong> (open them, or report a problem, from the Dashboard). The diagnostics below save extra pictures to check the meter's accuracy and fix problems; they're off unless you're chasing a problem, and they take a lot of space.</p>
@@ -230,20 +202,69 @@
         </div>
       </div>
 
-      <!-- Leaderboards & account -->
-      <div class="dps-panel" data-panel="leaderboard">
-        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink, Holo-Battle Sim and Operation: Egg Heist). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on.</p>
+      </section>
+
+      <!-- Leaderboards: sending records, the automation that collects their proof (opt-in), and the account -->
+      <section class="page page-wide" data-page-body="leaderboards">
+        <header class="page-head"><h1>Leaderboards</h1></header>
+        <div class="tabs" role="tablist" aria-label="Leaderboards">
+          <button type="button" role="tab" data-tab="sending" aria-selected="true">Sending</button>
+          <button type="button" role="tab" data-tab="automation" aria-selected="false">Automation</button>
+          <button type="button" role="tab" data-tab="account" aria-selected="false">Account</button>
+        </div>
+      <div class="dps-panel is-active" data-panel="sending">
+        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink, Holo-Battle Sim and Operation: Egg Heist). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on. The DPS meter reads the records, so it has to be running too.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="leaderboard.submit"><span></span>
-            <div><strong>Submit my records</strong><small>Each fight's result (score, stars, time, team DPS), every player's Battle Data, the meter's numbers, and your weekly and per-boss best scores.</small></div></label>
+            <div><strong>Send my records to the leaderboards</strong><small>Also in the sidebar. Each run's result (score, stars, time, team DPS), every player's Battle Data, your Holo-Battle Sim setup, your Egg Heist matches and rank, and your weekly and per-boss best scores. Off: nothing is sent, and the automation doesn't run.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.include_screenshots"><span></span>
-            <div><strong>Attach the result screenshot</strong><small>Proof for your run: small pictures of the result and Battle Data screens (1280×720). Anyone can open them from the picture icon next to your entry on the leaderboards. Your PC keeps no copy once it's sent.</small></div></label>
+            <div><strong>Attach the screenshots as proof</strong><small>Pictures of the screens a run was read from (result, Battle Data, Holo-Battle Sim's Victory and Gizmo screens). Anyone can open them from the picture icon next to your entry on the leaderboards. Your PC keeps no copy once they're sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
             <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
-          <label class="toggle"><input type="checkbox" checked data-presence-toggle><span></span>
-            <div><strong>Show my online status</strong><small>Your profile shows Online while Aniimo and aLogs run, AFK after 20 minutes with the game not in front or no keyboard, mouse or controller input, and Offline otherwise. The same setting as the website's Edit profile: change it in either. You need to be signed in.</small></div></label>
           <p class="hint">Leaderboards: <strong data-s="lb">Off</strong> <span data-s="lb-detail"></span></p>
         </div>
+      </div>
+
+      <div class="dps-panel" data-panel="automation">
+        <p class="lead">Some proof is only one click away: an Interlink run's Battle Data, a Holo-Battle Sim's gizmos. Mashing buttons on those screens skips them, and then the run goes in without them.</p>
+        <div class="group">
+          <label class="toggle"><input type="checkbox" data-k="leaderboard.automation"><span></span>
+            <div><strong>Let aLogs take control of the game to collect proof</strong><small>Opt-in. When a run ends, aLogs takes control of the game for a short while (at most the time set below): it clicks and presses the game's buttons for you, blocks your keyboard and mouse buttons (and your controller, if set below) so nothing skips a screen, and takes the screenshots it sends to the leaderboards. It all happens on this PC, done by aLogs itself: the game is never controlled over the network or by the server. Ctrl+Shift+F12 gives you control back at once. Needs "Send my records" on.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>What it does</h2>
+          <label class="toggle"><input type="checkbox" data-k="results.auto_open_battle_data"><span></span>
+            <div><strong>Interlink: open Battle Data</strong><small>Clicks View Battle Data on the result screen, so every player's stats are read and sent with the run. Then puts your cursor back.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="results.sim_gizmos"><span></span>
+            <div><strong>Holo-Battle Sim: read the gizmos</strong><small>After a win, opens the Gizmo screen from the Victory screen, reads every gizmo you picked, takes a picture of each part of the list as proof, and goes back.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="results.sim_gate"><span></span>
+            <div><strong>Holo-Battle Sim: finish at the exit gate</strong><small>When the End Holo-Battle Sim button comes up at the exit gate, aLogs takes control from there: it presses the button for you (F), keeps the Victory screen from being skipped, reads the gizmos, and gives control back once everything is saved. Off by default.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
+            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Off by default; experimental.</small></div></label>
+        </div>
+        <div class="group">
+          <h2>Blocking</h2>
+          <label class="toggle"><input type="checkbox" data-k="results.hold_inputs"><span></span>
+            <div><strong>Block keyboard and mouse buttons</strong><small>While aLogs has control, so mashing can't skip a screen. You can still move the mouse. Stops when it's done or the screen changes; Ctrl+Shift+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
+          <label class="field"><span>Take control for at most (seconds)</span><input type="number" min="10" max="120" step="5" data-k="results.hold_seconds" data-type="number"></label>
+          <p class="hint">Each time aLogs takes control, you get it back after this long whatever happens, even if it isn't done.</p>
+        </div>
+        <div class="group">
+          <h2>Controller</h2>
+          <p class="hint" data-hidhide-state>Checking controller blocking…</p>
+          <p class="hint">Press a button on a controller: its row lights up, so you can tell which one is which.</p>
+          <ul class="pads" data-pads></ul>
+          <label class="toggle"><input type="checkbox" data-k="results.hold_controller"><span></span>
+            <div><strong>Block the controller too</strong><small>Hides your controller from the game while aLogs has control (HidHide's driver by Nefarius, built in). Needs a one-time setup below. Off by default; experimental.</small></div></label>
+          <div class="row">
+            <button type="button" data-hidhide-setup>Set up controller blocking…</button>
+            <button type="button" data-hidhide-test>Test blocking</button>
+          </div>
+          <p class="hint" data-hidhide-result hidden></p>
+        </div>
+      </div>
+
+      <div class="dps-panel" data-panel="account">
         <div class="group">
           <h2>Your AniiLogs account</h2>
           <p class="hint" data-account-state>Not signed in.</p>
@@ -252,6 +273,8 @@
           </div>
           <p class="hint">To sign in, use the <strong>Discord</strong> button at the bottom of the sidebar: Discord's own sign-in page opens in a window of aLogs; approve it there and the window closes by itself. aLogs never reads what you type there: it only gets a one-time code from Discord.</p>
           <p class="hint">Your records then appear on the <button type="button" class="link" data-open="https://aniilogs.github.io/leaderboard/">AniiLogs leaderboards</button>.</p>
+          <label class="toggle"><input type="checkbox" checked data-presence-toggle><span></span>
+            <div><strong>Show my online status</strong><small>Your profile shows Online while Aniimo and aLogs run, AFK after 20 minutes with the game not in front or no keyboard, mouse or controller input, and Offline otherwise. The same setting as the website's Edit profile: change it in either. You need to be signed in.</small></div></label>
           <details>
             <summary>Advanced</summary>
             <label class="field"><span>Desktop token (instead of signing in: create one in your AniiLogs settings, Desktop app tab)</span>
@@ -261,7 +284,6 @@
           </details>
         </div>
       </div>
-
       </section>
 
       <!-- Sanctum Helper: tabs across the top, built by sanctum.js -->
@@ -524,12 +546,10 @@
             <div><strong>Link my character to my account</strong><small>Each UID belongs to one account.</small></div></label>
         </div>
         <div class="guide-step" data-step="4" hidden>
-          <h1>Result screens</h1>
-          <label class="toggle"><input type="checkbox" data-guide-k="results.auto_open_battle_data"><span></span>
-            <div><strong>Open Battle Data automatically</strong><small>So every player's stats get read too.</small></div></label>
-          <label class="toggle"><input type="checkbox" data-guide-k="results.hold_inputs"><span></span>
-            <div><strong>Block button presses until it opens</strong><small>So mashing can't skip the result screen. Ctrl+Shift+F12 stops it right away.</small></div></label>
-          <small class="hint">Controller blocking and the Egg Heist option are in DPS Meter › Results.</small>
+          <h1>Proof for the leaderboards</h1>
+          <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.automation"><span></span>
+            <div><strong>Let aLogs take control of the game to collect proof</strong><small>Opt-in. When a run ends, aLogs clicks and presses the game's buttons for you for a short while (opening Battle Data, reading a Holo-Battle Sim's gizmos) and blocks your buttons so nothing skips a screen, then sends the screenshots as proof. It all happens on this PC: the game is never controlled over the network. Ctrl+Shift+F12 gives you control back at once.</small></div></label>
+          <small class="hint">What it does, how long it may take control and controller blocking are in Leaderboards › Automation.</small>
         </div>
         <div class="guide-step" data-step="5" hidden>
           <h1>You're set</h1>

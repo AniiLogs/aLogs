@@ -81,6 +81,14 @@ def _party_bytes(path):
         if len(data) <= PARTY_MAX: return data
     return data
 
+GIZMO_WIDTH = 1600         # a Holo-Battle Sim Gizmo-screen proof: the names readable, ~150-250 KB each
+
+def _gizmo_bytes(path):
+    """One view of the Holo-Battle Sim's Gizmo screen (a run sends up to 12, one per part of each series' list)."""
+    im = Image.open(path).convert('RGB')
+    if im.width > GIZMO_WIDTH: im = im.resize((GIZMO_WIDTH, round(im.height * GIZMO_WIDTH / im.width)), Image.LANCZOS)
+    return _jpeg(im, 80)
+
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
 SET_ASIDE_DAYS = 7      # .rejected / .bad copies (the server turned them down, or unreadable), kept a few days to look
                         # at why. Records still to send wait as long as it takes: signed out for weeks, they still go up.
@@ -183,7 +191,7 @@ class Submitter(threading.Thread):
             except Exception: pass                                           # a save in progress: next time
 
     # -- queueing (called from the meter thread)
-    def enqueue(self, payload, evidence_path=None, battle=None, party=None):
+    def enqueue(self, payload, evidence_path=None, battle=None, party=None, gizmos=None):
         """Queue one record; the same kind + run id replaces an older queued copy. Nothing is queued while off."""
         self.refresh()
         if not self.config: return
@@ -193,7 +201,8 @@ class Submitter(threading.Thread):
         write_json(os.path.join(QUEUE, name), {'endpoint': 'submissions', 'payload': payload,
                     'evidence': evidence_path if self.config['screenshots'] else None,
                     'battle': battle if self.config['screenshots'] else None,
-                    'party': party if self.config['screenshots'] else None, 'queued_at': time.time()}, indent=1)
+                    'party': party if self.config['screenshots'] else None,
+                    'gizmos': (gizmos or None) if self.config['screenshots'] else None, 'queued_at': time.time()}, indent=1)
         log.info(f"leaderboard: queued {payload['kind']} {payload['clientRunId']}")
         self.wake.set()
 
@@ -247,6 +256,9 @@ class Submitter(threading.Thread):
             if item.get(key):
                 try: os.remove(os.path.join(HERE, item[key]))
                 except OSError: pass
+        for rel in item.get('gizmos') or []:
+            try: os.remove(os.path.join(HERE, rel))
+            except OSError: pass
 
     def pending(self):
         os.makedirs(QUEUE, exist_ok=True)
@@ -281,6 +293,10 @@ class Submitter(threading.Thread):
         if item.get('party') and 'evidence' in files:            # the Party screen, whole: the run's lineup and buffs
             try: files['party'] = _party_bytes(os.path.join(HERE, item['party']))
             except (OSError, ValueError): pass
+        if 'evidence' in files:                                  # Holo-Battle Sim: the Gizmo screen, each part of the list
+            for i, rel in enumerate((item.get('gizmos') or [])[:12], 1):
+                try: files[f'gizmo{i}'] = _gizmo_bytes(os.path.join(HERE, rel))
+                except (OSError, ValueError): pass
         if files:
             if boxes: payload = {**payload, 'extra': {**(payload.get('extra') or {}), 'proofBoxes': {k: list(v) for k, v in boxes.items() if k in files}}}
             body, ctype = _multipart(payload, files)

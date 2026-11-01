@@ -65,15 +65,20 @@ DEFAULTS = {
         # pictures: 0 = only until their data is saved (and, as leaderboard proof, sent); N = N hours; -1 = keep all
         'keep_hours': 0,
     },
+    # The automation that collects leaderboard proof (Leaderboards › Automation): only with leaderboard.submit and
+    # leaderboard.automation on (automation(), below); each of these is one thing it may do.
     'results': {
-        'auto_open_battle_data': True,       # click "View Battle Data" on the result screen
+        'auto_open_battle_data': True,       # Interlink: click "View Battle Data" on the result screen
+        'sim_gizmos': True,                  # Holo-Battle Sim: open the Gizmo screen after a win and read it
+        'sim_gate': False,                   # Holo-Battle Sim: press End Holo-Battle Sim at the exit gate, then the above
         'hold_inputs': True,                 # hold keyboard keys/mouse buttons while doing so
         'hold_controller': False,            # also hide the controller (needs HidHide)
         'egg_fade_hold': False,              # Egg Heist: hold inputs from the fade to black until the end screen is read (experimental)
-        'hold_seconds': 60,
+        'hold_seconds': 60,                  # the longest aLogs keeps control, each time
     },
     'leaderboard': {
         'submit': False,                     # opt-in: send records to the AniiLogs leaderboards
+        'automation': False,                 # opt-in: let aLogs take control of the game to collect proof (results.*)
         'api_url': 'https://aniilogs-api.pages.dev/api',
         'token': '',                         # desktop token from the leaderboard page
         'link_character': True,              # link the detected character (UID + name) to the account
@@ -90,6 +95,13 @@ def _merge(base, extra):
         if isinstance(out.get(key), dict) and isinstance(value, dict): out[key] = _merge(out[key], value)
         elif key in out: out[key] = value
     return out
+
+def automation(cfg, what=None):
+    """May the meter take control of the game for leaderboard proof (and do `what`, a results.* switch)? Only with
+    sending and the automation both on: it collects proof for the leaderboards, and is opt-in."""
+    lb = cfg.get('leaderboard') or {}
+    if not (lb.get('submit') and lb.get('automation')): return False
+    return what is None or bool((cfg.get('results') or {}).get(what))
 
 def load():
     try:

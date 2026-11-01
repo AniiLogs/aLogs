@@ -540,6 +540,7 @@ RESULT_PAUSE = 5                    # seconds the automatic Battle Data session 
 BATTLE_DATA_PAUSE = 5               # and holds on Battle Data once it's open, so each is read many times (inputs held)
 BATTLE_DATA_SETTLE = 6              # ...then a run is decided this long after Battle Data is in, once those reads voted
 SCREEN_READS = 10                   # reads of each screen per appearance; the value most reads agree on wins
+VK_F = 0x46                 # the game's interact key (End Holo-Battle Sim at the exit gate)
 HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 FIGHT_LOG_DAYS = 30                 # each fight's per-frame CSV is kept this long (its result in logs/fights stays)
 LEFTOVER_HOURS = 6                  # "only until its data is saved": anything a crash or diagnostics left behind
@@ -963,6 +964,22 @@ class Fight:
     def close(self):
         try: self.log.close()
         except Exception: pass
+
+def sim_gate_pill(im, box, u):
+    """Is the exit gate's button there: its dark blue-grey pill (the words on it), not the gate's floating label (the
+    same words over the scenery)? Rows with a long run of dark, blue-leaning pixels, at least 0.06 of the 16:9 width,
+    for a band about as tall as the pill (0.012 of the width). Ground shadows lean red, the sky is bright."""
+    band = im.crop(tuple(int(v) for v in box)).convert('RGB')
+    w = 400; h = max(1, round(band.height * w / band.width)); band = band.resize((w, h), Image.BOX)
+    px = band.load(); need = 0.06 * u * w / (box[2] - box[0]); rows = 0; best = 0
+    for y in range(h):
+        run = longest = 0
+        for x in range(w):
+            r, g, b = px[x, y]
+            if max(r, g, b) < 110 and b >= r - 5: run += 1; longest = max(longest, run)
+            else: run = 0
+        rows = rows + 1 if longest >= need else 0; best = max(best, rows)
+    return best >= 0.012 * u * w / (box[2] - box[0])
 
 class OcrWorker(threading.Thread):
     """Reads text crops on its own OCR helper so the frame loop never waits for OCR (one job at a time)."""
@@ -1472,6 +1489,7 @@ class Meter:
         """Between fights only the frame's top part is copied (where a boss bar appears; ~3x cheaper at 4K) unless
         the whole frame is needed: for a screen read, the end-screen note, Egg Heist's fade or diagnostic frames."""
         if self.end_sig is not None or getattr(self, 'egg_hold', None) or getattr(self, 'sim_tour', None) or self.sanctum_in_run(now): return True
+        if getattr(self, 'sim_ctl', None) or (self.holosim_space and (getattr(self, 'sim_gate_state', None) or {}).get('last')): return True
         cap = self.args.cfg['capture']; a = self.after_fight
         if a and cap['end_screens'] and now - a[2] >= 3: return True
         if cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30: return True
@@ -1678,7 +1696,7 @@ class Meter:
         before = getattr(self, 'egg_last_lit', None)
         if not black: self.egg_last_lit = im; self.egg_black = 0; return
         if not getattr(self, 'egg_black', 0): self.egg_black = now                  # when this black stretch began
-        if now - self.egg_black < EGG_BLACK or not r.get('egg_fade_hold') or not self.sanctum_in_run(now): return
+        if now - self.egg_black < EGG_BLACK or not C.automation(self.args.cfg, 'egg_fade_hold') or not self.sanctum_in_run(now): return
         # sanctum_in_run remembers a run for 30 s (for reading the end screen); the fade itself has to come while the
         # run is still being seen (SH reads ~1/s and drops it at the fade), and not just after a scene load's fade-in
         if now - getattr(self, 'sh_run_seen', 0) > 4 or now - getattr(self, 'egg_space_at', 0) < 8: return
@@ -1690,6 +1708,17 @@ class Meter:
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Egg Heist: the screen faded to black - holding inputs until the end screen is read (at most {seconds} s)')
         if before is not None: self.egg_fade_frame(before, 'before')
+
+    def sim_tour_frame(self, im, what):
+        """Diagnostics (Captures & logs › diagnostic captures): each view of the Gizmo screen the tour reads goes to
+        logs/sim_tour/, to see what it clicked and which names it missed. Small JPEGs, cleared with the rest."""
+        if not self.args.cfg['capture'].get('debug_frames'): return
+        try:
+            d = os.path.join(HERE, 'logs', 'sim_tour'); os.makedirs(d, exist_ok=True)
+            small = im.convert('RGB'); small.thumbnail((1600, 900))
+            small.save(os.path.join(d, time.strftime('%Y%m%d_%H%M%S_') + what + '.jpg'), quality=85)
+        except Exception as e:
+            log.info(f'gizmo screen frame not saved: {e!r}')
 
     def egg_fade_frame(self, im, what):
         """Diagnostics (Captures & logs › diagnostic captures): the frame before a fade and the one that ended a hold
@@ -1749,7 +1778,12 @@ class Meter:
         self.sim_seen = now
         log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
                  f"{sim['difficulty']}, battle time {sim['time_s']} s")
-        if not won: return
+        if not won: self.sim_release('not a victory'); return
+        # The same win still up (the game left on the Victory screen, tabbed out): it was sent once already. The
+        # 30 s above only spaces the reads; this run went to the leaderboards four times before (1 Nov).
+        key = (self.space, sim['trial'], sim['difficulty'], sim['time_s'])
+        if key == getattr(self, 'sim_last', None): return
+        self.sim_last = key
         sim['setup'] = {**team, **self.sim_pictures(im, u, ux, H), **self.sim_prep_for(sim)}
         counts = sim['setup'].pop('gizmoCounts')
         if sim['setup'].get('gizmos') and len(sim['setup']['gizmos']) == len(counts):
@@ -1758,13 +1792,15 @@ class Meter:
         log.info(f"Holo-Battle Sim setup: {sim['setup']}")
         shot = self.picture(im, 'screens', 'sim_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         self.sim_pending = (sim, shot)
-        if not self.sim_tour_start(now): self.sim_send()
+        if not self.sim_tour_start(now): self.sim_send()           # (gives control back too, if the gate took it)
 
-    def sim_send(self):
-        """Note and send the Holo-Battle Sim win waiting in sim_pending (after the Gizmo tour, if one ran)."""
+    def sim_send(self, note=None):
+        """Note and send the Holo-Battle Sim win waiting in sim_pending (after the Gizmo tour, if one ran), with the
+        Gizmo screen's pictures as more proof; the notice on the Victory screen says it's saved."""
         pending, self.sim_pending = getattr(self, 'sim_pending', None), None
         if not pending: return
-        sim, shot = pending
+        sim, shot = pending[:2]
+        shots = [os.path.relpath(p, HERE) for p in (sim.pop('gizmo_shots', None) or []) if p]
         for g in sim['setup'].get('gizmos') or []: g.pop('sid', None)
         os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
         path = os.path.join(HERE, 'logs', 'sim_runs.csv'); new = not os.path.exists(path)
@@ -1774,60 +1810,159 @@ class Meter:
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, sim['trial'], sim['difficulty'], sim['time_s'],
                         os.path.relpath(shot, HERE) if shot else ''])
         if self.submitter and self.uid:
-            self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None)
+            self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None, gizmos=shots)
         self.screen_settled('sim_result', time.time())
-        self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s")
+        self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s"
+                 + (f" ({note})" if note else ''))
+        self.sim_release('the run is saved')
 
     # The Gizmo screen (UI_Pb_Tower_BuffDetail), opened by clicking the Victory screen's Holo-gizmo row: the series
-    # down the left (All, then Energy ... Wealth in series order), the picked gizmos of the chosen one on the right,
-    # each a name in dark text with its rarity, six to a view (a longer list scrolls). "All" lists every one.
+    # down the left ("All 43", then Energy 9 ... Wealth 9), the picked gizmos of the chosen one on the right, each a
+    # name in dark text with its rarity, about six to a view (a longer list scrolls). It opens on the first series.
+    # "All" lists every row; the game data says each one's series, and each series' rows are checked against the
+    # Victory screen's count for it (an upgraded Core, "...: Final", counts 3: sim_count). Measured at 1920x1080.
     GIZMO_TITLE = (0.06, 0.03, 0.14, 0.085)
-    GIZMO_ALL = (0.054, 0.16)                 # "All": every picked gizmo in one list (it scrolls)
-    GIZMO_LIST = (0.305, 0.11, 0.60, 0.95)    # the names' column (descriptions run on to the right)
+    GIZMO_ALL = (0.09, 0.16)                  # "All 43" at the top of the series
+    GIZMO_LIST = (0.305, 0.09, 0.60, 0.96)    # the names' column (descriptions run on to the right)
     GIZMO_BACK = (0.05, 0.056)
-    SIM_TOUR_S = 40
+    SIM_PROOF_MAX = 12                        # Gizmo-screen pictures sent with a run, at most
+
+    def sim_control(self, now, why):
+        """aLogs takes control for the Holo-Battle Sim's end (Leaderboards › Automation): your keyboard and mouse
+        buttons held (and the controller hidden) as set, for at most "Take control for at most" seconds in all, from
+        the exit gate (or the Victory screen) to the Gizmo screen read. Kept when it's already on."""
+        ctl = getattr(self, 'sim_ctl', None)
+        if ctl: return ctl
+        r = self.args.cfg['results']
+        seconds = max(HOLD_MIN, min(120, int(r.get('hold_seconds') or 60)))
+        self.sim_ctl = ctl = {'until': now + seconds, 'why': why}
+        if r.get('hold_inputs'): self.hold.start(seconds)
+        if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
+        log.info(f'Holo-Battle Sim: aLogs has control ({why}), for at most {seconds} s')
+        return ctl
+
+    def sim_release(self, why):
+        if not getattr(self, 'sim_ctl', None): return
+        self.sim_ctl = None; self.hold.stop()
+        if CT.hidden: CT.hide_controllers(False)
+        log.info(f'Holo-Battle Sim: control given back ({why})')
+
+    def sim_gate(self, im, now):
+        """Holo-Battle Sim, last level: the exit gate's "End Holo-Battle Sim" button (a dark pill right of the middle
+        of the screen, the key on its left) is up. aLogs takes control and presses it (F) until it's gone, then waits for
+        the Victory screen (sim_result). Only on the last level ("Level 16/16" top left), so it never ends a run early,
+        and only below the gate's own floating label (same words, higher up). Read twice in a row before acting."""
+        if (not self.holosim_space or self.args.replay is not None or not self.hwnd or not wc.is_foreground(self.hwnd)
+                or not C.automation(self.args.cfg, 'sim_gate') or getattr(self, 'sim_tour', None)): return
+        gate = getattr(self, 'sim_gate_state', None) or {}
+        if gate.get('space') != self.space: gate = {'space': self.space}          # a new run: its level read again
+        if now - gate.get('look', 0) < (0.3 if gate.get('last') else 1.5): return     # the level: now and then
+        gate['look'] = now; self.sim_gate_state = gate
+        W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
+        t = self.ocr.read({'b': R.prep_bright(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), k),
+                           **({} if gate.get('last') else {'l': R.prep_bright(im, (ux + u * 0.02, H * 0.015, ux + u * 0.20, H * 0.08), k)})})
+        if 'l' in t:                                               # the level, read until it's the last one
+            m = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', t.get('l') or '')
+            gate['last'] = bool(m and m.group(1) == m.group(2) and int(m.group(1)) > 1)
+            if not gate['last']: return
+        up = 'endholo' in re.sub(r'[^a-z]', '', (t.get('b') or '').lower())
+        if up and not sim_gate_pill(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), u):
+            if now - gate.get('said', 0) > 10:                     # the words without the button: the gate's own label
+                gate['said'] = now; log.info('Holo-Battle Sim: "End Holo-Battle Sim" seen, but not on its button')
+                self.sim_tour_frame(im, 'gate_label')
+            up = False
+        ctl = getattr(self, 'sim_ctl', None)
+        if ctl and ctl.get('stage') == 'gate':
+            if up and now - ctl.get('pressed', 0) >= 1.0 and ctl['presses'] < 5:
+                wc.press_key(VK_F); ctl['pressed'] = now; ctl['presses'] += 1
+            elif not up: ctl['stage'] = 'victory'; log.info('Holo-Battle Sim: the exit gate took; waiting for the Victory screen')
+            return
+        gate['seen'] = gate.get('seen', 0) + 1 if up else 0
+        if gate['seen'] < 2 or ctl: return
+        ctl = self.sim_control(now, 'the exit gate')
+        ctl.update(stage='gate', presses=1, pressed=now)
+        wc.press_key(VK_F)
 
     def sim_tour_start(self, now):
-        """After a Holo-Battle Sim win, open the Gizmo screen and read which gizmos were picked, like the Interlink
-        result screen's View Battle Data click: only with automatic clicks on, the game the active window and the
-        game's gizmo names known; inputs are held meanwhile. False when it doesn't start."""
-        if (self.args.no_auto_click or self.args.replay is not None or not self.hwnd or not wc.is_foreground(self.hwnd)
-                or not self.icons or not self.icons.sim_gizmos):
+        """After a Holo-Battle Sim win, open the Gizmo screen and read every gizmo picked (All), keeping pictures of
+        the list as proof: only with the automation on (Leaderboards › Automation › read the gizmos), the
+        game the active window and the game's gizmo names known. False when it doesn't start."""
+        if (not C.automation(self.args.cfg, 'sim_gizmos') or self.args.replay is not None or not self.hwnd
+                or not wc.is_foreground(self.hwnd) or not self.icons or not self.icons.sim_gizmos):
             return False
         gizmos = self.sim_pending[0]['setup'].get('gizmos') or []
-        if not gizmos: return False
-        self.sim_tour = {'stage': 'open', 'next': now + 0.5, 'until': now + self.SIM_TOUR_S, 'tries': 0,
-                         'want': sum(g.get('count') or 0 for g in gizmos), 'found': [], 'scrolls': 0, 'idle': 0}
-        r = C.load()['results']
-        if r.get('hold_inputs', True): self.hold.start(self.SIM_TOUR_S)
+        if not gizmos or not all(g.get('sid') for g in gizmos): return False
+        self.sim_control(now, 'the Victory screen')
+        self.sim_tour = {'stage': 'open', 'next': now + 0.3, 'tries': 0, 'rows': [], 'read': {}, 'idle': 0, 'scrolls': 0,
+                         'shots': [], 'want': sum(g.get('count') or 0 for g in gizmos)}
         log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want']} gizmos")
         return True
 
     def sim_tour_end(self, why):
         tour, self.sim_tour = getattr(self, 'sim_tour', None), None
         if not tour: return
-        self.hold.stop(); self.sim_seen = time.time()          # back on the Victory screen: not a new win
+        self.sim_seen = time.time()                            # back on the Victory screen: not a new win
         pending = getattr(self, 'sim_pending', None)
-        if pending and tour['found']:
-            by_sid = {}
-            for n in tour['found']:
-                sid, rarity = self.icons.sim_gizmos[n]
-                by_sid.setdefault(sid, []).append({'name': n, 'rarity': rarity})
-            for g in pending[0]['setup'].get('gizmos') or []:
-                if g.get('sid') in by_sid: g['picked'] = by_sid[g['sid']]
-            if not any(g.get('sid') for g in pending[0]['setup'].get('gizmos') or []):     # the row's icons didn't match
-                pending[0]['setup']['picked'] = [{'name': n, 'series': self.icons.sim.get(self.icons.sim_gizmos[n][0], {}).get('name'),
-                                                  'rarity': self.icons.sim_gizmos[n][1]} for n in tour['found']]
-        log.info(f"Holo-Battle Sim Gizmo screen: {why}; read {len(tour['found'])} of {tour['want']} gizmos: {tour['found']}")
-        self.sim_send()
+        got = 0
+        if pending:
+            setup = pending[0]['setup']
+            for g in setup.get('gizmos') or []:
+                rows = tour['read'].get(g['sid'])
+                if rows is not None:
+                    g['picked'] = [{'name': n, 'rarity': self.sim_rarity(n)} for n in rows]
+                    g['complete'] = self.sim_count(rows) == g.get('count'); got += self.sim_count(rows)
+            cores = [p['name'] for g in setup.get('gizmos') or [] for p in g.get('picked') or [] if p['rarity'] == 'Core']
+            if cores: setup['cores'] = cores
+            pending[0]['gizmo_shots'] = tour['shots']
+        log.info(f"Holo-Battle Sim Gizmo screen: {why}; read {got} of {tour['want']} gizmos: "
+                 + '; '.join(f"{sid}: {rows}" for sid, rows in tour['read'].items()))
+        self.sim_send(note=f"{got} of {tour['want']} gizmos" if got != tour['want'] else f"{got} gizmos")
+        self.sim_release('the Gizmo screen is read')
+
+    def sim_rarity(self, name):
+        """A gizmo's rarity from the game data; an upgraded Core shows as "Predictive Dice: Final" (data: Predictive Dice)."""
+        g = self.icons.sim_gizmos.get(name) or self.icons.sim_gizmos.get(name.split(':')[0].strip())
+        return g[1] if g else None
+
+    def sim_names(self, text, sid=None):
+        """The gizmo names in one view of the list, top to bottom, matched to the names in the game data (one series')
+        (descriptions and rarity tags are skipped). A name with ": Final" (an upgraded Core) keeps it."""
+        norm = lambda x: re.sub(r'[^a-z]', '', x.lower())
+        names = [n for n, (s, _) in self.icons.sim_gizmos.items() if sid is None or s == sid]
+        out = []
+        for line in text.split(' / '):
+            line = re.sub(r'\b(Normal|Uncommon|Core)\b', '', line).strip()
+            final = norm(line).endswith('final')                   # "Predictive Dice: Final" (the colon isn't always read)
+            head = re.sub(r':?\s*final\s*$', '', line, flags=re.I) if final else line.partition(':')[0]
+            if len(norm(head)) < 4 or not names: continue
+            score, name = max((difflib.SequenceMatcher(None, norm(head), norm(n)).ratio(), n) for n in names)
+            if score < 0.85: continue
+            out.append(name + ': Final' if final and not norm(name).endswith('final') else name)
+        return out
+
+    @staticmethod
+    def sim_stitch(rows, view):
+        """Add one view's names to the list read so far: the longest end of `rows` the view starts with is the overlap
+        (a scroll keeps a few rows in view), the rest is new. A gizmo picked twice stays twice."""
+        base = lambda names: [n.split(':')[0] for n in names]      # a Final read without its suffix is still the same row
+        for k in range(min(len(rows), len(view)), 0, -1):
+            if base(rows[-k:]) == base(view[:k]): return rows + view[k:]
+        return rows + view
+
+    @staticmethod
+    def sim_count(rows):
+        """The picks a series' rows stand for: an upgraded Core ("...: Final") counts 3, the gizmo and its two upgrades
+        (1 Nov: 41 rows for the 43 the Victory screen counts, one of them Predictive Dice: Final)."""
+        return sum(3 if n.endswith(': Final') else 1 for n in rows)
 
     def sim_tour_step(self, im, now):
         """One step of the Gizmo tour, on each new frame while it runs. True while the tour has the screen.
-        open the Gizmo screen -> click "All" -> read the names in view, scroll, read again until every gizmo is read
-        or the list stops changing -> back to the Victory screen."""
+        open the Gizmo screen -> click All -> read the names in view, scroll and read again until every pick is read or
+        the list stops changing (a picture of each view kept) -> back to the Victory screen."""
         tour = getattr(self, 'sim_tour', None)
         if not tour: return False
-        if now > tour['until']: self.sim_tour_end('time limit'); return False
+        ctl = getattr(self, 'sim_ctl', None)
+        if not ctl or now > ctl['until']: self.sim_tour_end('time limit'); return False
         if not wc.is_foreground(self.hwnd): self.sim_tour_end('game is not the active window'); return False
         if now < tour['next'] or im is None: return True
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
@@ -1842,7 +1977,7 @@ class Meter:
                     H * self.GIZMO_TITLE[1], ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or '').lower())
         if stage == 'wait':
             # looked at about every 0.25 s; clicked again only when the screen hasn't come after 1.5 s
-            if on_page: wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.5)
+            if on_page: tour.update(stage='all', next=now)
             else:
                 tour['waited'] += 1
                 tour.update(stage='open' if tour['waited'] >= 6 else 'wait', next=now + 0.25)
@@ -1856,23 +1991,42 @@ class Meter:
             tour['next'] = now + 0.4
             return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
-        # 'read': the names in view; scroll on until all are read or two looks in a row bring nothing new
+        if stage == 'all':
+            wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.35)
+            return True
+        # 'read': the names in view; scroll on (about 3 rows a time, so each view overlaps the last) until every pick is
+        # read or two looks bring nothing new; each view with new rows is kept as proof
         x0, y0, x1, y1 = self.GIZMO_LIST
         text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k, size=2)}).get('n') or ''
-        found = tour['found']; before = len(found)
-        norm = lambda x: re.sub(r'[^a-z]', '', x.lower())
-        for line in text.split(' / '):
-            line = re.sub(r'\b(Normal|Uncommon|Core)\b', '', line).strip()
-            if len(norm(line)) < 4: continue
-            score, name = max((difflib.SequenceMatcher(None, norm(line), norm(n)).ratio(), n) for n in self.icons.sim_gizmos)
-            if score >= 0.85 and name not in found: found.append(name)
-        tour['idle'] = 0 if len(found) > before else tour['idle'] + 1
-        if len(found) < tour['want'] and tour['idle'] < 2 and tour['scrolls'] < 20:
-            tour['scrolls'] += 1; tour['next'] = now + 0.35
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -2)
+        view = self.sim_names(text)
+        rows = self.sim_stitch(tour['rows'], view)
+        if tour['rows'] and view and len(rows) == len(tour['rows']) + len(view) and tour.get('backups', 0) < 3:
+            # no row in common with the last view: the scroll went too far, so back up a little and read again
+            tour['backups'] = tour.get('backups', 0) + 1; tour['next'] = now + 0.3
+            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 2)
             return True
+        if len(rows) > len(tour['rows']):
+            shot = self.sim_tour_shot(im, f"all_{tour['scrolls']:02d}")
+            if shot: tour['shots'].append(shot)
+            self.sim_tour_frame(im, f"all_{tour['scrolls']:02d}")
+        tour['idle'] = 0 if len(rows) > len(tour['rows']) else tour['idle'] + 1
+        tour['rows'] = rows
+        if self.sim_count(rows) < tour['want'] and tour['idle'] < 2 and tour['scrolls'] < 15:
+            tour['scrolls'] += 1; tour['next'] = now + 0.3
+            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3)
+            return True
+        for n in rows:                                          # each row under its series (game data)
+            g = self.icons.sim_gizmos.get(n.split(':')[0].strip())
+            if g: tour['read'].setdefault(g[0], []).append(n)
         wc.click_at(*at(*self.GIZMO_BACK)); tour.update(stage='back', backs=0, next=now + 0.4)
         return True
+
+    def sim_tour_shot(self, im, what):
+        """A Gizmo-screen picture for the run's proof (logs/screens, sent with the run, then deleted like the others)."""
+        tour = self.sim_tour
+        if len(tour['shots']) >= self.SIM_PROOF_MAX: return None
+        return self.picture(im, 'screens', f"sim_gizmo_{time.strftime('%Y%m%d_%H%M%S')}_{len(tour['shots']):02d}_{re.sub(r'[^A-Za-z0-9]', '', what)}",
+                            proof=True)
 
     def sim_pictures(self, im, u, ux, H):
         """The Victory screen's pictures, matched to the game's own (icons.py): the Training Style, from the Core
@@ -3074,7 +3228,7 @@ class Meter:
         if stamp == getattr(self, 'cfg_stamp', stamp): self.cfg_stamp = stamp; return
         self.cfg_stamp = stamp; cfg = C.load(); a = self.args
         a.cfg = cfg; a.interval = cfg['capture']['look_interval']
-        a.no_debug_frames = not cfg['capture']['debug_frames']; a.no_auto_click = not cfg['results']['auto_open_battle_data']
+        a.no_debug_frames = not cfg['capture']['debug_frames']; a.no_auto_click = not C.automation(cfg, 'auto_open_battle_data')
         log.info('settings changed - applied')
 
     def kill_sound(self):
@@ -3253,6 +3407,9 @@ class Meter:
         self.last_step = now
         self.top_sig = screen_sig(im.crop((0, 0, im.width, max(1, int(self.frame_size[1] * TOP_PART)))))
         if self.frame_full: self.egg_fade(im, now)        # Egg Heist: hold inputs through the fade to its end screen
+        ctl = getattr(self, 'sim_ctl', None)
+        if ctl and now > ctl['until'] and not getattr(self, 'sim_tour', None): self.sim_release('time limit')
+        if self.bar is None and self.holosim_space: self.sim_gate(im, now)    # Holo-Battle Sim's exit gate (last level)
         # -- keep the bar locked: re-check its brackets, search again only when they are gone
         if self.bar is None or not R.verify_bar(im, self.bar):
             if partial:                                   # searching and end screens need the whole frame
@@ -3867,6 +4024,13 @@ def run_overlay(meter, hide):
         if secs.isdigit(): parts.append(f'{int(secs) // 60}:{int(secs) % 60:02d}')
         return 'Result saved\n' + ' · '.join(parts)
 
+    def end_note_sim(d):
+        # 'Holo-Battle Sim recorded: Earth Training - Trial in 644 s (43 gizmos)' -> 'Holo-Battle Sim saved / Earth Training - Trial · 10:44 · 43 gizmos'
+        m = re.match(r'Holo-Battle Sim recorded: (.*) in (\d+) s(?: \((.*)\))?$', d)
+        if not m: return 'Holo-Battle Sim saved'
+        stage, secs, extra = m.groups()
+        return 'Holo-Battle Sim saved\n' + ' · '.join([stage, f'{int(secs) // 60}:{int(secs) % 60:02d}'] + ([extra] if extra else []))
+
     def end_note_battle_data(d):
         # only the players' facts: the game's team DPS next to the meter's (diagnostics stay in meter.log)
         game = re.search(r'game team DPS ([\d,]+)', d); meter = re.search(r'vs meter ([\d,]+)', d)
@@ -4166,6 +4330,10 @@ def run_overlay(meter, hide):
                     # result screen: between the player row and the "automatically exit" line
                     show_end(end_note_result(d), 0.665)
                     dps_at['hide_at'] = time.time() + 30
+                elif k == 'status' and d.startswith('Holo-Battle Sim recorded'):
+                    # Victory screen: between the panel and "press anywhere to close"
+                    show_end(end_note_sim(d), 0.875)
+                    dps_at['hide_at'] = time.time() + 15
                 elif k == 'status' and d.startswith('Battle Data'):
                     # Battle Data: under the player cards
                     show_end(end_note_battle_data(d), 0.765)
@@ -4223,7 +4391,7 @@ def main():
     ap.set_defaults(interval=cfg['capture']['look_interval'], title=(cfg['game']['window_title'] or '').strip() or 'Aniimo',
                     player_log=cfg['game']['player_log'] or PLAYER_LOG, no_overlay=not cfg['overlay']['show'],
                     hide_from_capture=not cfg['overlay']['in_recordings'], no_debug_frames=not cfg['capture']['debug_frames'],
-                    no_auto_click=not cfg['results']['auto_open_battle_data'])
+                    no_auto_click=not C.automation(cfg, 'auto_open_battle_data'))
     args = ap.parse_args()
     args.cfg = cfg
     setup_log()
