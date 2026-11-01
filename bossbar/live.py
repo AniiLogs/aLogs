@@ -3932,9 +3932,9 @@ def run_overlay(meter, hide):
         L = hp[name]; c = L['c']; fx, fy, anchor, fs = HP_SPOTS[name]; bx, by, span = bar
         px = max(11, round(span * fs)); pad = max(2, round(px / 13)) + 3
         if GF['font']:
-            # the words HP (in the bar's colour where the HP ends, `hp`) and BREAK (white) with a thick outline; the
-            # numbers white with a thin one
-            lead = (2, hp or hp_colour(1.0)) if text.startswith('HP ') else (5, rgb('#ffffff')) if text.startswith('BREAK') else None
+            # the words HP (in the bar's colour where the HP ends, `hp`) and BREAK / BROKEN (in their line's colour:
+            # yellow when broken) with a thick outline; the numbers with a thin one
+            lead = (2, hp or hp_colour(1.0)) if text.startswith('HP ') else                 (len(text.split(' ', 1)[0]), rgb(colour)) if text.startswith(('BREAK', 'BROKEN')) else None
             img = GF['font'].render(text, px, rgb(colour), bold=name == 'pct', stroke=True, lead=lead)
             W, H = img.size; tx, ty = bx + fx * span, by + fy * span
             x, y = {'w': (tx, ty - H / 2), 'ne': (tx - W, ty), 's': (tx - W / 2, ty - H), 'c': (tx - W / 2, ty - H / 2)}[anchor]
@@ -3986,7 +3986,7 @@ def run_overlay(meter, hide):
         shown = d['seg_left'] / d['seg_size'] if d['bossrush'] and d['xn'] and d['seg_size'] else left / max_hp
         draw('total', f"HP {fmt(left)} / {fmt(max_hp)}", bar, hp=hp_colour(shown))
         brk = break_text(d.get('break') or {})
-        if brk: draw('break', brk[0], bar, '#ffffff')
+        if brk: draw('break', brk[0], bar, brk[1])
         else: clear('break')
 
     def stat_lines(d):
