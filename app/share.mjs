@@ -1,7 +1,7 @@
 // Publishes the newest test build (src-tauri/target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe) to GitHub.
-// Tester links are pre-releases. The public beta (B1, B2 ...) is a normal release and the latest one (the user's call,
-// 2026-10-31): the site's Download button and everyone's update check (latest.json) get it, until the version's real
-// release (release.mjs) takes over.
+// Tester links are pre-releases, and reach only players with "Get beta updates" on (the beta feed, beta.json). The
+// public beta (B1, B2 ...) is a normal release and the latest one (the user's call, 2026-10-31): the site's Download
+// button and everyone's update check (latest.json) get it, until the version's real release (release.mjs) takes over.
 //   node share.mjs --test       one fixed tester link, replaced each time:
 //                               releases/download/test-build/aLogs-Test-Setup.exe
 //   node share.mjs --beta       folds the newest RC into this version's one public beta, "<version> Beta"
@@ -97,10 +97,15 @@ const uploaded = await github(`https://uploads.github.com/repos/${REPO}/releases
   method: "POST", headers: { "content-type": "application/octet-stream", "content-length": String(statSync(installer).size) },
   body: readFileSync(installer),
 });
-if (mode === "beta") {                            // the app's beta feed points at this build
+// the beta feed ("Get beta updates") points at this build: a tester build (a pre-release) reaches only those players;
+// the public beta also goes to everyone, below
+{
   const json = feed({ version, rc: rc(newest), beta, notes: body, url: uploaded.browser_download_url, installer });
   await putJson({ headers, repo: REPO, release: await feedRelease({ headers, repo: REPO }), name: "beta.json", json });
   console.log(`beta feed: ${json.version} (${buildName})`);
+}
+if (mode === "beta") {
+  const json = feed({ version, rc: rc(newest), beta, notes: body, url: uploaded.browser_download_url, installer });
   // as the latest release: the Download button's file name, and the release feed, so everyone's update check finds it
   await github(`https://uploads.github.com/repos/${REPO}/releases/${release.id}/assets?name=AniiLogs-Companion-Setup.exe`, {
     method: "POST", headers: { "content-type": "application/octet-stream", "content-length": String(statSync(installer).size) },
