@@ -551,6 +551,16 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("alert.jpg").to_string();
         add(&mut files, &format!("hp_alerts/{name}"), path);
     }
+    // the top of the screen after a boss bar was lost outside Interlink (the meter keeps a few, with why it wasn't found)
+    let mut lost: Vec<PathBuf> = fs::read_dir(logs.join("bar_lost"))
+        .map(|dir| dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "jpg")).collect())
+        .unwrap_or_default();
+    lost.sort();
+    for path in lost.into_iter().rev().take(6) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("lost.jpg").to_string();
+        add(&mut files, &format!("bar_lost/{name}"), path.clone());
+        add(&mut files, &format!("bar_lost/{}", name.replace(".jpg", ".txt")), path.with_extension("txt"));
+    }
     add(&mut files, "status.json", data.join("status.json"));
     let mut settings = read_settings();
     if let Some(board) = settings.get_mut("leaderboard").and_then(Value::as_object_mut) {

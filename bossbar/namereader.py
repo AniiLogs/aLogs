@@ -184,6 +184,48 @@ class NameReader:
             scores.append((overlap(part, g), ch))
         return sorted(scores, reverse=True)
 
+    def shape_fit(self, part, ch, px=64):
+        """How well one character's ink is `ch` whatever its size: the game font's glyph scaled onto the ink, times
+        how alike their width to height is (0..1). For big bold numbers drawn larger than any font size read() tries."""
+        g = self.glyph(ch, px)
+        if g is None: return 0.0
+        a, b = part.width / part.height, g.width / g.height
+        return overlap(part, g.resize(part.size, Image.NEAREST), slack=1) * min(a, b) / max(a, b)
+
+    def number(self, img, box, margin=0.05, dark=False, right=False):
+        """The number in `box` (white text, or dark text on a light card with `dark`) read digit by digit against the
+        game's own digits, or None unless every digit is clear. Windows OCR reads the result screen's bold 1 as a 7 now
+        and then (17164 as 77764, 31 Oct), and skipped 7-digit BREAK values on Battle Data, which moved the card's
+        later numbers up a row; the game's 1 and 7 are nothing alike. `right`: only the run of characters at the
+        box's right end (a value right-aligned after its label)."""
+        if dark:
+            ink, bg = ink_colour(img, box)
+            mask = ink_mask(img, box, ink, bg) if ink else None
+        else:
+            mask = text_mask(img, box)
+        if mask is None: return None
+        spans = characters_at(mask)
+        # digits are all one height: a much shorter piece is a speck or a mark
+        tall = max((h for _, _, h in spans), default=0)
+        spans = [s for s in spans if s[2] >= 0.7 * tall]
+        if right:      # a right-aligned value: the run of characters at the right end, up to the gap before its label
+            run = spans[-1:]
+            for s in reversed(spans[:-1]):
+                if run[0][0] - s[1] > 0.45 * tall: break
+                run.insert(0, s)
+            spans = run
+        parts = []
+        for x0, x1, _ in spans:
+            piece = mask.crop((x0, 0, x1, mask.height)); b = piece.getbbox()
+            if b: parts.append(piece.crop(b))
+        if not parts or len(parts) > 7: return None
+        out = ''
+        for part in parts:
+            fits = sorted(((self.shape_fit(part, d), d) for d in '0123456789'), reverse=True)
+            if fits[0][0] < MIN_SCORE or fits[0][0] - fits[1][0] < margin: return None
+            out += fits[0][1]
+        return int(out)
+
     def read(self, img, box, u, max_chars=3, px_4k=NAME_PX_4K, mask=None, chars=CHARS):
         """The name in `box` (u = the width of the screen's 16:9 area), or None unless every character is clear.
         The menu's white text is found by itself; other text comes as its `mask` (ink_mask)."""

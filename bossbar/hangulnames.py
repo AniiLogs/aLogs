@@ -36,11 +36,20 @@ def has_hangul(text):
 
 
 def split_reply(line):
-    """The helper's answer to a name box: (the English OCR's text, the Korean model's letters or None)."""
-    text, _, extra = line.partition('\t')
+    """The helper's answer to a name box: (the English OCR's text, the Korean model's letters or None, the Latin
+    model's text)."""
+    fields = line.split('\t')
+    text, extra, latin = (fields + ['', ''])[:3]
     try: letters = json.loads(extra) if extra else None
     except ValueError: letters = None
-    return text.strip(), letters
+    return text.strip(), letters, latin.strip()
+
+
+def clean_latin(text):
+    """The Latin model's read of a name box without what follows the name: a voice or ready icon read as a circled
+    number or a mark ('Soul_ShadowXD①', 'Neg③.')."""
+    text = re.sub(r'[①-⓿❶-➓。｡.,·•…]+$', '', (text or '').strip()).strip()
+    return re.sub(r'\s*_\s*', '_', text)      # the game leaves a gap after '_' that reads as a space at 4K
 
 
 def tidy(img, pad=0):

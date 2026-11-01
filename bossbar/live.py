@@ -216,6 +216,27 @@ def clear_stars(puppet_id):
     side, center = star_caps()
     return center if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else side
 
+def interlink_score(score, stars, cap=None):
+    """An Interlink score checked against its stars: the game gives a star per 1,000 points, up to the boss's cap
+    (12,058 is 12 stars, 21,519 on a 20-star boss 20). A score whose thousands don't match had a 1 read as a 7 (OCR:
+    17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the one reading that matches is used. When more than
+    one does, the score is left unread (None) rather than sent wrong."""
+    if score is None or stars is None: return score
+    fits = lambda s: s // 1000 == stars or (cap is not None and stars == cap and s // 1000 > stars)
+    if fits(score): return score
+    digits = str(score); sevens = [i for i, c in enumerate(digits) if c == '7']
+    found = set()
+    for mask in range(1, 1 << len(sevens)):
+        d = list(digits)
+        for j, i in enumerate(sevens):
+            if mask >> j & 1: d[i] = '1'
+        if fits(int(''.join(d))): found.add(int(''.join(d)))
+    if len(found) == 1:
+        fixed = found.pop(); log.info(f'score {score} read as {fixed}: {stars} stars (a 1 read as a 7)'); return fixed
+    if found:                                          # more than one fits (77764: 17164 or 17764): not sent as read
+        log.info(f'score {score} left unread: {stars} stars, and it could be any of {sorted(found)}'); return None
+    return score
+
 def first_num(s):
     """The number in an OCR read of tiled short text ('60 60 60' -> 60): the one most tiles agree on, so one misread
     tile doesn't win by coming first ('6 36 36' was read as 6 stars)."""
@@ -496,7 +517,7 @@ def screen_changed(a, b, limit=24):
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a) > limit
 
 IMAGE_TYPES = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
-TEXT_DIAGNOSTICS = ('battle_data', 'nobar')   # their .txt (what was read off the screen, other players' names too) go
+TEXT_DIAGNOSTICS = ('battle_data', 'nobar', 'bar_lost')   # their .txt (what was read off the screen, other players' names too) go
                                               # with the pictures: the records keep what's needed
 TEST_FRAME_DAYS = 7                 # Save test pictures: each day's folder is kept this long...
 TEST_FRAME_BYTES = 3 << 30          # ...and all of them together at most this much (oldest days go first)
@@ -1370,6 +1391,28 @@ class Meter:
             out[name] = crop
         return out
 
+    # Battle Data's four values on each card (dark digits on a light card, right-aligned after their label): the
+    # rows' heights, as shares of the screen; the value's box runs from the card's centre + 0.015 to + 0.081 (u)
+    BD_ROWS = (('avg_dps', 0.5833), ('break', 0.6255), ('taken', 0.6667), ('heal', 0.7088))
+
+    def battle_data_font(self, im, u, ux, H, read):
+        """Each card's values read digit by digit against the game's own digits, over OCR's in `read` (in place).
+        OCR skipped 7-digit BREAK values, which moved the card's later numbers up a row (BREAK got Damage Taken's,
+        and so on: 23 cards on 1 Nov). A card where a sure read disagrees with OCR keeps only the sure reads; its other
+        values are left unread rather than sent from the wrong row."""
+        reader = self.name_reader()
+        if not reader: return
+        n = len(read)
+        for i, card in enumerate(read):
+            c = ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943)
+            sure = {key: reader.number(im, (c + u * 0.015, H * (y - 0.016), c + u * 0.081, H * (y + 0.016)), dark=True, right=True)
+                    for key, y in self.BD_ROWS}
+            sure = {k: v for k, v in sure.items() if v is not None}
+            slid = any(card.get(k) != v for k, v in sure.items())
+            if slid: log.info(f'Battle Data card {i + 1}: OCR {card} disagrees with the game font {sure}: the font kept')
+            for key, _ in self.BD_ROWS:
+                card[key] = sure[key] if key in sure else (None if slid else card.get(key))
+
     def check_battle_data(self, im, now):
         """The game's screens with text: Battle Data, result screens, Catch Countdown, prep, Egg Heist, profile cards.
         Live, the text is read on its own thread (screen_bg) so a frame never waits for it: a new read starts as
@@ -1533,7 +1576,9 @@ class Meter:
         # a read never finds a card that isn't there (each needs its own 'Average DPS'), so the most any read found
         # is the count: settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct)
         n = self.bd_cards = min(4, max(getattr(self, 'bd_cards', 0), len(read)))
-        cards = [{k: vote(self.bd_votes, (i, k), read[i][k] if i < len(read) else None) for k in ('avg_dps', 'break', 'taken', 'heal')}
+        read = [dict(read[i]) if i < len(read) else {} for i in range(n)]
+        self.battle_data_font(im, u, ux, H, read)
+        cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}
                  for i in range(n)]
         # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),
         # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position
@@ -2056,6 +2101,7 @@ class Meter:
         row = slot_row or next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
                                 and int(r['puppetId']) in R.active_cycle_bosses()), None)
         if row: self.prep_boss = (now, row)
+        score = interlink_score(score, stars, clear_stars(row['puppetId']) if row else None)
         log.info(f'battle prep screen: OCR pill {pill!r}, name {name!r} -> {boss}: best score {score}, stars {stars}')
         # the score can read before the stars ('14026', then '14026 | 14' two seconds later sent a best without its
         # stars, 30 Oct): only the same score and stars on two reads in a row count
@@ -2180,6 +2226,8 @@ class Meter:
             return sum(1 for r, g, b in px if r >= 0xc8 and g >= 0xa8 and r - b >= 0x50) > 0.025 * len(px)
         for i in range(4):
             pill = t.get(f'n{i}') or ''
+            # the text model reads the badge onto the name ('1PMinMax'): a space after it, so it's dropped below
+            pill = re.sub(r'^\s*([1-4Il])\s*P(?=[^\s/|])', r'\1P ', pill)
             # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
             # as one letter, or two odd ones ('iA')
             words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4Il]P', w)
@@ -2331,15 +2379,23 @@ class Meter:
         for i in range(4):
             dx = i * 0.1765
             # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
-            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p
-            crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.15 + dx), H * 0.615, ux + u * (0.22 + dx), H * 0.655), k, thr=130)
+            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p. As wide as the name pill can get (0.07 cut
+            # 'Soul_ShadowXD' to 'oul_Shadow' 25 times on 1 Nov), and below the stat number above it
+            crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655), k, thr=130)
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
         t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)})
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
         V = lambda key, value: vote(self.result_votes, key, value)
-        rating, score, secs = V('rating', first_num(t.get('rating'))), V('score', num(t.get('score'))), V('time', first_num(t.get('time')))
+        # the score digit by digit against the game's font when it reads clearly (OCR's 1 can come out as a 7)
+        reader = self.name_reader()
+        sure = reader.number(im, (ux + u * 0.43, H * 0.325, ux + u * 0.57, H * 0.415)) if reader else None
+        # the stars too (OCR read 17 as 7 at 900p and 1080p); the gold star after them isn't white, so it's not read
+        stars = reader.number(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41)) if reader else None
+        rating = V('rating', stars if stars is not None else first_num(t.get('rating')))
+        score, secs = V('score', sure if sure is not None else num(t.get('score'))), V('time', first_num(t.get('time')))
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         full = clear_stars(f[0].row['puppetId'] if f else None)
+        score = interlink_score(score, rating, full)
         # the grade above the full rating is the kill, "Eliminate": the full stars
         if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = full
         players = []
@@ -2965,6 +3021,25 @@ class Meter:
         save_picture(im, 'nobar', name)
         with open(os.path.join(d, name + '.txt'), 'w', encoding='utf-8') as fh: fh.write(R.LAST_FAIL[0] + '\n')
 
+    BAR_LOST_S, BAR_LOST_EACH, BAR_LOST_MAX = 60, 12, 60   # after a lost boss bar: this long, this many, this many a session
+
+    def save_bar_lost(self, im, now):
+        """Diagnostics anywhere (the overworld too, where save_nobar doesn't look): for a minute after a boss bar was
+        lost, the top of the screen every 5 s (logs/bar_lost, with why the bar wasn't found), so a log report shows the
+        bar the meter couldn't hold. Only the top part, where the boss bar is."""
+        if not self.args.cfg['capture']['nobar_frames'] or self.bossrush_space: return     # Interlink: save_nobar
+        if now - getattr(self, 'bar_lost_at', -1e9) > self.BAR_LOST_S: return
+        if now - getattr(self, 'bar_lost_last', 0) < 5 or getattr(self, 'bar_lost_n', 0) >= self.BAR_LOST_EACH: return
+        if getattr(self, 'bar_lost_total', 0) >= self.BAR_LOST_MAX: return
+        self.bar_lost_last = now; self.bar_lost_n += 1; self.bar_lost_total = getattr(self, 'bar_lost_total', 0) + 1
+        H = self.frame_size[1] or im.height
+        top = im.crop((0, 0, im.width, min(im.height, int(H * TOP_PART))))
+        name = time.strftime('%Y%m%d_%H%M%S')
+        save_picture(top, 'bar_lost', name)
+        try:
+            with open(os.path.join(HERE, 'logs', 'bar_lost', name + '.txt'), 'w', encoding='utf-8') as fh: fh.write(R.LAST_FAIL[0] + '\n')
+        except OSError: pass
+
     def save_debug(self, im, bar, now):
         f = self.fight
         if not f or not f.frames or now - self.last_frame < 0.5: return
@@ -3220,7 +3295,9 @@ class Meter:
                         self.emit_fight(im, self.bar); self.bar_seen = now        # the bar is there, just not findable
                 self.snapshot(now); return
             else:
-                if self.bar is not None: log.info(f'boss bar lost ({R.LAST_FAIL[0]})')
+                if self.bar is not None:
+                    log.info(f'boss bar lost ({R.LAST_FAIL[0]})')
+                    self.bar_lost_at = now; self.bar_lost_n = 0
                 self.bar = None
                 if self.fight: self.end_fight('boss bar gone')
                 if self.sim_tour_step(im, now): self.snapshot(now); return     # Holo-Battle Sim's Gizmo screen
@@ -3229,6 +3306,7 @@ class Meter:
                 self.check_battle_data(im, now)
                 self.save_end_screens(im, now)
                 self.save_nobar(im, now)
+                self.save_bar_lost(im, now)
                 self.out('status', 'waiting for a boss bar')   # why it isn't found goes to meter.log (1 s snapshot)
                 self.snapshot(now); return
         bar = self.bar; self.bar_seen = now

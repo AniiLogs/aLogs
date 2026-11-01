@@ -1,17 +1,20 @@
-//! Windows' built-in OCR (Windows.Media.Ocr, en-US) for the boss meter, without PowerShell or image files, plus a
-//! Korean text model for player names (Hangul names, which the English OCR can't see).
+//! Windows' built-in OCR (Windows.Media.Ocr, en-US) for the boss meter, without PowerShell or image files, plus two
+//! text models for player names: a Latin one (names read far better than Windows OCR does) and a Korean one (Hangul,
+//! which the English OCR can't see).
 //!
 //! Prints `READY` at start, then answers requests on stdin until it closes:
 //!   request: b"OCR1", u32 LE image count, then per image u32 LE width, u32 LE height, width*height grey bytes
 //!   answer:  one UTF-8 line per image, in order: the recognised lines joined with " / "
 //!   request: b"OCR2", u32 LE image count, then per image u8 flags, u32 LE width, u32 LE height, grey bytes
-//!   answer:  the same line per image; flag 1 (a player name) adds a tab and the Korean model's read as JSON
-//!            (flag 2: the Korean model's read alone, after an empty English one):
-//!            [[x, [[character, probability], ...]], ...] - each letter's spot (its centre, in the image's px) and its
-//!            likeliest characters, best first. The meter checks those against the game's own fonts.
+//!   answer:  per image, the English OCR's line (empty with flag 2), then with flag 1 or 4 two tab-separated fields:
+//!            the Korean model's read as JSON with flag 1 - [[x, [[character, probability], ...]], ...]: each letter's
+//!            spot (its centre, in the image's px) and its likeliest characters, best first, which the meter checks
+//!            against the game's own fonts - and the Latin model's text with flag 4.
 //!
-//! The Korean model is PaddleOCR's korean_PP-OCRv5_mobile_rec (Apache-2.0, model/LICENSE-model.txt), converted to
-//! ONNX and run with tract, built into this program: nothing to install or download on the player's PC.
+//! Both models are PaddleOCR's (Apache-2.0, model/LICENSE-model.txt): korean_PP-OCRv5_mobile_rec, converted to ONNX,
+//! and PP-OCRv6_small_rec, as PaddlePaddle publishes it in ONNX. On 346 player names from real result, Battle Data
+//! and Party screens the Latin one read 90% exactly, Windows OCR 42% (model/README.md). They run with tract, built
+//! into this program: nothing to install or download on the player's PC.
 #![windows_subsystem = "windows"]   // no console window
 
 use std::collections::HashMap;
@@ -25,6 +28,8 @@ use windows::Storage::Streams::DataWriter;
 
 const KOREAN_MODEL: &[u8] = include_bytes!("../model/korean_rec.onnx");
 const KOREAN_DICT: &str = include_str!("../model/korean_dict.txt");
+const LATIN_MODEL: &[u8] = include_bytes!("../model/latin_rec.onnx");
+const LATIN_DICT: &str = include_str!("../model/latin_dict.txt");
 const MODEL_HEIGHT: usize = 48;
 const CANDIDATES: usize = 4;          // the likeliest characters sent per letter (plus the best Hangul and Latin ones)
 
@@ -55,25 +60,29 @@ fn is_hangul(c: char) -> bool {
     matches!(c, '\u{1100}'..='\u{11ff}' | '\u{3130}'..='\u{318f}' | '\u{ac00}'..='\u{d7a3}')
 }
 
-/// The Korean model, loaded the first time a name is read. The image is scaled to the model's 48 px height and padded
-/// to a width in steps of 32, so a few optimised plans (one per width) cover every name box.
-struct Korean {
+/// A text-line model (CTC), loaded the first time it's needed. The image is scaled to the model's 48 px height and
+/// padded to a width in steps of 32, so a few optimised plans (one per width) cover every name box.
+struct Recognizer {
+    bytes: &'static [u8],
     model: Option<InferenceModel>,
     plans: HashMap<usize, TypedRunnableModel<TypedModel>>,
     chars: Vec<String>,   // index 0 is CTC's blank, the last a space
 }
 
-impl Korean {
-    fn new() -> Korean {
+/// One letter as read: its centre x in the image and [(character, probability)], best first.
+type Letter = (f32, Vec<(String, f32)>);
+
+impl Recognizer {
+    fn new(bytes: &'static [u8], dict: &str) -> Recognizer {
         let mut chars = vec![String::new()];
-        chars.extend(KOREAN_DICT.lines().map(str::to_string));
+        chars.extend(dict.lines().map(str::to_string));
         chars.push(" ".to_string());
-        Korean { model: None, plans: HashMap::new(), chars }
+        Recognizer { bytes, model: None, plans: HashMap::new(), chars }
     }
 
     fn plan(&mut self, width: usize) -> TractResult<&TypedRunnableModel<TypedModel>> {
         if !self.plans.contains_key(&width) {
-            if self.model.is_none() { self.model = Some(tract_onnx::onnx().model_for_read(&mut &KOREAN_MODEL[..])?); }
+            if self.model.is_none() { self.model = Some(tract_onnx::onnx().model_for_read(&mut &self.bytes[..])?); }
             let plan = self.model.clone().unwrap()
                 .with_input_fact(0, f32::fact([1, 3, MODEL_HEIGHT, width]).into())?
                 .into_optimized()?.into_runnable()?;
@@ -82,8 +91,8 @@ impl Korean {
         Ok(&self.plans[&width])
     }
 
-    /// Each letter the model finds: (its centre x in the image, [(character, probability)] best first).
-    fn read(&mut self, w: usize, h: usize, grey: &[u8]) -> TractResult<Vec<(f32, Vec<(String, f32)>)>> {
+    /// Each letter the model finds, with `extra` likeliest characters beyond the best (0: the best alone).
+    fn letters(&mut self, w: usize, h: usize, grey: &[u8], extra: usize) -> TractResult<Vec<Letter>> {
         if w == 0 || h == 0 { return Ok(Vec::new()); }
         let nw = ((w as f32 * MODEL_HEIGHT as f32 / h as f32).round() as usize).clamp(16, 3200);
         let width = (nw + 32).max(96).div_ceil(32) * 32;          // a little room after the name, in steps of 32
@@ -114,20 +123,30 @@ impl Korean {
             let row: Vec<f32> = (0..classes).map(|k| probs[[0, t, k]]).collect();
             let best = (0..classes).max_by(|&a, &b| row[a].total_cmp(&row[b])).unwrap_or(0);
             if best != 0 && best != prev {
-                let mut order: Vec<usize> = (1..classes).collect();
-                order.sort_by(|&a, &b| row[b].total_cmp(&row[a]));
-                let mut pick: Vec<usize> = order.iter().copied().take(CANDIDATES).collect();
-                // the best Hangul and the best Latin letter or digit too: the game's font tells such twins apart (7 and ㄱ)
-                let first = |f: &dyn Fn(char) -> bool| order.iter().copied().find(|&k| self.chars[k].chars().next().is_some_and(|c| f(c)));
-                for k in [first(&is_hangul), first(&|c: char| c.is_ascii_alphanumeric())].into_iter().flatten() {
-                    if !pick.contains(&k) { pick.push(k); }
-                }
+                let pick: Vec<usize> = if extra == 0 { vec![best] } else {
+                    let mut order: Vec<usize> = (1..classes).collect();
+                    order.sort_by(|&a, &b| row[b].total_cmp(&row[a]));
+                    let mut pick: Vec<usize> = order.iter().copied().take(extra).collect();
+                    // the best Hangul and the best Latin letter or digit too: the game's font tells such twins apart (7 and ㄱ)
+                    let first = |f: &dyn Fn(char) -> bool| order.iter().copied().find(|&k| self.chars[k].chars().next().is_some_and(|c| f(c)));
+                    for k in [first(&is_hangul), first(&|c: char| c.is_ascii_alphanumeric())].into_iter().flatten() {
+                        if !pick.contains(&k) { pick.push(k); }
+                    }
+                    pick
+                };
                 let x = (t as f32 + 0.5) * step;
                 letters.push((x, pick.into_iter().map(|k| (self.chars[k].clone(), row[k])).collect()));
             }
             prev = best;
         }
         Ok(letters)
+    }
+
+    /// The line as the model reads it (each letter's best character).
+    fn text(&mut self, w: usize, h: usize, grey: &[u8]) -> String {
+        self.letters(w, h, grey, 0).unwrap_or_default().into_iter()
+            .filter_map(|(_, picks)| picks.into_iter().next().map(|(c, _)| c)).collect::<String>()
+            .replace(['\t', '\r', '\n'], " ").trim().to_string()
     }
 }
 
@@ -145,7 +164,7 @@ fn json_str(s: &str) -> String {
     out
 }
 
-fn letters_json(letters: &[(f32, Vec<(String, f32)>)]) -> String {
+fn letters_json(letters: &[Letter]) -> String {
     let parts: Vec<String> = letters.iter().map(|(x, picks)| {
         let p: Vec<String> = picks.iter().map(|(c, v)| format!("[{},{:.4}]", json_str(c), v)).collect();
         format!("[{:.1},[{}]]", x, p.join(","))
@@ -156,7 +175,8 @@ fn letters_json(letters: &[(f32, Vec<(String, f32)>)]) -> String {
 fn main() -> Result<()> {
     let engine = OcrEngine::TryCreateFromLanguage(&Language::CreateLanguage(&HSTRING::from("en-US"))?)?;
     let max_dim = OcrEngine::MaxImageDimension()?;
-    let mut korean = Korean::new();
+    let mut korean = Recognizer::new(KOREAN_MODEL, KOREAN_DICT);
+    let mut latin = Recognizer::new(LATIN_MODEL, LATIN_DICT);
     let mut input = io::stdin().lock();
     let mut out = BufWriter::new(io::stdout().lock());
     if writeln!(out, "READY").and_then(|_| out.flush()).is_err() { return Ok(()); }
@@ -173,11 +193,13 @@ fn main() -> Result<()> {
             let (Ok(w), Ok(h)) = (read_u32(&mut input), read_u32(&mut input)) else { return Ok(()) };
             grey.resize(w as usize * h as usize, 0);
             if input.read_exact(&mut grey).is_err() { return Ok(()); }
-            // flag 2: the Korean model only (the meter sends the English OCR the box itself, the model a tidied copy)
-            let mut line = if flags[0] & 2 != 0 { String::new() } else { recognise(&engine, max_dim, w, h, &grey) };
-            if flags[0] & 3 != 0 {
-                let letters = korean.read(w as usize, h as usize, &grey).unwrap_or_default();
-                line = format!("{line}\t{}", letters_json(&letters));
+            let f = flags[0];
+            // flag 2: no English OCR (the meter sends it the box itself, the models a copy of their own)
+            let mut line = if f & 2 != 0 { String::new() } else { recognise(&engine, max_dim, w, h, &grey) };
+            if f & 5 != 0 {
+                let k = if f & 1 != 0 { letters_json(&korean.letters(w as usize, h as usize, &grey, CANDIDATES).unwrap_or_default()) } else { String::new() };
+                let l = if f & 4 != 0 { latin.text(w as usize, h as usize, &grey) } else { String::new() };
+                line = format!("{line}\t{k}\t{l}");
             }
             if writeln!(out, "{line}").is_err() { return Ok(()); }
         }
