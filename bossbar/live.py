@@ -17,6 +17,7 @@ import xn_digits as X
 from inputblock import InputBlock
 import controller as CT
 import eggheist as E
+import hangulnames as K
 import submit as S
 from presence import Presence
 
@@ -914,12 +915,28 @@ class OcrWorker(threading.Thread):
         self.stop = True; self.wake.set()
         if self.ocr: self.ocr.close()
 
+def load_korean_names(player_log=None):
+    """In the background: the game's English and Korean fonts (read from the game install once, then kept in the data
+    folder), so every OCR reader settles Korean player names against them (hangulnames). Until then, or when the
+    fonts can't be read, names are read by the English OCR alone."""
+    def run():
+        try:
+            import gamefont
+            folder = os.path.join(HERE, 'gamefont')
+            latin = gamefont.GameFont.load(folder, player_log)
+            korean = gamefont.GameFont.load(folder, player_log, gamefont.KOREAN_FONT) if latin else None
+            if korean: R.Ocr.korean = K.KoreanNames(latin, korean); log.info("Korean names: on (the game's Korean font)")
+            else: log.info(f'Korean names: off (game font not readable: {gamefont.GameFont.error})')
+        except Exception as e: log.info(f'Korean names: off ({e!r})')
+    threading.Thread(target=run, daemon=True, name='korean-names').start()
+
 # ---------------------------------------------------------------- meter
 class Meter:
     def __init__(self, args, out):
         self.args, self.out = args, out
         self.catalog, self.cum = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()
         self.ocr = R.Ocr(); self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
+        load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
         self.screen_bg = None if args.replay is not None else OcrWorker()     # the screens' text (check_battle_data)
         for w in (self.ocr_bg, self.screen_bg):
@@ -1478,7 +1495,7 @@ class Meter:
         # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position
         names = self.ocr.read({i: R.prep_white(im, (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
                                                     ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547), u / 2000)
-                               for i in range(n)}) if n else {}
+                               for i in range(n)}, names={i: 0 for i in range(n)}) if n else {}
         for i, c in enumerate(cards):
             c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
         party_slots(cards, party)
@@ -2055,7 +2072,7 @@ class Meter:
             name_px = [im.getpixel((x, y))[:3] for x in range(int(box[0]), int(box[2]), 2) for y in range(int(box[1]), int(box[3]), 2)]
             green = sum(1 for r, g, b in name_px if g >= 0xb0 and g - r >= 0x30 and g - b >= 0x30)
             mine.append(green > 40 and green > 3 * sum(1 for p in name_px if min(p) >= 0xd0))
-        names = self.ocr.read(crops)
+        names = self.ocr.read(crops, names={f'n{i}': 24 for i in range(4)})
         members = [{'slot': i, 'name': (names.get(f'n{i}') or '').strip(' /|'), 'ai': kind == 'ai', 'self': mine[i]}
                    for i, kind in enumerate(kinds) if kind]
         self.set_party([m for m in members if m['name']], now)
@@ -2109,7 +2126,7 @@ class Meter:
         crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
-        t = self.ocr.read(crops)
+        t = self.ocr.read(crops, names={f'n{i}': 20 for i in range(4)})       # (prep_bright pads 20 px)
         # (Season Buffs' "Lv. 4" and Challenge's "4/4" are too small and short for OCR to read reliably: left out)
         known = self.character_name; members = []
         def yellow(i):                                     # your own name is yellow (the others' white)
@@ -2122,7 +2139,7 @@ class Meter:
             # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
             # as one letter, or two odd ones ('iA')
             words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4Il]P', w)
-                     and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()))]
+                     and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()) or K.has_hangul(w))]
             name = ''.join(words)
             if not name: continue
             # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
@@ -2267,7 +2284,7 @@ class Meter:
             # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p
             crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.15 + dx), H * 0.615, ux + u * (0.22 + dx), H * 0.655), k, thr=130)
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
-        t = self.ocr.read(crops)
+        t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)})
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
         V = lambda key, value: vote(self.result_votes, key, value)
         rating, score, secs = V('rating', first_num(t.get('rating'))), V('score', num(t.get('score'))), V('time', first_num(t.get('time')))
@@ -2682,9 +2699,10 @@ class Meter:
             k = 2 * 2000 / u
             text = ImageOps.invert(mask.convert('L')).resize((max(1, int(mask.width * k)), max(1, int(mask.height * k))), Image.LANCZOS)
             reads['n'] = ImageOps.expand(text, border=40, fill=255)
-        r = self.ocr.read(reads)
+        r = self.ocr.read(reads, names={'n': 40})
         name = re.sub(r'\s+', ' ', r.get('n', '')).strip(' /|.')
-        sure = len(name) > 3                    # a long name: OCR; a short one only when the game's font matched it
+        # a long name: OCR; a short one only when the game's font matched it (a Korean name always has: hangulnames)
+        sure = len(name) > 3 or K.has_hangul(name)
         reader = self.name_reader() if mask is not None and len(name) <= 3 else None
         matched = reader.read(im, name_box, u, px_4k=namereader.PROFILE_PX_4K, mask=mask) if reader else None
         if matched: name, sure = matched, True

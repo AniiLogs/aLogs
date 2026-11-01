@@ -25,6 +25,12 @@ cap = Capture(); logging.getLogger('meter').addHandler(cap); logging.getLogger('
 
 METER = next(c for c in vars(live).values() if isinstance(c, type) and hasattr(c, 'check_battle_data'))
 OCR = R.Ocr()
+# Korean player names, as the meter sets them up at start (load_korean_names), but before the first read
+import gamefont, hangulnames
+_fonts = os.path.join(live.HERE, 'gamefont')
+_latin = gamefont.GameFont.load(_fonts, live.PLAYER_LOG)
+_korean = gamefont.GameFont.load(_fonts, live.PLAYER_LOG, gamefont.KOREAN_FONT) if _latin else None
+if _korean: R.Ocr.korean = hangulnames.KoreanNames(_latin, _korean)
 
 def meter():
     """A meter with just the state the screen readers use: no game, no window, no sending, no clicking."""
@@ -40,6 +46,7 @@ def meter():
     m.clicks = 0; m.fight = None; m.last_fight = None; m.awaiting = None; m.after_fight = None; m.hwnd = None
     m.end_sig = None; m.party = None; m.prep_boss = None; m.space = None; m.last_scores = {}; m.origin = (0, 0)
     m.menu_proven = None; m.rush_level = None; m.bossrush_space = False; m.rush_spaces = set()
+    m.icons_state = 'failed'     # the Party screen's Aniimo icons need the game's art: not read here
     m.hold = types.SimpleNamespace(start=lambda *a: None, stop=lambda: None, active=False)
     m.out = lambda *a, **k: None
     m.picture = lambda *a, **k: None

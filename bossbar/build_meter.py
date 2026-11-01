@@ -26,6 +26,8 @@ def main():
             '--collect-all', 'UnityPy', '--collect-all', 'fmod_toolkit', '--collect-all', 'archspec']
     for name in DATA_FILES:
         args += ['--add-data', f'{os.path.join(HERE, name)}{os.pathsep}.']
+    # the Korean name model built into ocr-helper.exe: its licence (Apache-2.0) goes with it
+    args += ['--add-data', f'{os.path.join(HERE, "..", "app", "ocr-helper", "model", "LICENSE-model.txt")}{os.pathsep}.']
     args.append(os.path.join(HERE, 'live.py'))
     subprocess.run(args, check=True, cwd=HERE)
 

@@ -442,6 +442,7 @@ def sweep_temp(hours=1):
 
 class Ocr:
     swept = False
+    korean = None      # hangulnames.KoreanNames once the game's fonts are read (live.py): Korean player names, read()
     def __init__(self):
         if not Ocr.swept:                              # in the background: a big Temp folder can take a while
             Ocr.swept = True; threading.Thread(target=sweep_temp, daemon=True, name='temp-sweep').start()
@@ -458,8 +459,11 @@ class Ocr:
         if self.p.stdout.readline().strip() != 'READY': raise RuntimeError('Windows OCR helper did not start')
         self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
 
-    def read(self, images):
-        if self.native: return self.read_native(images)
+    def read(self, images, names=None):
+        """{name: text} for {name: image}. `names` marks the boxes that hold a player's name, with the white padding
+        their preparation added ({name: pad px}): those are also read by the helper's Korean model and settled against
+        the game's fonts (hangulnames), so a Hangul name reads as it is (the English OCR can't see it)."""
+        if self.native: return self.read_native(images, names or {})
         out = {}
         with self.lock:
             for name, img in images.items():
@@ -474,17 +478,31 @@ class Ocr:
                     except OSError: pass
         return out
 
-    def read_native(self, images):
+    def read_native(self, images, names):
         """All images in one request: b'OCR1', count, then width, height and 8-bit grey pixels each (u32 LE).
-        One line comes back per image, in order."""
-        names = list(images); parts = [b'OCR1', struct.pack('<I', len(names))]
-        for name in names:
-            img = images[name] if images[name].mode == 'L' else images[name].convert('L')
-            parts += [struct.pack('<II', *img.size), img.tobytes()]
+        One line comes back per image, in order. With name boxes it's b'OCR2' (a flags byte before each image): the
+        boxes as they are for the English OCR, then each name box tidied for the Korean model alone (flag 2)."""
+        keys = list(images)
+        tidy = {}
+        if names and self.korean:
+            import hangulnames as K
+            tidy = {k: t for k in keys if k in names for t in [K.tidy(images[k], names[k])] if t is not None}
+        work = [(k, 0, images[k]) for k in keys] + [(k, 2, t) for k, t in tidy.items()]
+        parts = [b'OCR2' if tidy else b'OCR1', struct.pack('<I', len(work))]
+        for _, flags, img in work:
+            img = img if img.mode == 'L' else img.convert('L')
+            parts += ([bytes([flags])] if tidy else []) + [struct.pack('<II', *img.size), img.tobytes()]
         with self.lock:
             self.p.stdin.write(b''.join(parts)); self.p.stdin.flush()
-            lines = [self.p.stdout.readline() for _ in names]
-        return {name: line.decode('utf-8', 'replace').strip() for name, line in zip(names, lines)}
+            lines = [self.p.stdout.readline().decode('utf-8', 'replace') for _ in work]
+        out = {k: line.strip() for k, line in zip(keys, lines)}
+        for (k, _, t), line in zip(work[len(keys):], lines[len(keys):]):
+            import hangulnames as K
+            _, letters = K.split_reply(line.rstrip('\r\n'))     # (an empty English read, then a tab: keep it)
+            try: name = self.korean.read(t, out[k], letters)
+            except Exception: name = None            # a name the check can't settle keeps the English read
+            if name: out[k] = name
+        return out
 
     def close(self):
         try: self.p.stdin.close(); self.p.wait(3)

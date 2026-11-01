@@ -9,6 +9,7 @@ import json, os, re
 from PIL import Image, ImageChops, ImageFilter
 
 FONT_NAME = 'UI_Font_Europe'
+KOREAN_FONT = 'UI_Font_Korea'     # the game's Hangul (its syllables and letters), for reading Korean player names
 CACHE_VERSION = 1
 
 def _game_dirs(player_log=None):
@@ -29,8 +30,13 @@ def _game_dirs(player_log=None):
         if d.lower() not in seen and os.path.isdir(d):
             seen.add(d.lower()); yield d
 
-def extract(cache_dir, player_log=None):
-    """Writes <cache_dir>/gamefont.png and gamefont.json from the game install. Returns True on success."""
+def _stem(font_name):
+    """The cache files' name: gamefont.* for the English font (as always), gamefont_<name>.* for the others."""
+    return 'gamefont' if font_name == FONT_NAME else f'gamefont_{font_name}'
+
+def extract(cache_dir, player_log=None, font_name=FONT_NAME):
+    """Writes <cache_dir>/gamefont.png and gamefont.json (or the other font's own pair) from the game install.
+    Returns True on success."""
     import UnityPy                                     # only needed this once
     for d in _game_dirs(player_log):
         bundles = [os.path.join(d, n) for n in os.listdir(d) if 'xgui_font' in n]   # ar_xgui_font_* / mres_xgui_font_* since 2026
@@ -39,7 +45,7 @@ def extract(cache_dir, player_log=None):
         for obj in env.objects:
             if obj.type.name != 'MonoBehaviour': continue
             tree = obj.read_typetree()
-            if tree.get('m_Name') != FONT_NAME: continue
+            if tree.get('m_Name') != font_name: continue
             atlas_ref = (tree.get('m_AtlasTextures') or [None])[0]
             tex = None
             for o in env.objects:
@@ -48,7 +54,7 @@ def extract(cache_dir, player_log=None):
             if tex is None: continue
             os.makedirs(cache_dir, exist_ok=True)
             img = tex.image.convert('RGBA').split()[-1]          # the distance field is in alpha
-            img.save(os.path.join(cache_dir, 'gamefont.png'))
+            img.save(os.path.join(cache_dir, _stem(font_name) + '.png'))
             face = tree['m_FaceInfo']
             glyphs = {g['m_Index']: g for g in tree['m_GlyphTable']}
             table = {}
@@ -61,25 +67,25 @@ def extract(cache_dir, player_log=None):
             meta = {'version': CACHE_VERSION, 'point_size': face['m_PointSize'], 'ascent': face['m_AscentLine'],
                     'descent': face['m_DescentLine'], 'line_height': face['m_LineHeight'], 'padding': tree.get('m_AtlasPadding', 2),
                     'atlas_height': img.height, 'glyphs': table}
-            with open(os.path.join(cache_dir, 'gamefont.json'), 'w', encoding='utf-8') as f: json.dump(meta, f)
+            with open(os.path.join(cache_dir, _stem(font_name) + '.json'), 'w', encoding='utf-8') as f: json.dump(meta, f)
             return True
     return False
 
 class GameFont:
-    def __init__(self, cache_dir):
-        with open(os.path.join(cache_dir, 'gamefont.json'), encoding='utf-8') as f: self.meta = json.load(f)
+    def __init__(self, cache_dir, font_name=FONT_NAME):
+        with open(os.path.join(cache_dir, _stem(font_name) + '.json'), encoding='utf-8') as f: self.meta = json.load(f)
         if self.meta.get('version') != CACHE_VERSION: raise ValueError('old font cache')
-        self.atlas = Image.open(os.path.join(cache_dir, 'gamefont.png')).convert('L')
+        self.atlas = Image.open(os.path.join(cache_dir, _stem(font_name) + '.png')).convert('L')
         self.glyphs = {int(k): v for k, v in self.meta['glyphs'].items()}
         self.cache = {}
 
     @classmethod
-    def load(cls, cache_dir, player_log=None):
+    def load(cls, cache_dir, player_log=None, font_name=FONT_NAME):
         """The cached font, extracting it from the game first if needed; None when the game files can't be read."""
-        try: return cls(cache_dir)
+        try: return cls(cache_dir, font_name)
         except (OSError, ValueError, KeyError): pass
         try:
-            if extract(cache_dir, player_log): return cls(cache_dir)
+            if extract(cache_dir, player_log, font_name): return cls(cache_dir, font_name)
             cls.error = 'the game install was not found'
         except Exception as e:
             import traceback
