@@ -46,7 +46,7 @@ def meter():
     m.clicks = 0; m.fight = None; m.last_fight = None; m.awaiting = None; m.after_fight = None; m.hwnd = None
     m.end_sig = None; m.party = None; m.prep_boss = None; m.space = None; m.last_scores = {}; m.origin = (0, 0)
     m.menu_proven = None; m.rush_level = None; m.bossrush_space = False; m.rush_spaces = set()
-    m.icons_state = 'failed'     # the Party screen's Aniimo icons need the game's art: not read here
+    m.icons_state = 'failed'; m.icons = None     # the Aniimo icons need the game's art: not read here
     m.hold = types.SimpleNamespace(start=lambda *a: None, stop=lambda: None, active=False)
     m.out = lambda *a, **k: None
     m.picture = lambda *a, **k: None

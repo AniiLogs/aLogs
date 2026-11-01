@@ -26,6 +26,7 @@ HERE = C.DATA                     # everything the meter writes (logs, records, 
 PLAYER_LOG = os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'LocalLow', 'Aniimo', 'Aniimo', 'Player.log')
 METER_LOG = os.path.join(HERE, 'logs', 'meter.log')
 BAR_GONE_GRACE = 20     # seconds a fight waits for its bar to come back (ultimates and effects can hide it)
+BAR_GONE_S = 3          # seconds a locked bar's spot must read like no HP bar at all before the fight ends
 KILL_SOUND_WINDOW = (2.5, 6.0)  # the boss kill sound counts when it started this many seconds before the countdown
 KILL_TO_COUNTDOWN = 3.0 # seconds from the killing blow to the game's Catch Countdown (the kill-cam: no HUD, slow
                         # motion, speed lines; 3.0-3.1 s on 11 Alpha kills, measured frame by frame)
@@ -1350,7 +1351,8 @@ class Meter:
                     # ...and at Egg Emperor, which has no points bar: the egg count "x57" under the badge
                     ('es', 'text', (0.465, 0.73, 0.55, 0.80)),
                     # Holo-Battle Sim's Victory screen: "Battle time 00:08:22 Training of Water - Hard" under the title
-                    ('sv', 'text', (0.36, 0.198, 0.65, 0.233)))
+                    # (bright: over a light sky the white-text cut read 'Battr Itimer', 1 Nov; sim_result reads it so)
+                    ('sv', 'bright', (0.36, 0.198, 0.65, 0.233)))
     QUICK_BOXES = ('h', 'cs', 'lbl', 'cc')   # while a fight's bar is hidden: Catch Countdown and the result screens
     # The boxes that can't show where you are (the game log says where): left out of a screen read, which then does a
     # third of the work. The header ('h') and the menu ('me', 'uid') can show anywhere and are always read. Every
@@ -3309,9 +3311,23 @@ class Meter:
                 self.save_bar_lost(im, now)
                 self.out('status', 'waiting for a boss bar')   # why it isn't found goes to meter.log (1 s snapshot)
                 self.snapshot(now); return
-        bar = self.bar; self.bar_seen = now
+        bar = self.bar
         if self.fight: self.test_frame(im, 'fight', now)
         fill, fill_rgb, edge_rgb = R.measure_fill_any(im, bar)
+        # The brackets check passes on screens that have white marks where the brackets were: Holo-Battle Sim's
+        # Victory screen kept a won fight 'open' at 1% (1 Nov), its result never read. HP never comes back, so a spot
+        # that reads far fuller than the fight's lowest, in a colour no HP bar has, for BAR_GONE_S, is no bar.
+        last = self.fight.last_fill if self.fight else None
+        r_, g_, b_ = fill_rgb if fill_rgb else (0, 0, 0)
+        if last is not None and last < 0.5 and fill is not None and fill > last + 0.5 and b_ > r_:
+            self.not_bar_since = getattr(self, 'not_bar_since', None) or now
+            if now - self.not_bar_since >= BAR_GONE_S:
+                log.info(f'boss bar lost (the locked spot reads {fill:.0%} in rgb{fill_rgb}, the fight was at {last:.0%})')
+                self.not_bar_since = None; self.bar = None
+                self.end_fight('boss bar gone'); self.snapshot(now); return
+            self.snapshot(now); return                     # not a reading of this fight's HP
+        self.not_bar_since = None
+        self.bar_seen = now
         scale = bar['span'] / R.REF_SPAN
         need_title = self.fight is None or now - self.last_title > 8
         timer = None; text = None
