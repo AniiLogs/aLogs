@@ -1,7 +1,7 @@
 // Publishes the newest test build (src-tauri/target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe) to GitHub.
-// Tester links are pre-releases, and reach only players with "Get beta updates" on (the beta feed, beta.json). The
-// public beta (B1, B2 ...) is a normal release and the latest one (the user's call, 2026-10-31): the site's Download
-// button and everyone's update check (latest.json) get it, until the version's real release (release.mjs) takes over.
+// Tester links and the public beta (B1, B2 ...) are pre-releases, never "latest": they reach only players with "Get
+// beta updates" on (the beta feed, beta.json), while the site's Download button and everyone else's update check
+// (latest.json) stay on the real release (release.mjs). The user's rule (2026-10-31): only a pre-release is beta-only.
 //   node share.mjs --test       one fixed tester link, replaced each time:
 //                               releases/download/test-build/aLogs-Test-Setup.exe
 //   node share.mjs --beta       folds the newest RC into this version's one public beta, "<version> Beta"
@@ -63,7 +63,7 @@ if (mode === "test") {
 } else {
   const betas = releases.filter((r) => betaTag.test(r.tag_name));
   tag = `companion-v${version}-beta`; name = `aLogs ${version} ${beta ? `B${beta}` : "Beta"}`; asset = `AniiLogs-Companion-${version}-beta-Setup.exe`;
-  body = `Public beta of ${version}, updated as it goes (this one: ${built}). It's the current download until ${version} is released.\n\n${changelogNotes(version)}`;
+  body = `Public beta of ${version}, updated as it goes (this one: ${built}). For players with "Get beta updates" on; the site's Download button stays on the released version.\n\n${changelogNotes(version)}`;
   fold = betas.find((r) => r.tag_name === tag) ?? null;                 // the beta this build goes into
   stale = betas.filter((r) => r !== fold);                               // numbered betas from before go
 }
@@ -84,7 +84,7 @@ if (!dryRun) await publish();
 
 async function publish() {
 let release;
-const listing = { prerelease: mode !== "beta", make_latest: mode === "beta" ? "true" : "false" };   // the beta is the latest
+const listing = { prerelease: true, make_latest: "false" };   // beta-only: "latest" stays the real release
 if (fold) {                                       // same release and link: new notes, the installer swapped
   release = await github(`https://api.github.com/repos/${REPO}/releases/${fold.id}`, { method: "PATCH", body: JSON.stringify({ name, body, ...listing }) });
   for (const a of fold.assets || []) await github(`https://api.github.com/repos/${REPO}/releases/assets/${a.id}`, { method: "DELETE" });
@@ -97,22 +97,13 @@ const uploaded = await github(`https://uploads.github.com/repos/${REPO}/releases
   method: "POST", headers: { "content-type": "application/octet-stream", "content-length": String(statSync(installer).size) },
   body: readFileSync(installer),
 });
-// the beta feed ("Get beta updates") points at this build: a tester build (a pre-release) reaches only those players;
-// the public beta also goes to everyone, below
+// the beta feed ("Get beta updates") points at this build, tester build or public beta alike
 {
   const json = feed({ version, rc: rc(newest), beta, notes: body, url: uploaded.browser_download_url, installer });
   await putJson({ headers, repo: REPO, release: await feedRelease({ headers, repo: REPO }), name: "beta.json", json });
   console.log(`beta feed: ${json.version} (${buildName})`);
 }
 if (mode === "beta") {
-  const json = feed({ version, rc: rc(newest), beta, notes: body, url: uploaded.browser_download_url, installer });
-  // as the latest release: the Download button's file name, and the release feed, so everyone's update check finds it
-  await github(`https://uploads.github.com/repos/${REPO}/releases/${release.id}/assets?name=AniiLogs-Companion-Setup.exe`, {
-    method: "POST", headers: { "content-type": "application/octet-stream", "content-length": String(statSync(installer).size) },
-    body: readFileSync(installer),
-  });
-  await putJson({ headers, repo: REPO, release, name: "latest.json", json });
-  console.log(`release feed: ${json.version} (${buildName}), and the site's Download button`);
   if (beta) {                                     // the next build is the next beta: commit betas.json with this
     const betas = JSON.parse(readFileSync("betas.json", "utf8"));
     betas[version] = Math.max(betas[version] ?? 0, beta);
