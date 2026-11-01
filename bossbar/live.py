@@ -391,6 +391,47 @@ def same_name(a, b):
     a, b = (a or '').strip().casefold(), (b or '').strip().casefold()
     return bool(a and b) and (a == b or (min(len(a), len(b)) >= 4 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85))
 
+TEAMMATES = os.path.join(HERE, 'teammates.json')
+STEADY_SEEN = 3        # a teammate's name read this many times (separate Party screens) is that player's name
+STEADY_ALIKE = 0.85    # a read at least this alike to it is a misread of it ('Kyhra' isn't Kyhru: 0.8)
+
+class Teammates:
+    """Teammates' names as seen on the Party screen, run after run, so one player goes to the leaderboard under one
+    name. The game never shows a teammate's UID (the site ties a name to a UID only once that player runs aLogs and
+    claims it), so a misread ('AkArashi', 'AFKAFashi' for AFKArashi) made a new player on the boards each time. A
+    name read clearly on STEADY_SEEN Party screens is kept; a later read that is a near miss of it, and hasn't been
+    seen twice in its own right, is sent as that name. Short names (under 4 characters) are left exactly as read."""
+    def __init__(self, path=TEAMMATES):
+        self.path = path
+        try:
+            with open(path, encoding='utf-8') as f: self.seen = {k: int(v) for k, v in json.load(f).items()}
+        except (OSError, ValueError, AttributeError): self.seen = {}
+
+    @staticmethod
+    def fold(name):
+        """The name as lookalike letters fold together (accents dropped, 0/O/o, 1/l/I/|), for comparing reads."""
+        import unicodedata
+        plain = ''.join(c for c in unicodedata.normalize('NFKD', name or '') if not unicodedata.combining(c))
+        return plain.casefold().translate(str.maketrans({'0': 'o', '1': 'l', 'i': 'l', '|': 'l'}))
+
+    def steady(self, name):
+        if not name or len(name) < 4 or self.seen.get(name, 0) >= 2: return name
+        a = self.fold(name)
+        best = max(((difflib.SequenceMatcher(None, a, self.fold(k)).ratio(), n, k) for k, n in self.seen.items()
+                    if n >= STEADY_SEEN and k != name and len(k) >= 4), default=None)
+        if best and best[0] >= STEADY_ALIKE:
+            log.info(f'teammate: {name!r} read as {best[2]!r} (seen {best[1]} times)')
+            return best[2]
+        return name
+
+    def saw(self, name):
+        if not name or len(name) < 2: return
+        self.seen[name] = self.seen.get(name, 0) + 1
+        try: S.write_json(self.path, self.seen, indent=1, ensure_ascii=False)
+        except OSError: pass
+
+TEAM = Teammates()
+
 def vote(votes, key, value):
     """One read's value for `key` into `votes`; returns the value most reads so far agree on (the first seen on a tie;
     a read that found nothing doesn't vote)."""
@@ -404,7 +445,10 @@ def party_slots(players, party):
     name comes from the Party screen, read clearly there, with its AI flag and you; the column's own read only checks it.
     A misread like 'Dyn*ht' no longer has to be guessed at. A column that clearly reads as another member's name (the
     order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read."""
-    if not party: return
+    if not party:
+        for p in players:
+            if p.get('name') and not p.get('self'): p['name'] = TEAM.steady(p['name'])
+        return
     by_slot = {m['slot']: m for m in party}
     sim = lambda a, b: difflib.SequenceMatcher(None, (a or '').casefold(), (b or '').casefold()).ratio()
     for p in players:
@@ -2250,10 +2294,16 @@ class Meter:
         votes = self.party['votes'] if same else {}
         for m in members: votes.setdefault(m['slot'], collections.Counter())[m['name']] += 1
         for m in members: m['name'] = votes[m['slot']].most_common(1)[0][0]
+        counted = self.party.get('counted', set()) if same else set()
+        for m in members:
+            if m['self'] or m['ai']: continue
+            clear = votes[m['slot']][m['name']] >= 3
+            m['name'] = TEAM.steady(m['name'])
+            if clear and m['slot'] not in counted: TEAM.saw(m['name']); counted.add(m['slot'])
         changed = not same or [(m['name'], m['ai'], m['self']) for m in members] != \
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
         kept = {k: self.party[k] for k in ('team_reads', 'teams', 'team', 'buffs') if k in self.party} if same else {}
-        self.party = {'at': now, 'members': members, 'votes': votes, **kept}      # the icon reads carry on too
+        self.party = {'at': now, 'members': members, 'votes': votes, 'counted': counted, **kept}   # the icon reads carry on too
         if changed:
             log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
                                            + (f" [{m['aniimo']} Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]" if m.get('aniimo') else '')
