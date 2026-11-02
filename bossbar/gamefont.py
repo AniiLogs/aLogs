@@ -165,6 +165,8 @@ class GameFont:
                                           (1, k, -out.height * k, 0, 1, 0), Image.BICUBIC)
         bbox = out.getbbox() or (0, 0, 1, 1)
         out = out.crop(bbox)
+        out.info['base'] = round(base) - bbox[1]                  # the baseline's y in the picture, to line texts up on
+        out.info['italic'] = italic
         self.cache[key] = out
         if len(self.cache) > 300: self.cache.pop(next(iter(self.cache)))
         return out

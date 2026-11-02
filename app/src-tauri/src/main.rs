@@ -631,7 +631,7 @@ fn send_character_dispute(note: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Link character (Dashboard): asks the meter to read your name and UID from the game's Profile screen
+/// Link character (Leaderboards › Account): asks the meter to read your name and UID from the game's Profile screen
 /// (character_link.json; the meter shows what it read in status.json's character.link), then sends it once you confirm.
 /// A proven name only changes this way: the meter never replaces it on its own.
 #[tauri::command]

@@ -139,7 +139,7 @@ All read level, title, `xN`, timer and fill correctly. Not yet tested on a real 
 - Boss rush: the bar shows only the current star segment. `grade = 17 − N`;
   `damage = maxHP × (cum[grade−1] + (1 − fill) × (cum[grade] − cum[grade−1]))`.
 - Other bosses: `damage = maxHP × (1 − fill)`.
-- Average DPS = damage ÷ (180 − timer). "Last 5 s" DPS uses the change over the last five seconds.
+- Average DPS = damage ÷ (180 − timer). "Last 5s" DPS uses the change over the last five seconds.
 
 ## Limits
 

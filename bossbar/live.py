@@ -9,7 +9,7 @@ Usage:
     python live.py [--interval 0.05] [--no-overlay] [--hide-from-capture] [--no-debug-frames] [--replay shots...]
 """
 import argparse, collections, csv, ctypes, difflib, json, logging, logging.handlers, os, platform, queue, re, sys, threading, time
-from PIL import Image, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageOps, ImageStat
 import reader as R
 import pcstats
 import wincapture as wc
@@ -366,18 +366,47 @@ def parse_battle_data(text):
     (Average DPS, BREAK Value, Damage Taken, Heal Amount). A lone 'o'/'O' is a 0. Each card is read on its own,
     from one 'Average DPS' label to the next: a value the OCR missed (a blank Heal) used to shift every later card
     by one, so the next player's DPS became this one's heal. A card short of a value keeps the ones it has, in
-    order, and the missing ones are None (never another player's)."""
+    order, and the missing ones are None (never another player's): a card is kept even with one value, so the cards
+    after it stay with their players. A downed player's card has no HP bar, and OCR reads its values on the label's
+    line ('BREAK Value 2058717', '0 Damage Taken 21398': the 0 is the label's icon): a number ending a label is that
+    label's value (1 Nov: the card was dropped and the next player's numbers moved onto this one). That card's lower
+    lines can come after the next card's numbers, under their labels again ('O Damage Taken / O Heal Amount / 28605 /
+    7737'): a label a card already had goes back to the nearest earlier card missing it, with the numbers after it."""
     keys = ('avg_dps', 'break', 'taken', 'heal'); cards = []
+    def label(p):
+        return 'break' if 'BREAK' in p else 'taken' if 'Damage' in p else 'heal' if 'Heal' in p else None
     for seg in re.split(r'[^/]*Average\s*D', text or '')[1:]:          # one segment per card, labels then values
-        vals = []
+        vals, seen, spill = [], set(), None                            # spill: [[key, value or None], ...]
         for part in (p.strip() for p in seg.split('/')):
             p = part.replace(',', '')
             if re.fullmatch(r'[oO]', p): p = '0'
-            if re.fullmatch(r'\d+', p): vals.append(int(p))
+            if re.fullmatch(r'\d+', p):
+                if spill is not None:
+                    gap = next((s for s in spill if s[1] is None), None)
+                    if gap: gap[1] = int(p)
+                else: vals.append(int(p))
+            elif re.search(r'[A-Za-z]', p):
+                key = label(p); m = re.search(r'\s(\d+)$', p)
+                if key and key in seen and spill is None: spill = []
+                if spill is not None:
+                    if key: spill.append([key, int(m.group(1)) if m else None])
+                    continue
+                if key: seen.add(key)
+                if m: vals.append(int(m.group(1)))
+        card = dict(zip(keys, vals[:4] + [None] * (4 - len(vals[:4]))))
+        cards.append(card)
+        had = [sum(c[k] is not None for k in keys) for c in cards]       # counted before any spilled value lands
+        for key, value in spill or []:      # to the shortest card missing it (the downed one), the nearest of those
+            short = [i for i in range(len(cards) - 2, -1, -1) if cards[i][key] is None]
+            owner = cards[min(short, key=lambda i: had[i])] if short else None
+            if owner is not None and value is not None: owner[key] = value
+    # a card with no number at all is a misread (the screen still opening, or half covered): no cards from this read,
+    # rather than empty ones that would count as players
+    if any(all(c[k] is None for k in keys) for c in cards): return []
+    for card in cards:
         # a card one value short is missing its Heal: the lone '0' the OCR skips (every short card on 30 Oct, checked
         # against the proof pictures, was a Heal of 0)
-        if len(vals) == 3: vals.append(0)
-        if len(vals) >= 4: cards.append(dict(zip(keys, vals[:4])))
+        if sum(card[k] is not None for k in keys) == 3 and card['heal'] is None: card['heal'] = 0
     return cards
 
 # ---------------------------------------------------------------- timer
@@ -540,7 +569,9 @@ RESULT_PAUSE = 5                    # seconds the automatic Battle Data session 
 BATTLE_DATA_PAUSE = 5               # and holds on Battle Data once it's open, so each is read many times (inputs held)
 BATTLE_DATA_SETTLE = 6              # ...then a run is decided this long after Battle Data is in, once those reads voted
 SCREEN_READS = 10                   # reads of each screen per appearance; the value most reads agree on wins
-VK_F = 0x46                 # the game's interact key (End Holo-Battle Sim at the exit gate)
+SIM_GATE_GONE = 3           # s with the exit gate's button gone before a press no longer counts as ending the run
+SIM_PRESS_EARLY = 1.0       # s before the exit gate's button was first seen that a press still counts (it shows first)
+SIM_VICTORY_WAIT = 8        # s after your press at the exit gate for the Victory screen (it comes in ~1 s) before control comes back
 HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 FIGHT_LOG_DAYS = 30                 # each fight's per-frame CSV is kept this long (its result in logs/fights stays)
 LEFTOVER_HOURS = 6                  # "only until its data is saved": anything a crash or diagnostics left behind
@@ -965,20 +996,34 @@ class Fight:
         try: self.log.close()
         except Exception: pass
 
+GIZMO_LIST_BOX = (0.215, 0.09, 0.97, 0.96)   # the Gizmo screen's list, icons to the end of the descriptions (16:9 shares)
+def gizmo_list_sig(im):
+    """The Gizmo list's text, small (64 wide): two views with the same signature show the same rows at the same place.
+    Only the dark text counts, not the see-through backdrop behind the list (the game, which can move)."""
+    W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; b = GIZMO_LIST_BOX
+    c = im.crop((int(ux + u * b[0]), int(H * b[1]), int(ux + u * b[2]), int(H * b[3]))).convert('L')
+    return c.point(lambda v: 255 if v < 130 else 0).resize((64, 72), Image.BOX)
+
+def gizmo_list_same(a, b):
+    """The list hasn't moved between two signatures (a few pixels' worth of difference allowed)."""
+    return a is not None and b is not None and ImageStat.Stat(ImageChops.difference(a, b)).mean[0] < 1.5   # still: 0, moving: 3.7+
+
 def sim_gate_pill(im, box, u):
     """Is the exit gate's button there: its dark blue-grey pill (the words on it), not the gate's floating label (the
-    same words over the scenery)? Rows with a long run of dark, blue-leaning pixels, at least 0.06 of the 16:9 width,
-    for a band about as tall as the pill (0.012 of the width). Ground shadows lean red, the sky is bright."""
+    same words over the scenery)? The pill is one flat blue-grey, about (77, 76, 93) and (61, 61, 80) at its darkest,
+    measured on nine frames at the gate (1 Nov): rows with that color over at least 0.04 of the 16:9 width, for a band
+    about as tall as the pill (0.012 of the width). Counted, not one unbroken run, since the white letters cut its
+    middle rows into pieces. Only that color: dark in general also matched a fade, a dimmed menu and the player's own
+    dark armor beside the button."""
     band = im.crop(tuple(int(v) for v in box)).convert('RGB')
     w = 400; h = max(1, round(band.height * w / band.width)); band = band.resize((w, h), Image.BOX)
-    px = band.load(); need = 0.06 * u * w / (box[2] - box[0]); rows = 0; best = 0
+    need = 0.04 * u * w / (box[2] - box[0]); px = band.load(); rows = 0; best = 0   # (lettered rows: 0.053+)
     for y in range(h):
-        run = longest = 0
+        n = 0
         for x in range(w):
             r, g, b = px[x, y]
-            if max(r, g, b) < 110 and b >= r - 5: run += 1; longest = max(longest, run)
-            else: run = 0
-        rows = rows + 1 if longest >= need else 0; best = max(best, rows)
+            if 55 <= r <= 100 and 55 <= g <= 100 and b <= 125 and b - r >= 8 and b - g >= 8: n += 1
+        rows = rows + 1 if n >= need else 0; best = max(best, rows)
     return best >= 0.012 * u * w / (box[2] - box[0])
 
 class OcrWorker(threading.Thread):
@@ -1709,17 +1754,6 @@ class Meter:
         log.info(f'Egg Heist: the screen faded to black - holding inputs until the end screen is read (at most {seconds} s)')
         if before is not None: self.egg_fade_frame(before, 'before')
 
-    def sim_tour_frame(self, im, what):
-        """Diagnostics (Captures & logs › diagnostic captures): each view of the Gizmo screen the tour reads goes to
-        logs/sim_tour/, to see what it clicked and which names it missed. Small JPEGs, cleared with the rest."""
-        if not self.args.cfg['capture'].get('debug_frames'): return
-        try:
-            d = os.path.join(HERE, 'logs', 'sim_tour'); os.makedirs(d, exist_ok=True)
-            small = im.convert('RGB'); small.thumbnail((1600, 900))
-            small.save(os.path.join(d, time.strftime('%Y%m%d_%H%M%S_') + what + '.jpg'), quality=85)
-        except Exception as e:
-            log.info(f'gizmo screen frame not saved: {e!r}')
-
     def egg_fade_frame(self, im, what):
         """Diagnostics (Captures & logs › diagnostic captures): the frame before a fade and the one that ended a hold
         without an end screen go to logs/egg_fade/, to tune what counts as the fade. Small JPEGs, cleared with the rest."""
@@ -1775,6 +1809,12 @@ class Meter:
         won = bool(re.search(r'victo|v[il1]\W?[c<(]?t?ory', title)) or ('defe' not in title and len(team['team']) >= 3)
         if not sim:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
+        # The screen slides in: title and team first, the shares, coins and gizmo row a moment later (1 Nov: read
+        # 0.3 s in, those were blank and the Gizmo screen never opened). Give them up to 3 s.
+        if won and not (t.get('share') or t.get('coins') or t.get('gizmos')):
+            first = getattr(self, 'sim_first', None)
+            if first is None or now - first > 30: self.sim_first = first = now
+            if now - first < 3: return
         self.sim_seen = now
         log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
                  f"{sim['difficulty']}, battle time {sim['time_s']} s")
@@ -1788,6 +1828,11 @@ class Meter:
         counts = sim['setup'].pop('gizmoCounts')
         if sim['setup'].get('gizmos') and len(sim['setup']['gizmos']) == len(counts):
             sim['setup']['gizmos'] = [{**g, 'count': n} for g, n in zip(sim['setup']['gizmos'], counts)]
+        elif sim['setup'].get('gizmos'):
+            # the series known from their icons, a count under one not read (1 Nov: 6 icons, 5 counts): the series are
+            # kept, so the Gizmo screen is still read (it lists each one), with the counts unknown rather than shifted
+            log.info(f"Holo-Battle Sim: {len(sim['setup']['gizmos'])} gizmo series but {len(counts)} counts read {counts}: counts left out")
+            sim['setup']['gizmos'] = [{**g, 'count': None} for g in sim['setup']['gizmos']]
         else: sim['setup']['gizmos'] = [{'count': n} for n in counts] or None
         log.info(f"Holo-Battle Sim setup: {sim['setup']}")
         shot = self.picture(im, 'screens', 'sim_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
@@ -1825,7 +1870,7 @@ class Meter:
     GIZMO_ALL = (0.09, 0.16)                  # "All 43" at the top of the series
     GIZMO_LIST = (0.305, 0.09, 0.60, 0.96)    # the names' column (descriptions run on to the right)
     GIZMO_BACK = (0.05, 0.056)
-    SIM_PROOF_MAX = 12                        # Gizmo-screen pictures sent with a run, at most
+    SIM_PROOF_MAX = 20                        # views of the Gizmo screen sent with a run, at most (~250 KB each)
 
     def sim_control(self, now, why):
         """aLogs takes control for the Holo-Battle Sim's end (Leaderboards › Automation): your keyboard and mouse
@@ -1835,8 +1880,8 @@ class Meter:
         if ctl: return ctl
         r = self.args.cfg['results']
         seconds = max(HOLD_MIN, min(120, int(r.get('hold_seconds') or 60)))
-        self.sim_ctl = ctl = {'until': now + seconds, 'why': why}
-        if r.get('hold_inputs'): self.hold.start(seconds)
+        self.sim_ctl = ctl = {'until': now + seconds, 'why': why, 'held': bool(r.get('hold_inputs'))}
+        if ctl['held']: self.hold.start(seconds)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Holo-Battle Sim: aLogs has control ({why}), for at most {seconds} s')
         return ctl
@@ -1847,16 +1892,46 @@ class Meter:
         if CT.hidden: CT.hide_controllers(False)
         log.info(f'Holo-Battle Sim: control given back ({why})')
 
+    def sim_check(self, now):
+        """Every frame while aLogs has the Holo-Battle Sim's end: control comes back the moment it isn't going as
+        planned, never only at the time limit (1 Nov: held 60 s at a gate whose Victory screen never came, the player
+        pressing keys all along). The Gizmo screen's tour keeps its own checks (sim_tour_step)."""
+        ctl = getattr(self, 'sim_ctl', None)
+        if not ctl or getattr(self, 'sim_tour', None): return
+        stage = ctl.get('stage')
+        if now > ctl['until']: self.sim_release('time limit')
+        elif ctl['held'] and not self.hold.active and now - ctl['until'] < -1:    # Ctrl+Shift/Alt+F12: all of it ends
+            self.sim_release('you took control back (Ctrl+F12)')
+        elif stage == 'gate' and ctl.get('done') and now - ctl['done'] > SIM_VICTORY_WAIT:
+            self.sim_release(f'no Victory screen {SIM_VICTORY_WAIT} s after your press at the gate')
+
     def sim_gate(self, im, now):
         """Holo-Battle Sim, last level: the exit gate's "End Holo-Battle Sim" button (a dark pill right of the middle
-        of the screen, the key on its left) is up. aLogs takes control and presses it (F) until it's gone, then waits for
-        the Victory screen (sim_result). Only on the last level ("Level 16/16" top left), so it never ends a run early,
-        and only below the gate's own floating label (same words, higher up). Read twice in a row before acting."""
+        of the screen, the key on its left). aLogs presses nothing here: with the button up it watches for your own
+        press of it (the controller's Y or the keyboard's F, CT.PressWatch), and from that press it takes control, so
+        the Victory screen can't be skipped (sim_result takes over there; control comes back if it doesn't come,
+        sim_check). 1 Nov: aLogs pressing F itself didn't work with a controller in use (the game ignores the keyboard
+        while a controller is held, and a controller already open can't be blocked), so your press ends the run. Only
+        on the last level ("Level 16/16" top left), so an early press isn't taken for the end, and only for the button,
+        not the gate's own floating label (same words, higher up)."""
         if (not self.holosim_space or self.args.replay is not None or not self.hwnd or not wc.is_foreground(self.hwnd)
                 or not C.automation(self.args.cfg, 'sim_gate') or getattr(self, 'sim_tour', None)): return
         gate = getattr(self, 'sim_gate_state', None) or {}
         if gate.get('space') != self.space: gate = {'space': self.space}          # a new run: its level read again
-        if now - gate.get('look', 0) < (0.3 if gate.get('last') else 1.5): return     # the level: now and then
+        watch = getattr(self, 'sim_press', None) or CT.PressWatch(); self.sim_press = watch
+        if gate.get('last'): watch.start()                         # all through the last level: a quick tap counts too
+        press = watch.last
+        # a press while the button is up, or just before it was seen (it shows a moment before a look finds it; 1 Nov:
+        # Y pressed the instant the button came up was missed), and not one already taken
+        if (press and gate.get('first_up') and press[1] >= gate['first_up'] - SIM_PRESS_EARLY
+                and press[1] > gate.get('used', 0) and now - gate.get('up_at', 0) <= SIM_GATE_GONE
+                and not getattr(self, 'sim_ctl', None)):
+            what, at = press; gate['used'] = at; watch.stop()
+            ctl = self.sim_control(now, f'you pressed {what} at the exit gate')
+            ctl.update(stage='gate', done=at); gate['first_up'] = gate['up_at'] = None
+            log.info('Holo-Battle Sim: waiting for the Victory screen')
+            return
+        if now - gate.get('look', 0) < 0.15: return       # the level and the button in one look: no wait on either
         gate['look'] = now; self.sim_gate_state = gate
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
         t = self.ocr.read({'b': R.prep_bright(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), k),
@@ -1865,23 +1940,19 @@ class Meter:
             m = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', t.get('l') or '')
             gate['last'] = bool(m and m.group(1) == m.group(2) and int(m.group(1)) > 1)
             if not gate['last']: return
+            log.info(f"Holo-Battle Sim: last level ({t.get('l')!r}): the exit gate is watched")
         up = 'endholo' in re.sub(r'[^a-z]', '', (t.get('b') or '').lower())
         if up and not sim_gate_pill(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), u):
             if now - gate.get('said', 0) > 10:                     # the words without the button: the gate's own label
                 gate['said'] = now; log.info('Holo-Battle Sim: "End Holo-Battle Sim" seen, but not on its button')
-                self.sim_tour_frame(im, 'gate_label')
             up = False
-        ctl = getattr(self, 'sim_ctl', None)
-        if ctl and ctl.get('stage') == 'gate':
-            if up and now - ctl.get('pressed', 0) >= 1.0 and ctl['presses'] < 5:
-                wc.press_key(VK_F); ctl['pressed'] = now; ctl['presses'] += 1
-            elif not up: ctl['stage'] = 'victory'; log.info('Holo-Battle Sim: the exit gate took; waiting for the Victory screen')
-            return
-        gate['seen'] = gate.get('seen', 0) + 1 if up else 0
-        if gate['seen'] < 2 or ctl: return
-        ctl = self.sim_control(now, 'the exit gate')
-        ctl.update(stage='gate', presses=1, pressed=now)
-        wc.press_key(VK_F)
+        if getattr(self, 'sim_ctl', None): return
+        if up:
+            if not gate.get('first_up'):
+                gate['first_up'] = now; log.info('Holo-Battle Sim: the exit gate button is up; watching for your Y or F')
+            gate['up_at'] = now
+        elif gate.get('first_up') and now - gate['up_at'] > SIM_GATE_GONE:
+            gate['first_up'] = gate['up_at'] = None               # walked away from the gate: no press counts now
 
     def sim_tour_start(self, now):
         """After a Holo-Battle Sim win, open the Gizmo screen and read every gizmo picked (All), keeping pictures of
@@ -1894,8 +1965,8 @@ class Meter:
         if not gizmos or not all(g.get('sid') for g in gizmos): return False
         self.sim_control(now, 'the Victory screen')
         self.sim_tour = {'stage': 'open', 'next': now + 0.3, 'tries': 0, 'rows': [], 'read': {}, 'idle': 0, 'scrolls': 0,
-                         'shots': [], 'want': sum(g.get('count') or 0 for g in gizmos)}
-        log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want']} gizmos")
+                         'shots': [], 'want': sum(g['count'] for g in gizmos) if all(g.get('count') is not None for g in gizmos) else None}
+        log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want'] if self.sim_tour['want'] is not None else 'all its'} gizmos")
         return True
 
     def sim_tour_end(self, why):
@@ -1914,9 +1985,10 @@ class Meter:
             cores = [p['name'] for g in setup.get('gizmos') or [] for p in g.get('picked') or [] if p['rarity'] == 'Core']
             if cores: setup['cores'] = cores
             pending[0]['gizmo_shots'] = tour['shots']
-        log.info(f"Holo-Battle Sim Gizmo screen: {why}; read {got} of {tour['want']} gizmos: "
+        of = '' if tour['want'] is None else f" of {tour['want']}"
+        log.info(f"Holo-Battle Sim Gizmo screen: {why}; read {got}{of} gizmos: "
                  + '; '.join(f"{sid}: {rows}" for sid, rows in tour['read'].items()))
-        self.sim_send(note=f"{got} of {tour['want']} gizmos" if got != tour['want'] else f"{got} gizmos")
+        self.sim_send(note=f"{got} of {tour['want']} gizmos" if tour['want'] is not None and got != tour['want'] else f"{got} gizmos")
         self.sim_release('the Gizmo screen is read')
 
     def sim_rarity(self, name):
@@ -1963,6 +2035,8 @@ class Meter:
         if not tour: return False
         ctl = getattr(self, 'sim_ctl', None)
         if not ctl or now > ctl['until']: self.sim_tour_end('time limit'); return False
+        if ctl['held'] and not self.hold.active:                  # Ctrl+Shift/Alt+F12: the tour stops clicking too
+            self.sim_tour_end('you took control back (Ctrl+F12)'); return False
         if not wc.is_foreground(self.hwnd): self.sim_tour_end('game is not the active window'); return False
         if now < tour['next'] or im is None: return True
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
@@ -1970,12 +2044,15 @@ class Meter:
         stage = tour['stage']
         if stage == 'open':                                     # the first icon of the Victory screen's gizmo row
             tour['tries'] += 1
-            if tour['tries'] > 3: self.sim_tour_end('the Gizmo screen did not open'); return False
+            if tour['tries'] > 3: self.sim_tour_end(f"the Gizmo screen did not open (title read {tour.get('title', '')!r})"); return False
+            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in at(SIM_GIZMO_X, 0.545))} (try {tour['tries']})")
             wc.click_at(*at(SIM_GIZMO_X, 0.545)); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
-        on_page = 'gizmo' in re.sub(r'[^a-z]', '', (self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0],
-                    H * self.GIZMO_TITLE[1], ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or '').lower())
+        title = self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0], H * self.GIZMO_TITLE[1],
+                                                     ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or ''
+        on_page = 'gizmo' in re.sub(r'[^a-z]', '', title.lower())
         if stage == 'wait':
+            tour['title'] = title
             # looked at about every 0.25 s; clicked again only when the screen hasn't come after 1.5 s
             if on_page: tour.update(stage='all', next=now)
             else:
@@ -1994,25 +2071,33 @@ class Meter:
         if stage == 'all':
             wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.35)
             return True
-        # 'read': the names in view; scroll on (about 3 rows a time, so each view overlaps the last) until every pick is
-        # read or two looks bring nothing new; each view with new rows is kept as proof
+        # 'read': once the list stands still (its text the same two looks running, at most 1.5 s), the names in view;
+        # scroll on about 3 rows a time (each view shares rows with the last) until every pick is read or a scroll
+        # doesn't move the list (its end). Each view with new rows is kept as proof, as it was on screen.
         x0, y0, x1, y1 = self.GIZMO_LIST
+        sig = gizmo_list_sig(im)
+        if not gizmo_list_same(sig, tour.get('sig')) and now - tour.get('moved', now) < 1.5:
+            if 'moved' not in tour: tour['moved'] = now
+            tour['sig'] = sig; tour['next'] = now + 0.08
+            return True
+        tour.pop('moved', None); tour['sig'] = sig
+        at_end = gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0
+        tour['read_sig'] = sig
         text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k, size=2)}).get('n') or ''
         view = self.sim_names(text)
         rows = self.sim_stitch(tour['rows'], view)
         if tour['rows'] and view and len(rows) == len(tour['rows']) + len(view) and tour.get('backups', 0) < 3:
             # no row in common with the last view: the scroll went too far, so back up a little and read again
-            tour['backups'] = tour.get('backups', 0) + 1; tour['next'] = now + 0.3
+            tour['backups'] = tour.get('backups', 0) + 1; tour['next'] = now + 0.12
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 2)
             return True
         if len(rows) > len(tour['rows']):
             shot = self.sim_tour_shot(im, f"all_{tour['scrolls']:02d}")
             if shot: tour['shots'].append(shot)
-            self.sim_tour_frame(im, f"all_{tour['scrolls']:02d}")
         tour['idle'] = 0 if len(rows) > len(tour['rows']) else tour['idle'] + 1
         tour['rows'] = rows
-        if self.sim_count(rows) < tour['want'] and tour['idle'] < 2 and tour['scrolls'] < 15:
-            tour['scrolls'] += 1; tour['next'] = now + 0.3
+        if (tour['want'] is None or self.sim_count(rows) < tour['want']) and not at_end and tour['idle'] < 2 and tour['scrolls'] < 20:
+            tour['scrolls'] += 1; tour['next'] = now + 0.12
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3)
             return True
         for n in rows:                                          # each row under its series (game data)
@@ -2022,11 +2107,12 @@ class Meter:
         return True
 
     def sim_tour_shot(self, im, what):
-        """A Gizmo-screen picture for the run's proof (logs/screens, sent with the run, then deleted like the others)."""
+        """A view of the Gizmo list for the run's proof (logs/screens, sent with the run, then deleted like the others):
+        the whole screen as it stood, nothing cut, joined or drawn on; the site shows the views one under the other."""
         tour = self.sim_tour
         if len(tour['shots']) >= self.SIM_PROOF_MAX: return None
         return self.picture(im, 'screens', f"sim_gizmo_{time.strftime('%Y%m%d_%H%M%S')}_{len(tour['shots']):02d}_{re.sub(r'[^A-Za-z0-9]', '', what)}",
-                            proof=True)
+                            proof=True, fresh=False)
 
     def sim_pictures(self, im, u, ux, H):
         """The Victory screen's pictures, matched to the game's own (icons.py): the Training Style, from the Core
@@ -3407,8 +3493,7 @@ class Meter:
         self.last_step = now
         self.top_sig = screen_sig(im.crop((0, 0, im.width, max(1, int(self.frame_size[1] * TOP_PART)))))
         if self.frame_full: self.egg_fade(im, now)        # Egg Heist: hold inputs through the fade to its end screen
-        ctl = getattr(self, 'sim_ctl', None)
-        if ctl and now > ctl['until'] and not getattr(self, 'sim_tour', None): self.sim_release('time limit')
+        self.sim_check(now)
         if self.bar is None and self.holosim_space: self.sim_gate(im, now)    # Holo-Battle Sim's exit gate (last level)
         # -- keep the bar locked: re-check its brackets, search again only when they are gone
         if self.bar is None or not R.verify_bar(im, self.bar):
@@ -3864,17 +3949,44 @@ def run_overlay(meter, hide):
         if not AWAY['on']: win.geometry(f'+{int(x)}+{int(y)}')
     def park(win): placed.pop(win, None); own_spot(win, None); win.geometry(OFF)
 
+    def ink(im):
+        """(left, right) of the letters' solid part, leaving out the soft shadow (at most ~120 alpha), which spreads
+        further at larger sizes. Italic text is measured on its lower half: it leans right above that."""
+        a = im.getchannel('A')
+        if im.info.get('italic'): a = a.crop((0, a.height // 2, a.width, a.height))
+        a = a.point(lambda v: 255 if v > 140 else 0)
+        box = a.getbbox()
+        return (box[0], box[2]) if box else (0, im.width)
+
     def compose(lines, H, divider=False, center=False, backdrop=None):
         """The stats as one RGBA image in the game font: lines [(text, colour, size, 'i'/'b')], optional divider.
-        backdrop: the dark card's strength in % (the Overlay setting unless given)."""
+        A text that is a (label, value) pair is a row: the label grey on the left, the value on the right; with rows,
+        every line's right edge lines up on the letters. backdrop: the dark card's strength in % (the Overlay setting
+        unless given)."""
         backdrop = BACKDROP if backdrop is None else backdrop
         f = GF['font']; pad = max(3, round(H * (0.011 if backdrop else 0.004))); parts = []
+        rows = any(isinstance(line[0], tuple) for line in lines)
         for text, colour, size, *style in lines:
             px = max(11, round(H * size)); style = style[0] if style else ''
-            parts.append((f.render(text, px, rgb(colour), italic='i' in style, bold='b' in style), px))
-        width = max([im.width for im, _ in parts] + ([round(H * 0.215)] if divider else []))
+            if isinstance(text, tuple):
+                parts.append(((f.render(text[0], px, rgb('#aab4c3')), f.render(text[1], px, rgb(colour))), px))
+            else: parts.append((f.render(text, px, rgb(colour), italic='i' in style, bold='b' in style), px))
+        def span(im): left, right = ink(im); return right - left
+        def above(im): return max(p.info.get('base', p.height) for p in im)     # a row: label and value share a baseline
+        def tall(im):
+            if not isinstance(im, tuple): return im.height
+            return above(im) + max(p.height - p.info.get('base', p.height) for p in im)
+        gap = round(H * 0.012)
+        if rows:          # measured on the ink, so the right edges and the labels' left edges agree to the pixel; at
+            #               least as wide as a long reading, so the card doesn't jump as the numbers change
+            px0 = max(11, round(H * 0.015))
+            least = span(f.render('Last 5s', px0)) + gap + span(f.render('888.8K / 8.88M HP', px0))
+            width = max([least] + [span(im[0]) + gap + span(im[1]) if isinstance(im, tuple) else span(im)
+                                   for im, _ in parts])
+        else: width = max(im.width for im, _ in parts)
+        width = max([width] + ([round(H * 0.215)] if divider else []))
         lw = max(1, round(H / 1080)); top = round(H * 0.01) if divider else 0
-        height = top + sum(im.height + round(px * 0.04) for im, px in parts)
+        height = top + sum(tall(im) + round(px * 0.04) for im, px in parts)
         out = Image.new('RGBA', (width + 2 * pad, height + 2 * pad), (0, 0, 0, 0))
         if backdrop:      # styled like Interlink's stars/timer panel: a dark slate card with well-rounded corners,
             from PIL import ImageDraw  # darkest on the left and easing to ~40% of that on the right
@@ -3893,8 +4005,14 @@ def run_overlay(meter, hide):
             d.line((pad, pad, pad + round(H * 0.215), pad), fill=(232, 236, 242, 190), width=lw)
         y = pad + top
         for im, px in parts:
-            out.alpha_composite(im, (pad + ((width - im.width) // 2 if center else 0), y))
-            y += im.height + round(px * 0.04)
+            if isinstance(im, tuple):         # a row: the label's ink on the left edge, the value's on the right one
+                label, value = im; base = y + above(im)
+                out.alpha_composite(label, (pad - ink(label)[0], base - label.info.get('base', label.height)))
+                out.alpha_composite(value, (pad + width - ink(value)[1], base - value.info.get('base', value.height)))
+            else:
+                x = pad + width - ink(im)[1] if rows else pad + ((width - im.width) // 2 if center else 0)
+                out.alpha_composite(im, (x, y))
+            y += tall(im) + round(px * 0.04)
         return out
 
     def styled(c, x, y, text, px, fill='#ffffff', anchor='nw', italic=False, bold=False):
@@ -3949,10 +4067,21 @@ def run_overlay(meter, hide):
             dc.create_line(pad, y + lw, pad + width, y + lw, fill='#141a28', width=lw)      # shadow
             dc.create_line(pad, y, pad + width, y, fill='#d7dee8', width=lw)
             y += round(H * 0.008)
+        rows = any(isinstance(line[0], tuple) for line in lines); right = []    # (items, right edge) to line up
         for text, colour, size, *style in lines:
             px = max(11, round(H * size)); style = style[0] if style else ''
-            item = styled(dc, pad, y, text, px, colour, italic='i' in style, bold='b' in style)
+            before = set(dc.find_all())
+            if isinstance(text, tuple):       # a row: the label grey on the left, the value moved to the right below
+                label = styled(dc, pad, y, text[0], px, '#aab4c3'); before = set(dc.find_all())
+                item = styled(dc, dc.bbox(label)[2] + round(H * 0.012), y, text[1], px, colour)
+            else: item = styled(dc, pad, y, text, px, colour, italic='i' in style, bold='b' in style)
+            if rows: right.append(set(dc.find_all()) - before)
             y = dc.bbox(item)[3] + round(px * 0.12)
+        if rows:                              # every value and the big number end on the same right edge
+            edge = max(dc.bbox(*items)[2] for items in right)
+            for items in right:
+                shift = edge - dc.bbox(*items)[2]
+                for item in items: dc.move(item, shift, 0)
         box = dc.bbox('all')
         if center:                                    # end screens: each line centred on the widest
             for item in dc.find_all():
@@ -4093,14 +4222,15 @@ def run_overlay(meter, hide):
         out.alpha_composite(shade); out.alpha_composite(img, (edge, edge))
         return out, edge
 
-    def draw(name, text, bar, colour='#ffffff', hp=None):
-        """Text at its spot next to the bar. bar = (left bracket x, bar centre y, bracket span) on screen."""
+    def draw(name, text, bar, colour='#ffffff', hp_rgb=None):
+        """Text at its spot next to the bar. bar = (left bracket x, bar centre y, bracket span) on screen.
+        (Not `hp=`: that hid the labels' own `hp`, and every label failed to draw, from 0.1.28.)"""
         L = hp[name]; c = L['c']; fx, fy, anchor, fs = HP_SPOTS[name]; bx, by, span = bar
         px = max(11, round(span * fs)); pad = max(2, round(px / 13)) + 3
         if GF['font']:
-            # the words HP (in the bar's colour where the HP ends, `hp`) and BREAK / BROKEN (in their line's colour:
+            # the words HP (in the bar's colour where the HP ends, `hp_rgb`) and BREAK / BROKEN (in their line's colour:
             # yellow when broken) with a thick outline; the numbers with a thin one
-            lead = (2, hp or hp_colour(1.0)) if text.startswith('HP ') else                 (len(text.split(' ', 1)[0]), rgb(colour)) if text.startswith(('BREAK', 'BROKEN')) else None
+            lead = (2, hp_rgb or hp_colour(1.0)) if text.startswith('HP ') else                 (len(text.split(' ', 1)[0]), rgb(colour)) if text.startswith(('BREAK', 'BROKEN')) else None
             img = GF['font'].render(text, px, rgb(colour), bold=name == 'pct', stroke=True, lead=lead)
             W, H = img.size; tx, ty = bx + fx * span, by + fy * span
             x, y = {'w': (tx, ty - H / 2), 'ne': (tx - W, ty), 's': (tx - W / 2, ty - H), 'c': (tx - W / 2, ty - H / 2)}[anchor]
@@ -4151,23 +4281,28 @@ def run_overlay(meter, hide):
         else: clear('bar')
         # the HP bar shows this bar's share in Interlink (xN bars), the whole fight's out in the world
         shown = d['seg_left'] / d['seg_size'] if d['bossrush'] and d['xn'] and d['seg_size'] else left / max_hp
-        draw('total', f"HP {fmt(left)} / {fmt(max_hp)}", bar, hp=hp_colour(shown))
+        draw('total', f"HP {fmt(left)} / {fmt(max_hp)}", bar, hp_rgb=hp_colour(shown))
         brk = break_text(d.get('break') or {})
         if brk: draw('break', brk[0], bar, brk[1])
         else: clear('break')
 
+    def clock(s): s = max(0, int(round(s))); return f"{s // 60}:{s % 60:02d}"
+
     def stat_lines(d):
-        """The stats: DPS, the last 5 s and team damage."""
-        return [(f"{fmt(d['avg'])} DPS", '#ffd36a', 0.0235, 'ib'),         # big italic number, like the HUD's
-                (f"Last 5 s {fmt(d['recent'])} DPS · {d['elapsed']:.0f} s", '#ffffff', 0.015),
-                (f"Team damage {fmt(d['damage'])} / {fmt(d['max_hp'])}", '#ffffff', 0.015)]
+        """The stats: DPS, then rows for the last 5 s, team damage and the fight's time (dashes until the first hit)."""
+        hit = d['damage'] > 0
+        return [(f"{fmt(d['avg'])} DPS" if hit else '— DPS', '#ffd36a', 0.0235, 'ib'),  # big italic, like the HUD's
+                (('Last 5s', f"{fmt(d['recent'])} DPS" if hit else 'waiting...'), '#ffffff', 0.015),
+                (('Team', f"{fmt(d['damage'])} / {fmt(d['max_hp'])} HP"), '#ffffff', 0.015),
+                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)]
 
     def final_lines(d):
         """The fight's result, left in the stats spot for a few seconds: the final hit is counted by then."""
         return [(f"{fmt(d['avg'])} DPS", '#ffd36a', 0.0235, 'ib'),
-                ((f"Defeated {d['title']}" if d['defeated'] and d.get('title') else 'Defeated' if d['defeated'] else 'Fight over')
-                 + f" · {d['elapsed']:.0f} s", '#ffffff', 0.015),     # which boss went down, by its name on the bar
-                (f"Team damage {fmt(d['damage'])} / {fmt(d['max_hp'])}", '#ffffff', 0.015)]
+                (('Result', f"Defeated {d['title']}" if d['defeated'] and d.get('title')   # the boss's name on the bar
+                  else 'Defeated' if d['defeated'] else 'Fight over'), '#ffffff', 0.015),
+                (('Team', f"{fmt(d['damage'])} / {fmt(d['max_hp'])} HP"), '#ffffff', 0.015),
+                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)]
 
     def break_text(b):
         """(text, colour) for the break gauge line under the boss bar, or None while it can't be read."""

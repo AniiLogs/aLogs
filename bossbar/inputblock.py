@@ -4,7 +4,8 @@ Used on the boss rush result screen so button-mashing can't leave it before 'Vie
 - Mouse movement still works; only keys, mouse buttons and the wheel are swallowed.
 - Our own clicks (marked by Windows as injected) pass through.
 - Hard limit: the hook removes itself after `seconds` no matter what (its own thread watches the clock).
-- Ctrl+Shift+F12 releases it at once; Ctrl+Alt+Del always works (Windows never lets hooks see it).
+- Ctrl+Shift+F12 releases it at once, and so does Ctrl+Alt+F12 (what players try first: 1 Nov, it was swallowed and
+  the hold ran its whole minute); Ctrl+Alt+Del always works (Windows never lets hooks see it).
 - Controllers are not affected (that would need a driver).
 """
 import ctypes, ctypes.wintypes as W, threading, time
@@ -12,7 +13,7 @@ import ctypes, ctypes.wintypes as W, threading, time
 user32 = ctypes.windll.user32; kernel32 = ctypes.windll.kernel32
 WH_KEYBOARD_LL, WH_MOUSE_LL = 13, 14
 WM_MOUSEMOVE, WM_QUIT = 0x0200, 0x0012
-LLKHF_INJECTED, LLMHF_INJECTED = 0x10, 0x1
+LLKHF_INJECTED, LLMHF_INJECTED, LLKHF_ALTDOWN = 0x10, 0x1, 0x20
 VK_SHIFT, VK_CONTROL, VK_F12 = 0x10, 0x11, 0x7B
 PM_REMOVE, QS_ALLINPUT = 0x1, 0x04FF
 
@@ -53,7 +54,9 @@ class InputBlock:
         def kb(code, wp, lp):
             if code == 0 and wp not in self.KEY_UPS:
                 k = ctypes.cast(lp, ctypes.POINTER(KBD)).contents
-                if k.vkCode == VK_F12 and user32.GetAsyncKeyState(VK_CONTROL) & 0x8000 and user32.GetAsyncKeyState(VK_SHIFT) & 0x8000:
+                # Alt is in the key's own flags (LLKHF_ALTDOWN): a swallowed Alt never reaches GetAsyncKeyState
+                if k.vkCode == VK_F12 and user32.GetAsyncKeyState(VK_CONTROL) & 0x8000 and (
+                        user32.GetAsyncKeyState(VK_SHIFT) & 0x8000 or k.flags & LLKHF_ALTDOWN):
                     self.stop_at = 0.0; return 1
                 if not k.flags & LLKHF_INJECTED and k.vkCode not in (VK_SHIFT, VK_CONTROL, 0xA0, 0xA1, 0xA2, 0xA3):
                     self.swallowed += 1; return 1

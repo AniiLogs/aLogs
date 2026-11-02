@@ -234,13 +234,12 @@
   renderThemes();
 
   // ---------------------------------------------------------------- screen capture switch
-  // General › Screen capture: the same switch as the button over the game (overlay_button.rs); the button's own
+  // DPS Meter › Run the DPS meter: the same switch as the button over the game (overlay_button.rs); the button's own
   // changes (a click, its right-click menu) arrive as "capture-switch" events.
   let captureOn = true;      // the switch as last shown (the sidebar's "Meter off" follows it)
   function showCaptureSwitch(info) {
     if (!info) return;
-    $("[data-capture-on]").checked = info.capture_on;
-    $("[data-capture-meter]").checked = info.capture_on;   // DPS Meter › Meter › Run the DPS meter: the same switch
+    $("[data-capture-meter]").checked = info.capture_on;   // DPS Meter › Meter › Run the DPS meter
     $('[data-nav-switch="dps"]').setAttribute("aria-checked", String(Boolean(info.capture_on)));
     captureOn = info.capture_on;
     $("[data-capture-button]").checked = info.show;
@@ -270,7 +269,6 @@
     }
   }
   const setSwitch = async (change) => showCaptureSwitch(await invoke("set_capture_switch", change));
-  $("[data-capture-on]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
   $("[data-capture-meter]").addEventListener("change", (event) => setSwitch({ captureOn: event.target.checked }));
   // the sidebar's switches: flipping one doesn't open its page
   async function setSanctum(on) {

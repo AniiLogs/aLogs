@@ -421,16 +421,18 @@ def click_at(x, y):
     """One left click at a screen point, then put the cursor back where it was (built-in SetCursorPos/mouse_event)."""
     import time
     p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
-    user32.SetCursorPos(int(x), int(y)); time.sleep(0.03)
+    user32.SetCursorPos(int(x), int(y)); time.sleep(0.12)   # the game sees the cursor arrive before the press
     user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
     user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
     user32.SetCursorPos(p.x, p.y)
 
 KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B
 def press_key(vk):
-    """One key press (down, then up) to the window in front."""
+    """One key press (down, then up) to the window in front, with the key's scan code: the game reads keys by it (raw
+    input), and a press without one never reached it (1 Nov: F at the Holo-Battle Sim's exit gate did nothing)."""
     import time
-    user32.keybd_event(vk, 0, 0, 0); time.sleep(0.04); user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+    scan = user32.MapVirtualKeyW(vk, 0)                       # MAPVK_VK_TO_VSC
+    user32.keybd_event(vk, scan, 0, 0); time.sleep(0.06); user32.keybd_event(vk, scan, KEYEVENTF_KEYUP, 0)
 
 MOUSEEVENTF_WHEEL = 0x0800
 def scroll_at(x, y, notches):

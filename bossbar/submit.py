@@ -81,14 +81,6 @@ def _party_bytes(path):
         if len(data) <= PARTY_MAX: return data
     return data
 
-GIZMO_WIDTH = 1600         # a Holo-Battle Sim Gizmo-screen proof: the names readable, ~150-250 KB each
-
-def _gizmo_bytes(path):
-    """One view of the Holo-Battle Sim's Gizmo screen (a run sends up to 12, one per part of each series' list)."""
-    im = Image.open(path).convert('RGB')
-    if im.width > GIZMO_WIDTH: im = im.resize((GIZMO_WIDTH, round(im.height * GIZMO_WIDTH / im.width)), Image.LANCZOS)
-    return _jpeg(im, 80)
-
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
 SET_ASIDE_DAYS = 7      # .rejected / .bad copies (the server turned them down, or unreadable), kept a few days to look
                         # at why. Records still to send wait as long as it takes: signed out for weeks, they still go up.
@@ -293,9 +285,9 @@ class Submitter(threading.Thread):
         if item.get('party') and 'evidence' in files:            # the Party screen, whole: the run's lineup and buffs
             try: files['party'] = _party_bytes(os.path.join(HERE, item['party']))
             except (OSError, ValueError): pass
-        if 'evidence' in files:                                  # Holo-Battle Sim: the Gizmo screen, each part of the list
-            for i, rel in enumerate((item.get('gizmos') or [])[:12], 1):
-                try: files[f'gizmo{i}'] = _gizmo_bytes(os.path.join(HERE, rel))
+        if 'evidence' in files:                                  # Holo-Battle Sim: the Gizmo screen, a view per part of the list
+            for i, rel in enumerate((item.get('gizmos') or [])[:20], 1):
+                try: files[f'gizmo{i}'] = _full_bytes(os.path.join(HERE, rel))   # the whole screen, like every proof
                 except (OSError, ValueError): pass
         if files:
             if boxes: payload = {**payload, 'extra': {**(payload.get('extra') or {}), 'proofBoxes': {k: list(v) for k, v in boxes.items() if k in files}}}

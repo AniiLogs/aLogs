@@ -61,24 +61,6 @@
           <article class="card"><h2>Game</h2><p data-s="game">—</p><small data-s="capture"></small></article>
           <article class="card"><h2>Boss bar</h2><p data-s="bar">—</p><small data-s="status"></small></article>
           <article class="card wide"><h2>Current fight</h2><p data-s="fight">No fight in progress.</p><small data-s="fight-detail"></small></article>
-          <article class="card wide"><div class="card-head"><h2>Your character</h2><button type="button" data-link-start>Link character</button></div>
-            <p data-s="character">Not detected yet</p>
-            <small data-s="character-proof"></small>
-            <small class="block">Your UID comes from the game log each session (so it's always the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, next to your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</small>
-            <div class="notice" data-link hidden>
-              <p data-link-text></p>
-              <div class="row">
-                <button type="button" class="primary" data-link-confirm hidden>Link this name</button>
-                <button type="button" data-link-retry hidden>Try again</button>
-                <button type="button" data-link-cancel>Cancel</button>
-              </div>
-            </div>
-            <div class="notice" data-dispute hidden>
-              <p data-dispute-text></p>
-              <label class="field"><span>Anything a developer should know (optional)</span><input type="text" maxlength="500" data-dispute-note></label>
-              <div class="row"><button type="button" class="primary" data-dispute-send>Send a dispute</button></div>
-            </div>
-          </article>
         </div>
         <div class="row">
           <button type="button" class="primary" data-report-open>Report a problem</button>
@@ -229,7 +211,7 @@
         <p class="lead">Some proof is only one click away: an Interlink run's Battle Data, a Holo-Battle Sim's gizmos. Mashing buttons on those screens skips them, and then the run goes in without them.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="leaderboard.automation"><span></span>
-            <div><strong>Let aLogs take control of the game to collect proof</strong><small>Opt-in. When a run ends, aLogs takes control of the game for a short while (at most the time set below): it clicks and presses the game's buttons for you, blocks your keyboard and mouse buttons (and your controller, if set below) so nothing skips a screen, and takes the screenshots it sends to the leaderboards. It all happens on this PC, done by aLogs itself: the game is never controlled over the network or by the server. Ctrl+Shift+F12 gives you control back at once. Needs "Send my records" on.</small></div></label>
+            <div><strong>Let aLogs take control of the game to collect proof</strong><small>Opt-in. When a run ends, aLogs takes control of the game for a short while (at most the time set below): it clicks and presses the game's buttons for you, blocks your keyboard and mouse buttons (and your controller, if set below) so nothing skips a screen, and takes the screenshots it sends to the leaderboards. It all happens on this PC, done by aLogs itself: the game is never controlled over the network or by the server. Ctrl+Shift+F12 (or Ctrl+Alt+F12) gives you control back at once. Needs "Send my records" on.</small></div></label>
         </div>
         <div class="group">
           <h2>What it does</h2>
@@ -238,14 +220,13 @@
           <label class="toggle"><input type="checkbox" data-k="results.sim_gizmos"><span></span>
             <div><strong>Holo-Battle Sim: read the gizmos</strong><small>After a win, opens the Gizmo screen from the Victory screen, reads every gizmo you picked, takes a picture of each part of the list as proof, and goes back.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="results.sim_gate"><span></span>
-            <div><strong>Holo-Battle Sim: finish at the exit gate</strong><small>When the End Holo-Battle Sim button comes up at the exit gate, aLogs takes control from there: it presses the button for you (F), keeps the Victory screen from being skipped, reads the gizmos, and gives control back once everything is saved. Off by default.</small></div></label>
-          <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
-            <div><strong>Egg Heist: block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Off by default; experimental.</small></div></label>
+            <div><strong>Holo-Battle Sim: take over at the exit gate</strong><small>On the last level, when you press End Holo-Battle Sim at the exit gate (Y on a controller, F on the keyboard), aLogs takes control from that press: it keeps the Victory screen from being skipped, reads the gizmos, and gives control back once everything is saved. aLogs only reads your controller to see the press; it never presses anything on it. Off by default.</small></div></label>
+          <p class="hint">Egg Heist's end screen has its own setting, on the Sanctum Helper page.</p>
         </div>
         <div class="group">
           <h2>Blocking</h2>
           <label class="toggle"><input type="checkbox" data-k="results.hold_inputs"><span></span>
-            <div><strong>Block keyboard and mouse buttons</strong><small>While aLogs has control, so mashing can't skip a screen. You can still move the mouse. Stops when it's done or the screen changes; Ctrl+Shift+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
+            <div><strong>Block keyboard and mouse buttons</strong><small>While aLogs has control, so mashing can't skip a screen. You can still move the mouse. Stops when it's done or the screen changes; Ctrl+Shift+F12, Ctrl+Alt+F12 or Ctrl+Alt+Del stops it right away.</small></div></label>
           <label class="field"><span>Take control for at most (seconds)</span><input type="number" min="10" max="120" step="5" data-k="results.hold_seconds" data-type="number"></label>
           <p class="hint">Each time aLogs takes control, you get it back after this long whatever happens, even if it isn't done.</p>
         </div>
@@ -283,6 +264,25 @@
             <label class="field"><span>Leaderboard API</span><input type="url" data-k="leaderboard.api_url"></label>
           </details>
         </div>
+        <div class="group">
+          <div class="card-head"><h2>Your character</h2><button type="button" data-link-start>Link character</button></div>
+          <p data-s="character">Not detected yet</p>
+          <small data-s="character-proof"></small>
+          <p class="hint">Your UID comes from the game log each session (so it's always the right character on the right server). Your name is read from the menu you open with Esc or Start, or your Profile, next to your UID; that's also your proof for the leaderboards. Once proven, your name only changes when you link it again here.</p>
+          <div class="notice" data-link hidden>
+            <p data-link-text></p>
+            <div class="row">
+              <button type="button" class="primary" data-link-confirm hidden>Link this name</button>
+              <button type="button" data-link-retry hidden>Try again</button>
+              <button type="button" data-link-cancel>Cancel</button>
+            </div>
+          </div>
+          <div class="notice" data-dispute hidden>
+            <p data-dispute-text></p>
+            <label class="field"><span>Anything a developer should know (optional)</span><input type="text" maxlength="500" data-dispute-note></label>
+            <div class="row"><button type="button" class="primary" data-dispute-send>Send a dispute</button></div>
+          </div>
+        </div>
       </div>
       </section>
 
@@ -290,6 +290,11 @@
       <section class="page page-wide" data-page-body="sanctum">
         <header class="page-head"><h1>Sanctum Helper</h1></header>
         <div data-sanctum></div>
+        <div class="group">
+          <h2>Egg Heist on the leaderboards</h2>
+          <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
+            <div><strong>Block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Needs Leaderboards › Automation on; how long it may block is set there. Off by default; experimental.</small></div></label>
+        </div>
       </section>
 
       <!-- AniiLogs: the live website (site.rs lays it over the frame below), its pages as tabs -->
@@ -339,11 +344,6 @@
             <div><strong>Closing the window keeps aLogs in the tray</strong><small>When off, closing the window quits aLogs and stops the meter.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="overlay.in_recordings"><span></span>
             <div><strong>Overlays show in recordings and screenshots</strong><small>The DPS window, HP labels and Sanctum Helper's maps, in OBS, Game Bar and screenshots. Off hides them from captures (you still see them).</small></div></label>
-        </div>
-        <div class="group">
-          <h2>Screen capture</h2>
-          <label class="toggle"><input type="checkbox" data-capture-on><span></span>
-            <div><strong>DPS meter</strong><small>Off: the meter doesn't look at the game, so nothing is read or sent until you turn it back on. The same switch as DPS Meter › Meter › Run the DPS meter and the sidebar's DPS Meter switch. The button over the game turns off the meter and Sanctum Helper together.</small></div></label>
         </div>
         <div class="group">
           <h2>The button over the game</h2>
@@ -548,7 +548,7 @@
         <div class="guide-step" data-step="4" hidden>
           <h1>Proof for the leaderboards</h1>
           <label class="toggle"><input type="checkbox" data-guide-k="leaderboard.automation"><span></span>
-            <div><strong>Let aLogs take control of the game to collect proof</strong><small>Opt-in. When a run ends, aLogs clicks and presses the game's buttons for you for a short while (opening Battle Data, reading a Holo-Battle Sim's gizmos) and blocks your buttons so nothing skips a screen, then sends the screenshots as proof. It all happens on this PC: the game is never controlled over the network. Ctrl+Shift+F12 gives you control back at once.</small></div></label>
+            <div><strong>Let aLogs take control of the game to collect proof</strong><small>Opt-in. When a run ends, aLogs clicks and presses the game's buttons for you for a short while (opening Battle Data, reading a Holo-Battle Sim's gizmos) and blocks your buttons so nothing skips a screen, then sends the screenshots as proof. It all happens on this PC: the game is never controlled over the network. Ctrl+Shift+F12 (or Ctrl+Alt+F12) gives you control back at once.</small></div></label>
           <small class="hint">What it does, how long it may take control and controller blocking are in Leaderboards › Automation.</small>
         </div>
         <div class="guide-step" data-step="5" hidden>
