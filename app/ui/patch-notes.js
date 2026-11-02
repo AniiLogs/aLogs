@@ -1,6 +1,34 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.30",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "New",
+    "items": [
+     "**A Leaderboards menu:** everything about the leaderboards, linking your character included, is in one place.",
+     "**Holo-Battle Sim end:** after you press End Holo-Battle Sim at the exit gate, aLogs holds the Victory screen and reads every gizmo, then gives control straight back."
+    ]
+   },
+   {
+    "heading": "Improved",
+    "items": [
+     "**A clearer DPS window:** your average DPS up top, then Last 5s, Team damage and Time, with the numbers lined up.",
+     "**Ctrl+Alt+F12** gives you control back at any moment, as Ctrl+Shift+F12 does.",
+     "**Egg Heist's settings** sit on the Sanctum Helper page."
+    ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "**HP labels** show on the boss bar again every fight.",
+     "**Battle Data:** a downed teammate's card no longer drops the run's numbers."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.29",
   "intro": "",
   "sections": [
@@ -8,9 +36,7 @@ window.PATCH_NOTES = [
     "heading": "New",
     "items": [
      "**Korean names:** teammates with Korean (Hangul) names show on your runs as they are, not as blank or garbled letters.",
-     "**A new text reader for player names:** names on the Party, result and Battle Data screens are read far more reliably. Scores, stars and Battle Data numbers are now matched against the game's own digits.",
-     "**A Leaderboards menu:** everything about the leaderboards, linking your character included, is in one place.",
-     "**Holo-Battle Sim end:** after you press End Holo-Battle Sim at the exit gate, aLogs holds the Victory screen and reads every gizmo, then gives control straight back."
+     "**A new text reader for player names:** names on the Party, result and Battle Data screens are read far more reliably. Scores, stars and Battle Data numbers are now matched against the game's own digits."
     ]
    },
    {
@@ -21,10 +47,7 @@ window.PATCH_NOTES = [
      "**HP labels:** the word HP takes the boss bar's colour, HP and BREAK have a thicker outline, and out in the world the labels line up with the end of the bar.",
      "**Opening aLogs while it's running** brings its window back from the tray.",
      "**Your character's link, profile numbers and online status** work whenever you're signed in, even with \"Submit my records\" off.",
-     "**Report a problem** includes pictures of the boss bar when the meter loses track of it.",
-     "**A clearer DPS window:** your average DPS up top, then Last 5s, Team damage and Time, with the numbers lined up.",
-     "**Ctrl+Alt+F12** gives you control back at any moment, as Ctrl+Shift+F12 does.",
-     "**Egg Heist's settings** sit on the Sanctum Helper page."
+     "**Report a problem** includes pictures of the boss bar when the meter loses track of it."
     ]
    },
    {
@@ -37,9 +60,7 @@ window.PATCH_NOTES = [
      "**Log reports:** their pictures arrive intact.",
      "**Lock the DPS window** shows as on when the window is locked.",
      "**Sanctum Helper's settings:** the key buttons show the new key, two quick Markers changes both stick, and errors stay until you close them.",
-     "**Egg Heist's fade hold** works from its own switch and for as long as its setting allows.",
-     "**HP labels** show on the boss bar again every fight.",
-     "**Battle Data:** a downed teammate's card no longer drops the run's numbers."
+     "**Egg Heist's fade hold** works from its own switch and for as long as its setting allows."
     ]
    }
   ]
@@ -154,24 +175,6 @@ window.PATCH_NOTES = [
      "The party on the prep screen is read wherever it sits (it moves with the boss's challenge text), all four slots are recognized (3P and 4P were missed), and your own slot is found by your green name, leader or not.",
      "Teammates' names are read the same way on every screen, so one player never shows under two spellings.",
      "In Interlink, a boss name read without \"Omega\" could be taken for the open-world Alpha of the same name, with wrong HP. Only this week's Interlink bosses are considered now, and a far-off HP reading is never saved."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.25",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "New",
-    "items": [
-     "**Your name from the game menu:** opening the menu (Esc or Start) shows your name with your UID under it. The app reads it there, checks the UID is yours, and from then on uses that name, correcting any earlier guess."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "In someone else's party (when you aren't 1P), the app could take another player's name as yours and link it to your account. It now only saves your name when it's sure: your saved name is on the result screen, or everyone else in the party was AI."
     ]
    }
   ]
