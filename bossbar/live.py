@@ -8,7 +8,7 @@ It only looks at screen pixels and the game's text log; it never touches the gam
 Usage:
     python live.py [--interval 0.05] [--no-overlay] [--hide-from-capture] [--no-debug-frames] [--replay shots...]
 """
-import argparse, collections, csv, ctypes, difflib, json, logging, logging.handlers, os, platform, queue, re, sys, threading, time
+import argparse, collections, csv, ctypes, difflib, json, math, logging, logging.handlers, os, platform, queue, re, sys, threading, time
 from PIL import Image, ImageChops, ImageOps, ImageStat
 import reader as R
 import pcstats
@@ -410,6 +410,8 @@ def parse_battle_data(text):
     return cards
 
 # ---------------------------------------------------------------- timer
+MAX_CLOCK = 900          # s: readings above this are misreads; a run's own clock can start above --duration (Overtime: 4:00)
+
 class Timer:
     """Countdown smoothed against the wall clock: OCR readings are only trusted when they agree with elapsed time.
     It never restarts a fight (combat effects make OCR misread it); fight boundaries come from the game log."""
@@ -417,7 +419,7 @@ class Timer:
     def predict(self, now): return None if self.val is None else max(0.0, self.val - (now - self.at))
     def feed(self, reading, now):
         """Returns 'ok', 'resync' or None (ignored)."""
-        if reading is None or not 0 <= reading <= self.duration: return None
+        if reading is None or not 0 <= reading <= max(self.duration, MAX_CLOCK): return None
         p = self.predict(now)
         if p is None:
             self.pending.append((reading, now)); self.pending = self.pending[-3:]
@@ -879,6 +881,9 @@ class Fight:
         self.seg = None              # xN of the segment we are in (boss rush)
         self.seg_fill = 1.0          # lowest fill seen in this segment (damage never goes back)
         self.last_fill = None; self.xn_votes = []; self.vote_at = 0.0; self.timer = None; self.elapsed = 0.0; self.avg = self.recent = 0.0
+        # the run's own time limit, read off the game's clock as the fight starts (3:00 by default, 4:00 with the
+        # Overtime blessing, more if the game's default goes up); None when the meter didn't see the start
+        self.limit = None
         self.started_at_16 = False; self.refill_pending = 0; self.refill_at = 0.0; self.seg_info = None; self.defeated = False
         self.brk = BreakTracker(R.boss_break_points(row, level))
         name = time.strftime('%Y%m%d_%H%M%S') + '_' + ''.join(c for c in title if c.isalnum())[:24]
@@ -950,6 +955,12 @@ class Fight:
                 self.seg_fill = min(self.seg_fill, fill); self.low_pending = None
         if fill is not None: self.last_fill = fill
         if self.timer.feed(timer_ocr, now) == 'resync': note = (note + ' timer resync').strip()
+        # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s
+        if self.limit is None and self.bossrush and self.started_at_16 and self.timer.val is not None:
+            if self.timer.at - self.created <= 4:
+                self.limit = int(5 * math.ceil(self.timer.val / 5))
+                note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
+            else: self.limit = 0                     # read too late to tell: the result screen's time decides
         # damage follows the current state, so a corrected segment also corrects the total
         dmg, seg = R.damage_dealt(self.max_hp, self.seg_fill, self.seg if self.bossrush else None, cum, self.bossrush)
         if dmg is not None: self.damage = dmg
@@ -968,7 +979,8 @@ class Fight:
         # seconds, then all its damage shows at once) the jump is spread over the time it really took, not one frame
         while len(self.samples) > 1 and now - self.samples[1][0] >= 5: self.samples.popleft()
         tp = self.timer.predict(now)
-        self.elapsed = (duration - tp) if tp is not None else (now - self.t0 if self.hit else 0.0)
+        clock = self.limit or duration
+        self.elapsed = (clock - tp) if tp is not None and tp <= clock else (now - self.t0 if self.hit else 0.0)
         avg = self.damage / self.elapsed if self.elapsed > 1 else 0
         (t_a, d_a), (t_b, d_b) = self.samples[0], self.samples[-1]
         self.recent = (d_b - d_a) / (t_b - t_a) if t_b - t_a > 0.5 else avg; self.avg = avg
@@ -2676,9 +2688,11 @@ class Meter:
         # center; it was 15 before the Whisperwake update), and the game's time is exact. A run quit early ("The team
         # leader has ended the challenge.") also finishes under the clock, but with fewer stars: that is no clear.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
-        cleared = bool(f and secs is not None and 0 < secs < self.args.duration and f[0].bossrush and (rating or 0) >= full)
+        # The clock is the run's own (f.limit: Overtime makes it 4:00); unknown, every star under any clock is a clear.
+        limit = (f[0].limit or None) if f else None
+        cleared = bool(f and secs is not None and 0 < secs < (limit or 10 ** 6) and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
-        elif f and secs is not None and secs < self.args.duration:
+        elif f and secs is not None and secs < (limit or self.args.duration):
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
         # the leader ended it ("The team leader has ended the challenge.", seen as the boss went): the site sorts out
         # what that makes the run (ended early with every star, or not counted)
@@ -2788,6 +2802,7 @@ class Meter:
                  'meter': {'max_hp': f.max_hp, 'damage': f.damage, 'seconds': round(f.elapsed, 1),
                            'dps': round(f.damage / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
                            'tracked_from_start': f.started_at_16, 'csv': os.path.basename(f.log.name),
+                           'time_limit_s': f.limit or None,
                            'breaks': f.brk.breaks, 'break_gauge_points': None if not f.brk.size else round(f.brk.size),
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
                            else round(f.brk.rate(time.time())[0], 2)}}
