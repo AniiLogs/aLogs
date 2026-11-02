@@ -1485,6 +1485,29 @@ class Meter:
     # rows' heights, as shares of the screen; the value's box runs from the card's centre + 0.015 to + 0.081 (u)
     BD_ROWS = (('avg_dps', 0.5833), ('break', 0.6255), ('taken', 0.6667), ('heal', 0.7088))
 
+    @staticmethod
+    def bd_card_count(im, u, ux, H):
+        """How many cards Battle Data shows, counted from pixels: the light runs along a line between the BREAK and
+        Damage Taken rows (y 0.645), each about a card wide (0.165-0.167 u on 55 real 4K captures) and centred where
+        that many cards side by side would be (0.1943 u apart, as their boxes are placed). 0 when they don't line up
+        like that (the screen sliding in, something in front of it). OCR's count put every box half a card off when it
+        missed one: its first read found 3 of 4 cards on 14 of those 55 screens and none on 5 more; this found 4 on all
+        55, scaled down to 720p as well (under 1 ms)."""
+        y = int(H * 0.645); N = 400
+        row = im.crop((int(ux), y, int(ux + u), y + 1)).convert('RGB').resize((N, 1), Image.BOX).tobytes()
+        runs, start = [], None
+        for x in range(N + 1):
+            px = row[3 * x:3 * x + 3] if x < N else b'\0\0\0'
+            light = min(px) >= 190 and max(px) - min(px) <= 40           # the card's pale grey, not the coloured scene
+            if light and start is None: start = x
+            elif not light and start is not None: runs.append((start / N, x / N)); start = None
+        cards = [(a, b) for a, b in runs if b - a >= 0.12]
+        n = len(cards)
+        if not 1 <= n <= 4: return 0
+        if any(b - a > 0.19 or abs((a + b) / 2 - (0.5 + (i - (n - 1) / 2) * 0.1943)) > 0.02 for i, (a, b) in enumerate(cards)):
+            return 0
+        return n
+
     def battle_data_font(self, im, u, ux, H, read):
         """Each card's values read digit by digit against the game's own digits, over OCR's in `read` (in place).
         OCR skipped 7-digit BREAK values, which moved the card's later numbers up a row (BREAK got Damage Taken's,
@@ -1664,11 +1687,20 @@ class Meter:
         text = self.ocr.read({'d': ImageOps.expand(rows, border=20, fill=255)}).get('d', '')
         read = parse_battle_data(text)
         log.info(f'Battle Data read {self.bd_reads}: OCR {text!r} -> {read}')   # whole: a run can be re-read from the log
-        # a read never finds a card that isn't there (each needs its own 'Average DPS'), so the most any read found
-        # is the count: settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct)
-        n = self.bd_cards = min(4, max(getattr(self, 'bd_cards', 0), len(read)))
+        # the cards are counted on screen (bd_card_count), by OCR only when they can't be. Either way the count is the
+        # most any read found: a read never finds a card that isn't there (OCR needs each card's 'Average DPS'), and
+        # settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct)
+        before = getattr(self, 'bd_cards', 0); seen = self.bd_card_count(im, u, ux, H)
+        n = self.bd_cards = min(4, max(before, seen or len(read)))
         read = [dict(read[i]) if i < len(read) else {} for i in range(n)]
         self.battle_data_font(im, u, ux, H, read)
+        # the count and this read's numbers at it. A count off the party's is only logged: the game's panel
+        # (Guis/Panels/BossRushBattleDetailResult) lists the run's player records, AI ones too, but where the cards sit
+        # is in its prefab, and no 2- or 3-card screen has been seen yet
+        if n != before:
+            said = 'counted on screen' if seen else "OCR's count (not counted on screen)"
+            if party and len(party) != n: said += f', but the Party screen had {len(party)} players'
+            log.info(f'Battle Data cards: {said} -> {n} cards {[{k: c.get(k) for k, _ in self.BD_ROWS} for c in read]}')
         cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}
                  for i in range(n)]
         # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),

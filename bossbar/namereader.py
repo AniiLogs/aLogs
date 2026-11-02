@@ -38,10 +38,13 @@ def text_mask(img, box, bright=190, grey=50):
     return m.crop(bbox).convert('1') if bbox else None
 
 
-def ink_colour(img, box, far=80):
+def ink_colour(img, box, far=80, dark=False):
     """(text colour, background colour) in a box of dark or light text on a plain-ish card: the background is its
     commonest colour, the text that of the pixels farthest from it (the text is the box's strongest contrast, more
-    than a coloured mark after it). (None, bg) if nothing stands out."""
+    than a coloured mark after it). (None, bg) if nothing stands out. `dark`: the text is darker than its card. Big
+    digits can fill most of the box, and then its commonest colour is the ink: that came out as a light text on a dark
+    card (9 of 880 values on 55 real Battle Data screens, all left unread). Then the ink is that colour and the card is
+    the box's top and bottom rows, above and below the digits; (None, bg) if those aren't lighter either."""
     c = img.crop(tuple(int(v) for v in box)).convert('RGB')
     q = c.quantize(16, method=Image.Quantize.MEDIANCUT); pal = q.getpalette()
     i = max(q.getcolors())[1]; bg = tuple(pal[3 * i:3 * i + 3])
@@ -50,7 +53,13 @@ def ink_colour(img, box, far=80):
     top = dist.getextrema()[1]
     if top < far: return None, bg
     core = dist.point(lambda v: 255 if v >= top * 0.85 else 0)
-    return tuple(int(v) for v in ImageStat.Stat(c, core).median), bg
+    ink = tuple(int(v) for v in ImageStat.Stat(c, core).median)
+    if dark and sum(ink) > sum(bg):
+        w, h = c.size; edge = Image.new('RGB', (w, 2))
+        edge.paste(c.crop((0, 0, w, 1)), (0, 0)); edge.paste(c.crop((0, h - 1, w, h)), (0, 1))
+        ink, bg = bg, tuple(int(v) for v in ImageStat.Stat(edge).median)
+        if sum(bg) <= sum(ink): return None, bg
+    return ink, bg
 
 
 def drop_icon(mask):
@@ -199,7 +208,7 @@ class NameReader:
         later numbers up a row; the game's 1 and 7 are nothing alike. `right`: only the run of characters at the
         box's right end (a value right-aligned after its label)."""
         if dark:
-            ink, bg = ink_colour(img, box)
+            ink, bg = ink_colour(img, box, dark=True)
             mask = ink_mask(img, box, ink, bg) if ink else None
         else:
             mask = text_mask(img, box)
