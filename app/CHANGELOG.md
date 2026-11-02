@@ -10,6 +10,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   letters.
 - **A new text reader for player names:** names on the Party, result and Battle Data screens are read far more
   reliably. Scores, stars and Battle Data numbers are now matched against the game's own digits.
+- **A Leaderboards menu:** everything about the leaderboards, linking your character included, is in one place.
+- **Holo-Battle Sim end:** after you press End Holo-Battle Sim at the exit gate, aLogs holds the Victory screen and
+  reads every gizmo, then gives control straight back.
 
 ### Improved
 - **Teammates keep one name:** a teammate read slightly differently on one run is still sent under their usual name.
@@ -21,6 +24,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Your character's link, profile numbers and online status** work whenever you're signed in, even with "Submit my
   records" off.
 - **Report a problem** includes pictures of the boss bar when the meter loses track of it.
+- **A clearer DPS window:** your average DPS up top, then Last 5s, Team damage and Time, with the numbers lined up.
+- **Ctrl+Alt+F12** gives you control back at any moment, as Ctrl+Shift+F12 does.
+- **Egg Heist's settings** sit on the Sanctum Helper page.
 
 ### Fixed
 - **Scores:** a 1 read as a 7 (17,164 as 77,764) no longer reaches the leaderboards, and star ratings read right at
@@ -33,6 +39,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Sanctum Helper's settings:** the key buttons show the new key, two quick Markers changes both stick, and errors
   stay until you close them.
 - **Egg Heist's fade hold** works from its own switch and for as long as its setting allows.
+- **HP labels** show on the boss bar again every fight.
+- **Battle Data:** a downed teammate's card no longer drops the run's numbers.
 
 ## 0.1.28
 

@@ -8,7 +8,9 @@ window.PATCH_NOTES = [
     "heading": "New",
     "items": [
      "**Korean names:** teammates with Korean (Hangul) names show on your runs as they are, not as blank or garbled letters.",
-     "**A new text reader for player names:** names on the Party, result and Battle Data screens are read far more reliably. Scores, stars and Battle Data numbers are now matched against the game's own digits."
+     "**A new text reader for player names:** names on the Party, result and Battle Data screens are read far more reliably. Scores, stars and Battle Data numbers are now matched against the game's own digits.",
+     "**A Leaderboards menu:** everything about the leaderboards, linking your character included, is in one place.",
+     "**Holo-Battle Sim end:** after you press End Holo-Battle Sim at the exit gate, aLogs holds the Victory screen and reads every gizmo, then gives control straight back."
     ]
    },
    {
@@ -19,7 +21,10 @@ window.PATCH_NOTES = [
      "**HP labels:** the word HP takes the boss bar's colour, HP and BREAK have a thicker outline, and out in the world the labels line up with the end of the bar.",
      "**Opening aLogs while it's running** brings its window back from the tray.",
      "**Your character's link, profile numbers and online status** work whenever you're signed in, even with \"Submit my records\" off.",
-     "**Report a problem** includes pictures of the boss bar when the meter loses track of it."
+     "**Report a problem** includes pictures of the boss bar when the meter loses track of it.",
+     "**A clearer DPS window:** your average DPS up top, then Last 5s, Team damage and Time, with the numbers lined up.",
+     "**Ctrl+Alt+F12** gives you control back at any moment, as Ctrl+Shift+F12 does.",
+     "**Egg Heist's settings** sit on the Sanctum Helper page."
     ]
    },
    {
@@ -32,7 +37,9 @@ window.PATCH_NOTES = [
      "**Log reports:** their pictures arrive intact.",
      "**Lock the DPS window** shows as on when the window is locked.",
      "**Sanctum Helper's settings:** the key buttons show the new key, two quick Markers changes both stick, and errors stay until you close them.",
-     "**Egg Heist's fade hold** works from its own switch and for as long as its setting allows."
+     "**Egg Heist's fade hold** works from its own switch and for as long as its setting allows.",
+     "**HP labels** show on the boss bar again every fight.",
+     "**Battle Data:** a downed teammate's card no longer drops the run's numbers."
     ]
    }
   ]
