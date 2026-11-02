@@ -410,6 +410,7 @@ def parse_battle_data(text):
     return cards
 
 # ---------------------------------------------------------------- timer
+OVERTIME_S = 60          # s: the Overtime offering's extra time (a 3:00 fight becomes 4:00)
 MAX_CLOCK = 900          # s: readings above this are misreads; a run's own clock can start above --duration (Overtime: 4:00)
 
 class Timer:
@@ -2625,6 +2626,13 @@ class Meter:
                                            + (f" [{m['aniimo']} Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]" if m.get('aniimo') else '')
                                            for m in members))
 
+    def overtime_limit(self, now):
+        """The run's clock when the leader's Special Offering on the Party screen read as Overtime (its own icon): the
+        default plus Overtime's extra minute. For when the clock itself wasn't read as the fight started; else None."""
+        recent = self.party and now - self.party['at'] < 900
+        picked = recent and any(b.get('name') == 'Overtime' for b in self.party.get('buffs') or [])
+        return self.args.duration + OVERTIME_S if picked else None
+
     def party_for_result(self, now):
         """The party read on the prep screen of this run (recent enough to be the same run), or None."""
         return self.party['members'] if self.party and now - self.party['at'] < 900 else None
@@ -2690,7 +2698,7 @@ class Meter:
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
         # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration. Every star at the clock's end
         # is no kill: a team at full stars keeps hitting for score until time runs out.
-        limit = ((f[0].limit or None) if f else None) or self.args.duration
+        limit = ((f[0].limit or None) if f else None) or self.overtime_limit(now) or self.args.duration
         cleared = bool(f and secs is not None and 0 < secs < limit and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
         elif f and secs is not None and secs < limit:
@@ -2803,7 +2811,7 @@ class Meter:
                  'meter': {'max_hp': f.max_hp, 'damage': f.damage, 'seconds': round(f.elapsed, 1),
                            'dps': round(f.damage / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
                            'tracked_from_start': f.started_at_16, 'csv': os.path.basename(f.log.name),
-                           'time_limit_s': f.limit or None,
+                           'time_limit_s': f.limit or self.overtime_limit(time.time()),
                            'breaks': f.brk.breaks, 'break_gauge_points': None if not f.brk.size else round(f.brk.size),
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
                            else round(f.brk.rate(time.time())[0], 2)}}
