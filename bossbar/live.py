@@ -2688,11 +2688,12 @@ class Meter:
         # center; it was 15 before the Whisperwake update), and the game's time is exact. A run quit early ("The team
         # leader has ended the challenge.") also finishes under the clock, but with fewer stars: that is no clear.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
-        # The clock is the run's own (f.limit: Overtime makes it 4:00); unknown, every star under any clock is a clear.
-        limit = (f[0].limit or None) if f else None
-        cleared = bool(f and secs is not None and 0 < secs < (limit or 10 ** 6) and f[0].bossrush and (rating or 0) >= full)
+        # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration. Every star at the clock's end
+        # is no kill: a team at full stars keeps hitting for score until time runs out.
+        limit = ((f[0].limit or None) if f else None) or self.args.duration
+        cleared = bool(f and secs is not None and 0 < secs < limit and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
-        elif f and secs is not None and secs < (limit or self.args.duration):
+        elif f and secs is not None and secs < limit:
             log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
         # the leader ended it ("The team leader has ended the challenge.", seen as the boss went): the site sorts out
         # what that makes the run (ended early with every star, or not counted)
