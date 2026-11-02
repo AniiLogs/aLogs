@@ -1927,7 +1927,7 @@ class Meter:
                 and press[1] > gate.get('used', 0) and now - gate.get('up_at', 0) <= SIM_GATE_GONE
                 and not getattr(self, 'sim_ctl', None)):
             what, at = press; gate['used'] = at; watch.stop()
-            ctl = self.sim_control(now, f'you pressed {what} at the exit gate')
+            ctl = self.sim_control(now, 'your press at the exit gate')     # which key isn't logged
             ctl.update(stage='gate', done=at); gate['first_up'] = gate['up_at'] = None
             log.info('Holo-Battle Sim: waiting for the Victory screen')
             return
