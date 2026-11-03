@@ -21,6 +21,7 @@ NOT_A_LETTER = 0.3    # ink no candidate fits even this well is an icon or a mar
 LATIN_SAME = 0.8      # the English OCR's read this like the model's Latin read: a Latin name, left alone
 SPECK = 5             # ink thinner than this many px is a speck, not part of a letter (the boxes are enlarged 2-4x)
 SPACE = 0.6           # a gap this many letter heights wide is a space
+LONE_P = 0.9          # a tidied box the Korean model reads as one Latin letter or digit this sure of: a one-character name
 # Korean letters the game draws almost like a Latin one: when the model sees the Latin one, the Korean one is drawn
 # too, and the game's own fonts decide
 TWINS = {'7': 'ㄱ', 'L': 'ㄴ', '2': 'ㄹ', 'Z': 'ㄹ', '0': 'ㅇ', 'O': 'ㅇ', 'o': 'ㅇ', 'T': 'ㅜ', 'E': 'ㅌ', 'C': 'ㄷ',
@@ -49,6 +50,16 @@ def hangul_first(letters):
     """True when the Korean model's own best letters hold Hangul: KoreanNames.read then decides without the Latin
     read it's given (that only counts against a Latin-looking best read)."""
     return bool(letters) and has_hangul(''.join(picks[0][0] for _, picks in letters if picks))
+
+
+def lone_latin(letters):
+    """The Korean model's letters for a tidied name box, when they are one Latin letter or digit it is sure of
+    (LONE_P): that character, else ''. tidy() leaves a one-character name alone on white; the Latin model's reads of
+    the box still have the pill and the foot of the portrait above around it, and read it as nothing or another
+    character."""
+    if not letters or len(letters) != 1 or not letters[0][1]: return ''
+    c, p = letters[0][1][0]
+    return c if len(c) == 1 and c.isascii() and c.isalnum() and p >= LONE_P else ''
 
 
 def clean_latin(text):

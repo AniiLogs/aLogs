@@ -553,8 +553,9 @@ class Ocr:
         One line comes back per image, in order. With name boxes it's b'OCR2' (a flags byte before each image): the
         boxes as they are, name boxes with the Latin model too (flag 4) unless they have a grey crop in `raws`, then
         those grey crops for the Latin model alone (flags 2 + 4), then each name box tidied for the Korean model alone
-        (flags 1 + 2). A grey crop read as one character or none, unless the Korean check settles it, sends its
-        prepared box to the Latin model after (flags 2 + 4)."""
+        (flags 1 + 2). A grey crop read as one character or none, unless the Korean check settles it or the Korean
+        model reads one Latin letter or digit there (lone_latin), sends its prepared box to the Latin model after
+        (flags 2 + 4)."""
         import hangulnames as K
         # a name box that looks as it did a read ago (the Party and result screens stay up, read every few seconds)
         # takes that read: the two text models cost ~0.2 s a name
@@ -608,7 +609,12 @@ class Ocr:
         # prepared, as before. Not when the Korean model reads Hangul there itself and the font check settles it: no Latin read can
         # change that (KoreanNames.read only weighs one against a Latin-looking read), and most Hangul names are such
         settled = {k: korean(k, '') for k in short if k in found and K.hangul_first(found[k][1])}
-        again = [k for k in short if not settled.get(k)]
+        # nor when the Korean model reads the tidied box as one Latin letter or digit it is sure of: a one-character
+        # name. Both Latin reads keep the pill and the foot of the portrait around it, and on 10 real result screens
+        # read it as nothing or a CJK character (a 0.1 grey-level change flips them); the tidied box read right on all 10
+        lone = {k: c for k in short if k in found and not settled.get(k) for c in [K.lone_latin(found[k][1])] if c}
+        out.update(lone)
+        again = [k for k in short if not settled.get(k) and k not in lone]
         for k, line in zip(again, ask([(k, 6, images[k]) for k in again]) if again else []):
             out[k] = K.clean_latin(K.split_reply(line)[2]) or out[k]
         # the Korean check takes the Latin read as its hint (a Latin name the Korean model reads alike stays Latin):
