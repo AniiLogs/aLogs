@@ -709,17 +709,25 @@ if ($Result.RestartNeeded) { exit 3010 }; exit 0 \
 } catch { $Code = $_.Exception.HResult; if ($Code -eq 0) { $Code = 1 }; exit $Code }";
 
 /// The command that installs English OCR: PowerShell has Windows run OCR_INSTALL_SCRIPT as administrator (Windows'
-/// own admin prompt, Start-Process -Verb RunAs, as hidhide::run_elevated), waits for it and exits with its code, or
-/// 1223 (ERROR_CANCELLED) when the prompt is declined. The script goes in encoded, so no quoting can change it.
+/// own admin prompt: ShellExecute's "runas", from PowerShell as hidhide::run_elevated does), waits for it and exits
+/// with its code; 1223 (ERROR_CANCELLED) only when the prompt is declined. Not Start-Process -Verb RunAs: it turns
+/// every failure to start into the same InvalidOperationException, with no inner exception and a message in the PC's
+/// own language, so any of them read as declined (a verb Windows lacks gave 1223) and the button said "press it
+/// again" for good. Process.Start throws the Win32Exception itself: 1223 is declined, any other code exits as its
+/// HRESULT (0x80070002: no Windows PowerShell). The script goes in encoded, so no quoting can change it.
 fn ocr_install_command() -> Command {
     use base64::Engine;
     let script: Vec<u8> = OCR_INSTALL_SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
     // Windows PowerShell itself (the docs': not PowerShell 7), from the Windows folder
     let outer = format!(
-        "try {{ $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') \
-         -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}' \
-         -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode }} catch {{ exit 1223 }}");
+        "try {{ $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), \
+         '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}'); \
+         $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
+         $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode }} \
+         catch {{ $e = $_.Exception; while ($e.InnerException) {{ $e = $e.InnerException }}; \
+         if ($e -is [System.ComponentModel.Win32Exception]) {{ if ($e.NativeErrorCode -eq 1223) {{ exit 1223 }}; exit (0x80070000 -bor $e.NativeErrorCode) }}; \
+         if ($e.HResult) {{ exit $e.HResult }}; exit 1 }}");
     let mut cmd = Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &outer]).creation_flags(NO_WINDOW);
     cmd
@@ -742,6 +750,12 @@ fn ocr_install_outcome(code: Option<i32>) -> Value {
                 0x8024_402C | 0x8024_0438 | 0x8024_401C | 0x8007_2EE7 | 0x8007_2EFD | 0x8007_2EE2 =>
                     failed(&format!("error {hex}: Windows Update couldn't be reached; check the internet connection")),
                 0x800F_081F | 0x800F_0950 => failed(&format!("error {hex}: Windows couldn't find the files for it")),
+                // Microsoft's "Common Windows Update errors": the Windows Update service stopped or isn't running
+                0x8007_0422 => failed(&format!("error {hex}: the Windows Update service is turned off, and adding it needs it")),
+                // ERROR_ELEVATION_REQUIRED: the script ran, but not as administrator
+                0x8007_02E4 => failed(&format!("error {hex}: Windows didn't run it as administrator")),
+                // ERROR_FAIL_REBOOT_REQUIRED ("Restart the system to roll back changes made")
+                0x8007_0BC9 => failed(&format!("error {hex}: Windows has to restart first; restart it, then try again")),
                 _ => failed(&format!("error {hex}")),
             }
         }
@@ -918,9 +932,16 @@ mod ocr_install_tests {
         assert_eq!(args[..5], ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]);
         assert_eq!(args.len(), 6);
         let outer = &args[5];
-        assert!(outer.starts_with("try { $p = Start-Process -FilePath (Join-Path $env:SystemRoot \
-            'System32\\WindowsPowerShell\\v1.0\\powershell.exe') -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{outer}");
-        assert!(outer.ends_with("' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 1223 }"), "{outer}");
+        assert!(outer.starts_with("try { $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot \
+            'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{outer}");
+        assert!(outer.ends_with("'); $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
+            $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode } \
+            catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; \
+            if ($e -is [System.ComponentModel.Win32Exception]) { if ($e.NativeErrorCode -eq 1223) { exit 1223 }; \
+            exit (0x80070000 -bor $e.NativeErrorCode) }; if ($e.HResult) { exit $e.HResult }; exit 1 }"), "{outer}");
+        // declined (the Win32Exception's 1223) is told apart from any other failure to start: nothing else exits 1223
+        assert_eq!(outer.matches("exit 1223").count(), 1);
+        assert!(!outer.contains("Start-Process"));
         // what runs elevated is exactly the script, and the script is Microsoft's two documented lines
         let encoded = outer.split("-EncodedCommand ").nth(1).unwrap().split('\'').next().unwrap();
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
@@ -948,6 +969,15 @@ mod ocr_install_tests {
         assert!(managed["message"].as_str().unwrap().contains("0x800F0954"), "{managed}");
         assert!(ocr_install_outcome(Some(0x8024_402Cu32 as i32))["message"].as_str().unwrap().contains("internet"));
         assert!(ocr_install_outcome(Some(0x8000_4005u32 as i32))["message"].as_str().unwrap().contains("0x80004005"));
+        // in plain words: Windows Update's service off, not run as administrator, a restart Windows needs first
+        let message = |code: u32| ocr_install_outcome(Some(code as i32))["message"].as_str().unwrap().to_string();
+        assert!(message(0x8007_0422).contains("0x80070422") && message(0x8007_0422).contains("Windows Update service is turned off"));
+        assert!(message(0x8007_02E4).contains("administrator"));
+        assert!(message(0x8007_0BC9).contains("restart"));
+        // failing to start the elevated PowerShell for another reason than a declined prompt: failed, with its code
+        // (ERROR_NO_ASSOCIATION, as a verb Windows lacks gives)
+        assert_eq!(ocr_install_outcome(Some(0x8007_0483u32 as i32))["state"], "failed");
+        assert!(message(0x8007_0483).contains("0x80070483"));
         assert_eq!(ocr_install_outcome(None)["state"], "failed");
     }
 
