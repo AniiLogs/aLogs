@@ -227,9 +227,12 @@ def star_caps():
     return CLEAR_STARS, CENTER_STARS
 
 def clear_stars(puppet_id):
-    """The full rating of an Interlink boss: the center boss's cap for this week's center boss, the side cap otherwise."""
+    """The full rating of an Interlink boss: the center boss's cap for this week's center boss, the side cap otherwise.
+    The cap is the place's, not the boss's (BossRushUtils.getCurBossRushPlace, line 288; BossRushInfoUIComponent.
+    setBossRushStar, line 187), so both bosses of a two-boss middle fight (weeks 4003-4005: bossrush_guanka_data
+    bossId + bossId_2) get the center's: cycle_slot counts both."""
     side, center = star_caps()
-    return center if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else side
+    return center if puppet_id is not None and R.cycle_slot(R.active_cycle_id(), puppet_id)[0] == 'middle' else side
 
 def interlink_score(score, stars, cap=None):
     """An Interlink score checked against its stars. It is not stars x 1,000: each grade a boss passes is worth its

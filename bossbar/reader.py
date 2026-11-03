@@ -777,6 +777,32 @@ def cycle_slot(cycle, boss_id):
         if str(boss_id) in (str(a), str(b)): return slot, c.get('split')
     return None, c.get('split')
 
+def stage_of(puppet_id, cycle=None):
+    """A boss's place in a week's fights: (slot, order, partner), slot as cycle_slot gives it.
+    In a two-boss fight (bossrush_guanka_data rows with a bossId_2: the week's bossIds2) order is the game's spawn index:
+    1 for the stage's bossId (spawner 78797760), 2 for its bossId_2 (spawner 91530847), and partner is the other boss's
+    id (ClientBossRushDungeon.getBossSpawnIndex, line 232: BOSS_SPAWNER_ORDER_BY_GRAPH {78797760, 91530847}). A one-boss
+    slot gives (slot, None, None), as the game gives no spawn index there. (None, None, None) when the boss isn't in
+    the week. cycle: a week's id, else the week running now, or when the boss isn't in it (or the schedule ran out)
+    the latest week that has it."""
+    if puppet_id is None: return None, None, None
+    try:
+        with open(CYCLES_FILE[0], encoding='utf-8') as f: cycles = json.load(f)
+    except OSError: return None, None, None
+    pid = str(puppet_id)
+    if cycle is None:
+        cycle = active_cycle_id()
+        if cycle_slot(cycle, pid)[0] is None:
+            weeks = [c for c in cycles if pid in {str(b) for b in c['bossIds'] + [x for x in c.get('bossIds2') or [] if x]}]
+            if weeks: cycle = max(weeks, key=lambda c: c['end'])['cycle']
+    slot = cycle_slot(cycle, pid)[0]
+    if slot is None: return None, None, None
+    c = next(c for c in cycles if str(c['cycle']) == str(cycle))
+    i = ('left', 'middle', 'right').index(slot)
+    first, second = c['bossIds'][i], (c.get('bossIds2') or [None] * 3)[i]
+    if not second: return slot, None, None
+    return (slot, 1, str(second)) if str(first) == pid else (slot, 2, str(first))
+
 CALIB = os.path.join(C.DATA, 'calibration.json')
 
 def load_calibration():
