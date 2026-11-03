@@ -443,6 +443,9 @@ def ink_aspect(img, box, thr=200):
 OCR_EXE = os.path.join(HERE, 'ocr-helper.exe')   # native helper (app/ocr-helper): grey pixels on stdin, no image files
 
 TEMP_PREFIX = 'bossbar_'
+# a name read of one character or none that the Korean model doesn't vouch for answers its box from the name cache this
+# long: the rest of that screen's appearance (result_screen, Battle Data: 30 s), not every later screen with the same box
+UNSURE_S = 30
 
 def sweep_temp(hours=1):
     """Temp folders of OCR helpers from earlier runs (a crash or a forced close can't delete its own): gone."""
@@ -492,7 +495,7 @@ class Ocr:
         if not Ocr.swept:                              # in the background: a big Temp folder can take a while
             Ocr.swept = True; threading.Thread(target=sweep_temp, daemon=True, name='temp-sweep').start()
         self.native = os.path.exists(OCR_EXE); self.lock = threading.Lock(); self.n = 0; self.dir = None; self.last = {}
-        self.name_cache = {}   # name box signature -> its read (read_native)
+        self.name_cache = {}   # name box signature -> (its read, until when: None for good) (read_native)
         self.cache_lock = threading.Lock()
         self.gen = 0           # helpers started in this one's place (restart): a read asked of an older one isn't cached
         self.p, self.language = self.launch()
@@ -561,11 +564,11 @@ class Ocr:
         # takes that read: the two text models cost ~0.2 s a name
         # (names_bg reads on this helper too: the cache is read with get() and changed under cache_lock, so the other
         # thread dropping the oldest entry can't break a lookup or the drop)
-        known, sigs = {}, {}
+        known, sigs, now = {}, {}, time.monotonic()
         for k in list(names):
             sigs[k] = name_signature(images[k])
             hit = self.name_cache.get(sigs[k])
-            if hit is not None: known[k] = hit
+            if hit is not None and (hit[1] is None or hit[1] > now): known[k] = hit[0]
         images = {k: v for k, v in images.items() if k not in known}
         names = {k: v for k, v in names.items() if k not in known}
         if not images: return known
@@ -619,17 +622,23 @@ class Ocr:
             out[k] = K.clean_latin(K.split_reply(line)[2]) or out[k]
         # the Korean check takes the Latin read as its hint (a Latin name the Korean model reads alike stays Latin):
         # the grey crop's read keeps the same 72 of 73 labelled Hangul names the prepared crop's did
+        vouched = set(lone)
         for k in found:
             name = settled[k] if k in settled else korean(k, out[k])
-            if name: out[k] = name
+            if name: out[k] = name; vouched.add(k)
         # not stored when the helper was restarted since this read's first ask() (live.py ocr_look: English found):
         # its reads are the old helper's, and restart's clear may have come first, so they'd be kept and answer this
         # box from then on (22 of 24 such reads on real result screens did). Checked under cache_lock: the clear
-        # after the swap can't come between the check and the write
+        # after the swap can't come between the check and the write.
+        # A read of one character or none the Korean model didn't vouch for is kept for UNSURE_S only: it is a miss or
+        # a coin flip (a one-character name read as nothing on some result screens and a CJK character on others that
+        # differ by 0.1 grey level), and kept for good it answered every later screen with that box for the session
         with self.cache_lock:
             if gens[0] == self.gen:
                 for k in names:
-                    self.name_cache[sigs[k]] = out[k]
+                    unsure = len(out[k].replace(' ', '')) <= 1 and k not in vouched
+                    self.name_cache.pop(sigs[k], None)              # stored again: last in, last dropped
+                    self.name_cache[sigs[k]] = (out[k], now + UNSURE_S if unsure else None)
                     if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
         out.update(known)
         return out
@@ -637,7 +646,9 @@ class Ocr:
     def cached(self, images, names):
         """Is every name box in `images` ({name: pad px}) read already (the name cache)? Only those are slow to read:
         the text models, ~0.2 s a name, where Windows OCR takes a few ms."""
-        return not self.native or all(name_signature(images[k]) in self.name_cache for k in names)
+        now = time.monotonic()
+        return not self.native or all(hit is not None and (hit[1] is None or hit[1] > now)
+                                      for hit in (self.name_cache.get(name_signature(images[k])) for k in names))
 
     def close(self):
         try: self.p.stdin.close(); self.p.wait(3)

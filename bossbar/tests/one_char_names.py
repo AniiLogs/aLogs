@@ -1,4 +1,4 @@
-"""One-character player names on the result screen.
+"""One-character player names on the result screen, and how long the name cache keeps a read it isn't sure of.
 
     python tests/one_char_names.py
 
@@ -8,11 +8,13 @@ install), at 4K and scaled to 1440p, 1080p, 900p and 720p as a smaller screen sh
 Meter.result_names and Ocr.read as result_screen reads them:
 - a one-character name reads as itself (both Latin reads keep the pill and the portrait's foot around a lone character
   and read it as nothing or another character; the Korean model's read of the tidied box doesn't);
-- a longer name still reads as itself, and a slot with no player (no pill, only the portrait) reads as nothing.
+- a longer name still reads as itself, and a slot with no player (no pill, only the portrait) reads as nothing;
+- a read of nothing is kept in the name cache only for UNSURE_S: the same box is read again after that, not answered
+  from the cache for the rest of the session. A read it's sure of stays.
 Needs the real OCR helper (bossbar/ocr-helper.exe) and the game's fonts in bossbar/gamefont. The data folder is a
 temporary one. Exit code 1 on any failure.
 """
-import os, shutil, sys, tempfile
+import os, shutil, sys, tempfile, types
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 TMP = tempfile.mkdtemp(prefix='alogs_onechar_')
@@ -66,9 +68,23 @@ for size, (W, H) in SIZES.items():
         got = ocr.read(crops, names={k: 24 for k in crops}, raws=grey)
         check(f'{size} {names}', [got[f'name{i}'] for i in range(4)], names)
 
+# the name cache: a sure read stays, nothing (a slot with no player) is read again once UNSURE_S has passed
+crops, grey = boxes(screen(['B', 'Moxie', '', '']))
+ocr.name_cache.clear()
+ocr.read(crops, names={k: 24 for k in crops}, raws=grey)
+names = {k: 24 for k in crops}
+check('cache: every box answered from it at once', ocr.cached(crops, names), True)
+real = R.time
+R.time = types.SimpleNamespace(monotonic=lambda: real.monotonic() + getattr(R, 'UNSURE_S', 30) + 1)
+try:
+    check('cache: later, the one-character name still is', ocr.cached({'n': crops['name0']}, {'n': 24}), True)
+    check('cache: later, the longer name still is', ocr.cached({'n': crops['name1']}, {'n': 24}), True)
+    check('cache: later, the empty slot is read again', ocr.cached({'n': crops['name2']}, {'n': 24}), False)
+    check('cache: later, the read again', ocr.read(crops, names=names, raws=grey), {'name0': 'B', 'name1': 'Moxie', 'name2': '', 'name3': ''})
+finally: R.time = real
 ocr.close()
 
 shutil.rmtree(TMP, ignore_errors=True)
 if fails:
     print(f'{len(fails)} FAILED:'); [print('  ' + f) for f in fails]; sys.exit(1)
-print('One-character names: read at 720p-4K, empty slots empty')
+print('One-character names: read at 720p-4K, empty slots empty, unsure reads not cached for good')
