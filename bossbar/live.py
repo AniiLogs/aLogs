@@ -521,27 +521,84 @@ def vote(votes, key, value):
     c = votes.get(key)
     return max(c, key=lambda v: (c[v], -list(c).index(v))) if c else value
 
-def party_slots(players, party):
+def sure_read(ocr, img):
+    """Is this name box's read in the name cache for good? A read of one character or none only is when the Korean
+    model vouched for it (Ocr.read_native: KoreanNames.lone, font-checked, or a Hangul name the font settled)."""
+    hit = getattr(ocr, 'name_cache', {}).get(R.name_signature(img))
+    return bool(hit) and hit[1] is None
+
+def party_slots(players, party, sure=(), you=None):
     """Each result-screen (or Battle Data) column takes the Party screen's player of the same slot: both list players
     by badge, 1P to 4P, left to right (a run as 2P with three real players lined up on all three screens, 30 Oct). The
     name comes from the Party screen, read clearly there, with its AI flag and you; the column's own read only checks it.
     A misread like 'Dyn*ht' no longer has to be guessed at. A column that clearly reads as another member's name (the
-    order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read."""
+    order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read.
+    Each member goes to one column at most: first to a column that clearly reads their name, then to their slot's
+    column; a column whose slot's member went to another keeps its own read, with no AI flag or you from the party.
+    Given to both (by name to one, by slot to the other), one player was listed twice in 7 sent runs of 1 Nov (their
+    Battle Data cards too), 2 of them with two rows marked as you. Names are compared folded (TEAM.fold: 0 as O, 1 as
+    l): in 5 saved runs a column read a member's name that only folding matches, and stayed unmatched.
+    Two columns keep their own read: one that reads as `you` (your character name, when the game menu showed it) is
+    you, and no other column takes the Party screen's you; one of one Latin letter or digit the Korean model vouched
+    for (`sure`: those slots, sure_read) is that player. The Party screen's read of either slot can only be worse: its
+    filter never keeps a one-character name, and on its other layout (pills ~0.018 H higher, before everyone is ready)
+    its boxes read the title above or half a pill. 6 of 59 sent runs had no row marked as you (the result screen read
+    your exact name in all 6), and 4 of 10 saved runs of 1 Nov sent a one-character teammate's misread."""
     if not party:
         for p in players:
             if p.get('name') and not p.get('self'): p['name'] = TEAM.steady(p['name'])
         return
     by_slot = {m['slot']: m for m in party}
-    sim = lambda a, b: difflib.SequenceMatcher(None, (a or '').casefold(), (b or '').casefold()).ratio()
-    for p in players:
-        m = by_slot.get(p['slot'])
-        other = max((x for x in party if x is not m), key=lambda x: sim(x['name'], p['name']), default=None)
-        if other and sim(other['name'], p['name']) >= 0.8 and (m is None or sim(other['name'], p['name']) >= sim(m['name'], p['name']) + 0.3):
-            log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, the Party screen's {other['name']!r} (slot {other['slot'] + 1}), not slot {p['slot'] + 1}'s {m and m['name']!r}")
-            m = other
-        if m is None: continue
-        if p['name'] and sim(m['name'], p['name']) < 0.3: log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, taken as slot {p['slot'] + 1}'s {m['name']!r}")
+    sim = lambda a, b: difflib.SequenceMatcher(None, TEAM.fold(a), TEAM.fold(b)).ratio()
+    taken, rest = set(), []                      # members (by slot) given to a column; the columns left to settle
+    # the Party screen's you: its mark, or your name. Its vote keeps a slot's commonest name but the last read's mark,
+    # so a shuffled read can leave your name unmarked in one slot and the mark on another (1 saved run)
+    mine = {x['slot'] for x in party if x.get('self') or (you and same_name(x['name'], you))}
+    def give(p, m):                              # a member taken as you takes every Party you: never two rows
         p.update(name=m['name'], ai=bool(m.get('ai')), self=bool(m.get('self')))
+        taken.update(mine if m['slot'] in mine else {m['slot']})
+    me = max((p for p in players if you and same_name(p.get('name'), you)), key=lambda p: sim(p['name'], you), default=None)
+    for p in players:
+        own, m = p.get('name') or '', by_slot.get(p['slot'])
+        if p is me:
+            if m and m['name'] != you: log.info(f"result: column {p['slot'] + 1} reads as you, not the Party screen's {m['name']!r}")
+            p.update(name=you, ai=False, self=True); taken.update(mine)
+        elif p['slot'] in sure and len(own) == 1 and own.isascii() and own.isalnum():
+            if m and m['name'] != own: log.info(f"result: column {p['slot'] + 1} reads {own!r} (sure), not the Party screen's {m['name']!r}")
+            p.setdefault('ai', False)
+        else: rest.append(p)
+    def named(p):                                # the free member this column clearly reads, when not its slot's
+        m = by_slot.get(p['slot'])
+        other = max((x for x in party if x is not m and x['slot'] not in taken), key=lambda x: sim(x['name'], p['name']), default=None)
+        s = sim(other['name'], p['name']) if other else 0
+        return (s, other) if s >= 0.8 and (m is None or s >= sim(m['name'], p['name']) + 0.3) else None
+    while True:                                  # the clearest read first, when two columns read one member
+        hits = [(h, p) for p in rest for h in [named(p)] if h]
+        if not hits: break
+        (s, other), p = max(hits, key=lambda h: h[0][0])
+        m = by_slot.get(p['slot'])
+        log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, the Party screen's {other['name']!r} (slot {other['slot'] + 1}), not slot {p['slot'] + 1}'s {m and m['name']!r}")
+        give(p, other); rest.remove(p)
+    for p in rest:
+        m = by_slot.get(p['slot'])
+        if m is None: continue
+        if m['slot'] in taken:
+            log.info(f"result: column {p['slot'] + 1} keeps its read {p['name']!r}: slot {p['slot'] + 1}'s {m['name']!r} is another column's")
+            if p['name']: p['name'] = TEAM.steady(p['name'])
+            continue
+        if p['name'] and sim(m['name'], p['name']) < 0.3: log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, taken as slot {p['slot'] + 1}'s {m['name']!r}")
+        give(p, m)
+
+def mark_you(players, party, known):
+    """After party_slots, on the result screen: your row is the one it marked, else the first that reads as your known
+    name or as the Party screen's you; never a second one. Each row's AI flag, when party_slots gave none, is the Party's
+    for its name."""
+    you = next((m['name'] for m in party or [] if m.get('self')), None)
+    mine = any(p.get('self') for p in players)
+    for p in players:
+        if not mine and ((known and same_name(p['name'], known)) or (you and p['name'] == you)): p['self'] = mine = True
+        p['self'] = bool(p.get('self'))
+        p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
 
 def own_name(known, names, party):
     """Which name on the result screen is the player running the meter. You aren't always the 1P slot (in someone
@@ -1962,7 +2019,8 @@ class Meter:
         names = self.ocr.read(crops, names={i: 0 for i in crops}, raws=grey) if n else {}
         for i, c in enumerate(cards):
             c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
-        party_slots(cards, party)
+        party_slots(cards, party, sure={i for i in crops if sure_read(self.ocr, crops[i])},
+                    you=self.character_name if character_verified(self.uid) else None)
         vals = [c['avg_dps'] for c in cards if c['avg_dps'] is not None]
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         if again:                                                  # a later read: only the agreed numbers change
@@ -3020,7 +3078,8 @@ class Meter:
                       next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
             label = V(f'label{i}', canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS))
             if name or value is not None: players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
-        party_slots(players, self.party_for_result(now))
+        party_slots(players, self.party_for_result(now), sure={i for i in range(4) if sure_read(self.ocr, named[f'name{i}'])},
+                    you=self.character_name if character_verified(self.uid) else None)
         mine = self.character_name if character_verified(self.uid) else \
             own_name(self.character_name, [p['name'] for p in players], self.party_for_result(now))
         if mine and mine != self.character_name:
@@ -3059,11 +3118,7 @@ class Meter:
         boss = run['title'] if f else '(unknown - meter saw no fight)'
         log.info(f'result screen read {self.result_reads}: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
         if again:                                                  # a later read: only the agreed numbers change
-            party = self.party_for_result(now)
-            you = next((m['name'] for m in party or [] if m.get('self')), None)
-            for p in players:
-                p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
-                p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
+            mark_you(players, self.party_for_result(now), self.character_name)
             if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                    'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader,
                                                    'screenshot': self.result_shot, 'reads': self.result_reads})
@@ -3081,10 +3136,7 @@ class Meter:
                         dmg, fi and round(fi.elapsed), fi and round(dmg / fi.elapsed) if fi and fi.elapsed > 1 else None,
                         fi and os.path.basename(fi.log.name), os.path.relpath(shot, HERE) if shot else ''])
         party = self.party_for_result(now)
-        you = next((m['name'] for m in party or [] if m.get('self')), None)
-        for p in players:
-            p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
-            p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
+        mark_you(players, party, self.character_name)
         party_shot = None
         if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
             party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False)
