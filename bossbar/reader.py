@@ -462,9 +462,30 @@ def name_signature(img):
     g = img.convert('L')
     return (g.size, g.resize((64, 16), Image.BILINEAR).point(lambda v: v // 64).tobytes())
 
+def ready_language(line):
+    """The OCR language in a helper's first line: 'READY<TAB>en-US' -> 'en-US', 'READY<TAB>' -> '' (no OCR language
+    on this PC), a plain 'READY' -> None (a helper that doesn't say: an older ocr-helper.exe). Anything else: it
+    didn't start."""
+    line = line.rstrip('\r\n')                    # not strip(): 'READY\t' is a helper with no OCR language
+    if line == 'READY': return None
+    if not line.startswith('READY\t'): raise RuntimeError('Windows OCR helper did not start')
+    return line[len('READY\t'):].strip()
+
+def ocr_english(language):
+    """Does Windows OCR read English, the game's language? `language` as Ocr.language: None (not said) -> None."""
+    return None if language is None else language.split('-')[0].lower() == 'en'
+
 class Ocr:
     swept = False
     korean = None      # hangulnames.KoreanNames once the game's fonts are read (live.py): Korean player names, read()
+    # The language Windows OCR reads in, as the helper said when it started (ready_language): 'en-US' (or another
+    # English), the user's own language on a PC with no English OCR (ko-KR), '' with no OCR language at all; None
+    # until a helper starts, or when it doesn't say. Without English the game's text (boss names and levels, result
+    # screens, Battle Data, prep and Party screens) isn't read: live.py logs it and status.json carries it, and the
+    # app warns and offers to install English OCR. Kept on the class: every helper picks the same one (windows_ocr in
+    # app/ocr-helper), so all readers agree.
+    language = None
+    started = True     # its helper did (NoOcr: it didn't, which status.json tells apart from no OCR language)
     def __init__(self):
         if not Ocr.swept:                              # in the background: a big Temp folder can take a while
             Ocr.swept = True; threading.Thread(target=sweep_temp, daemon=True, name='temp-sweep').start()
@@ -474,13 +495,13 @@ class Ocr:
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         if self.native:
             self.p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
-            if self.p.stdout.readline().strip() != b'READY': raise RuntimeError('Windows OCR helper did not start')
+            Ocr.language = ready_language(self.p.stdout.readline().decode('utf-8', 'replace'))
             return
         self.p = subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                                    os.path.join(HERE, 'ocr_win.ps1'), '-Server'],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
                                   creationflags=flags)
-        if self.p.stdout.readline().strip() != 'READY': raise RuntimeError('Windows OCR helper did not start')
+        Ocr.language = ready_language(self.p.stdout.readline())
         self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
 
     def read(self, images, names=None, raws=None):
@@ -592,8 +613,10 @@ class Ocr:
             shutil.rmtree(self.dir, ignore_errors=True)
 
 class NoOcr:
-    """In place of Ocr when its helper didn't start: every box reads as nothing."""
+    """In place of Ocr when its helper didn't start: every box reads as nothing (no OCR language, as status.json says)."""
     native = False
+    language = ''
+    started = False
     def __init__(self): self.name_cache = {}
     def read(self, images, names=None, raws=None): return {k: '' for k in images}
     def cached(self, images, names): return True

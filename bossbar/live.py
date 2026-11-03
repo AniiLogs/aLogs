@@ -1237,16 +1237,37 @@ def load_korean_names(player_log=None):
         except Exception as e: log.info(f'Korean names: off ({e!r})')
     threading.Thread(target=run, daemon=True, name='korean-names').start()
 
+# What the meter can't read without English OCR: the game's text is English, and Windows OCR reads it all but player
+# names (the helper's own text models read those). The app's warning says the same (DPS Meter page, Dashboard).
+NO_ENGLISH_READS = 'boss names and levels, result screens, Battle Data, the battle prep and Party screens'
+
+def ocr_language_note(ocr):
+    """Once at start, in meter.log: the language Windows OCR reads in (reader.Ocr.language), with a warning when it
+    isn't English, or there is none (no OCR language on the PC, or the helper didn't start: NoOcr). Before, a PC with
+    no English OCR only had 'OCR helper did not start' in its log, or nothing (76c9f87), and its runs weren't read."""
+    lang = ocr.language
+    fix = ('Windows Settings > Time & language > Language & region > add English (United States), or Install English '
+           "OCR on aLogs' DPS Meter page")
+    if not ocr.started: log.warning(f"Windows OCR: none (its helper didn't start): {NO_ENGLISH_READS} can't be read, "
+                                    "so runs aren't recorded or sent")
+    elif lang is None: log.info("Windows OCR: language not said (the PowerShell helper or an older OCR helper)")
+    elif R.ocr_english(lang): log.info(f'Windows OCR: {lang}')
+    elif lang: log.warning(f"Windows OCR: {lang}, not English: {NO_ENGLISH_READS} can't be read reliably, so runs may "
+                           f"not be recorded or sent. Fix: {fix}")
+    else: log.warning(f"Windows OCR: none (no OCR language on this PC): {NO_ENGLISH_READS} can't be read, so runs "
+                      f"aren't recorded or sent. Fix: {fix}")
+
 # ---------------------------------------------------------------- meter
 class Meter:
     def __init__(self, args, out):
         self.args, self.out = args, out
         self.catalog, self.grades = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()   # grades: refresh_cycles
-        # the OCR helper stops before it's ready when Windows has no OCR language it can use (an older helper had to
-        # have en-US): the meter then runs on what it reads from pixels (the boss bar, xN, the game font's numbers)
+        # the OCR helper not starting (an older one stopped when Windows had no en-US OCR; now it starts and says it has
+        # no language): the meter then runs on what it reads from pixels (the boss bar, xN, the game font's numbers)
         try: self.ocr = R.Ocr()
         except Exception as e:
             log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
+        ocr_language_note(self.ocr)
         self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
         load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
@@ -4237,6 +4258,11 @@ class Meter:
             'auto_battle_data': bool(self.auto_until),
             'leaderboard': {'on': bool(sub and sub.config), 'pending': sub.pending() if sub else 0,
                             'last': sub.last_result if sub else None},
+            # Windows OCR's language (reader.Ocr.language; null with none, or when the helper doesn't say) and whether
+            # it's English: false (no OCR language, another one, or no helper: started false) and the app warns that
+            # the game's screens can't be read, with a button that installs English OCR; null (not said): no warning
+            'ocr': {'language': self.ocr.language or None, 'english': R.ocr_english(self.ocr.language),
+                    'started': self.ocr.started},
         })
 
     def run(self):
