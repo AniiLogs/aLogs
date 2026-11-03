@@ -1704,10 +1704,12 @@ class Meter:
         cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}
                  for i in range(n)]
         # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),
-        # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position
-        names = self.ocr.read({i: R.prep_white(im, (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
-                                                    ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547), u / 2000)
-                               for i in range(n)}, names={i: 0 for i in range(n)}) if n else {}
+        # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position.
+        # The Latin model reads the tab as it is on screen (grey_crop), Windows OCR and the Korean model prep_white's
+        boxes = {i: (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
+                     ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547) for i in range(n)}
+        names = self.ocr.read({i: R.prep_white(im, b, u / 2000) for i, b in boxes.items()}, names={i: 0 for i in boxes},
+                              raws={i: R.grey_crop(im, b) for i, b in boxes.items()}) if n else {}
         for i, c in enumerate(cards):
             c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
         party_slots(cards, party)
@@ -2684,14 +2686,18 @@ class Meter:
             'rating': R.prep_short(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41), k),     # short: tiled
             'score': R.prep_text(im, (ux + u * 0.43, H * 0.325, ux + u * 0.57, H * 0.415), k, size=1),
             'time': R.prep_short(im, (ux + u * 0.68, H * 0.33, ux + u * 0.79, H * 0.41), k)}
+        grey = {}
         for i in range(4):
             dx = i * 0.1765
             # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
             # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p. As wide as the name pill can get (0.07 cut
             # 'Soul_ShadowXD' to 'oul_Shadow' 25 times on 1 Nov), and below the stat number above it
-            crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655), k, thr=130)
+            # The Latin model reads the box as it is on screen (grey_crop): 195 of 195 labelled names on real 4K result
+            # screens, 180 from this preparation; scaled to 720p-1440p 194-195, where it was 158-188
+            box = (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655)
+            crops[f'name{i}'] = R.prep_text(im, box, k, thr=130); grey[f'name{i}'] = R.grey_crop(im, box)
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
-        t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)})
+        t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)}, raws=grey)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
         V = lambda key, value: vote(self.result_votes, key, value)
         # the score digit by digit against the game's font when it reads clearly (OCR's 1 can come out as a 7)

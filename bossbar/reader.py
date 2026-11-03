@@ -416,6 +416,13 @@ def prep_short(img, box, scale, copies=3):
     for i in range(copies): out.paste(c, (gap + i * (c.width + gap), gap))
     return out
 
+def grey_crop(img, box, height=48):
+    """A name box as it is on screen, in grey, for the Latin text model (Ocr.read's `raws`): it reads the letters'
+    soft edges better than any black and white preparation of them. A box taller than the model's 48 px is shrunk
+    smoothly here: the helper's own shrinking samples between pixels, and read a 4K name's capitals as small letters."""
+    c = img.crop(tuple(int(v) for v in box)).convert('L')
+    return c.resize((max(1, round(c.width * height / c.height)), height), Image.LANCZOS) if c.height > height else c
+
 def after_label(text, label):
     """What prep_labelled() read after its drawn label: "Player name: 0" or "Player name: / 0" -> "0"."""
     t = (text or '').strip()
@@ -472,12 +479,15 @@ class Ocr:
         if self.p.stdout.readline().strip() != 'READY': raise RuntimeError('Windows OCR helper did not start')
         self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
 
-    def read(self, images, names=None):
+    def read(self, images, names=None, raws=None):
         """{name: text} for {name: image}. `names` marks the boxes that hold a player's name, with the white padding
         their preparation added ({name: pad px}): those are read by the helper's Latin text model (PaddleOCR
         PP-OCRv6: 90% of real names exactly, Windows OCR 42%), and by its Korean model, settled against the game's
-        fonts (hangulnames), so a Hangul name reads as it is. Windows OCR's read is only kept when both find nothing."""
-        if self.native: return self.read_native(images, names or {})
+        fonts (hangulnames), so a Hangul name reads as it is. Windows OCR's read is only kept when both find nothing.
+        `raws` gives name boxes as they are on screen ({name: image}, grey_crop): the Latin model reads that instead
+        of the prepared box (195 of 195 labelled names on real 4K result screens that way, 180 prepared); Windows OCR
+        and the Korean model keep the prepared one."""
+        if self.native: return self.read_native(images, names or {}, raws or {})
         out = {}
         with self.lock:
             for name, img in images.items():
@@ -492,11 +502,13 @@ class Ocr:
                     except OSError: pass
         return out
 
-    def read_native(self, images, names):
+    def read_native(self, images, names, raws=None):
         """All images in one request: b'OCR1', count, then width, height and 8-bit grey pixels each (u32 LE).
         One line comes back per image, in order. With name boxes it's b'OCR2' (a flags byte before each image): the
-        boxes as they are, name boxes with the Latin model too (flag 4), then each name box tidied for the Korean
-        model alone (flags 1 + 2)."""
+        boxes as they are, name boxes with the Latin model too (flag 4) unless they have a grey crop in `raws`, then
+        those grey crops for the Latin model alone (flags 2 + 4), then each name box tidied for the Korean model alone
+        (flags 1 + 2). A grey crop read as one character or none, unless the Korean check settles it, sends its
+        prepared box to the Latin model after (flags 2 + 4)."""
         import hangulnames as K
         # a name box that looks as it did a read ago (the Party and result screens stay up, read every few seconds)
         # takes that read: the two text models cost ~0.2 s a name
@@ -508,26 +520,50 @@ class Ocr:
         names = {k: v for k, v in names.items() if k not in known}
         if not images: return known
         keys = list(images)
+        grey = [k for k in keys if k in names and k in (raws or {})]
         tidy = {}
         if names and self.korean:
             tidy = {k: t for k in keys if k in names for t in [K.tidy(images[k], names[k])] if t is not None}
-        work = [(k, 4 if k in names else 0, images[k]) for k in keys] + [(k, 3, t) for k, t in tidy.items()]
-        parts = [b'OCR2' if names else b'OCR1', struct.pack('<I', len(work))]
-        for _, flags, img in work:
-            img = img if img.mode == 'L' else img.convert('L')
-            parts += ([bytes([flags])] if names else []) + [struct.pack('<II', *img.size), img.tobytes()]
-        with self.lock:
-            self.p.stdin.write(b''.join(parts)); self.p.stdin.flush()
-            lines = [self.p.stdout.readline().decode('utf-8', 'replace').rstrip('\r\n') for _ in work]
+        work = [(k, 4 if k in names and k not in grey else 0, images[k]) for k in keys] + \
+               [(k, 6, raws[k]) for k in grey] + [(k, 3, t) for k, t in tidy.items()]
+        def ask(work):
+            parts = [b'OCR2' if names else b'OCR1', struct.pack('<I', len(work))]
+            for _, flags, img in work:
+                img = img if img.mode == 'L' else img.convert('L')
+                parts += ([bytes([flags])] if names else []) + [struct.pack('<II', *img.size), img.tobytes()]
+            with self.lock:
+                self.p.stdin.write(b''.join(parts)); self.p.stdin.flush()
+                return [self.p.stdout.readline().decode('utf-8', 'replace').rstrip('\r\n') for _ in work]
+        lines = ask(work)
         out = {}
         for k, line in zip(keys, lines):
             text, _, latin = K.split_reply(line)
             # the Latin model's read of a name (a voice icon or mark after it dropped), else Windows OCR's
             out[k] = (K.clean_latin(latin) or text) if k in names else text
-        for (k, _, t), line in zip(work[len(keys):], lines[len(keys):]):
-            _, letters, _ = K.split_reply(line)
-            try: name = self.korean.read(t, out[k], letters)
-            except Exception: name = None            # a name the check can't settle keeps the Latin read
+        # the grey crop's Latin read, when it found more than one character (its box's line was Windows OCR's alone)
+        short = []
+        for k, line in zip(grey, lines[len(keys):]):
+            latin = K.clean_latin(K.split_reply(line)[2])
+            if len(latin.replace(' ', '')) > 1: out[k] = latin
+            else: short.append(k)
+        n = len(keys) + len(grey)                    # each tidied name box and the Korean model's letters for it
+        found = {k: (t, K.split_reply(line)[1]) for (k, _, t), line in zip(work[n:], lines[n:])}
+        def korean(k, hint):
+            t, letters = found[k]
+            try: return self.korean.read(t, hint, letters)
+            except Exception: return None            # a name the check can't settle keeps the Latin read
+        # a grey crop read as one character or none: the scene around a lone character can swamp it there (a
+        # one-character name read as a letter or nothing on 720p Battle Data, read right prepared), so the box is read
+        # prepared, as before. Not when the Korean model reads Hangul there itself and the font check settles it: no Latin read can
+        # change that (KoreanNames.read only weighs one against a Latin-looking read), and most Hangul names are such
+        settled = {k: korean(k, '') for k in short if k in found and K.hangul_first(found[k][1])}
+        again = [k for k in short if not settled.get(k)]
+        for k, line in zip(again, ask([(k, 6, images[k]) for k in again]) if again else []):
+            out[k] = K.clean_latin(K.split_reply(line)[2]) or out[k]
+        # the Korean check takes the Latin read as its hint (a Latin name the Korean model reads alike stays Latin):
+        # the grey crop's read keeps the same 72 of 73 labelled Hangul names the prepared crop's did
+        for k in found:
+            name = settled[k] if k in settled else korean(k, out[k])
             if name: out[k] = name
         for k in names:
             self.name_cache[sigs[k]] = out[k]

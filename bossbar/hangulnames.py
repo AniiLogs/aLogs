@@ -45,6 +45,12 @@ def split_reply(line):
     return text.strip(), letters, latin.strip()
 
 
+def hangul_first(letters):
+    """True when the Korean model's own best letters hold Hangul: KoreanNames.read then decides without the Latin
+    read it's given (that only counts against a Latin-looking best read)."""
+    return bool(letters) and has_hangul(''.join(picks[0][0] for _, picks in letters if picks))
+
+
 def clean_latin(text):
     """The Latin model's read of a name box without what follows the name: a voice or ready icon read as a circled
     number or a mark ('Soul_ShadowXD①', 'Neg③.')."""
