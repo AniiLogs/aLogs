@@ -61,7 +61,7 @@ logging.getLogger('meter').addHandler(LOG); logging.getLogger('meter').setLevel(
 
 ap = argparse.ArgumentParser()
 ap.add_argument('-v', action='store_true', help="print the meter's log")
-ap.add_argument('--only', help='scenarios to run, comma-separated (a,b,c,d,e,f1,f2,g1,g2,h,i,j,k)')
+ap.add_argument('--only', help='scenarios to run, comma-separated (a,b,c,d,e,f1,f2,g1,g2,h,i,j,k,l1,l2,l3)')
 ap.add_argument('--trace', help='write what the meter put out to this JSON file')
 ap.add_argument('--no-checks', action='store_true', help='only run (for a checkout without the two-boss code)')
 ARGS = ap.parse_args()
@@ -265,7 +265,7 @@ def play(name, script, uid, t_start, clock):
     # the screens' text boxes: every one goes to OCR (on a real frame a box with no ink in it is skipped)
     m.screen_crops = lambda im, quick: {n: frame for n, kind, box in m.SCREEN_BOXES if not quick or n in m.QUICK_BOXES}
     m.ocr_bg = LagWorker(m.ocr, script.ocr_lag); m.names_bg = LagWorker(m.ocr, 12)
-    m.uid = uid; m.rush_level = LEVEL
+    m.uid = uid; m.rush_level = getattr(script, 'rush_level', LEVEL)    # the last Interlink fight's level (None: none yet)
     if getattr(script, 'prep', None): m.prep_boss = (clock.t, ROW[script.prep])    # the prep screen just named it
     space = '7700112233'                                     # an Interlink instance: no scene number in its id
     m.events.put(('enter', space, None))
@@ -412,6 +412,13 @@ def scenarios():
     S['k'] = (Script('4003').boss(BLAZEN, 0, 30, h1 / 30, kill=True).dead(BLAZEN, 30, 32.8).hidden(32.8, 36)
               .boss(TUCKING, 36, 70, h2 * 0.15 / 34).hidden(70, 71).show_result(71, 78, 22, 23000, 70)
               .misread(-1.0, -0.4, 1))
+    # l1) week 4003's middle fight, its first title reads 'Lv.9' (1 Nov's 'Lv.9 Älp14a Scorchhowl' for Lv. 60) for its
+    #     bar's first 0.6 s, before it's hit (reads back to back with no fight: 5 alike), then right: one fight, at Lv 60
+    #     from the run's start (its 3:00 limit), the partner still to come. l2) the same with no Interlink fight before it (no level known): it starts on the first read, as
+    #     before. l3) every read says Lv. 70 (a new season's level): it starts at Lv 70 once read for LEVEL_CONFIRM s
+    for name, rush, until, lv in (('l1', LEVEL, -0.4, 9), ('l2', None, -0.4, 9), ('l3', LEVEL, 61, 70)):
+        sc = Script('4003').boss(BLAZEN, 0, 60, hp(BLAZEN) * 0.4 / 60).hidden(60, 61)
+        sc.title(-1.0, until, f"Lv.{lv} {ROW[BLAZEN]['bossTitle_en']}"); sc.rush_level = rush; S[name] = sc
     return S
 
 # ---------------------------------------------------------------- checks
@@ -752,6 +759,25 @@ def checks(R_):
               == [ROW[first]['bossTitle_en'], 'Alpha Bouldus'], starts)
         check(r.name, "ended as 'different boss'", overs and 'different boss' in overs[0][1], overs)
         check(r.name, 'no hand-off', not r.calls['next_boss'], r.calls['next_boss'])
+
+    l1, l2, l3 = (R_.get(x) for x in ('l1', 'l2', 'l3'))
+    if l1:
+        starts, overs = statuses(l1, 'fight started'), statuses(l1, 'fight over')
+        f = l1.fights[0] if l1.fights else None
+        check('l1', 'a misread level starts no fight: one fight, at Lv 60', len(starts) == 1 and ' Lv 60,' in starts[0][1], starts)
+        check('l1', "no 'different boss'", not any('different boss' in d_ for _, d_ in overs), overs)
+        check('l1', 'the partner still to come, Interlink bosses still Lv 60', f and f.partner is not None and l1.meter.rush_level == LEVEL,
+              (f and f.partner and f.partner['puppetId'], l1.meter.rush_level))
+        check('l1', "started on the next read, before the run's clock: its 3:00 limit", starts and starts[0][0] < 0 and f and f.limit == 180,
+              (starts, f and f.limit))
+    if l2:
+        starts = statuses(l2, 'fight started')
+        check('l2', 'no Interlink level known: started on the first read', starts and ' Lv 9,' in starts[0][1] and starts[0][0] < -0.4, starts)
+    if l3:
+        starts = statuses(l3, 'fight started')
+        check('l3', "a new season's level: started at Lv 70 once read for LEVEL_CONFIRM s",
+              len(starts) == 1 and ' Lv 70,' in starts[0][1] and starts[0][0] <= getattr(live, 'LEVEL_CONFIRM', 3) + 1, starts)
+        check('l3', 'Interlink bosses now Lv 70', l3.meter.rush_level == 70, l3.meter.rush_level)
 
 # ---------------------------------------------------------------- run
 def trace(r):

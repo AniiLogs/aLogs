@@ -54,6 +54,7 @@ IDLE_INTERVAL = 0.25    # out in the world with no boss bar and nothing to watch
                         # report, B4: 8-13 whole 4K window copies a second while just standing at home)
 CONFIRM_GAP = 0.09      # a reading that confirms an earlier one (a big drop, a refill, a counter vote) must come at
                         # least this long after it, so a one-off effect lasting a few fast frames can't confirm itself
+LEVEL_CONFIRM = 3       # s an Interlink level other than the season's must be read alone before a fight starts on it
 XN_STALE = 40           # s a boss rush counter read keeps bounding refills (the late bars take 15-25 s each)
 SETTINGS = os.path.join(HERE, 'overlay_positions.json')
 
@@ -1403,6 +1404,7 @@ class Meter:
         self.link = None             # Link character in progress (link_poll)
         self.prep_boss = None        # (time, catalog row) of the boss the battle prep screen showed last
         self.rush_level = last_rush_level()   # Interlink bosses' level (the same for every boss of a season)
+        self.odd_level = None        # ((puppetId, level), first and last read): a new fight's Interlink level, not rush_level
         if self.uid: log.info(f'player uid {self.uid} (from the game log)')
         if not args.replay:   # also before the game's first run: it waits for Player.log (the UID came only after a restart)
             self.logw = LogWatcher(args.player_log, self.events); self.logw.start()
@@ -4239,6 +4241,20 @@ class Meter:
             self.switch_votes.append((row['puppetId'], level)); self.switch_votes = self.switch_votes[-3:]
             if len(self.switch_votes) < 3 or len(set(self.switch_votes)) != 1: return
             self.end_fight('different boss')
+        elif bossrush and self.bossrush_space and self.rush_level and not self.args.level and level != self.rush_level:
+            # Every Interlink boss has the season's level (rush_level: the last Interlink fight's, Lv 60 in 61 of 62
+            # starts to 2 Nov), so another level on a new fight is a misread: 1 Nov's 'Lv.9 Älp14a Scorchhowl' started a
+            # Lv 9 fight (8.5M max HP for 37.9M) that ended as 'different boss' 64 s on. Wait for the next read, as the
+            # two-boss partner does. Reads come back to back with no fight (~0.1 s apart), so a few alike are one frame's
+            # misread: only the same level read alone for LEVEL_CONFIRM seconds (no gap over 2 s) is a new season's
+            # level, and starts it
+            odd, now = (row['puppetId'], level), time.time()
+            if not self.odd_level or self.odd_level[0] != odd or now - self.odd_level[2] > 2: self.odd_level = (odd, now, now)
+            self.odd_level = self.odd_level[:2] + (now,)
+            if now - self.odd_level[1] < LEVEL_CONFIRM:
+                self.out('status', f'reading boss level... ("{title}" Lv {level}, Interlink bosses are Lv {self.rush_level})')
+                return
+        self.odd_level = None
         self.start_fight(row, level, title, bossrush, f'title read {title_text!r}, xN {xn}')
         if bossrush: self.rush_level = level
 
