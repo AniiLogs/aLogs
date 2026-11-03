@@ -1116,8 +1116,13 @@ class Fight:
         """The bar's own sign that a two-boss fight's first boss is down and its partner has the bar: the first boss in
         its last bar (x1, or x2 nearly empty: x1 is only 5% of its HP, bossrush_grade_data bossHpLossPercent_2 row 20)
         and two counter reads agreeing on one of the top bars. The counter only counts down within one boss, and the
-        game puts the second boss back at x21 (BossTitleItemV2.switchBossRushTarget, line 484)."""
+        game puts the second boss back at x21 (BossTitleItemV2.switchBossRushTarget, line 484). Never from a start
+        guess (seg_guess: a segment taken from three reads of a counter not at its top): while the first boss's bar
+        fades in its x21 can read as x1, and the top read that follows is that boss's own start, which update's
+        guess rule takes. Handed over then, the first boss counted as down at the run's start and its own bars were
+        read on its partner's grade column (tests/two_boss.py scenario k: 51.4M for a run of 15.3M)."""
         return (self.partner is not None and agreed is not None and self.seg is not None and agreed >= top - HANDOFF_XN
+                and not getattr(self, 'seg_guess', False)
                 and (self.seg == 1 or (self.seg == 2 and self.seg_fill < 0.05)))
 
     def next_boss(self, row, why):

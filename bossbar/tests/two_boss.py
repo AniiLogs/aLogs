@@ -26,7 +26,8 @@ slot (week 4003) and on a pre-4003 centre (week 4002); g1/g2) a boss that isn't 
 fight and in a one-boss fight: it ends the fight as before; h) the meter joining at the second boss, whose clock
 then shows what is left of the run's, which is no time limit; i) the second boss's bar first seen past its top bars,
 so its name hands over; j) as h, with the prep screen's boss (the stage's first) starting the fight on the second
-boss's top bar: that bar's clock is no time limit either.
+boss's top bar: that bar's clock is no time limit either; k) the first boss's counter misread as x1 while its bar
+fades in, then read right at x21: its own start, no hand-off; the team wipes on the second boss at 70 s.
 
 Each run is checked as it is kept and would be sent: one CSV (a two-boss stage's with the boss on the bar as its last
 column), the summary's, results.csv's and the payload's boss (the stage's bossId), damage and DPS (the run's), the
@@ -60,7 +61,7 @@ logging.getLogger('meter').addHandler(LOG); logging.getLogger('meter').setLevel(
 
 ap = argparse.ArgumentParser()
 ap.add_argument('-v', action='store_true', help="print the meter's log")
-ap.add_argument('--only', help='scenarios to run, comma-separated (a,b,c,d,e,f1,f2,g1,g2,h,i,j)')
+ap.add_argument('--only', help='scenarios to run, comma-separated (a,b,c,d,e,f1,f2,g1,g2,h,i,j,k)')
 ap.add_argument('--trace', help='write what the meter put out to this JSON file')
 ap.add_argument('--no-checks', action='store_true', help='only run (for a checkout without the two-boss code)')
 ARGS = ap.parse_args()
@@ -129,6 +130,9 @@ class Script:
         pids = {p[1] for p in self.parts if p[1]}
         return round(sum(self.lost(pid, self.end) for pid in pids) / self.result['time'])
     def title(self, t0, t1, text): self.titles.append((t0, t1, text)); return self
+    def misread(self, t0, t1, xn):
+        """The bar's counter read as xn from t0 to t1 (digit matcher and OCR alike), as while the bar fades in."""
+        self.misreads = getattr(self, 'misreads', []) + [(t0, t1, xn)]; return self
     @property
     def end(self): return self.parts[-1][3]
 
@@ -154,6 +158,8 @@ class Script:
             else: s['xn'] = 1
         for t0, t1, text in self.titles:
             if t0 <= t < t1: s['title'] = text
+        for t0, t1, xn in getattr(self, 'misreads', []):
+            if t0 <= t < t1 and s['xn']: s['xn'] = xn
         return s
 
 class Game:
@@ -399,6 +405,13 @@ def scenarios():
     j = (Script('4003').boss(TUCKING, 40, 170, hp(TUCKING) / 130, kill=True).dead(TUCKING, 170, 172.8)
          .hidden(172.8, 173).show_result(173, 180, 40, 47100, 170))
     j.prep = BLAZEN; S['j'] = j
+    # k) the first boss's counter misread as x1 while its bar fades in (its first 0.6 s; 30 Oct's fade-in misreads
+    #    put x16 at x11 or x6), then read right at x21; the first boss down at 30 s, the second from 36 s, the team
+    #    wiped at 70 s. A start guess is the first boss's own start, which the top read corrects: no hand-off then
+    h1, h2 = hp(BLAZEN), hp(TUCKING)
+    S['k'] = (Script('4003').boss(BLAZEN, 0, 30, h1 / 30, kill=True).dead(BLAZEN, 30, 32.8).hidden(32.8, 36)
+              .boss(TUCKING, 36, 70, h2 * 0.15 / 34).hidden(70, 71).show_result(71, 78, 22, 23000, 70)
+              .misread(-1.0, -0.4, 1))
     return S
 
 # ---------------------------------------------------------------- checks
@@ -626,7 +639,7 @@ def two_boss_extra(r, f, summ, first):
     check(n, 'the 40-star cap', res.get('star_cap') == 40, res.get('star_cap'))
 
 def checks(R_):
-    a, b, c, d, e, f1, f2, g1, g2, h, i, j = (R_.get(k) for k in ('a', 'b', 'c', 'd', 'e', 'f1', 'f2', 'g1', 'g2', 'h', 'i', 'j'))
+    a, b, c, d, e, f1, f2, g1, g2, h, i, j, k = (R_.get(x) for x in ('a', 'b', 'c', 'd', 'e', 'f1', 'f2', 'g1', 'g2', 'h', 'i', 'j', 'k'))
     if a:
         f, s = common(a, [BLAZEN, TUCKING], 180, True, 150)
         damage_checks(a, f, [True, False])
@@ -721,6 +734,17 @@ def checks(R_):
             pl = submit.run_payload(s, 'uid-test'); ex = pl.get('extra') or {}
             check('j', "payload: cleared, no timeLimitS, under the stage's first boss",
                   (pl['cleared'], ex.get('timeLimitS'), pl['boss']['id']) == (True, None, BLAZEN), (pl['cleared'], ex.get('timeLimitS'), pl['boss']))
+    if k:
+        f, s = common(k, [BLAZEN, TUCKING], None, False, 70)
+        damage_checks(k, f, [True, False])
+        run_checks(k, f, s, BLAZEN, False, None)
+        died = next(p[2] for p in k.script.parts if p[0] == 'dead' and p[1] == BLAZEN)
+        nb = k.calls['next_boss']
+        check('k', 'no hand-off before the first boss is down', nb and all(c[0] >= died for c in nb), nb)
+        # the run's damage as the overlay showed it, the first boss still up: within 1% of the pair's max HP
+        bad = [(t, d, round(k.script.lost(BLAZEN, t))) for t, fi, e, d, read in k.frames
+               if read and 1 <= t < died and abs(d - k.script.lost(BLAZEN, t)) > 0.01 * (hp(BLAZEN) + hp(TUCKING))]
+        check('k', "the run's damage while the first boss is up", not bad, bad[:3])
     for r, first in ((g1, BLAZEN), (g2, SHERRO)):
         if not r: continue
         starts, overs = statuses(r, 'fight started'), statuses(r, 'fight over')
