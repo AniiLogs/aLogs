@@ -564,11 +564,13 @@ class Ocr:
         # takes that read: the two text models cost ~0.2 s a name
         # (names_bg reads on this helper too: the cache is read with get() and changed under cache_lock, so the other
         # thread dropping the oldest entry can't break a lookup or the drop)
+        # (a read kept for UNSURE_S is kept that long again: the Profile and the prep screen's Party read here every 2 s
+        # without names_first's cached(), and read it again every UNSURE_S on the frame loop)
         known, sigs, now = {}, {}, time.monotonic()
         for k in list(names):
             sigs[k] = name_signature(images[k])
-            hit = self.name_cache.get(sigs[k])
-            if hit is not None and (hit[1] is None or hit[1] > now): known[k] = hit[0]
+            hit = self.cached_read(sigs[k], now)
+            if hit is not None: known[k] = hit
         images = {k: v for k, v in images.items() if k not in known}
         names = {k: v for k, v in names.items() if k not in known}
         if not images: return known

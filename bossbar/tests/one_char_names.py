@@ -93,6 +93,14 @@ try:
         clock[0] += 2
         if not ocr.cached(crops, names): break
     check('cache: the empty slot, the screen up for 3 x UNSURE_S', ocr.cached({'n': crops['name2']}, {'n': 24}), True)
+    # nor when read without names_first (the Profile, the prep screen's Party: Ocr.read every 2 s on the frame loop)
+    reads, tidy = [0], K.tidy
+    K.tidy = lambda *a: (reads.__setitem__(0, reads[0] + 1), tidy(*a))[1]       # each name box the models read
+    try:
+        for _ in range(3 * UNSURE_S // 2):
+            clock[0] += 2; ocr.read(crops, names=names, raws=grey)
+    finally: K.tidy = tidy
+    check('cache: boxes read again, read every 2 s for 3 x UNSURE_S', reads[0], 0)
     clock[0] += UNSURE_S + 1                                  # the screen gone that long: a later appearance
     check('cache: later, the one-character name still is', ocr.cached({'n': crops['name0']}, {'n': 24}), True)
     check('cache: later, the longer name still is', ocr.cached({'n': crops['name1']}, {'n': 24}), True)
