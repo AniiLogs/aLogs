@@ -425,12 +425,18 @@ def run_payload(summary, uid):
         extra = [{'slot': c['slot'], 'name': c.get('name'), 'ai': c.get('ai'), 'self': c.get('self')} for c in cards
                  if isinstance(c.get('slot'), int) and 0 <= c['slot'] <= 3 and c['slot'] not in slots]
         extra = list({p['slot']: p for p in extra}.values())          # one per slot: the API takes 4 players at most
+        # a card marked you when a listed result row already is you: the cards and the result screen each take the
+        # Party screen's you mark (party_slots), and when that mark sat on another slot whose result column went unread,
+        # the card in that slot took it, and the run went with two rows marked as you and your name twice (the API takes
+        # the first self row as the sender's numbers). Your row stays the result screen's; that card goes unnamed
+        if any(p.get('self') for p in listed):
+            extra = [{**p, 'name': None, 'self': None, 'unnamed': True} if p.get('self') else p for p in extra]
         listed = sorted(listed + extra, key=lambda p: p['slot'] if isinstance(p.get('slot'), int) else 4)
     for i, p in enumerate(listed):
         c = card_of(cards, p, i)
         players.append({k: v for k, v in {
             # the result screen's name, else the Battle Data card's own (its slot's player from the Party screen)
-            'name': (p.get('name') or c.get('name') or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),
+            'name': (p.get('name') or (None if p.get('unnamed') else c.get('name')) or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),
             'ai': p.get('ai') if isinstance(p.get('ai'), bool) else None,
             'self': True if p.get('self') else None,
             'avgDps': c.get('avg_dps'), 'breakValue': c.get('break'), 'damageTaken': c.get('taken'), 'heal': c.get('heal'),

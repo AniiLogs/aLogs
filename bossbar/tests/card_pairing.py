@@ -52,6 +52,16 @@ check('no result players: cards', [p.get('avgDps') for p in sent['players']], [1
 old = [{k: v for k, v in p.items() if k != 'slot'} for p in (player(0), player(1))]
 sent = S.run_payload(summary(old, [{k: v for k, v in c.items() if k != 'slot'} for c in CARDS[:2]]), 'uid')
 check('no slots: by position', [p.get('avgDps') for p in sent['players']], [10000, 20000])
+# the added card carries the Party screen's you mark, but your result row is already listed (the mark sat on another
+# slot and that slot's result column went unread): one row is you, and your name isn't sent twice
+mine = [{**card(2, 30000), 'name': 'P1', 'self': True}]
+sent = S.run_payload(summary([player(0, me=True), player(1), player(3)], CARDS[:2] + mine + CARDS[3:]), 'uid')
+check('added card marked you: you once', [p.get('self') for p in sent['players']], [True, None, None, None])
+check('added card marked you: its player', sent['players'][2], {'avgDps': 30000, 'breakValue': 3000, 'damageTaken': 1500, 'heal': 2})
+# with no result row marked you, the added card's mark stands
+sent = S.run_payload(summary([player(0), player(1), player(3)], CARDS[:2] + [{**card(2, 30000), 'self': True}] + CARDS[3:]), 'uid')
+check('added card marked you, none listed', [(p.get('name'), p.get('self')) for p in sent['players']],
+      [('P1', None), ('P2', None), ('P3', True), ('P4', None)])
 
 # your bests: your own card, not the one at your place in the list
 m = types.SimpleNamespace(uid='u1'); os.makedirs(os.path.join(live.HERE, 'logs'), exist_ok=True)
