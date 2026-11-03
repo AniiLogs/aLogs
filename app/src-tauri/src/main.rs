@@ -513,10 +513,14 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
             files.push((name.to_string(), bytes));
         }
     }
+    // "(B2, RC 64)"; a release has no name ("(RC 64)", not "(, RC 64)"), a build made without tauri-build.mjs neither
+    let mut build = vec![update::build_name()];
+    if update::build_number() > 0 { build.push(format!("RC {}", update::build_number())); }
+    build.retain(|part| !part.is_empty());
+    build.dedup_by_key(|part| part.replace(' ', ""));          // a build named by its RC ("RC53") says it once
+    let build = if build.is_empty() { String::new() } else { format!(" ({})", build.join(", ")) };
     let info = format!(
-        "aLogs {version} ({}, RC {})\nmeter running: {meter_on}\nsent: {}\n",
-        update::build_name(),
-        update::build_number(),
+        "aLogs {version}{build}\nmeter running: {meter_on}\nsent: {}\n",
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
     );
     files.push(("app.txt".into(), info.into_bytes()));
