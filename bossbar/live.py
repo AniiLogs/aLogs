@@ -1757,8 +1757,12 @@ class Meter:
         if not quick and now - getattr(self, 'full_read_at', 0) < self.FULL_READ_S:
             skip = self.PLACE_SKIP.get(self.place(now), set())
         elif not quick: self.full_read_at = now                    # this one reads every box
+        # In a Holo-Battle Sim the Victory line too: a won last fight stays open while its bar is hidden (up to
+        # BAR_GONE_GRACE), and only these quick boxes are read then - a player who left the Victory screen within 18 s
+        # had the win never read nor sent (3 Nov)
+        quick_boxes = self.QUICK_BOXES + (('sv',) if self.holosim_space else ())
         for name, kind, (x0, y0, x1, y1) in self.SCREEN_BOXES:
-            if quick and name not in self.QUICK_BOXES: continue
+            if quick and name not in quick_boxes: continue
             if name in skip: continue
             crop = prep[kind](im, (ux + u * x0, H * y0, ux + u * x1, H * y1), u / 2000)
             if kind == 'text' and sum(crop.histogram()[:128]) < INK_MIN: continue
