@@ -287,3 +287,102 @@ def read_rush_rules(path):
     return {k: v for k, v in {'starSide': side, 'starCenter': side * mult if isinstance(side, int) and isinstance(mult, int) else None,
                               'duration': cfg.get('BossRushCombatDuration'),
                               'bots': sorted(bots.values()) if isinstance(bots, dict) else None}.items() if v is not None}
+
+
+# ---- the shipped boss list (boss_catalog.csv), made from the game data and checked against it before each build
+CATALOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'boss_catalog.csv')
+CATALOG_LEVELS = (1, 10, 20, 30, 36, 40, 50, 60, 70, 80)       # its max-HP columns, for people (the meter computes HP)
+
+
+def boss_rush_ids(path):
+    """Every Interlink boss id in the game data: bossrush_guanka_data bossId, plus bossId_2 where a stage has a second
+    boss (weeks 4003-4005's middle fights)."""
+    stages = PmData(path).table('bossrush_guanka_data') or {}
+    return {str(int(s[k])) for s in stages.values() if isinstance(s, dict) for k in ('bossId', 'bossId_2') if s.get(k)}
+
+
+def catalog_rows(path, keep=()):
+    """boss_catalog.csv's rows: read_bosses' plus the max HP at a few levels (hpcalc.max_hp, as boss_max_hp gives it)."""
+    import csv
+    from hpcalc import max_hp
+    rows = read_bosses(path, keep)
+    for r in rows:
+        try: rate = json.loads(r['fixed_hp_rate'])
+        except ValueError: rate = None
+        species = float(r['species_hp'] or 0) + float(r['prop_species_adj'] or 0)
+        for lv in CATALOG_LEVELS:
+            hp = max_hp(species, rate, lv) if rate else None
+            r[f'maxHP_lv{lv}'] = '' if hp is None else str(hp)
+    return rows
+
+
+def shipped_catalog(csv_path=CATALOG):
+    import csv
+    with open(csv_path, encoding='utf-8', newline='') as f: return list(csv.DictReader(f))
+
+
+def write_catalog(path, csv_path=CATALOG):
+    """Rewrites boss_catalog.csv from the game data. The shipped list's few non-boss-type rows (type-1 Alphas) stay."""
+    import csv
+    keep = [(r['table'], r['puppetId']) for r in shipped_catalog(csv_path) if r.get('monsterType') != '2']
+    rows = catalog_rows(path, keep)
+    if len(rows) < 50: raise ValueError(f'only {len(rows)} boss rows read from {path}: not written')
+    tmp = csv_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+    os.replace(tmp, csv_path)
+    return rows
+
+
+def catalog_drift(path=None, csv_path=CATALOG, cycles_path=None):
+    """What differs between the shipped boss list and the game data, as lines (empty: nothing). With the game data:
+    in_boss_rush must be 'yes' exactly for the game's bossId + bossId_2 set (bossrush_guanka_data), and every row must
+    be what catalog_rows reads now. Without it (path None), every boss in the shipped week schedule
+    (boss_rush_cycles.json bossIds + bossIds2) must have a puppet_data row marked in_boss_rush."""
+    shipped = shipped_catalog(csv_path)
+    out = []
+    if path is None:
+        with open(cycles_path or os.path.join(os.path.dirname(csv_path), 'boss_rush_cycles.json'), encoding='utf-8') as f:
+            cycles = json.load(f)
+        marked = {r['puppetId'] for r in shipped if r['table'] == 'puppet_data' and r['in_boss_rush'] == 'yes'}
+        for c in cycles:
+            for b in c['bossIds'] + [x for x in c.get('bossIds2') or [] if x]:
+                if str(b) not in marked: out.append(f'week {c["cycle"]}: boss {b} has no puppet_data row marked in_boss_rush')
+        return out
+    rush = boss_rush_ids(path)
+    for r in shipped:
+        if (r['in_boss_rush'] == 'yes') != (r['puppetId'] in rush):
+            out.append(f"{r['table']} {r['puppetId']} {r['bossTitle_en']}: in_boss_rush {r['in_boss_rush']!r}, the game's "
+                       f"stages {'have' if r['puppetId'] in rush else 'do not have'} it")
+    missing = rush - {r['puppetId'] for r in shipped if r['table'] == 'puppet_data'}
+    out += [f'boss {b} is in an Interlink stage but has no puppet_data row' for b in sorted(missing)]
+    keep = [(r['table'], r['puppetId']) for r in shipped if r.get('monsterType') != '2']
+    key = lambda r: (r['table'], r['puppetId'])
+    game = {key(r): r for r in catalog_rows(path, keep)}
+    have = {key(r): r for r in shipped}
+    for k in sorted(set(game) | set(have)):
+        a, b = have.get(k), game.get(k)
+        if a is None: out.append(f'{k[0]} {k[1]}: in the game data, not in the shipped list')
+        elif b is None: out.append(f'{k[0]} {k[1]}: in the shipped list, not in the game data')
+        else:
+            diff = [f'{f} {a.get(f)!r} -> {b[f]!r}' for f in b if a.get(f) != b[f] and f != 'in_boss_rush']   # said above
+            if diff: out.append(f'{k[0]} {k[1]} {a["bossTitle_en"]}: ' + '; '.join(diff[:4]))
+    return out
+
+
+if __name__ == '__main__':
+    # python gamedata.py catalog : rewrite boss_catalog.csv from the installed game
+    # python gamedata.py check   : what the build checks (build_meter.py): the shipped files against the installed game
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))      # hpcalc, also under python -I
+    what = sys.argv[1] if len(sys.argv) > 1 else 'check'
+    game = find_game_data()
+    if what == 'catalog':
+        if not game: sys.exit('no game data found')
+        print(f'{len(write_catalog(game))} rows written to {CATALOG} from {game}')
+    else:
+        drift = catalog_drift(game)
+        print(f"boss_catalog.csv against {game or 'boss_rush_cycles.json (no game data found)'}: "
+              + (f'{len(drift)} differences' if drift else 'the same'))
+        for line in drift[:40]: print('  ' + line)
+        sys.exit(1 if drift else 0)

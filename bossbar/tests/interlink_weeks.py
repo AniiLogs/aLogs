@@ -1,5 +1,6 @@
-"""Interlink weeks 4000-4005 through the meter's own helpers: every boss in its slot, a two-boss middle fight's order
-and partner, and the full rating (star cap) each boss gets.
+"""Interlink weeks 4000-4005 through the meter's own helpers: every boss found from its bar title, in its slot, a
+two-boss middle fight's order and partner, and the full rating (star cap) each boss gets; and the shipped boss list
+against the game data (the build's check).
 
     python tests/interlink_weeks.py
 
@@ -52,8 +53,34 @@ fails = []
 def check(what, got, want):
     if got != want: fails.append(f'{what}: got {got!r}, want {want!r}')
 
+def catalogs():
+    """The shipped boss list, and the one read from the installed game when there is one (the meter uses that)."""
+    import gamedata
+    R.GAME_BOSSES[0] = None
+    yield 'shipped list', R.load_catalog()
+    game = gamedata.find_game_data()
+    if game:
+        keep = [(r['table'], r['puppetId']) for r in R.load_catalog() if r.get('monsterType') != '2']
+        R.GAME_BOSSES[0] = gamedata.read_bosses(game, keep)
+        yield 'game list', R.load_catalog()
+        R.GAME_BOSSES[0] = None
+    else: print('no game install found: the boss list read from the game is not checked')
+
 def main():
+    import gamedata
     n = 0
+    # the bar's title -> the boss, as the meter picks it: a title shared by several entries (Alpha Glameep: 80000112
+    # middle in 4000, 80000122 two-boss middle in 4004, 80000113 left in 4005; Alpha Jabster: 80000115 left in 4001,
+    # 80000121 two-boss middle in 4004 while Alpha Tubster 80000097 is 4004's left) must give that week's
+    for name, catalog in catalogs():
+        for week in WEEKS:
+            for slot, pid, title, order, partner in bosses(week):
+                with At(inside(week)):
+                    row, _ = R.pick_boss(catalog, title, True)
+                check(f'{name}: {week} {title} pick_boss', row and row['puppetId'], pid)
+    # the shipped list against the game data (what the build checks), else against the shipped week schedule
+    game = gamedata.find_game_data()
+    check(f"boss_catalog.csv against {'the game data' if game else 'boss_rush_cycles.json'}", gamedata.catalog_drift(game), [])
     for week in WEEKS:
         for slot, pid, title, order, partner in bosses(week):
             n += 1
