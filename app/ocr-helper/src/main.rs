@@ -5,7 +5,15 @@
 //! A PC without en-US OCR uses another English it has, else its user's own languages; with no OCR language at all
 //! every Windows OCR line is empty, and the name models still read.
 //!
-//! Prints `READY` at start, then answers requests on stdin until it closes:
+//! Tests only: ALOGS_OCR_TEST_LANGS=<tag>,<tag>... (en-US, ko-KR...) makes it act as if only those OCR languages were
+//! installed, on all three of windows_ocr()'s paths (the user's own languages too), and set but empty as if none were
+//! (so is a list with no tag in it, such as ",": Python on Windows drops an empty variable from what a child gets): a
+//! PC with English OCR can then run the no-English path (bossbar/tests/ocr_language.py). A tag the PC doesn't have is
+//! still missing. Not set (as aLogs starts it), the helper picks exactly as without it.
+//!
+//! Prints `READY<TAB><language>` at start, the tag of the language Windows OCR reads in (en-US; ko-KR when it fell
+//! back to a user's language that isn't English), or `READY<TAB>` with none: the meter warns, and the app offers to
+//! install English OCR. Then it answers requests on stdin until it closes:
 //!   request: b"OCR1", u32 LE image count, then per image u32 LE width, u32 LE height, width*height grey bytes
 //!   answer:  one UTF-8 line per image, in order: the recognised lines joined with " / "
 //!   request: b"OCR2", u32 LE image count, then per image u8 flags, u32 LE width, u32 LE height, grey bytes
@@ -27,6 +35,7 @@ use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
+use windows::System::UserProfile::GlobalizationPreferences;
 
 const KOREAN_MODEL: &[u8] = include_bytes!("../model/korean_rec.onnx");
 const KOREAN_DICT: &str = include_str!("../model/korean_dict.txt");
@@ -49,13 +58,30 @@ fn read_u32(r: &mut impl Read) -> io::Result<u32> {
 /// Windows OCR in English, the game's language: en-US, else another English the PC has, else one of the user's own
 /// languages. None when the PC has none of them (TryCreate* fails: Windows gives null).
 fn windows_ocr() -> Option<OcrEngine> {
-    let create = |tag: &HSTRING| Language::CreateLanguage(tag).and_then(|l| OcrEngine::TryCreateFromLanguage(&l)).ok();
+    // ALOGS_OCR_TEST_LANGS (tests only, see the top): the OCR languages to act as if they were the only ones installed
+    let only: Option<Vec<String>> = std::env::var("ALOGS_OCR_TEST_LANGS").ok()
+        .map(|v| v.split(',').map(|t| t.trim().to_ascii_lowercase()).filter(|t| !t.is_empty()).collect());
+    let allowed = |tag: &HSTRING| only.as_ref().map_or(true, |o| o.contains(&tag.to_string().to_ascii_lowercase()));
+    let create = |tag: &HSTRING| allowed(tag).then(|| Language::CreateLanguage(tag)
+        .and_then(|l| OcrEngine::TryCreateFromLanguage(&l)).ok()).flatten();
     create(&HSTRING::from("en-US"))
         .or_else(|| OcrEngine::AvailableRecognizerLanguages().ok()?.into_iter()
             .filter_map(|l| l.LanguageTag().ok())
+            .filter(|t| allowed(t))
             .find(|t| t.to_string().to_ascii_lowercase().starts_with("en-"))
             .and_then(|t| create(&t)))
-        .or_else(|| OcrEngine::TryCreateFromUserProfileLanguages().ok())
+        .or_else(|| match &only {
+            None => OcrEngine::TryCreateFromUserProfileLanguages().ok(),
+            // as TryCreateFromUserProfileLanguages picks: the first of the user's languages, in their order, that
+            // has OCR, here among the test's alone
+            Some(_) => GlobalizationPreferences::Languages().ok()?.into_iter().find_map(|t| create(&t)),
+        })
+}
+
+/// The tag of the language `engine` reads in (en-US), empty with no engine: the first line's `READY<TAB><tag>`.
+fn language_tag(engine: Option<&OcrEngine>) -> String {
+    engine.and_then(|e| e.RecognizerLanguage().ok()).and_then(|l| l.LanguageTag().ok())
+        .map(|t| t.to_string()).unwrap_or_default()
 }
 
 /// The text of one grey image, lines joined with " / "; empty when it can't be read.
@@ -246,7 +272,8 @@ fn main() -> Result<()> {
     let mut latin = Recognizer::new(LATIN_MODEL, LATIN_DICT);
     let mut input = io::stdin().lock();
     let mut out = BufWriter::new(io::stdout().lock());
-    if writeln!(out, "READY").and_then(|_| out.flush()).is_err() { return Ok(()); }
+    // the language after a tab ("READY\t" with none): the meter warns when it isn't English (reader.Ocr, live.py)
+    if writeln!(out, "READY\t{}", language_tag(engine.as_ref())).and_then(|_| out.flush()).is_err() { return Ok(()); }
     let mut grey = Vec::new();
     loop {
         // any read error (stdin closed, or a broken request) ends the helper

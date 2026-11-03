@@ -9,7 +9,7 @@ tract-onnx = "0.21"
 
 [dependencies.windows]
 version = "0.62"
-features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Globalization", "Foundation", "Foundation_Collections"]
+features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Globalization", "Foundation", "Foundation_Collections", "System_UserProfile"]
 
 [profile.release]
 opt-level = "s"
