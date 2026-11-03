@@ -1496,7 +1496,11 @@
   };
   function renderOcr() {
     const ocr = status.ocr || {};
-    const missing = Boolean(status.running) && ocr.english === false;
+    // only from a status the running meter wrote (fresh, as render()'s): status.json stays on disk between sessions,
+    // so after English was added and Windows restarted, the last session's "english": false showed the warning, with
+    // an install button that worked, until the new meter's first write
+    const fresh = Number(status.time) > Date.now() / 1000 - 5;
+    const missing = Boolean(status.running) && fresh && ocr.english === false;
     const running = ocrJob?.state === "running";
     // installed: the old meter's status until the restarted one writes its own (a minute at most: a meter switched off
     // meanwhile never does)
