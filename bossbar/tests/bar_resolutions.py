@@ -5,7 +5,9 @@
 For each saved game frame where the meter finds a boss bar at its own resolution: find it again in the frame scaled
 to each common resolution, and read its fill. Position and size must scale with the frame (within a few pixels)
 and the fill must agree (within 1.5 points of 100), else the bar's HP would be read differently on that monitor. The
-xN counter (Interlink's segments) must read the same too.
+xN counter (Interlink's segments) must read the same too. A frame wider than 16:9 (an ultrawide window) keeps its
+shape at each height (3440x1440 at 1080p is 2580x1080): squeezed into 16:9 its HUD would be squashed sideways, which
+no monitor shows.
 """
 import glob, os, sys
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,6 +23,11 @@ def frames(args):
     for a in args:
         out += sorted(glob.glob(os.path.join(a, '**', '*.*'), recursive=True)) if os.path.isdir(a) else [a]
     return [p for p in out if p.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+
+def scaled(src, size):
+    W, H = size
+    if src.width * 9 > src.height * 16 + 9: W = round(src.width * H / src.height)        # wider than 16:9
+    return src if src.size == (W, H) else src.resize((W, H), Image.LANCZOS)
 
 def read(im):
     bar = R.find_bar(im)
@@ -40,10 +47,10 @@ if __name__ == '__main__':
         checked += 1
         line = []
         for name, size in SIZES.items():
-            got = read(src.resize(size, Image.LANCZOS) if src.size != size else src)
+            im = scaled(src, size); got = read(im)
             if not got:
                 line.append(f'{name}: NOT FOUND'); bad += 1; continue
-            off = max(abs(got['x'] - base['x']) * size[0], abs(got['y'] - base['y']) * size[1], abs(got['span'] - base['span']) * size[0])
+            off = max(abs(got['x'] - base['x']) * im.width, abs(got['y'] - base['y']) * im.height, abs(got['span'] - base['span']) * im.width)
             dfill = None if got['fill'] is None or base['fill'] is None else abs(got['fill'] - base['fill'])
             ok = off <= 4 and (dfill is None or dfill <= 1.5) and got['xn'] == base['xn']
             bad += not ok

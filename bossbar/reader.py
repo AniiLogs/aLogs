@@ -190,7 +190,10 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
             # Looked for around the left bracket's mirror image, not from the bar's thickness: a pale damage trail
             # along a bar's lower edge halved its measured thickness on Minespine (14 px of 27), and the estimate from
             # it ended the search 240 px before the real bracket
-            lines = [x for x in range(min(W - 1, int(W - lb + 0.06 * W)), max(int(lb + 0.3 * W), int(W - lb - 0.06 * W)), -1)
+            # Sized from the 16:9 area the HUD is drawn in, not the window: a 3440x1440 window's 1008 px bar is 0.29 of
+            # its width, under the 0.3 searched before, so ultrawide bars were never found
+            U = min(W, H * 16 / 9)
+            lines = [x for x in range(min(W - 1, int(W - lb + 0.06 * U)), max(int(lb + 0.3 * U), int(W - lb - 0.06 * U)), -1)
                      if _is_bracket(px, x, yc, thick, W, H)]
             rb = min(lines, key=lambda x: abs(lb + (x - lb) / 2 - W / 2)) if lines else None
     if lb is not None and rb is not None: span = rb - lb
@@ -571,12 +574,25 @@ class Ocr:
         out.update(known)
         return out
 
+    def cached(self, images, names):
+        """Is every name box in `images` ({name: pad px}) read already (the name cache)? Only those are slow to read:
+        the text models, ~0.2 s a name, where Windows OCR takes a few ms."""
+        return not self.native or all(name_signature(images[k]) in self.name_cache for k in names)
+
     def close(self):
         try: self.p.stdin.close(); self.p.wait(3)
         except Exception: self.p.kill()
         if self.dir:                                   # the PowerShell helper's image files
             import shutil
             shutil.rmtree(self.dir, ignore_errors=True)
+
+class NoOcr:
+    """In place of Ocr when its helper didn't start: every box reads as nothing."""
+    native = False
+    def __init__(self): self.name_cache = {}
+    def read(self, images, names=None, raws=None): return {k: '' for k in images}
+    def cached(self, images, names): return True
+    def close(self): pass
 
 DIGIT_FIX = str.maketrans({'O': '0', 'o': '0', 'Q': '0', 'D': '0', 'I': '1', 'l': '1', 'S': '5', 'B': '8', 'Z': '2', 'G': '6'})
 

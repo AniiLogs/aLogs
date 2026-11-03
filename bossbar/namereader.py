@@ -12,7 +12,7 @@ only returned when every character matches clearly.
 Pillow only (the packaged meter has no numpy). Checked on a real 4K menu (and it scaled to 1440p, 1080p and 900p):
 the name read exactly at each size; the UID's digits, every zero included, at 4K and 1440p.
 """
-import string
+import collections, string
 from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 CHARS = string.ascii_uppercase + string.ascii_lowercase + string.digits
@@ -23,6 +23,7 @@ EDGE = 120             # the distance-field level the game's text edge sits at (
 MIN_SCORE = 0.6        # a character must overlap its best match at least this much...
 MIN_MARGIN = 0.05      # ...and beat the next best by this much
 TWINS = set('Il')      # a capital I and a small l: the same bar, 2 px apart in height at 4K - never vouched for
+FITS_KEPT = 1000       # character shapes whose shape_fit scores are kept, the last used (10,000 digit scores, ~1 MB)
 
 
 def text_mask(img, box, bright=190, grey=50):
@@ -173,6 +174,7 @@ class NameReader:
     def __init__(self, font):
         self.font = font                     # gamefont.GameFont (its distance field)
         self.cache = {}
+        self.fits = collections.OrderedDict()   # shape_fit's scores by character shape, the most recently used last
 
     def glyph(self, ch, px):
         key = (ch, px)
@@ -195,7 +197,20 @@ class NameReader:
 
     def shape_fit(self, part, ch, px=64):
         """How well one character's ink is `ch` whatever its size: the game font's glyph scaled onto the ink, times
-        how alike their width to height is (0..1). For big bold numbers drawn larger than any font size read() tries."""
+        how alike their width to height is (0..1). For big bold numbers drawn larger than any font size read() tries.
+        Kept per shape (its exact pixels): a screen up is read 10-20 times, and its digits are the same pixels each
+        time. 16 Battle Data values at 4K: 175 ms a read, 41 ms read again; on 55 Battle Data and 60 result screens
+        every value the same as without it."""
+        key = (px, part.mode, part.size, part.tobytes())
+        fits = self.fits.get(key)
+        if fits is None:
+            fits = self.fits[key] = {}
+            if len(self.fits) > FITS_KEPT: self.fits.popitem(last=False)
+        else: self.fits.move_to_end(key)
+        if ch not in fits: fits[ch] = self._shape_fit(part, ch, px)
+        return fits[ch]
+
+    def _shape_fit(self, part, ch, px):
         g = self.glyph(ch, px)
         if g is None: return 0.0
         a, b = part.width / part.height, g.width / g.height

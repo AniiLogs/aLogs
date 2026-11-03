@@ -1046,34 +1046,36 @@ def sim_gate_pill(im, box, u):
     return best >= 0.012 * u * w / (box[2] - box[0])
 
 class OcrWorker(threading.Thread):
-    """Reads text crops on its own OCR helper so the frame loop never waits for OCR (one job at a time)."""
-    def __init__(self):
+    """Reads text crops on its own OCR helper so the frame loop never waits for OCR (one job at a time). Given an
+    `ocr`, it reads on that one instead (names_bg: the frame loop's helper, the one with the name models)."""
+    def __init__(self, ocr=None):
         super().__init__(daemon=True)
-        self.ocr = None; self.job = None; self.result = None; self.wake = threading.Event(); self.stop = False
+        self.ocr = ocr; self.own = ocr is None; self.job = None; self.result = None; self.wake = threading.Event(); self.stop = False
     @property
     def busy(self): return self.job is not None
-    def submit(self, crops, meta):
-        if self.job is None: self.job = (crops, meta); self.wake.set()
+    def submit(self, crops, meta, **kw):           # kw: Ocr.read's names= and raws=
+        if self.job is None: self.job = (crops, meta, kw); self.wake.set()
     def take(self):
         r, self.result = self.result, None
         return r
     def run(self):
-        try: self.ocr = R.Ocr()                     # its helper starts here, so the meter's first look doesn't wait
-        except Exception as e: log.warning(f'background OCR helper did not start: {e!r}'); return
+        if self.own:
+            try: self.ocr = R.Ocr()                 # its helper starts here, so the meter's first look doesn't wait
+            except Exception as e: log.warning(f'background OCR helper did not start: {e!r}'); return
         while not self.stop:
             if not self.wake.wait(0.5): continue
             self.wake.clear()
             if self.stop or self.job is None: continue                  # woken to close
-            crops, meta = self.job
+            crops, meta, kw = self.job
             t0 = time.perf_counter()
-            try: text = self.ocr.read(crops)
+            try: text = self.ocr.read(crops, **kw)
             except Exception as e:
                 log.warning(f'background OCR failed: {e!r}'); text = {}
             self.longest = max(getattr(self, 'longest', 0.0), (time.perf_counter() - t0) * 1000)   # for the load line
             self.result = (text, meta); self.job = None
     def close(self):
         self.stop = True; self.wake.set()
-        if self.ocr: self.ocr.close()
+        if self.ocr and self.own: self.ocr.close()
 
 def load_korean_names(player_log=None):
     """In the background: the game's English and Korean fonts (read from the game install once, then kept in the data
@@ -1095,11 +1097,18 @@ class Meter:
     def __init__(self, args, out):
         self.args, self.out = args, out
         self.catalog, self.cum = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()
-        self.ocr = R.Ocr(); self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
+        # the OCR helper stops before it's ready when Windows has no OCR language it can use (an older helper had to
+        # have en-US): the meter then runs on what it reads from pixels (the boss bar, xN, the game font's numbers)
+        try: self.ocr = R.Ocr()
+        except Exception as e:
+            log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
+        self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
         load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
         self.screen_bg = None if args.replay is not None else OcrWorker()     # the screens' text (check_battle_data)
-        for w in (self.ocr_bg, self.screen_bg):
+        # the screens' player names, read for the first time (names_first), on self.ocr's own helper
+        self.names_bg = None if args.replay is not None or not self.ocr.native else OcrWorker(self.ocr)
+        for w in (self.ocr_bg, self.screen_bg, self.names_bg):
             if w: w.start()
         self.frames = 0; self.frame_size = (0, 0)
         self.bar = None; self.bar_seen = 0.0; self.last_text = 0.0; self.last_title = 0.0; self.last_frame = 0.0
@@ -1257,6 +1266,11 @@ class Meter:
             except ValueError: app = 0
             cpu = (getattr(self, 'cpu_load', None) or setattr(self, 'cpu_load', CpuLoad()) or self.cpu_load).sample(pid.value, app)
             ours = [os.getpid(), app, pcstats.sanctum_pid()]           # aLogs' programs: meter, app, Sanctum Helper
+            # ...and the meter's OCR helpers (the frame loop's, which holds the name models, the bar's and the screens'
+            # text, the HP number's): the name models' memory never showed in a report (278 MB for the widths 419 real
+            # names need, 740 MB after 19 widths, measured on the helper alone)
+            ours += [getattr(getattr(o, 'p', None), 'pid', 0) for o in (self.ocr, getattr(self.ocr_bg, 'ocr', None),
+                                                                       getattr(self.screen_bg, 'ocr', None), getattr(self, 'hp_ocr', None))]
             gpu = (getattr(self, 'gpu_load', None) or setattr(self, 'gpu_load', pcstats.GpuLoad()) or self.gpu_load).sample()
             gpu_text = (f"GPU game {gpu['by_pid'].get(pid.value, 0):.0f}%, aLogs {sum(gpu['by_pid'].get(q, 0) for q in ours if q):.0f}%, "
                         f"whole card {gpu['total']:.0f}%") if gpu else 'GPU ?'
@@ -1270,6 +1284,8 @@ class Meter:
             if bg: bg.longest = 0.0
             peak_text = (f"longest look {p.get('look', 0):.0f} ms, longest screen read {p.get('prep', 0):.0f} ms to prepare + "
                          f"{ocr_ms:.0f} ms to read")
+            nb = getattr(self, 'names_bg', None)                       # players' names read first (names_first)
+            if nb: peak_text += f", players' names {getattr(nb, 'longest', 0.0):.0f} ms to read"; nb.longest = 0.0
             c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
             span = now - getattr(self, 'load_since', now - 60); self.load_since = now
             where = ('homeland' if scene_of(self.space) == HOMELAND_SCENE else 'Interlink' if self.bossrush_space
@@ -1546,9 +1562,10 @@ class Meter:
             self.last_results = now
             crops = self.screen_crops(im, False)
             return self.read_screen(im, now, self.ocr.read(crops) if crops else {})
+        if self.names_waiting(): return             # a screen waits for its players' names: it's handled first
         done = bg.take()
         if done: self.read_screen(done[1][0], done[1][1], done[0])
-        if bg.busy or not getattr(self, 'frame_full', True) or not self.screen_read_due(now, quick): return
+        if bg.busy or self.names_waiting() or not getattr(self, 'frame_full', True) or not self.screen_read_due(now, quick): return
         self.last_results = now; self.screen_read_sig = getattr(self, "top_sig", None)
         t0 = time.perf_counter()
         crops = self.screen_crops(im, quick)
@@ -1557,6 +1574,33 @@ class Meter:
             bg.submit(crops, (im, now))
             if getattr(self, 'load_counts', None): self.load_counts['reads'] += 1
         else: self.read_screen(im, now, {})                            # nothing on screen to read
+
+    def names_first(self, handler, args, crops=None, pad=0, raws=None):
+        """handler(*args, names=(crops, raws)): a screen's reader, whose read takes these player-name boxes (crops:
+        {key: prepared box}, `pad` their padding, raws: grey_crop's, for Ocr.read). A name read the first time costs
+        the two text models ~0.2 s, and the frame loop stood still for them. So when a box isn't in the name cache,
+        names_bg reads the boxes first, on the same helper, and the reader runs once they're in (names_due) with its
+        own frame and time: its read then takes the names from the cache, so it reads what it would have. No other
+        screen is read meanwhile (names_waiting), so screens are still handled in order. At once when every box was
+        read before (the same screen read again), and in replays and tests. On 12 real 4K screens of each, a first
+        read held the frame loop 0.9 s (result, Party) and 1.1 s (Battle Data) at the median, 1.7 s at most; now
+        0.21, 0.05 and 0.22 s, 0.24 s at most, with the same readings."""
+        nb = getattr(self, 'names_bg', None)
+        names = {k: pad for k in crops or {}}
+        if crops and nb is not None and not nb.busy and not self.ocr.cached(crops, names):
+            nb.submit(crops, (handler, args, (crops, raws)), names=names, raws=raws); return
+        handler(*args, names=(crops, raws) if crops else None)
+
+    def names_due(self):
+        """The screen reader waiting for its players' names (names_first), once names_bg has read them."""
+        done = self.names_bg.take() if getattr(self, 'names_bg', None) else None
+        if done:
+            handler, args, names = done[1]
+            handler(*args, names=names)
+
+    def names_waiting(self):
+        nb = getattr(self, 'names_bg', None)
+        return bool(nb and (nb.busy or nb.result is not None))
 
     def screen_read_due(self, now, quick=False):
         """Time for the next screen read: 0.1 s after the last one when the screen changed since (seen on the top part
@@ -1582,7 +1626,7 @@ class Meter:
         if cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30: return True
         bg = getattr(self, 'screen_bg', None)
         if bg is None: return True
-        if not bg.busy and self.screen_read_due(now):
+        if not bg.busy and not self.names_waiting() and self.screen_read_due(now):
             # only for a screen read: just its boxes (screen_parts), unless a screen is up (then whole frames until it's gone)
             return True if now < getattr(self, 'full_until', 0) else 'screen'
         return False
@@ -1652,14 +1696,17 @@ class Meter:
                 if self.clicks < 6: self.open_battle_data(im, u, ux, H)                 # first click or a retry
                 else: self.end_auto('Battle Data did not open after 6 clicks')
             self.test_frame(im, 'result', now)
-            self.result_screen(im, now, u, ux, H, heads.get('cs', ''))
+            crops, grey = self.result_names(im, u, ux, H)
+            self.names_first(self.result_screen, (im, now, u, ux, H, heads.get('cs', '')), crops, 24, grey)
             return
         if 'battle time' in heads.get('sv', '').lower(): self.test_frame(im, 'sim_result', now); self.sim_result(im, now, u, ux, H); return
         if 'challenge' in heads.get('cs', '').lower(): self.test_frame(im, 'challenge', now); self.challenge_stats(im, now, u, ux, H); return
         if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
         if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
-        if head.strip().lower().startswith('party'): self.test_frame(im, 'party', now); self.party_screen(im, now, u, ux, H); return
+        if head.strip().lower().startswith('party'):
+            self.test_frame(im, 'party', now)
+            self.names_first(self.party_screen, (im, now, u, ux, H), self.party_names(im, u, ux, H), 20); return
         if re.sub(r'[^a-z]', '', head.lower()).startswith('holobattlei'): self.interlink_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
@@ -1671,6 +1718,20 @@ class Meter:
         if self.auto_until and not getattr(self, 'bd_hold', False):
             self.bd_hold = True; self.auto_until = min(self.auto_until, now + BATTLE_DATA_PAUSE)
             log.info(f'Battle Data is open: holding {BATTLE_DATA_PAUSE} s while it is read')
+        crops, grey = self.bd_names(im, self.bd_card_count(im, u, ux, H), u, ux, H)
+        self.names_first(self.battle_data, (im, now, u, ux, H, head), crops, 0, grey)
+
+    @staticmethod
+    def bd_names(im, n, u, ux, H):
+        """Battle Data's name tabs of n cards: prep_white's for Windows OCR and the Korean model, grey_crop's for the
+        Latin model ({card: box} each)."""
+        boxes = {i: (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
+                     ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547) for i in range(n)}
+        return {i: R.prep_white(im, b, u / 2000) for i, b in boxes.items()}, {i: R.grey_crop(im, b) for i, b in boxes.items()}
+
+    def battle_data(self, im, now, u, ux, H, head, names=None):
+        """Battle Data on screen: each card's four values and its player, voted over the reads of one appearance, saved
+        with the fight. `names`: bd_names' boxes, already read (names_first)."""
         if self.fight: self.end_fight('Battle Data screen')           # can show up while the bar dropout is still bridged
         # one appearance is one Battle Data (left open, or reopened from a menu, it isn't a new one for 30 s), read again
         # while it's up (SCREEN_READS in all, 0.5 s apart): each card value is the one most reads agree on
@@ -1712,10 +1773,8 @@ class Meter:
         # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),
         # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position.
         # The Latin model reads the tab as it is on screen (grey_crop), Windows OCR and the Korean model prep_white's
-        boxes = {i: (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
-                     ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547) for i in range(n)}
-        names = self.ocr.read({i: R.prep_white(im, b, u / 2000) for i, b in boxes.items()}, names={i: 0 for i in boxes},
-                              raws={i: R.grey_crop(im, b) for i, b in boxes.items()}) if n else {}
+        crops, grey = names if names and len(names[0]) == n else self.bd_names(im, n, u, ux, H)
+        names = self.ocr.read(crops, names={i: 0 for i in crops}, raws=grey) if n else {}
         for i, c in enumerate(cards):
             c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
         party_slots(cards, party)
@@ -1987,19 +2046,18 @@ class Meter:
         if now - gate.get('look', 0) < 0.15: return       # the level and the button in one look: no wait on either
         gate['look'] = now; self.sim_gate_state = gate
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
-        t = self.ocr.read({'b': R.prep_bright(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), k),
-                           **({} if gate.get('last') else {'l': R.prep_bright(im, (ux + u * 0.02, H * 0.015, ux + u * 0.20, H * 0.08), k)})})
-        if 'l' in t:                                               # the level, read until it's the last one
+        if not gate.get('last'):                                   # the level, read until it's the last one
+            t = self.ocr.read({'l': R.prep_bright(im, (ux + u * 0.02, H * 0.015, ux + u * 0.20, H * 0.08), k)})
             m = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', t.get('l') or '')
             gate['last'] = bool(m and m.group(1) == m.group(2) and int(m.group(1)) > 1)
             if not gate['last']: return
             log.info(f"Holo-Battle Sim: last level ({t.get('l')!r}): the exit gate is watched")
-        up = 'endholo' in re.sub(r'[^a-z]', '', (t.get('b') or '').lower())
-        if up and not sim_gate_pill(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), u):
-            if now - gate.get('said', 0) > 10:                     # the words without the button: the gate's own label
-                gate['said'] = now; log.info('Holo-Battle Sim: "End Holo-Battle Sim" seen, but not on its button')
-            up = False
         if getattr(self, 'sim_ctl', None): return
+        # the button: its pill's colour first (~10 ms at 4K), its words only when the pill is there (~50 ms to prepare
+        # and read). Both read on every level, it was ~60 ms a look, 0.15 s apart; the words alone are the gate's own
+        # label too
+        box = (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66)
+        up = sim_gate_pill(im, box, u) and 'endholo' in re.sub(r'[^a-z]', '', (self.ocr.read({'b': R.prep_bright(im, box, k)}).get('b') or '').lower())
         if up:
             if not gate.get('first_up'):
                 gate['first_up'] = now; log.info('Holo-Battle Sim: the exit gate button is up; watching for your Y or F')
@@ -2511,18 +2569,22 @@ class Meter:
             try: S.write_json(STAR_CAPS, {'side': side, 'center': center, 'cycle': R.active_cycle_id(), 'seen': time.strftime('%Y-%m-%d %H:%M:%S')})
             except OSError: pass
 
-    def party_screen(self, im, now, u, ux, H):
+    def party_names(self, im, u, ux, H):
+        """The Party screen's four name pills, prepared ({'n0'..'n3': box})."""
+        return {f'n{i}': R.prep_bright(im, (ux + u * a, H * b, ux + u * c, H * d), u / 2000) for i, (a, b, c, d) in enumerate(self.PARTY_SLOTS)}
+
+    def party_screen(self, im, now, u, ux, H, names=None):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
         name, the voice icon), and who is who. Every real player's card shows CP and the game's AI teammates' don't
         (with real players in the party "No team available. Cannot chat." still shows, so it says nothing about AI).
         You: your saved name, else the yellow name. Read in the bright-text preparation (the yellow name is lost to the
         white-text one). Feeds the same party as the old prep screen, so the result screen can tell which name is you
-        and fix its own misreads."""
+        and fix its own misreads. `names`: party_names' pills, already read (names_first)."""
         if now - getattr(self, 'party_seen', 0) < 2: return
         self.party_seen = now; k = u / 2000
         keep_sample(im, 'party')
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
-        crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
+        crops = dict(names[0]) if names else self.party_names(im, u, ux, H)
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
         t = self.ocr.read(crops, names={f'n{i}': 20 for i in range(4)})       # (prep_bright pads 20 px)
@@ -2677,10 +2739,27 @@ class Meter:
         """The party read on the prep screen of this run (recent enough to be the same run), or None."""
         return self.party['members'] if self.party and now - self.party['at'] < 900 else None
 
-    def result_screen(self, im, now, u, ux, H, banner):
+    @staticmethod
+    def result_names(im, u, ux, H):
+        """The result screen's four player-name boxes: prepared for Windows OCR and the Korean model, and grey_crop's
+        for the Latin model ({'name0'..'name3': box} each)."""
+        crops, grey = {}, {}
+        for i in range(4):
+            dx = i * 0.1765
+            # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
+            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p. As wide as the name pill can get (0.07 cut
+            # a player's long name at both ends 25 times on 1 Nov), and below the stat number above it
+            # The Latin model reads the box as it is on screen (grey_crop): 195 of 195 labelled names on real 4K result
+            # screens, 180 from this preparation; scaled to 720p-1440p 194-195, where it was 158-188
+            box = (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655)
+            crops[f'name{i}'] = R.prep_text(im, box, u / 2000, thr=130); grey[f'name{i}'] = R.grey_crop(im, box)
+        return crops, grey
+
+    def result_screen(self, im, now, u, ux, H, banner, names=None):
         """Fight result right after a boss: Challenge Rating (stars), Challenge Score, Completion Time and one
         highlight stat per player. It doesn't name the boss, so it is tied to the fight the meter just tracked.
-        Rows go to logs/results.csv; a 'New Best Record' also updates that boss in scores.csv."""
+        Rows go to logs/results.csv; a 'New Best Record' also updates that boss in scores.csv. `names`: result_names'
+        boxes, already read (names_first)."""
         # read again while it's up (SCREEN_READS in all, 0.4 s apart; the Battle Data click often ends it after one or
         # two): each value is the one most reads agree on, and later reads only update the run's numbers
         again = now - self.result_seen < 30
@@ -2692,16 +2771,10 @@ class Meter:
             'rating': R.prep_short(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41), k),     # short: tiled
             'score': R.prep_text(im, (ux + u * 0.43, H * 0.325, ux + u * 0.57, H * 0.415), k, size=1),
             'time': R.prep_short(im, (ux + u * 0.68, H * 0.33, ux + u * 0.79, H * 0.41), k)}
-        grey = {}
+        named, grey = names or self.result_names(im, u, ux, H)
         for i in range(4):
             dx = i * 0.1765
-            # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
-            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p. As wide as the name pill can get (0.07 cut
-            # 'Soul_ShadowXD' to 'oul_Shadow' 25 times on 1 Nov), and below the stat number above it
-            # The Latin model reads the box as it is on screen (grey_crop): 195 of 195 labelled names on real 4K result
-            # screens, 180 from this preparation; scaled to 720p-1440p 194-195, where it was 158-188
-            box = (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655)
-            crops[f'name{i}'] = R.prep_text(im, box, k, thr=130); grey[f'name{i}'] = R.grey_crop(im, box)
+            crops[f'name{i}'] = named[f'name{i}']
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
         t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)}, raws=grey)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
@@ -3521,6 +3594,9 @@ class Meter:
 
     def step(self):
         self.reload_settings(time.time())
+        # a screen read whose players' names are in now (names_first): handled before anything else, as when the names
+        # were read in place, and the frame loop stood still meanwhile
+        self.names_due()
         # holds end on time even without a picture (the game closed or minimized during one): checked first
         hold = getattr(self, 'egg_hold', None)
         if hold and time.time() > hold[0]: self.egg_hold_end('time limit')
@@ -3551,7 +3627,7 @@ class Meter:
             log.info('in a homeland: not capturing until you leave' if home else 'left the homeland: capturing again')
         if home:
             self.bar = None; self.out('status', 'In a homeland: the meter is resting'); return
-        self.check_pending_run(time.time())
+        if not self.names_waiting(): self.check_pending_run(time.time())     # (Battle Data waiting for its names counts)
         # while a fight's bar is locked, the top of the frame is all that's needed (cheaper capture)
         partial = self.fight is not None and self.bar is not None and time.time() - self.bar_seen < 1.0 \
             and self.args.replay is None
@@ -3904,6 +3980,7 @@ class Meter:
             self.submitter.presence(self.presence_sent[0], 'offline', wait=True)     # aLogs closing: you're offline
         if self.ocr_bg: self.ocr_bg.close()
         if self.screen_bg: self.screen_bg.close()
+        if self.names_bg: self.names_bg.close()
         if self.submitter: self.submitter.stop = True
         if self.logw: self.logw.stop = True
 
