@@ -318,27 +318,48 @@ for case in ('raise', 'none'):
     bar = m.ocr_bg.ocr
     helpers = lambda: (m.ocr, m.ocr_bg.ocr, m.screen_bg.ocr, m.hp_ocr)
     with_langs('en-US')
+    tries, error = [], ['Windows OCR helper did not start']
     def launch(self):
         if self is not bar: return real_launch(self)
-        if case == 'raise': raise RuntimeError('Windows OCR helper did not start')
+        tries.append(case)
+        if case == 'raise': raise RuntimeError(error[0])
         with_langs(',')                                 # its new helper picks none
         try: return real_launch(self)
         finally: with_langs('en-US')
+    def looks(n):
+        """n looks, OCR_RECHECK apart, the bar's restart failing at each."""
+        R.Ocr.launch = launch
+        try:
+            for _ in range(n):
+                m.ocr_checked -= live.OCR_RECHECK
+                m.ocr_recheck(time.time()); m.ocr_probe.join(10)
+        finally: R.Ocr.launch = real_launch
+    restarts = lambda: [t for _, t in LOG.lines if t.startswith('OCR helper did not restart')]
+    # three looks in a row: each tries the bar's again, and meter.log says so once (before: at each look, a minute apart
+    # all session while it kept failing)
     LOG.lines = []
-    R.Ocr.launch = launch
-    try:
-        m.ocr_checked -= live.OCR_RECHECK
-        m.ocr_recheck(time.time()); m.ocr_probe.join(10)
-    finally: R.Ocr.launch = real_launch
+    looks(3)
+    check(f"{case}: each look tries the bar's again", len(tries), 3)
     check(f'{case}: the others restarted, the bar\'s not with English', [o.language for o in helpers()],
           ['en-US', '', 'en-US', 'en-US'])
-    check(f'{case}: the restart that raised is logged', [t for _, t in LOG.lines if t.startswith('OCR helper did not restart')],
+    check(f'{case}: the restart that raised is logged once', restarts(),
           ["OCR helper did not restart (the bar's): RuntimeError('Windows OCR helper did not start')"] if case == 'raise' else [])
     said = ocr_lines(LOG.lines)
-    check(f'{case}: the line names the bar\'s helper', said,
+    check(f'{case}: the line names the bar\'s helper, once', said,
           [('WARNING', "Windows OCR: English was added while the meter ran, but not every OCR helper restarted with it "
                        "(the bar's: none), so the game's text isn't all read yet: another look in 60 s")])
     print(f'{case}: {said[0][0]} {said[0][1]}' if said else f'{case}: no line')
+    if case == 'raise':                                 # another error: said; the line naming the helpers, the same, not
+        error[0] = 'Windows OCR helper stopped'; LOG.lines = []
+        looks(1)
+        check(f'{case}: another error is logged', (restarts(), ocr_lines(LOG.lines)),
+              (["OCR helper did not restart (the bar's): RuntimeError('Windows OCR helper stopped')"], []))
+    # the same an hour on: said again, so meter.log (4 x 5 MB) still has it
+    again = getattr(live, 'OCR_SAY_AGAIN', 3600)
+    m.ocr_said = {which: (line, at - again) for which, (line, at) in getattr(m, 'ocr_said', {}).items()}
+    LOG.lines = []
+    looks(1)
+    check(f'{case}: an hour on: said again', [lvl for lvl, _ in LOG.lines], ['WARNING'] * (2 if case == 'raise' else 1))
     check(f"{case}: status ocr isn't English", status_now(m).get('ocr'), {'language': None, 'english': False, 'started': True})
     probe = m.ocr_probe
     m.ocr_recheck(time.time())

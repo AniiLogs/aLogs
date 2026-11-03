@@ -1241,6 +1241,7 @@ def load_korean_names(player_log=None):
 # names (the helper's own text models read those). The app's warning says the same (DPS Meter page, Dashboard).
 NO_ENGLISH_READS = 'boss names and levels, result screens, Battle Data, the battle prep and Party screens'
 OCR_RECHECK = 60        # seconds between looks for English OCR added while the meter runs (Meter.ocr_recheck)
+OCR_SAY_AGAIN = 3600    # seconds before a look's warning that hasn't changed is in meter.log again (Meter.ocr_warn)
 
 def ocr_language_note(ocr):
     """Once at start, in meter.log: the language Windows OCR reads in (the meter's own reader's, Ocr.language), with
@@ -1274,6 +1275,7 @@ class Meter:
         except Exception as e:
             log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
         ocr_language_note(self.ocr); self.ocr_checked = time.time()       # ocr_recheck: its helpers just picked
+        self.ocr_said = {}           # ocr_look's warnings the last look gave, and when each was logged (ocr_warn)
         self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
         load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
@@ -4306,9 +4308,10 @@ class Meter:
         """ocr_recheck's look, on its own thread: a helper started now, and when it reads English, every helper the
         meter has without it restarted (its own, which names_bg shares, the bar's, the screens' and the HP number's).
         Then each one's language again: meter.log says English is read only when every one reads it. One whose
-        restart raised, or whose new helper has no English either (Windows still adding it, say), is named there, and
-        ocr_recheck looks again OCR_RECHECK on (status.json says not English meanwhile). Before, the line said the
-        helpers restarted whatever they read, and the looks stopped once the meter's own read English."""
+        restart raised, or whose new helper has no English either (Windows still adding it, say), is named there (once
+        while it stays: ocr_warn), and ocr_recheck looks again OCR_RECHECK on (status.json says not English meanwhile).
+        Before, the line said the helpers restarted whatever they read, and the looks stopped once the meter's own read
+        English."""
         try: look = R.Ocr()
         except Exception: return
         try: language = look.language
@@ -4316,18 +4319,32 @@ class Meter:
         if not R.ocr_english(language) or self.stop: return
         short = self.ocr_not_english()
         was = short[0][1].language if short else self.ocr.language
+        said = {}                            # this look's warnings, by which (ocr_warn)
         for whose, ocr in short:
             if isinstance(ocr, R.Ocr):       # a worker's helper not started yet isn't listed: it starts with English
                 try: ocr.restart()
-                except Exception as e: log.warning(f'OCR helper did not restart ({whose}): {e!r}')
+                except Exception as e: said[whose] = f'OCR helper did not restart ({whose}): {e!r}'
         short = self.ocr_not_english()
         if short:
             still = ', '.join(f"{whose}: {o.language or 'none'}" for whose, o in short)
-            log.warning(f'Windows OCR: English was added while the meter ran, but not every OCR helper restarted with '
-                        f"it ({still}), so the game's text isn't all read yet: another look in {OCR_RECHECK} s")
+            said['still'] = (f'Windows OCR: English was added while the meter ran, but not every OCR helper restarted '
+                             f"with it ({still}), so the game's text isn't all read yet: another look in {OCR_RECHECK} s")
+            self.ocr_warn(said, time.time())
             return
+        self.ocr_said = {}
         log.info(f"Windows OCR: {self.ocr.language} now (was {was or 'none'}): English was added while the meter ran, "
                  "so its OCR helpers restarted and the game's screens are read")
+
+    def ocr_warn(self, said, now):
+        """ocr_look's warnings ({which: line}), in meter.log when the last look didn't give that line (another helper,
+        language or error), and again OCR_SAY_AGAIN on while it stays; the looks in between log nothing, though each
+        still tries the restart. Before, every look logged them: a restart that kept failing wrote one or two WARNING
+        lines a minute all session, pushing the rest out of meter.log (4 x 5 MB, which a report sends)."""
+        last, self.ocr_said = self.ocr_said, {}
+        for which, line in said.items():
+            was = last.get(which)
+            if was and was[0] == line and now - was[1] < OCR_SAY_AGAIN: self.ocr_said[which] = was; continue
+            log.warning(line); self.ocr_said[which] = (line, now)
 
     def run(self):
         if self.args.replay is None:                     # this week's bosses from the game data, after each patch
