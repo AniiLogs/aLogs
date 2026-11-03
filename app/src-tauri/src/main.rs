@@ -778,7 +778,8 @@ fn ocr_install_log(outcome: &Value) -> String {
 /// The DPS Meter page's "Install English OCR" (shown only when status.json says Windows OCR isn't English). Windows
 /// asks for admin approval, then adds it, which can take several minutes: on a worker thread, so the window keeps
 /// going (the page shows it working). Once it's in, the meter restarts, so its OCR helper (which picks its language
-/// as it starts) reads English; the warning goes when the new meter's status says so.
+/// as it starts) reads English; the warning goes when the new meter's status says so. Sanctum Helper, which builds
+/// its Windows OCR engine as it starts, restarts too when it runs.
 #[tauri::command(async)]
 fn install_english_ocr(app: AppHandle) -> Value {
     app_log("English OCR: install pressed (Windows asks for admin approval)");
@@ -790,6 +791,7 @@ fn install_english_ocr(app: AppHandle) -> Value {
     if outcome["state"] == "installed" {
         stop_meter_inner(&app.state::<Meter>());
         let _ = ensure_meter(&app);
+        sanctum::restart(&app, &read_settings());
     }
     outcome
 }

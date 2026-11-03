@@ -137,6 +137,24 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
     }
 }
 
+/// Restarts Sanctum Helper when it's running (asked to quit, so it saves first), so it starts afresh: after the app
+/// installs English OCR (install_english_ocr). It reads the Party screen with Windows OCR and builds its engine once,
+/// as it starts (Engine.cs `OcrService ocr = new(...)`; again only when the game language changes), so until then it
+/// kept reading with no OCR language, or the user's own. Not running (off, or no .NET): nothing to do.
+pub fn restart(app: &AppHandle, settings: &Value) {
+    {
+        let state = app.state::<Sanctum>();
+        let mut guard = state.child.lock().unwrap();
+        let Some(child) = guard.as_mut() else { return };
+        if !matches!(child.try_wait(), Ok(None)) {
+            return;                                                  // it stopped: the watchdog's ensure starts it
+        }
+        stop_child(child);
+        *guard = None;
+    }
+    ensure(app, settings);
+}
+
 fn stop_child(child: &mut Child) {
     let pid = child.id().to_string();
     // asked to close (it saves first); a windowless hosted process ignores a plain taskkill, so that was always forced
