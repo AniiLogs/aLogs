@@ -27,6 +27,7 @@ window.PATCH_NOTES = [
     "items": [
      "**Interlink HP bars:** the counter is read from ×21 down (×17 to ×21 were skipped), and damage follows the game's own bars, so an Interlink run's damage and DPS are right from its first bar.",
      "**Interlink fights** no longer start on a boss level misread as the bar fades in, which ended the fight a minute later and started it over.",
+     "**Bosses above your Aniimo's level:** the game shows their level in red, which aLogs couldn't read, so the fight was never recorded. It's read now.",
      "**Battle Data:** each player's Avg DPS, BREAK, damage taken and healing are their own, also when the result screen missed a teammate (the players after them could take the next player's card, yours included).",
      "**You and your teammates in a run:** your row keeps your name and is marked as you, and no teammate is listed twice (with their Battle Data twice). The Party screen's read could take over a right one.",
      "**Teammates in a run:** a teammate whose name or stats on the result screen weren't read is no longer left out of the run, and their Battle Data goes with them.",
