@@ -1076,6 +1076,11 @@ class Fight:
                     None if self.brk.left is None else round(self.brk.left * 100, 1), self.brk.phase])
         return None
 
+    def boss_of(self):
+        """(the boss on the bar, of how many) on a two-boss stage: (1, 2) or (2, 2), its spawn order (R.stage_of), also
+        for a run the meter first saw at its second boss; None for a one-boss fight. For the overlay and the app."""
+        return (self.order, 2) if self.bossrush and self.order is not None else None
+
     def write(self, cells):
         """One row of the fight's CSV. A two-boss stage's run adds the boss on the bar (1 or 2) as its last column."""
         self.w.writerow(cells + [None] * (len(FIGHT_CSV) - len(cells)) + [self.order] if self.boss_col else cells)
@@ -1473,7 +1478,7 @@ class Meter:
             if self.last_screen and why != 'meter closed' and f.hit and not unattended:
                 try:          # the overlay's final numbers: showing them must never keep the fight from closing
                     self.out('fight_end', {'damage': f.damage, 'max_hp': f.max_hp, 'elapsed': f.elapsed, 'defeated': f.defeated,
-                                           'title': f.title,
+                                           'title': f.title, 'boss': f.boss_of(),
                                            'avg': f.damage / f.elapsed if f.elapsed > 1 else 0, 'bossrush': f.bossrush,
                                            'holosim': self.holosim_space,
                                            'screen': self.last_screen})
@@ -4069,7 +4074,7 @@ class Meter:
         # max_hp and damage are the run's (a two-boss fight's both bosses); boss_hp is the max HP of the boss on the bar
         self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'boss_hp': f.boss_hp, 'xn': f.seg, 'fill': f.seg_fill,
                            'damage': f.damage, 'elapsed': f.elapsed, 'avg': f.avg, 'recent': f.recent,
-                           'boss': (len(f.phases), len(f.phases) + (f.partner is not None)),
+                           'boss': f.boss_of(),
                            'bossrush': f.bossrush, 'holosim': self.holosim_space, 'seg_size': si.get('size_hp'), 'seg_left': si.get('left_hp'),
                            'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], bar['span']),
                            'break': f.brk.info(time.time()), 'screen': self.last_screen})
@@ -4191,8 +4196,11 @@ class Meter:
             'game_window': bool(self.hwnd), 'capture': wc.shared.source or None,
             'homeland': bool(getattr(self, 'homeland_rest', False)),   # nothing captured there (the app's button too)
             'frame': list(self.last_size) if self.last_size else None, 'boss_bar': self.bar is not None,
+            # boss_of: a two-boss middle fight's boss on the bar, [1, 2] or [2, 2] (None on one-boss fights); damage and
+            # max_hp are the run's, both bosses' so far (Fight)
             'fight': f and {'boss': f.title, 'level': f.level, 'segment': f.seg, 'damage': f.damage, 'max_hp': f.max_hp,
-                            'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent)},
+                            'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent),
+                            'boss_of': f.boss_of()},
             'character': {'uid': self.uid, 'name': self.character_name, 'verified': character_verified(self.uid),
                           'dispute': self.submitter.dispute if self.submitter else None,
                           'link': self.link and {k: self.link[k] for k in ('request', 'state', 'name', 'uid')}},
@@ -4264,6 +4272,12 @@ def stop_handles():
 def fmt(n):
     n = float(n)
     return f'{n / 1e6:.2f}M' if n >= 1e6 else f'{n / 1e3:.1f}K' if n >= 1e4 else f'{n:,.0f}'
+
+def boss_row(d):
+    """The DPS window's last row on a two-boss middle fight: the boss on the bar, 'Boss 1/2' or 'Boss 2/2' (its 'fight'
+    or 'fight_end' message's 'boss': Fight.boss_of). Nothing on a one-boss fight. The Team row above it is the run's
+    damage then, both bosses' so far (Fight)."""
+    return [(('Boss', f"{d['boss'][0]}/{d['boss'][1]}"), '#ffffff', 0.015)] if d.get('boss') else []
 
 _last_status = [None]
 _status_logged = {}
@@ -4716,15 +4730,16 @@ def run_overlay(meter, hide):
         return [(f"{fmt(d['avg'])} DPS" if hit else '— DPS', '#ffd36a', 0.0235, 'ib'),  # big italic, like the HUD's
                 (('Last 5s', f"{fmt(d['recent'])} DPS" if hit else 'waiting...'), '#ffffff', 0.015),
                 (('Team', f"{fmt(d['damage'])} / {fmt(d['max_hp'])} HP"), '#ffffff', 0.015),
-                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)]
+                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)] + boss_row(d)
 
     def final_lines(d):
-        """The fight's result, left in the stats spot for a few seconds: the final hit is counted by then."""
+        """The fight's result, left in the stats spot for a few seconds: the final hit is counted by then. A two-boss
+        fight's comes once, at the run's end: there is no fight end between its bosses (Fight.next_boss)."""
         return [(f"{fmt(d['avg'])} DPS", '#ffd36a', 0.0235, 'ib'),
                 (('Result', f"Defeated {d['title']}" if d['defeated'] and d.get('title')   # the boss's name on the bar
                   else 'Defeated' if d['defeated'] else 'Fight over'), '#ffffff', 0.015),
                 (('Team', f"{fmt(d['damage'])} / {fmt(d['max_hp'])} HP"), '#ffffff', 0.015),
-                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)]
+                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)] + boss_row(d)
 
     def break_text(b):
         """(text, colour) for the break gauge line under the boss bar, or None while it can't be read."""

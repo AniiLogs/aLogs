@@ -1454,7 +1454,10 @@
     const line = fresh ? String(status.status || "").replace("...", "…") : "";
     text("status", line.charAt(0).toUpperCase() + line.slice(1));   // the meter writes some lines lowercase
     const fight = fresh ? status.fight : null;
-    text("fight", fight ? `${fight.boss} Lv ${fight.level}${fight.segment ? ` · x${fight.segment}` : ""} — ${n(fight.avg_dps)} DPS` : "No fight in progress.");
+    // boss_of: a two-boss middle fight's boss on the bar, [1, 2] or [2, 2] (the meter's write_status); its damage and
+    // max HP are then the run's, both bosses' so far
+    const of = Array.isArray(fight?.boss_of) ? ` · boss ${fight.boss_of[0]}/${fight.boss_of[1]}` : "";
+    text("fight", fight ? `${fight.boss} Lv ${fight.level}${of}${fight.segment ? ` · x${fight.segment}` : ""} — ${n(fight.avg_dps)} DPS` : "No fight in progress.");
     text("fight-detail", fight ? `Team damage ${n(fight.damage)} of ${n(fight.max_hp)} HP · ${fight.seconds}s · ${n(fight.recent_dps)} DPS over the last 5 s` : "");
     const character = status.character || {};
     const who = character.uid ? `${character.name || "Name appears once you open the game menu (Esc) or your Profile"} · UID ${character.uid}` : "Waiting for the game log…";
