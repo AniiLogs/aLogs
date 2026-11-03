@@ -1562,12 +1562,15 @@ class Meter:
                 w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid or '', *ev])
         except OSError: pass
 
-    def time_check(self, f, game_dps):
+    def time_check(self, f, game_dps, run=None):
         """Which fight time the game's Battle Data uses: the time its team DPS implies (damage / DPS) next to the meter's
         two candidates - up to the last frame with the boss bar (what the meter shows now), and up to the fight's end
-        (the bar can be hidden by a finishing ultimate). One line per fight in logs/time_check.csv, to settle it."""
-        if not game_dps or not f.damage: return
-        game_s = f.damage / game_dps; to_end = getattr(f, 'ended', time.time()) - f.t0
+        (the bar can be hidden by a finishing ultimate). One line per fight in logs/time_check.csv, to settle it.
+        run (run_of): the run's boss and damage. A two-boss middle fight's are both bosses', its first boss at its max
+        HP even when the meter joined at the second one, under the stage's first boss; a one-boss fight's are its own."""
+        damage, title = (run['damage'], run['title']) if run else (f.damage, f.title)
+        if not game_dps or not damage: return
+        game_s = damage / game_dps; to_end = getattr(f, 'ended', time.time()) - f.t0
         log.info(f"time check: the game's team DPS implies {game_s:.1f}s; the meter counted {f.elapsed:.1f}s "
                  f'(to the last bar reading) and {to_end:.1f}s (to the end of the fight)')
         path = os.path.join(HERE, 'logs', 'time_check.csv'); new = not os.path.exists(path)
@@ -1575,7 +1578,7 @@ class Meter:
             with open(path, 'a', newline='', encoding='utf-8') as fh:
                 w = csv.writer(fh)
                 if new: w.writerow(['when', 'boss', 'interlink', 'damage', 'game_team_dps', 'game_seconds', 'meter_seconds', 'to_end_seconds'])
-                w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), f.title, f.bossrush, f.damage, game_dps,
+                w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), title, f.bossrush, damage, game_dps,
                             round(game_s, 1), round(f.elapsed, 1), round(to_end, 1)])
         except OSError: pass
 
@@ -1930,7 +1933,7 @@ class Meter:
             game_dps = sum(vals); T = f.elapsed; loss = f.damage / f.max_hp if f.max_hp else 0
             run = self.run_of(f)                                       # the run's damage: a two-boss fight's both bosses
             msg += f' vs meter {run["damage"] / T:,.0f} ({run["title"]} Lv {f.level})' if T > 1 else ''
-            self.time_check(f, game_dps)
+            self.time_check(f, game_dps, run)
             calibrate = f.bossrush and f.started_at_top and loss > 0.02 and T > 60
             if calibrate and run['bosses'] is not None:
                 # Never from a two-boss middle fight, whichever boss it ended on: Battle Data has one team DPS for the
