@@ -893,10 +893,29 @@ class BreakTracker:
         return {'left': self.left, 'phase': self.phase, 'kind': self.kind, 'rate': overall, 'rate_now': recent,
                 'breaks': self.breaks, 'last_after': self.last_after, 'size': self.size}
 
+HANDOFF_XN = 3          # a two-boss fight's second boss counts as on the bar from its counter's top 4 bars (x21-x18):
+                        # each is 0.23% of its HP (bossrush_grade_data rows 1-7, bossHpLossPercent_3), ~0.3 s apiece
+
 class Fight:
-    def __init__(self, title, level, row, max_hp, bossrush, debug_dir=None):
+    """One run on one boss bar. A two-boss middle fight (weeks 4003-4005: bossrush_guanka_data rows with a bossId_2)
+    is one run in two phases: the stage's level graph starts its single 180/240 s clock as the first boss enters
+    combat and nothing on its two-boss path restarts it (Scene.1070 scene_graph_data[78824533] nodes 5-11), the
+    second boss spawns only on the first one's death (nodes 16-19), and the result screen is one run
+    (BossRushBattleResultCtrl.initUI, line 60). So the Timer, the clock, the time limit and the CSV are the run's,
+    while the bar's own state (segment, counter votes, refills, break gauge) is each boss's. max_hp and damage are the
+    run's: the bosses' max HP so far and the damage to them (the first boss's max HP once it is down, plus the
+    current boss's damage), so max_hp - damage is still the HP left on the bar; boss_hp is the current boss's."""
+    def __init__(self, title, level, row, max_hp, bossrush, debug_dir=None, partner=None, order=None):
         self.title, self.level, self.row, self.max_hp, self.bossrush = title, level, row, max_hp, bossrush
         self.t0 = self.created = time.time(); self.damage = 0; self.samples = collections.deque()
+        # partner: the catalog row of the boss that follows this one in a two-boss fight (R.stage_of order 1), else
+        # None; order: the boss's place in its stage (R.stage_of: 1, 2, None on one-boss stages)
+        self.partner, self.order = partner, order
+        self.boss_hp = max_hp        # the max HP of the boss now on the bar
+        self.done_hp = 0             # the max HP of the bosses already down in this run (a two-boss fight's first)
+        # each boss of the run: t0/t1 wall time, start_s/end_s on the run's clock (elapsed)
+        self.phases = [{'row': row, 'title': title, 'max_hp': max_hp, 'damage': 0, 'defeated': False,
+                        't0': self.created, 't1': None, 'start_s': 0.0, 'end_s': None, 'breaks': 0}]
         # Out in the world a boss's bar shows as soon as you're near it, often before anyone attacks: the fight's
         # clock starts at the first hit (between the last reading before the damage and the one that shows it).
         # Interlink's clock runs from the start, like the game's own timer.
@@ -945,7 +964,17 @@ class Fight:
                 self.xn_votes.append(xn_ocr); self.xn_votes = self.xn_votes[-4:]; self.vote_at = now
             agreed = xn_ocr if xn_ocr and self.xn_votes.count(xn_ocr) >= 2 else None
             if agreed and agreed == self.seg: self.xn_anchor = (agreed, now)
-            if self.seg is None:
+            if self.handoff_due(agreed, top):
+                # a two-boss fight's first boss at its last bar, and the counter back up at the top: its partner holds
+                # the bar now (the game resets xN to x21 for it: ClientBossRushDungeon.onSecondBossActivated, line 202).
+                # Not a refill, and the bar need not vanish in between (BossTitleItemV2.refreshBossTitle, line 345)
+                last = self.seg
+                self.next_boss(self.partner, f'its bar came back at x{agreed} after x{last}')
+                cum = grades.get(self.column) or grades[R.GRADE_BASE]
+                self.seg = agreed; self.xn_anchor = (agreed, now); self.xn_votes = [agreed]; self.vote_at = now
+                self.seg_fill = fill if fill is not None else 1.0
+                note = f'segment x{agreed} (counter, boss {len(self.phases)})'
+            elif self.seg is None:
                 # Interlink starts at the top bar, x21. While the bar fades in, the start read as x11 (10 of 11 fights
                 # on 30 Oct, two agreeing reads 15-30 s in; x21 then fell outside the old x16 cap, so probably x21 with
                 # its 2 misread) or x6: anything but the top takes three reads and stays a guess that a later top read
@@ -992,9 +1021,12 @@ class Fight:
                 self.limit = int(5 * math.ceil(self.timer.val / 5))
                 note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
             else: self.limit = 0                     # read too late to tell: the result screen's time decides
-        # damage follows the current state, so a corrected segment also corrects the total
-        dmg, seg = R.damage_dealt(self.max_hp, self.seg_fill, self.seg if self.bossrush else None, cum, self.bossrush)
-        if dmg is not None: self.damage = dmg
+        # damage follows the current state, so a corrected segment also corrects the total. The bar shows the current
+        # boss: its damage on its own max HP, after the bosses already down in this run. A second boss whose counter
+        # isn't read yet adds nothing (its fill alone can't place it among its 21 bars)
+        dmg, seg = R.damage_dealt(self.boss_hp, self.seg_fill, self.seg if self.bossrush else None, cum, self.bossrush)
+        if dmg is not None and not (self.bossrush and self.seg is None and len(self.phases) > 1):
+            self.damage = self.done_hp + dmg; self.phases[-1]['damage'] = dmg
         if not self.hit:
             if self.first_damage is None:
                 if fill is not None and self.low_pending is None: self.first_damage = self.damage   # from a real reading
@@ -1028,6 +1060,7 @@ class Fight:
         if self.defeated: return
         left = self.max_hp - self.damage
         self.defeated = True; self.damage = self.max_hp
+        self.phases[-1].update(damage=self.boss_hp, defeated=True)
         self.avg = self.damage / self.elapsed if self.elapsed > 1 else 0
         try:
             self.w.writerow([round(time.time() - self.created, 2), None, None, None, self.seg, 0.0, '', '', self.damage,
@@ -1035,7 +1068,50 @@ class Fight:
             self.log.flush()
         except ValueError: pass                                         # CSV already closed (confirmed after the fight)
 
+    def partner_due(self):
+        """A two-boss fight's first boss in its last three bars (x3-x1: its last 25% on bossHpLossPercent_2): its
+        partner can take the bar any moment."""
+        return self.partner is not None and self.seg is not None and self.seg <= 3
+
+    def handoff_due(self, agreed, top):
+        """The bar's own sign that a two-boss fight's first boss is down and its partner has the bar: the first boss in
+        its last bar (x1, or x2 nearly empty: x1 is only 5% of its HP, bossrush_grade_data bossHpLossPercent_2 row 20)
+        and two counter reads agreeing on one of the top bars. The counter only counts down within one boss, and the
+        game puts the second boss back at x21 (BossTitleItemV2.switchBossRushTarget, line 484)."""
+        return (self.partner is not None and agreed is not None and self.seg is not None and agreed >= top - HANDOFF_XN
+                and (self.seg == 1 or (self.seg == 2 and self.seg_fill < 0.05)))
+
+    def next_boss(self, row, why):
+        """A two-boss fight's hand-off to the first boss's partner (`row`). The first boss is down: the graph spawns its
+        partner only on its spawner's death (level graph 78824533 nodes 16-19), so its full max HP counts, as in
+        mark_defeated. The run goes on: same Timer, clock, time limit and CSV; the bar's own state starts over for the
+        partner, on its own grade column (R.grade_column) with its own break gauge."""
+        now = time.time(); p = self.phases[-1]
+        left = self.boss_hp - (self.damage - self.done_hp)
+        p.update(damage=self.boss_hp, defeated=True, t1=now, end_s=round(self.elapsed, 1), breaks=self.brk.breaks)
+        self.done_hp += self.boss_hp
+        hp = R.boss_max_hp(row, self.level)
+        self.row, self.title, self.boss_hp, self.partner, self.order = row, row['bossTitle_en'] or self.title, hp, None, 2
+        self.max_hp = self.done_hp + hp; self.damage = self.done_hp; self.defeated = False
+        self.phases.append({'row': row, 'title': self.title, 'max_hp': hp, 'damage': 0, 'defeated': False,
+                            't0': now, 't1': None, 'start_s': round(self.elapsed, 1), 'end_s': None, 'breaks': 0})
+        self.seg = None; self.seg_fill = 1.0; self.seg_guess = False; self.seg_info = None; self.last_fill = None
+        self.xn_votes = []; self.xn_anchor = None; self.refill_pending = 0; self.refill_at = 0.0; self.low_pending = None
+        self.column = R.grade_column(row.get('puppetId'))
+        self.brk = BreakTracker(R.boss_break_points(row, self.level))
+        msg = (f'boss {len(self.phases)} of 2: {self.title}, max HP {hp:,} ({why}); the first boss is down, '
+               f'its last {left:,} HP counted')
+        log.info(f'fight: {msg} (run damage {self.damage:,}, {self.elapsed:.0f}s)')
+        try:
+            self.w.writerow([round(now - self.created, 2), None, None, None, None, None, '', '', self.damage,
+                             round(self.avg), round(self.recent), msg])
+        except ValueError: pass
+
     def close(self):
+        p = self.phases[-1]
+        if p['t1'] is None:
+            p.update(t1=time.time(), end_s=round(self.elapsed, 1), breaks=self.brk.breaks,
+                     damage=self.damage - self.done_hp, defeated=self.defeated)
         try: self.log.close()
         except Exception: pass
 
@@ -1350,7 +1426,7 @@ class Meter:
             # during ultimates, so a vanished bar alone proves nothing. Count the rest only with confirmation: the
             # game's Catch Countdown, or the bar staying gone for the whole grace period with the boss nearly down.
             # (Interlink kills are confirmed by the result screen's time, see result_screen.)
-            left = (f.max_hp - f.damage) / f.max_hp if f.max_hp else 1
+            left = (f.max_hp - f.damage) / f.boss_hp if f.boss_hp else 1      # of the boss on the bar (Fight: max_hp is the run's)
             if why.startswith('caught') and not f.bossrush and f.hit and (f.timer is None or f.timer.predict(time.time()) is None):
                 # A finishing ultimate hides the HUD (bar included) for its cutscene, then its attack plays out and the
                 # killing blow lands at its end, followed by ~3 s of kill-cam and the Catch Countdown. So the fight
@@ -2975,9 +3051,15 @@ class Meter:
                            'dps': round(f.damage / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
                            'tracked_from_start': f.started_at_top, 'csv': os.path.basename(f.log.name),
                            'time_limit_s': f.limit or self.overtime_limit(time.time()),
-                           'breaks': f.brk.breaks, 'break_gauge_points': None if not f.brk.size else round(f.brk.size),
+                           'breaks': sum(p['breaks'] for p in f.phases[:-1]) + f.brk.breaks,
+                           'break_gauge_points': None if not f.brk.size else round(f.brk.size),
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
-                           else round(f.brk.rate(time.time())[0], 2)}}
+                           else round(f.brk.rate(time.time())[0], 2),
+                           # a two-boss fight's bosses in order (Fight.phases): seconds on the run's clock
+                           **({'bosses': [{'id': p['row']['puppetId'], 'name': p['title'], 'max_hp': p['max_hp'],
+                                           'damage': p['damage'], 'defeated': p['defeated'], 'from_s': p['start_s'],
+                                           'to_s': p['end_s'], 'breaks': p['breaks']} for p in f.phases]}
+                              if len(f.phases) > 1 else {})}}
         s.update(parts)
         S.write_json(path, s, indent=1, ensure_ascii=False)
         # leaderboard: a run goes, once, when it beats one of your bests on this boss this week (see beats_best),
@@ -3738,8 +3820,11 @@ class Meter:
                         S.write_json(BAR_SPOT, self.bar_spots)
                     except OSError: pass
             # in Interlink, while the game log still has you in the run, the fight waits longer for its bar: hidden
-            # 20 s by an effect or a dropped capture, it split one Minespine run in two and sent the 13 s fragment
-            elif self.fight and now - self.bar_seen < (BAR_GONE_GRACE * 4 if self.fight.bossrush and self.bossrush_space else BAR_GONE_GRACE):
+            # 20 s by an effect or a dropped capture, it split one Minespine run in two and sent the 13 s fragment.
+            # So does a two-boss fight waiting for its second boss, either way: nothing forces that boss into combat and
+            # the gap's length is unknown (level graph 78824533: no fbForceEnterCombat after node 3)
+            elif self.fight and now - self.bar_seen < (BAR_GONE_GRACE * 4 if self.fight.bossrush and (self.bossrush_space or self.fight.partner is not None)
+                                                       else BAR_GONE_GRACE):
                 # The bar can hide for a while (effects, BREAK, ultimate animations, menus): the fight stays open and
                 # continues when the bar comes back. A "Catch Countdown" means the boss was caught.
                 self.watch_end_note(im)
@@ -3794,12 +3879,14 @@ class Meter:
             if now - self.not_bar_since >= BAR_GONE_S:
                 log.info(f'boss bar lost (the locked spot reads {fill:.0%} in rgb{fill_rgb}, the fight was at {last:.0%})')
                 self.not_bar_since = None; self.bar = None
-                self.end_fight('boss bar gone'); self.snapshot(now); return
+                # a two-boss fight waiting for its second boss stays open: the bar-gone grace decides, as for a hidden bar
+                if self.fight.partner is None: self.end_fight('boss bar gone')
+                self.snapshot(now); return
             self.snapshot(now); return                     # not a reading of this fight's HP
         self.not_bar_since = None
         self.bar_seen = now
         scale = bar['span'] / R.REF_SPAN
-        need_title = self.fight is None or now - self.last_title > 8
+        need_title = self.fight is None or now - self.last_title > self.title_gap()
         timer = None; text = None
         xn_box = R.box_at(bar, R.XN_BOX)
         top = R.xn_top(self.grades)                            # the counter at full HP (x21)
@@ -3834,15 +3921,17 @@ class Meter:
                 self.brk_at = now                                   # readings, sized for that pace
                 gauge, kind, _ = R.measure_break(im, bar)
                 self.fight.brk.feed(gauge, kind, now)
+            bosses = len(self.fight.phases)
             self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.grades, self.args.duration, self.frame_at())
+            if len(self.fight.phases) != bosses: self.boss_handed_over(f'its bar came back at x{self.fight.seg}')
         snap = dict(bar=bar, fill=fill, fill_rgb=fill_rgb, edge_rgb=edge_rgb, xn_digits=xn_digits, xn_ocr=xn)
         if text: snap['ocr'] = text
         self.snapshot(now, **snap)
         if self.fight: self.emit_fight(im, bar)
 
     def text_due(self, now):
-        """Time to read the bar's text (timer, name, xN fallback): about once a second, the name every 8 s."""
-        need_title = self.fight is None or now - self.last_title > 8
+        """Time to read the bar's text (timer, name, xN fallback): about once a second, the name every 8 s (title_gap)."""
+        need_title = self.fight is None or now - self.last_title > self.title_gap()
         return (need_title or now - self.last_text >= 1.0) and not (self.ocr_bg and self.ocr_bg.busy)
 
     def plausible_bar(self, found, im):
@@ -3898,8 +3987,10 @@ class Meter:
             if 3 <= age < 30: keep_sample(im, 'interlink_start')
             elif 60 <= age < 120: keep_sample(im, 'interlink_mid')
         self.last_screen = (self.origin[0], self.origin[1], self.frame_size[0], self.frame_size[1])
-        self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'xn': f.seg, 'fill': f.seg_fill,
+        # max_hp and damage are the run's (a two-boss fight's both bosses); boss_hp is the max HP of the boss on the bar
+        self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'boss_hp': f.boss_hp, 'xn': f.seg, 'fill': f.seg_fill,
                            'damage': f.damage, 'elapsed': f.elapsed, 'avg': f.avg, 'recent': f.recent,
+                           'boss': (len(f.phases), len(f.phases) + (f.partner is not None)),
                            'bossrush': f.bossrush, 'holosim': self.holosim_space, 'seg_size': si.get('size_hp'), 'seg_left': si.get('left_hp'),
                            'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], bar['span']),
                            'break': f.brk.info(time.time()), 'screen': self.last_screen})
@@ -3916,17 +4007,50 @@ class Meter:
                 self.out('status', f'reading boss name... ("{title}" Lv {level})')
             return
         if self.fight:
-            if row['puppetId'] == self.fight.row['puppetId'] and level == self.fight.level:
+            f = self.fight
+            if row['puppetId'] == f.row['puppetId'] and level == f.level:
                 self.switch_votes = []; return
+            if f.partner is not None and row['puppetId'] == f.partner['puppetId']:
+                # A two-boss fight's partner (the week's bossId_2 for this stage, R.stage_of): the same run going on,
+                # never a new fight. Its name shows only once the first boss is down (level graph 78824533 nodes
+                # 16-19), so one clean read will do while the first boss is in its last bars, two otherwise. Both
+                # bosses have the stage's level (bossrush_cycle_data bossLv): another level is a misread
+                if level != f.level: return
+                self.switch_votes.append((row['puppetId'], level)); self.switch_votes = self.switch_votes[-3:]
+                need = 1 if f.partner_due() else 2
+                if self.switch_votes[-need:] != [(row['puppetId'], level)] * need: return
+                f.next_boss(row, f'its name read {title_text!r}')
+                self.boss_handed_over(f'title read {title_text!r}, xN {xn}'); return
+            if any(p['row']['puppetId'] == row['puppetId'] for p in f.phases[:-1]):
+                return             # a boss already down in this run never comes back: a read from before the hand-off
             self.switch_votes.append((row['puppetId'], level)); self.switch_votes = self.switch_votes[-3:]
             if len(self.switch_votes) < 3 or len(set(self.switch_votes)) != 1: return
             self.end_fight('different boss')
         self.start_fight(row, level, title, bossrush, f'title read {title_text!r}, xN {xn}')
         if bossrush: self.rush_level = level
 
+    def boss_handed_over(self, how):
+        """A two-boss fight went on to its second boss (Fight.next_boss): the same run, no end and no "Fight over"."""
+        f = self.fight; self.switch_votes = []
+        self.out('status', f'next boss: {f.title} Lv {f.level}, max HP {f.boss_hp:,} (boss {len(f.phases)} of 2, Interlink)')
+        log.info(f"fight details: puppetId {f.row['puppetId']}, boss {len(f.phases)} of 2, {how}, HP bars {f.column}")
+
+    def title_gap(self):
+        """Seconds between reads of the name above the bar during a fight: 8, and 2 while a two-boss fight's partner can
+        show up any moment (its first boss in its last bars, or the partner's name read once already)."""
+        f = self.fight
+        if f and f.partner is not None and (f.partner_due() or (self.switch_votes and self.switch_votes[-1][0] == f.partner['puppetId'])):
+            return 2
+        return 8
+
     def start_fight(self, row, level, title, bossrush, how):
         hp = R.boss_max_hp(row, level)
-        self.fight = Fight(row['bossTitle_en'] or title, level, row, hp, bossrush, debug_dir=not self.args.no_debug_frames)
+        # a two-boss middle fight's first boss has a partner to come (R.stage_of: the stage's bossId_2), from the data
+        _, order, partner_id = R.stage_of(row['puppetId']) if bossrush else (None, None, None)
+        partner = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['puppetId'] == partner_id
+                        and r['fixed_hp_rate']), None) if order == 1 else None
+        self.fight = Fight(row['bossTitle_en'] or title, level, row, hp, bossrush, debug_dir=not self.args.no_debug_frames,
+                           partner=partner, order=order)
         if DAMAGE_NUMBERS and self.args.cfg['capture'].get('damage_numbers') and self.args.replay is None:   # experimental
             if self.numbers is None:
                 import dmgnumbers as N
@@ -3937,7 +4061,8 @@ class Meter:
         self.out('status', f'fight started: {self.fight.title} Lv {level}, max HP {hp:,}' + (' (Interlink)' if bossrush else ''))
         log.info(f"fight details: puppetId {row['puppetId']}, {how}, "
                  f"bossrush space {self.bossrush_space}, csv {os.path.basename(self.fight.log.name)}"
-                 + (f', HP bars {self.fight.column}' if self.fight.column != R.GRADE_BASE else ''))
+                 + (f', HP bars {self.fight.column}' if self.fight.column != R.GRADE_BASE else '')
+                 + (f", two-boss fight: {partner['bossTitle_en']} ({partner_id}) comes next" if partner else ''))
 
     def instant_start(self, xn, now):
         """Interlink: the prep screen just named the boss and every Interlink boss has the same level as the last one,
@@ -4490,7 +4615,8 @@ def run_overlay(meter, hide):
     def show_hp(d):
         bar = d.get('bar')
         if not bar or not show_hp_labels: hide_hp(); return
-        left = max(0, d['max_hp'] - d['damage']); max_hp = d['max_hp'] or 1
+        # the HP left on the bar's boss: the run's max HP less its damage is that boss's (Fight), out of its own max HP
+        left = max(0, d['max_hp'] - d['damage']); max_hp = d.get('boss_hp') or d['max_hp'] or 1
         # numbers white with a thin black outline; HP and BREAK with a thick one: HP in the bar's colour where the HP
         # ends, BREAK white, yellow when BROKEN, grey-blue refilling, orange gauge (draw, break_text)
         draw('pct', f'{left / max_hp * 100:.1f}%', bar)
