@@ -478,12 +478,14 @@ def ocr_english(language):
 class Ocr:
     swept = False
     korean = None      # hangulnames.KoreanNames once the game's fonts are read (live.py): Korean player names, read()
-    # The language Windows OCR reads in, as the helper said when it started (ready_language): 'en-US' (or another
-    # English), the user's own language on a PC with no English OCR (ko-KR), '' with no OCR language at all; None
-    # until a helper starts, or when it doesn't say. Without English the game's text (boss names and levels, result
-    # screens, Battle Data, prep and Party screens) isn't read: live.py logs it and status.json carries it, and the
-    # app warns and offers to install English OCR. Kept on the class: every helper picks the same one (windows_ocr in
-    # app/ocr-helper), so all readers agree.
+    # The language Windows OCR reads in, as this reader's helper said when it started (ready_language): 'en-US' (or
+    # another English), the user's own language on a PC with no English OCR (ko-KR), '' with no OCR language at all;
+    # None when it doesn't say. Without English the game's text (boss names and levels, result screens, Battle Data,
+    # prep and Party screens) isn't read: live.py logs it and status.json carries it, and the app warns and offers to
+    # install English OCR. Kept on each reader, not the class: a helper picks its language as it starts (windows_ocr
+    # in app/ocr-helper), and one started later can pick another. On the class, the HP reader's (hit_watch: started at
+    # the first tab-out, 17 hours after the others on this PC) made status.json say English once English was added
+    # in Windows Settings, while the meter's own helpers still had none and nothing was read (review of 129a4a8).
     language = None
     started = True     # its helper did (NoOcr: it didn't, which status.json tells apart from no OCR language)
     def __init__(self):
@@ -492,17 +494,34 @@ class Ocr:
         self.native = os.path.exists(OCR_EXE); self.lock = threading.Lock(); self.n = 0; self.dir = None; self.last = {}
         self.name_cache = {}   # name box signature -> its read (read_native)
         self.cache_lock = threading.Lock()
+        self.p, self.language = self.launch()
+        if not self.native: self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
+
+    def launch(self):
+        """Starts a helper: (its process, the language it says it reads in). Raises when it doesn't start."""
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         if self.native:
-            self.p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
-            Ocr.language = ready_language(self.p.stdout.readline().decode('utf-8', 'replace'))
-            return
-        self.p = subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                                   os.path.join(HERE, 'ocr_win.ps1'), '-Server'],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
-                                  creationflags=flags)
-        Ocr.language = ready_language(self.p.stdout.readline())
-        self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
+            p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
+            first = lambda: p.stdout.readline().decode('utf-8', 'replace')
+        else:
+            p = subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                                  os.path.join(HERE, 'ocr_win.ps1'), '-Server'],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                                 creationflags=flags)
+            first = p.stdout.readline
+        try: return p, ready_language(first())
+        except Exception: p.kill(); raise
+
+    def restart(self):
+        """A new helper in this one's place, which picks Windows OCR's language again: English added to Windows since
+        this one started (Windows Settings) is read from then on, without restarting the meter (live.py ocr_recheck).
+        Reads on other threads (names_bg reads on the meter's) wait for the swap (self.lock), then go to the new one;
+        the old one is closed. Raises as Ocr() does when the new one doesn't start, and this one keeps going."""
+        p, language = self.launch()
+        with self.lock: old, self.p, self.language = self.p, p, language
+        with self.cache_lock: self.name_cache.clear()          # names read without Windows OCR's read to fall back on
+        try: old.stdin.close(); old.wait(3)
+        except Exception: old.kill()
 
     def read(self, images, names=None, raws=None):
         """{name: text} for {name: image}. `names` marks the boxes that hold a player's name, with the white padding

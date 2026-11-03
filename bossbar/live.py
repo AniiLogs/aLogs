@@ -1240,11 +1240,13 @@ def load_korean_names(player_log=None):
 # What the meter can't read without English OCR: the game's text is English, and Windows OCR reads it all but player
 # names (the helper's own text models read those). The app's warning says the same (DPS Meter page, Dashboard).
 NO_ENGLISH_READS = 'boss names and levels, result screens, Battle Data, the battle prep and Party screens'
+OCR_RECHECK = 60        # seconds between looks for English OCR added while the meter runs (Meter.ocr_recheck)
 
 def ocr_language_note(ocr):
-    """Once at start, in meter.log: the language Windows OCR reads in (reader.Ocr.language), with a warning when it
-    isn't English, or there is none (no OCR language on the PC, or the helper didn't start: NoOcr). Before, a PC with
-    no English OCR only had 'OCR helper did not start' in its log, or nothing (76c9f87), and its runs weren't read."""
+    """Once at start, in meter.log: the language Windows OCR reads in (the meter's own reader's, Ocr.language), with
+    a warning when it isn't English, or there is none (no OCR language on the PC, or the helper didn't start: NoOcr).
+    Before, a PC with no English OCR only had 'OCR helper did not start' in its log, or nothing (76c9f87), and its
+    runs weren't read. English added later is found by Meter.ocr_recheck, which says so."""
     lang = ocr.language
     fix = ('Windows Settings > Time & language > Language & region > add English (United States), or Install English '
            "OCR on aLogs' DPS Meter page")
@@ -1267,7 +1269,7 @@ class Meter:
         try: self.ocr = R.Ocr()
         except Exception as e:
             log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
-        ocr_language_note(self.ocr)
+        ocr_language_note(self.ocr); self.ocr_checked = time.time()       # ocr_recheck: its helpers just picked
         self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
         load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
@@ -4258,12 +4260,45 @@ class Meter:
             'auto_battle_data': bool(self.auto_until),
             'leaderboard': {'on': bool(sub and sub.config), 'pending': sub.pending() if sub else 0,
                             'last': sub.last_result if sub else None},
-            # Windows OCR's language (reader.Ocr.language; null with none, or when the helper doesn't say) and whether
-            # it's English: false (no OCR language, another one, or no helper: started false) and the app warns that
-            # the game's screens can't be read, with a button that installs English OCR; null (not said): no warning
+            # Windows OCR's language (the meter's own reader's, Ocr.language: null with none, or when the helper
+            # doesn't say) and whether it's English: false (no OCR language, another one, or no helper: started false)
+            # and the app warns that the game's screens can't be read, with a button that installs English OCR; null
+            # (not said): no warning. English added while the meter runs: true within OCR_RECHECK (ocr_recheck)
             'ocr': {'language': self.ocr.language or None, 'english': R.ocr_english(self.ocr.language),
                     'started': self.ocr.started},
         })
+
+    def ocr_recheck(self, now):
+        """Without English OCR (status.json's ocr.english false): has Windows got it since? A helper picks its language
+        as it starts, so English added in Windows Settings while aLogs ran (the app's warning and meter.log both say
+        to) wasn't read until aLogs restarted, and nothing said so (the app's Install English OCR restarts the meter
+        itself). Every OCR_RECHECK seconds a helper started for the look says what Windows OCR picks now (10 ms to
+        start, on a thread of its own: the frame loop never waits); English, and every helper the meter has restarts
+        in place (Ocr.restart: a fight going on keeps going), so the game's screens are read from then on, status.json
+        says English and the app's warning goes. Not with NoOcr: its helper didn't start at all, which installing OCR
+        doesn't change."""
+        if not self.ocr.started or R.ocr_english(self.ocr.language) is not False: return
+        if now - self.ocr_checked < OCR_RECHECK: return
+        if getattr(self, 'ocr_probe', None) and self.ocr_probe.is_alive(): return
+        self.ocr_checked = now
+        self.ocr_probe = threading.Thread(target=self.ocr_look, daemon=True, name='ocr-recheck'); self.ocr_probe.start()
+
+    def ocr_look(self):
+        """ocr_recheck's look, on its own thread: a helper started now, and when it reads English, every helper the
+        meter has restarted (its own, which names_bg shares, the bar's, the screens' and the HP number's)."""
+        try: look = R.Ocr()
+        except Exception: return
+        try: language = look.language
+        finally: look.close()
+        if not R.ocr_english(language) or self.stop: return
+        was = self.ocr.language
+        for ocr in (self.ocr, getattr(self.ocr_bg, 'ocr', None), getattr(self.screen_bg, 'ocr', None),
+                    getattr(self, 'hp_ocr', None)):
+            if isinstance(ocr, R.Ocr):       # a worker's helper not started yet starts with English anyway
+                try: ocr.restart()
+                except Exception as e: log.warning(f'OCR helper did not restart: {e!r}')
+        log.info(f"Windows OCR: {self.ocr.language} now (was {was or 'none'}): English was added while the meter ran, "
+                 "so its OCR helpers restarted and the game's screens are read")
 
     def run(self):
         if self.args.replay is None:                     # this week's bosses from the game data, after each patch
@@ -4277,6 +4312,7 @@ class Meter:
             except Exception as e:
                 log.exception('error in step'); self.out('status', f'error: {e!r} (details in logs/meter.log)')
             self.write_status(time.time())
+            if self.args.replay is None: self.ocr_recheck(time.time())
             if self.args.replay is not None and not self.args.replay: break
             interval = self.fight_interval() if self.fight else self.args.interval
             if self.fight and self.args.replay is None:

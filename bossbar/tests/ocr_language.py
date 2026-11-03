@@ -15,8 +15,10 @@ empty value in its own environment, and reader.Ocr and the meter (which start it
 tag, which the helper also reads as none. Then the meter on each: Meter()'s log line and status.json's ocr
 (write_status); the same on a helper that doesn't start (NoOcr), on one that doesn't say (a plain READY) and on one
 that says another language (ko-KR: this PC's helper can't, so a stand-in says it); and the PowerShell helper
-(ocr_win.ps1, used when there is no ocr-helper.exe), which says en-US. The drawn names are made up. Needs a PC with
-en-US Windows OCR.
+(ocr_win.ps1, used when there is no ocr-helper.exe), which says en-US. Last, English added while the meter runs: a
+helper started later (the HP reader's) leaves status.json saying the meter's own has none, and ocr_recheck restarts
+every helper the meter has once a fresh one reads English. The drawn names are made up. Needs a PC with en-US
+Windows OCR.
 
 Nothing is sent and nothing lands in your logs: the meter's data folder is a temporary one. Exit code 1 on any failure.
 """
@@ -129,7 +131,8 @@ for langs, want in (('en-US', 'en-US'), (',', ''), ('ko-KR', '')):
     with_langs(langs)
     ocr = R.Ocr()
     try:
-        check(f'Ocr.language with {langs!r}', (R.Ocr.language, ocr.language), (want, want))
+        # on the reader, not the class: a helper started later can pick another (below)
+        check(f'Ocr.language with {langs!r}', (ocr.language, R.Ocr.language), (want, None))
         check(f'Ocr.read (OCR1) with {langs!r}', ocr.read({'t': BOXES[0][1]}), {'t': TITLE if want else ''})
     finally: ocr.close()
 check('ocr_english', [R.ocr_english(v) for v in ('en-US', 'en-GB', 'EN', 'ko-KR', '', None)], [True, True, True, False, False, None])
@@ -144,7 +147,7 @@ try:
     ocr = R.Ocr()
     try:
         check('PowerShell helper: native', ocr.native, False)
-        check('PowerShell helper: Ocr.language', R.Ocr.language, 'en-US')
+        check('PowerShell helper: Ocr.language', ocr.language, 'en-US')
         check('PowerShell helper: the title', ocr.read({'t': BOXES[0][1]}), {'t': TITLE})
     finally: ocr.close()
 finally: R.OCR_EXE = real_exe
@@ -204,6 +207,70 @@ check('ko-KR: its line', [(lvl, t[:len('Windows OCR: ko-KR, not English')]) for 
       [('WARNING', 'Windows OCR: ko-KR, not English')])
 check("ko-KR: it says what isn't read", bool(said) and NOT_READ in said[0][1], True)
 print(f'ko-KR: {said[0][0]} {said[0][1]}' if said else 'ko-KR: no line')
+
+# ---- English added while the meter runs (Windows Settings): a helper started later doesn't change what status.json
+# says about the meter's own (hit_watch starts the HP reader's at the first tab-out, hours on), and ocr_recheck finds
+# English and restarts every helper the meter has, so the game's screens are read without restarting aLogs
+def status_now(m):
+    """The status m writes now (write_status waits a second between writes)."""
+    got = []; real = C.write_status; C.write_status = got.append
+    try: m.last_status = 0; m.write_status(time.time())
+    finally: C.write_status = real
+    return got[-1] if got else {}
+with_langs(',')
+m, lines, status = meter()
+workers = [live.OcrWorker(), live.OcrWorker()]          # the bar's and the screens' (not started in replay mode)
+for w in workers: w.start()
+deadline = time.time() + 10
+while any(w.ocr is None for w in workers) and time.time() < deadline: time.sleep(0.01)
+m.ocr_bg, m.screen_bg = workers
+m.hp_ocr = R.Ocr()
+with_langs('en-US')
+later = R.Ocr()                                         # as hit_watch's, started after English was added
+try:
+    check('English added: a later helper says', later.language, 'en-US')
+    check("English added: a later helper doesn't change status ocr", status_now(m).get('ocr'),
+          {'language': None, 'english': False, 'started': True})
+    check("English added: the meter's own helper still reads nothing", m.ocr.read({'t': BOXES[0][1]}), {'t': ''})
+finally: later.close()
+recheck = getattr(m, 'ocr_recheck', None)
+check('Meter.ocr_recheck', callable(recheck), True)
+if callable(recheck):
+    LOG.lines = []
+    recheck(time.time())                                # within OCR_RECHECK of the start: no look yet
+    check('no look at start', getattr(m, 'ocr_probe', None), None)
+    with_langs(',')                                     # still none: nothing restarts
+    m.ocr_checked -= live.OCR_RECHECK
+    recheck(time.time()); m.ocr_probe.join(10)
+    check('still none: no restart', [o.language for o in (m.ocr, m.ocr_bg.ocr, m.screen_bg.ocr, m.hp_ocr)], ['', '', '', ''])
+    check('still none: no line', ocr_lines(LOG.lines), [])
+    with_langs('en-US')
+    recheck(time.time())                                # within OCR_RECHECK of the last look: not yet
+    m.ocr_probe.join(10)
+    check('rechecks wait OCR_RECHECK', m.ocr.language, '')
+    m.ocr_checked -= live.OCR_RECHECK
+    recheck(time.time()); m.ocr_probe.join(10)
+    check('English found: every helper restarted', [o.language for o in (m.ocr, m.ocr_bg.ocr, m.screen_bg.ocr, m.hp_ocr)],
+          ['en-US'] * 4)
+    check("English found: the meter's own helper reads", m.ocr.read({'t': BOXES[0][1]}), {'t': TITLE})
+    m.ocr_bg.submit({'t': BOXES[0][1]}, 'bar'); deadline = time.time() + 10
+    while m.ocr_bg.result is None and time.time() < deadline: time.sleep(0.01)
+    check("English found: the bar's helper reads", m.ocr_bg.take(), ({'t': TITLE}, 'bar'))
+    said = ocr_lines(LOG.lines)
+    check('English found: one line', [(lvl, t[:len('Windows OCR: en-US now')]) for lvl, t in said],
+          [('INFO', 'Windows OCR: en-US now')])
+    print(f'English found: {said[0][0]} {said[0][1]}' if said else 'English found: no line')
+    check('English found: status ocr', status_now(m).get('ocr'), {'language': 'en-US', 'english': True, 'started': True})
+    probe = m.ocr_probe; m.ocr_checked -= live.OCR_RECHECK       # English now: no more looks
+    recheck(time.time())
+    check('English: no more rechecks', m.ocr_probe is probe, True)
+for w in workers: w.close()
+m.hp_ocr.close(); m.ocr.close()
+# a helper that didn't start (NoOcr) isn't rechecked: installing OCR doesn't start it
+m, lines, status = meter(no_helper)
+if callable(getattr(m, 'ocr_recheck', None)):
+    m.ocr_recheck(time.time())
+    check('no helper: no recheck', getattr(m, 'ocr_probe', None), None)
 with_langs(None)
 
 shutil.rmtree(TMP, ignore_errors=True)
