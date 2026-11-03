@@ -2615,9 +2615,9 @@ class Meter:
         boss = slot_row['bossTitle_en'] if slot_row else (self.cycle_boss(name.strip(' /|'))
                                                          or self.cycle_boss(label.split('/')[-1].strip()))
         self.read_party(im, now, u, ux, H)
-        row = slot_row or next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
-                                and int(r['puppetId']) in R.active_cycle_bosses()), None)
-        if row: self.prep_boss = (now, row)
+        row = self.stage_first(slot_row or next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
+                                                 and int(r['puppetId']) in R.active_cycle_bosses()), None))
+        if row: self.prep_boss = (now, row); boss = row['bossTitle_en'] or boss       # the best goes under that boss
         score = interlink_score(score, stars, clear_stars(row['puppetId']) if row else None,
                                 two_boss=bool(row and R.stage_of(row['puppetId'])[1]))      # a two-boss stage's best: as read
         log.info(f'battle prep screen: OCR pill {pill!r}, name {name!r} -> {boss}: best score {score}, stars {stars}')
@@ -2626,6 +2626,19 @@ class Meter:
         key = (boss, score, stars)
         agreed = getattr(self, 'prep_read', None) == key; self.prep_read = key
         if score is not None and stars is not None and boss and agreed: self.record_score(im, 'battle_prep', boss, score, stars)
+
+    def stage_first(self, row):
+        """The boss a run on this boss's stage starts with, and keeps its best under: a two-boss middle fight's second
+        boss (R.stage_of order 2: the week's bossId_2) gives its stage's first, the bossId. The level graph spawns the
+        bossId as the level starts and the bossId_2 only on its death (Scene.1070 scene_graph_data[78824533], nodes
+        1-4 and 16-19), and the game keeps one best per stage under the bossId (BossRushMainCtrl.renderBossInfo, line
+        350). So a prep or Party screen that names the second boss (how a two-boss stage's screens name it isn't known
+        until a live run shows them) neither starts the run on it nor files its best under it. Any other row as is."""
+        if not row: return row
+        _, order, first = R.stage_of(row['puppetId'])
+        if order != 2: return row
+        return next((r for r in self.catalog if r['table'] == 'puppet_data' and r['puppetId'] == first
+                     and r['bossTitle_en'] and r['fixed_hp_rate']), row)
 
     def cycle_boss(self, text):
         """The boss name on the battle prep screen, matched to one of this week's three bosses. The boss art behind
@@ -2773,8 +2786,8 @@ class Meter:
                             'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
                             'cp': int(cp.group(1)) if cp else old.get('cp')})
         boss = self.cycle_boss((t.get('boss') or '').strip(' /|'))
-        row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
-                    and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None
+        row = self.stage_first(next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
+                                     and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None)
         if row: self.prep_boss = (now, row)
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}")
         members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge

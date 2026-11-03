@@ -1,5 +1,6 @@
 """Interlink weeks 4000-4005 through the meter's own helpers: every boss found from its bar title, in its slot, a
-two-boss middle fight's order and partner, and the full rating (star cap) each boss gets; the shipped boss list
+two-boss middle fight's order and partner, the full rating (star cap) each boss gets, and the boss a prep screen's
+name starts the run with and files its best under (a two-boss stage's first); the shipped boss list
 against the game data (the build's check); and the week schedule without a boss level (bossLv, which the meter's
 data reader misreads).
 
@@ -141,6 +142,8 @@ def main():
     # the shipped list against the game data (what the build checks), else against the shipped week schedule
     game = gamedata.find_game_data()
     check(f"boss_catalog.csv against {'the game data' if game else 'boss_rush_cycles.json'}", gamedata.catalog_drift(game), [])
+    import types
+    shown = [r for r in R.load_catalog() if r['table'] == 'puppet_data' and r['bossTitle_en'] and r['fixed_hp_rate']]
     for week in WEEKS:
         for slot, pid, title, order, partner in bosses(week):
             n += 1
@@ -151,12 +154,17 @@ def main():
                 check(f'{week} {title} stage_of (week now)', R.stage_of(pid), (slot, order, partner))
                 check(f'{week} {title} clear_stars', live.clear_stars(pid), CENTER if slot == 'middle' else SIDE)
                 check(f'{week} {title} clear_stars(int)', live.clear_stars(int(pid)), CENTER if slot == 'middle' else SIDE)
+                # a prep or Party screen naming this boss: the run starts on, and the best goes under, its stage's first
+                row = next(r for r in shown if r['puppetId'] == pid)
+                got = live.Meter.stage_first(types.SimpleNamespace(catalog=shown), row)
+                check(f'{week} {title} stage_first', got['puppetId'], partner if order == 2 else pid)
     # a boss outside its week: no slot that week; with no week given, the latest week that has it
     check('4003 Alpha Glameep 80000112 not in 4003', R.stage_of('80000112', '4003'), (None, None, None))
     with At(inside('4004')):
         check('Omega Tucking 80000119 during 4004 (not that week)', live.clear_stars('80000119'), SIDE)
         check('stage_of 80000119 during 4004 (latest week with it)', R.stage_of('80000119'), ('middle', 2, '80000120'))
     check('stage_of None', R.stage_of(None), (None, None, None))
+    check('stage_first None', live.Meter.stage_first(types.SimpleNamespace(catalog=shown), None), None)
     check('clear_stars None', live.clear_stars(None), SIDE)
     refresh_check()
     level_check()
