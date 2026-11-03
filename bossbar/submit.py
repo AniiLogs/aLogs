@@ -396,6 +396,16 @@ def _bosses(meter):
                         'damage': b.get('damage'), 'defeated': bool(b.get('defeated')), 'seconds': b.get('seconds')}
                        for b in bosses[:2] if isinstance(b, dict)]}
 
+def card_of(cards, player, i):
+    """The Battle Data card of a result-screen player (the i-th in the result's list): the card of its slot, 1P-4P on both
+    screens. Not the i-th card: a slot the result screen didn't read (no name and no value) drops out of its list and
+    every player after it took the next player's card (3 runs, one of them yours with another player's Avg DPS, 1 Nov).
+    By position only for summaries without slots."""
+    slot = player.get('slot')
+    if isinstance(slot, int) and any(isinstance(c.get('slot'), int) for c in cards):
+        return next((c for c in cards if c.get('slot') == slot), {})
+    return cards[i] if i < len(cards) else {}
+
 def run_payload(summary, uid):
     """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter). A two-boss middle
     fight's run (weeks 4003-4005) goes as one run: boss is its stage's bossId, the first boss, whichever boss it ended
@@ -407,7 +417,7 @@ def run_payload(summary, uid):
     players = []
     cards = bd.get('players') or []
     for i, p in enumerate(res.get('players') or [{} for _ in cards]):
-        c = cards[i] if i < len(cards) else {}
+        c = card_of(cards, p, i)
         players.append({k: v for k, v in {
             # the result screen's name, else the Battle Data card's own (its slot's player from the Party screen)
             'name': (p.get('name') or c.get('name') or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),

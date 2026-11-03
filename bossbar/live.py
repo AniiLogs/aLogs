@@ -3230,7 +3230,7 @@ class Meter:
         players = res.get('players') or []
         cards = (s.get('battle_data') or {}).get('players') or []
         me = next((i for i, p in enumerate(players) if p.get('self')), 0 if len(players) <= 1 else None)
-        card = cards[me] if me is not None and me < len(cards) else {}
+        card = S.card_of(cards, players[me] if me < len(players) else {}, me) if me is not None else {}
         clear = res.get('time_s') if res.get('cleared') else None
         mine = {'score': [res.get('rating_stars') or 0, res.get('score') or 0],
                 'clear': -clear if clear is not None else None,             # higher is better for every key
