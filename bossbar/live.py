@@ -521,6 +521,25 @@ def vote(votes, key, value):
     c = votes.get(key)
     return max(c, key=lambda v: (c[v], -list(c).index(v))) if c else value
 
+def party_pill(pill, i):
+    """A Party screen pill's read ('2P @ Flora O': the badge, a ready mark, the name, the voice icon) as (its slot, the
+    name), the pill being the i-th; None when no name is left."""
+    # the text model reads the badge onto the name ('1PMinMax'): a space after it, so it's dropped below. Its P can read
+    # small ('4pR'), and a speck can come before it ('.4pR'): kept as a name, the badge glued a one-character name into
+    # a 3-4 letter one on 2 of 10 saved captures of 1 Nov (5 of 1508 pills read in the logs; a sixth kept '.2P' on one)
+    pill = re.sub(r'^[\s.,]+(?=[1-4]\s*[Pp]|[Il]\s*P)', '', pill)
+    pill = re.sub(r'^\s*([1-4]\s*[Pp]|[Il]\s*P)(?=[^\s/|])', r'\1 ', pill)
+    # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
+    # as one letter, or two odd ones ('iA')
+    words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4][Pp]|[Il]P', w)
+             and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()) or K.has_hangul(w))]
+    name = ''.join(words)
+    if not name: return None
+    # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
+    # and the result screen and Battle Data list players by badge, 1P to 4P (the pill's place if it misread)
+    badge = re.match(r'\s*([1-4])\s*[Pp]|\s*([Il])\s*P', pill)
+    return (int((badge.group(1) or badge.group(2)).translate(str.maketrans('Il', '11'))) - 1 if badge else i), name
+
 def sure_read(ocr, img):
     """Is this name box's read in the name cache for good? A read of one character or none only is when the Korean
     model vouched for it (Ocr.read_native: KoreanNames.lone, font-checked, or a Hangul name the font settled)."""
@@ -2863,19 +2882,9 @@ class Meter:
             # (yellow from (224,192,80) to (240,224,128) by scene; the yellowish 1P badge alone is ~1% of a pill, a name 3.5-5%)
             return sum(1 for r, g, b in px if r >= 0xc8 and g >= 0xa8 and r - b >= 0x50) > 0.025 * len(px)
         for i in range(4):
-            pill = t.get(f'n{i}') or ''
-            # the text model reads the badge onto the name ('1PMinMax'): a space after it, so it's dropped below
-            pill = re.sub(r'^\s*([1-4Il])\s*P(?=[^\s/|])', r'\1P ', pill)
-            # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
-            # as one letter, or two odd ones ('iA')
-            words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4Il]P', w)
-                     and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()) or K.has_hangul(w))]
-            name = ''.join(words)
-            if not name: continue
-            # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
-            # and the result screen and Battle Data list players by badge, 1P to 4P (the pill's place if it misread)
-            badge = re.match(r'\s*([1-4Il])\s*P', pill)
-            slot = int(badge.group(1).translate(str.maketrans('Il', '11'))) - 1 if badge else i
+            got = party_pill(t.get(f'n{i}') or '', i)
+            if not got: continue
+            slot, name = got
             card = t.get(f'a{i}') or ''
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)

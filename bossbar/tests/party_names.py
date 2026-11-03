@@ -9,8 +9,10 @@ Each result-screen (and Battle Data) column takes the Party screen's player of i
 - each Party member goes to one column at most: a column that clearly reads a member's name (0 as O, 1 as l) takes
   them first, and a column whose slot's member went to another keeps its own read, with no AI flag from the party;
 - a one-character name the Korean model vouched for (its read in the name cache for good: live.sure_read) stays;
+- a badge read with a small p or a speck before it ('4pK', '.4pK') isn't glued onto the name (live.party_screen);
 - an ordinary misread ('Dyn*ht') still takes the Party screen's name, and with no Party read names stay as read.
-Made-up players; the data folder is a temporary one. Exit code 1 on any failure.
+Made-up players; the Party screen is read through party_screen with a stand-in OCR. The data folder is a temporary
+one. Exit code 1 on any failure.
 """
 import os, shutil, sys, tempfile
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,6 +75,25 @@ check('sure_read: unsure (cached for a while)', lambda: live.sure_read(Cache(123
 check('sure_read: not cached', lambda: live.sure_read(Cache(None), Image.new('L', (60, 30), 200)), False)
 check('sure_read: no name cache', lambda: live.sure_read(object(), box), False)
 
+# the badge: '4pK' and '.4pK' are 4P with no name kept (a one-character name drops out), not a name of their own
+class Ocr:
+    """party_screen's one read: these pills, and every card with CP (real players)."""
+    name_cache = {}
+    def __init__(self, pills): self.pills = pills
+    def read(self, images, names=None, raws=None):
+        return {k: (self.pills[int(k[1])] if k[0] == 'n' else 'Lv. 30 / CP 41234' if k[0] == 'a' else '') for k in images}
+def party_read(pills):
+    m = live.Meter.__new__(live.Meter)
+    m.ocr = Ocr(pills); m.character_name = YOU; m.party = None; m.catalog = []; m.icons_state = 'failed'; m.prep_boss = None
+    m.party_screen(Image.new('RGB', (1920, 1080), (30, 30, 40)), 1000.0, 1920, 0, 1080)
+    return [(x['slot'], x['name'], x['self']) for x in m.party['members']]
+check('badge 4pK', lambda: party_read([f'1P{YOU}', '2P Brannoch', '3P @ Coolio', '4pK']),
+      [(0, YOU, True), (1, 'Brannoch', False), (2, 'Coolio', False)])
+check('badge .4pK', lambda: party_read([f'1P{YOU}', '2P Brannoch', '3P @ Coolio', '.4pK']),
+      [(0, YOU, True), (1, 'Brannoch', False), (2, 'Coolio', False)])
+check('badge .2P with a name', lambda: party_read([f'1P{YOU}', '.2P Brannoch', '3P Aeon Geon', '4p Ashgrove']),
+      [(0, YOU, True), (1, 'Brannoch', False), (2, 'AeonGeon', False), (3, 'Ashgrove', False)])
+
 # an ordinary misread still takes the Party screen's name; with no Party read, names stay as read (teammates aside)
 party = [member(0, YOU, me=True), member(1, 'Dynlight'), member(2, 'Coolio')]
 check('ordinary misread', lambda: result(party, {0: YOU, 1: 'Dyn*ht', 2: 'Coolio'}),
@@ -87,4 +108,4 @@ check('Battle Data cards', lambda: (live.party_slots(cards, party, you=YOU), [c[
 shutil.rmtree(TMP, ignore_errors=True)
 if fails:
     print(f'{len(fails)} FAILED:'); [print('  ' + f) for f in fails]; sys.exit(1)
-print("Party names: your row stays you, each member goes to one column, vouched one-character names stay")
+print("Party names: your row stays you, each member goes to one column, vouched one-character names and badges read right")
