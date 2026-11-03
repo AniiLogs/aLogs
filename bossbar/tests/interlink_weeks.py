@@ -68,8 +68,9 @@ def catalogs():
 
 def refresh_check():
     """live.refresh_cycles, one pass, on a data folder holding a week schedule written by an older aLogs (no bossIds2):
-    it must be rewritten from the game data, and a file that already matches must be left alone. Needs the game
-    installed; nothing is sent (upload_cycles is switched off here)."""
+    it must be rewritten from the game data, and a file that already matches must be left alone. The pass also reads
+    Interlink's HP bars from the game data. Needs the game installed; nothing is sent (upload_cycles is switched off
+    here)."""
     import json, types, gamedata
     game = gamedata.find_game_data()
     if not game:
@@ -82,7 +83,7 @@ def refresh_check():
         @property
         def stop(self): Once.reads += 1; return Once.reads > 1
     meter = Once(); meter.args = types.SimpleNamespace(player_log=None); meter.catalog = R.load_catalog()
-    real = (R.CYCLES_FILE[0], R.GAME_BOSSES[0], live.upload_cycles)
+    real = (R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], live.upload_cycles)
     live.upload_cycles = lambda *a, **k: None
     try:
         with At(inside('4003')): live.refresh_cycles(meter)
@@ -92,11 +93,12 @@ def refresh_check():
               [c.get('cycle') for c, w in zip(written, want) if c != w] + ['count'] * (len(written) != len(want)), [])
         check('refresh_cycles: the meter reads it', R.CYCLES_FILE[0], path)
         check('refresh_cycles: 4003 Omega Tucking after the rewrite', R.stage_of('80000119', '4003'), ('middle', 2, '80000120'))
+        check("refresh_cycles: the HP bars are the game data's", meter.grades, {c: [float(r[c]) for r in gamedata.read_grades(game)] for c in R.GRADE_COLUMNS})
         before = os.stat(path).st_mtime_ns
         Once.reads = 0
         with At(inside('4003')): live.refresh_cycles(meter)
         check('refresh_cycles: a schedule that matches is left alone', os.stat(path).st_mtime_ns, before)
-    finally: R.CYCLES_FILE[0], R.GAME_BOSSES[0], live.upload_cycles = real
+    finally: R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], live.upload_cycles = real
 
 def main():
     import gamedata

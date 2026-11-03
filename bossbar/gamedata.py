@@ -289,6 +289,93 @@ def read_rush_rules(path):
                               'bots': sorted(bots.values()) if isinstance(bots, dict) else None}.items() if v is not None}
 
 
+# ---- Interlink's HP bars (bossrush_grade_data): read at runtime like the weeks, shipped as boss_rush_grades.csv
+GRADE_COLUMNS = ('bossHpLossPercent', 'bossHpLossPercent_2', 'bossHpLossPercent_3')
+GRADES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'boss_rush_grades.csv')
+
+
+def grade_rows(table):
+    """[{'grade', 'name', 'bossHpLossPercent', 'bossHpLossPercent_2', 'bossHpLossPercent_3'}] by grade from a
+    bossrush_grade_data table: each column is the share of the boss's max HP lost when that grade is reached (22 rows
+    in build 3857679: grades 0-20 and 21 "Eliminate"). A row without _2 / _3 takes the base column, as the game does
+    (BossRushUtils.getBossCurHpState, line 317: value[field] or value.bossHpLossPercent). [] when the table isn't a
+    ladder the meter can use: grades 0..N in order, every column a number going from 0 up to 1 and never down."""
+    rows = []
+    for k in sorted(table or {}, key=lambda k: int(float(k))):
+        r = table[k]
+        if not isinstance(r, dict): return []
+        base = r.get('bossHpLossPercent')
+        rows.append({'grade': int(float(k)), 'name': str(r.get('gradeName') or r.get('name') or ''),
+                     **{c: base if r.get(c) is None else r.get(c) for c in GRADE_COLUMNS}})
+    if len(rows) < 3 or [r['grade'] for r in rows] != list(range(len(rows))): return []
+    for c in GRADE_COLUMNS:
+        v = [r[c] for r in rows]
+        if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v): return []
+        if v[0] != 0 or v[-1] != 1 or any(b < a for a, b in zip(v, v[1:])): return []
+    return rows
+
+
+def read_grades(path):
+    return grade_rows(PmData(path).table('bossrush_grade_data'))
+
+
+def cached_grades(cache_path, player_log=None):
+    """Interlink's HP bars from the game data, decoded again only when the game's data file changed.
+    Returns (rows, changed) or (None, False)."""
+    path = find_game_data(player_log)
+    if not path: return None, False
+    stamp = f'{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
+    try:
+        with open(cache_path, encoding='utf-8') as f: cached = json.load(f)
+        if cached.get('stamp') == stamp and grade_rows({r['grade']: r for r in cached['grades']}): return cached['grades'], False
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    rows = read_grades(path)
+    if not rows: return None, False                         # a decode that went wrong: keep the shipped table
+    _write_json(cache_path, {'stamp': stamp, 'grades': rows})
+    return rows, True
+
+
+def shipped_grades(csv_path=GRADES):
+    """boss_rush_grades.csv as grade_rows gives them (the columns as numbers)."""
+    import csv
+    with open(csv_path, encoding='utf-8', newline='') as f:
+        rows = [{'grade': int(r['grade']), 'name': r['name'], **{c: float(r[c]) for c in GRADE_COLUMNS}} for r in csv.DictReader(f)]
+    return grade_rows({r['grade']: r for r in rows})
+
+
+def write_grades(path, csv_path=GRADES):
+    """Rewrites boss_rush_grades.csv from the game data, every number as the game has it (repr: read back exactly).
+    xn: the bar counter the HUD shows while that grade is being worked toward (BossHpComp.refreshHpDisplay, line 74:
+    getBossTotalHpCount() - bar + 1, the count being the grades above 0)."""
+    import csv
+    rows = read_grades(path)
+    if not rows: raise ValueError(f'bossrush_grade_data in {path} is not a 0-to-1 ladder: not written')
+    tmp = csv_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8', newline='') as f:
+        w = csv.writer(f); w.writerow(['grade', 'name', *GRADE_COLUMNS, 'xn'])
+        for r in rows:
+            w.writerow([r['grade'], r['name'], *(repr(float(r[c])) for c in GRADE_COLUMNS), len(rows) - r['grade'] if r['grade'] else ''])
+    os.replace(tmp, csv_path)
+    return rows
+
+
+def grades_drift(path, csv_path=GRADES):
+    """What differs between the shipped boss_rush_grades.csv and the game data's bossrush_grade_data, as lines. Without
+    the game data (path None) only that the shipped one is a usable ladder."""
+    try: shipped = shipped_grades(csv_path)
+    except (OSError, KeyError, ValueError) as e: return [f'boss_rush_grades.csv unreadable: {e!r}']
+    if not shipped: return ['boss_rush_grades.csv is not a 0-to-1 ladder of grades 0..N with the three columns']
+    if path is None: return []
+    game = read_grades(path)
+    if not game: return ["the game data's bossrush_grade_data is not a 0-to-1 ladder"]
+    out = [f'{len(shipped)} grades shipped, {len(game)} in the game data'] if len(shipped) != len(game) else []
+    for a, b in zip(shipped, game):
+        diff = [f'{c} {a[c]!r} -> {b[c]!r}' for c in GRADE_COLUMNS if float(a[c]) != float(b[c])]
+        if diff: out.append(f"grade {a['grade']}: " + '; '.join(diff))
+    return out
+
+
 # ---- the shipped boss list (boss_catalog.csv), made from the game data and checked against it before each build
 CATALOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'boss_catalog.csv')
 CATALOG_LEVELS = (1, 10, 20, 30, 36, 40, 50, 60, 70, 80)       # its max-HP columns, for people (the meter computes HP)
@@ -372,17 +459,21 @@ def catalog_drift(path=None, csv_path=CATALOG, cycles_path=None):
 
 if __name__ == '__main__':
     # python gamedata.py catalog : rewrite boss_catalog.csv from the installed game
+    # python gamedata.py grades  : rewrite boss_rush_grades.csv from the installed game
     # python gamedata.py check   : what the build checks (build_meter.py): the shipped files against the installed game
     import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))      # hpcalc, also under python -I
     what = sys.argv[1] if len(sys.argv) > 1 else 'check'
     game = find_game_data()
-    if what == 'catalog':
+    if what in ('catalog', 'grades'):
         if not game: sys.exit('no game data found')
-        print(f'{len(write_catalog(game))} rows written to {CATALOG} from {game}')
+        if what == 'catalog': print(f'{len(write_catalog(game))} rows written to {CATALOG} from {game}')
+        else: print(f'{len(write_grades(game))} grades written to {GRADES} from {game}')
     else:
-        drift = catalog_drift(game)
-        print(f"boss_catalog.csv against {game or 'boss_rush_cycles.json (no game data found)'}: "
-              + (f'{len(drift)} differences' if drift else 'the same'))
-        for line in drift[:40]: print('  ' + line)
-        sys.exit(1 if drift else 0)
+        bad = 0
+        for name, drift in (('boss_catalog.csv', catalog_drift(game)), ('boss_rush_grades.csv', grades_drift(game))):
+            print(f"{name} against {game or 'what can be checked without the game data'}: "
+                  + (f'{len(drift)} differences' if drift else 'the same'))
+            for line in drift[:40]: print('  ' + line)
+            bad += len(drift)
+        sys.exit(1 if bad else 0)

@@ -1,4 +1,4 @@
-"""Reads the boss bar's segment counter (x16 ... x1) by matching digit shapes instead of OCR.
+"""Reads the boss bar's segment counter (x21 ... x1) by matching digit shapes instead of OCR.
 
 Windows OCR reads two-digit counters well but misses single digits ('x5'), so the counter's fixed font is
 matched against digit templates (xn_templates.json) built from labeled frames of a real fight.
@@ -84,8 +84,11 @@ def match(vec, tpl):
         elif dist < sd: second, sd = d, dist
     return best, bd, sd
 
-def read_counter(img, tpl=None, max_dist=0.22):
-    """Returns the counter value (1..16) or None when unsure."""
+def read_counter(img, tpl=None, max_dist=0.22, top=None):
+    """Returns the counter value (1 up to top, the counter at full HP: reader.xn_top(), x21) or None when unsure."""
+    if top is None:
+        import reader
+        top = reader.xn_top()
     tpl = tpl or load_templates()
     if not tpl: return None
     if img.height < SMALL_H:          # small counters: the 'x' and a '1' touch and read as one shape (x16 -> 6)
@@ -98,4 +101,4 @@ def read_counter(img, tpl=None, max_dist=0.22):
         if d is None or bd > max_dist or sd - bd < 0.03: return None
         s += d
     n = int(s)
-    return n if 1 <= n <= 16 else None
+    return n if 1 <= n <= top else None

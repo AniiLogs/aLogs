@@ -625,15 +625,18 @@ def strip_sparkling(title):
 
 XN_FIX = str.maketrans({'l': '1', 'I': '1', 'i': '1', '|': '1', 'O': '0', 'o': '0', 'D': '0', 'Q': '0', 'S': '5', 's': '5'})
 
-def parse_xn(t):
-    """Majority vote over the repeated copies ('x16 / x16 / x16'). This font's 1 is often read as 7 or l/I."""
+def parse_xn(t, top=None):
+    """Majority vote over the repeated copies ('x21 / x21 / x21'), x1 up to the top bar's counter (top: xn_top(), x21).
+    This font's 1 is often read as 7 or l/I: a two-digit read above the top has its 7s read as 1s ('x77' -> 11,
+    'x70' -> 10). A read up to the top is a real bar and stays as it is: x17 is bar 5 now, not 11."""
+    top = top or xn_top()
     votes = []
     for m in re.finditer(r'[xX×]\s*([0-9lIi|OoDQSs]{1,2})(?![0-9])', t or ''):
         s = m.group(1).translate(XN_FIX)
         if not s.isdigit(): continue
         n = int(s)
-        if n > 16 and len(s) == 2: n = int(s.replace('7', '1'))      # 'x77' -> 11, 'x70' -> 10
-        if 1 <= n <= 16: votes.append(n)
+        if n > top and len(s) == 2: n = int(s.replace('7', '1'))
+        if 1 <= n <= top: votes.append(n)
     return max(set(votes), key=votes.count) if votes else None
 
 def parse_timer(t):
@@ -653,9 +656,33 @@ def load_catalog():
     fresh = {key(r): r for r in game}
     return [{**r, **fresh.pop(key(r), {})} for r in rows] + list(fresh.values())
 
+# Interlink's HP bars: bossrush_grade_data, the share of a boss's max HP lost at each grade, in three columns
+GRADE_BASE = 'bossHpLossPercent'
+GRADE_COLUMNS = (GRADE_BASE, 'bossHpLossPercent_2', 'bossHpLossPercent_3')
+GAME_GRADES = [None]      # the grade rows read from the player's game data (gamedata.cached_grades), when there are some
+
 def load_grades():
-    with open(os.path.join(HERE, 'boss_rush_grades.csv'), encoding='utf-8') as f:
-        return [float(r['cumulative_hp_loss_pct']) / 100 for r in csv.DictReader(f)]   # index = grade 0..16
+    """{column: [share of max HP lost at grade 0, 1, ... 21]} for the three columns of bossrush_grade_data: the game
+    data's own rows (read again by the meter after each game patch) when there are some, else the shipped
+    boss_rush_grades.csv (gamedata.write_grades). Build 3857679 has 22 rows: grades 0-20 and 21 "Eliminate"."""
+    rows = GAME_GRADES[0]
+    if not rows:
+        with open(os.path.join(HERE, 'boss_rush_grades.csv'), encoding='utf-8') as f: rows = list(csv.DictReader(f))
+    return {c: [float(r[c]) for r in rows] for c in GRADE_COLUMNS}
+
+def xn_top(grades=None):
+    """The bar counter at a boss's full HP, x21: one bar per grade above 0 (BossRushUtils.getBossTotalHpCount, line
+    339: #bossrush_grade_data; BossHpComp.refreshHpDisplay, line 74: the counter is that count - bar + 1)."""
+    return len((grades or load_grades())[GRADE_BASE]) - 1
+
+def grade_column(puppet_id):
+    """The bossrush_grade_data column a boss's HP bars follow, picked as the game picks it: BossRushUtils.lua's local
+    getBossHpLossPercentField (line 306) gives bossHpLossPercent_2 for spawn index 1, bossHpLossPercent_3 for index 2
+    and bossHpLossPercent otherwise, the index being ClientBossRushDungeon.getBossSpawnIndex (line 232), which
+    stage_of's order mirrors: 1 for a two-boss stage's bossId, 2 for its bossId_2, none on one-boss stages. So a
+    two-boss middle fight's first boss reaches its last bar (x1) at 95% of its HP lost, the second at 39.76%, every
+    other boss at 50%."""
+    return {1: 'bossHpLossPercent_2', 2: 'bossHpLossPercent_3'}.get(stage_of(puppet_id)[1], GRADE_BASE)
 
 def norm(s): return re.sub(r'[^a-z]', '', (s or '').lower())
 
@@ -838,10 +865,13 @@ def boss_max_hp(row, level, use_calibration=True):
     return predicted
 
 def damage_dealt(max_hp_value, fill, xn, cum, bossrush=True):
-    """Team damage so far. Boss rush: the bar shows only the current star segment (xN = segments left)."""
+    """Team damage so far. Interlink: the bar shows only the HP of the bar (grade) being worked toward, and xN counts
+    the bars left, so that grade is g = len(cum) - xN: 1 at the top bar (x21), 21 at x1 (xn_top). cum: the boss's
+    column of the grade table (grade_column), the share of max HP lost at grades 0..21. max_hp_value: the max HP of
+    the boss now on the bar."""
     if not bossrush or xn is None: return round((1 - fill) * max_hp_value), None
-    g = 17 - xn
-    if not 1 <= g <= 16: return None, None
+    g = len(cum) - xn
+    if not 1 <= g <= len(cum) - 1: return None, None
     lo, hi = cum[g - 1], cum[g]
     return round((lo + (1 - fill) * (hi - lo)) * max_hp_value), {'grade': g, 'size_hp': round((hi - lo) * max_hp_value),
                                                                   'left_hp': round(fill * (hi - lo) * max_hp_value)}

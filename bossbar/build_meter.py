@@ -2,9 +2,9 @@
 
     python build_meter.py
 
-First checks the shipped boss list against the installed game (check_data: a difference stops the build). Then
-builds dist/meter/meter.exe with PyInstaller (one folder, no console window; nothing needs installing on the
-player's PC) and copies it, plus HidHide's signed driver files and license (vendor/hidhide), into
+First checks the shipped boss list and grade table against the installed game (check_data: a difference
+stops the build). Then builds dist/meter/meter.exe with PyInstaller (one folder, no console window; nothing needs
+installing on the player's PC) and copies it, plus HidHide's signed driver files and license (vendor/hidhide), into
 ../app/src-tauri/resources/, where the app's installer picks them up.
 """
 import os, shutil, subprocess, sys
@@ -15,19 +15,23 @@ DATA_FILES = ['boss_catalog.csv', 'boss_rush_grades.csv', 'boss_rush_cycles.json
               'ocr-helper.exe']   # built by the app's `npm run ocr:build`
 
 def check_data():
-    """Stops the build when the shipped boss list isn't the game's (gamedata.catalog_drift). A stale one (no
-    in_boss_rush on the second bosses of weeks 4003-4005's middle fights) matched Alpha Jabster to the left boss Alpha
-    Tubster and found no boss for Omega Tucking and Omega Jeburst."""
+    """Stops the build when the shipped boss list or Interlink HP-bar table isn't the game's (gamedata.catalog_drift,
+    gamedata.grades_drift). A stale boss list (no in_boss_rush on the second bosses of weeks 4003-4005's middle fights)
+    matched Alpha Jabster to the left boss Alpha Tubster and found no boss for Omega Tucking and Omega Jeburst; a stale
+    grade table (16 bars) put every Interlink fight's damage on the wrong bar."""
     sys.path.insert(0, HERE)
     import gamedata
     game = gamedata.find_game_data()
-    where = game or 'boss_rush_cycles.json (no game install found: only the scheduled bosses were checked)'
-    drift = gamedata.catalog_drift(game)
-    if drift:
-        print(f'boss_catalog.csv differs from {where}:')
-        for line in drift[:40]: print('  ' + line)
-        sys.exit('build stopped: run `python gamedata.py catalog` (and read the diff), or update the game first')
-    print(f'boss_catalog.csv checked against {where}')
+    where = game or 'what can be checked without the game (no game install found)'
+    stop = False
+    for name, fix, drift in (('boss_catalog.csv', 'catalog', gamedata.catalog_drift(game)),
+                             ('boss_rush_grades.csv', 'grades', gamedata.grades_drift(game))):
+        if drift:
+            print(f'{name} differs from {where}:')
+            for line in drift[:40]: print('  ' + line)
+            print(f'  fix: `python gamedata.py {fix}` (and read the diff), or update the game first'); stop = True
+        else: print(f'{name} checked against {where}')
+    if stop: sys.exit('build stopped: the shipped game data is out of date')
 
 def main():
     check_data()

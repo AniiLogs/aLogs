@@ -768,6 +768,7 @@ def refresh_cycles(meter):
                 log.warning(f"the game data at {gamedata.find_game_data(meter.args.player_log)} is older than this week "
                             f"(latest week {cycles[-1]['cycle']}): using aLogs' own boss list and week schedule instead")
                 R.GAME_BOSSES[0] = None; meter.catalog = R.load_catalog(); R.CYCLES_FILE[0] = os.path.join(R.HERE, 'boss_rush_cycles.json')
+                R.GAME_GRADES[0] = None; meter.grades = R.load_grades()
         except Exception as e:
             log.warning(f'could not check the game data: {e}')
         if stale:
@@ -786,6 +787,13 @@ def refresh_cycles(meter):
                 if changed or new: log.info(f'boss list read from the game data: {len(bosses)} rows' + (f', new: {new[:10]}' if new else ''))
         except Exception as e:
             log.warning(f'could not read the boss list from the game data: {e}')
+        try:   # Interlink's HP bars too (bossrush_grade_data): the Whisperwake update took them from 16 bars to 21
+            grades, changed = gamedata.cached_grades(os.path.join(HERE, 'game_grades.json'), meter.args.player_log)
+            if grades:
+                R.GAME_GRADES[0] = grades; meter.grades = R.load_grades()
+                if changed: log.info(f'Interlink HP bars read from the game data: {len(grades) - 1} bars')
+        except Exception as e:
+            log.warning(f'could not read the Interlink HP bars from the game data: {e}')
         try:
             cycles, changed = gamedata.cached_cycles(os.path.join(HERE, 'game_cycles.json'), meter.args.player_log)
             if cycles:
@@ -901,7 +909,9 @@ class Fight:
         # the run's own time limit, read off the game's clock as the fight starts (3:00 by default, 4:00 with the
         # Overtime blessing, more if the game's default goes up); None when the meter didn't see the start
         self.limit = None
-        self.started_at_16 = False; self.refill_pending = 0; self.refill_at = 0.0; self.seg_info = None; self.defeated = False
+        self.started_at_top = False; self.refill_pending = 0; self.refill_at = 0.0; self.seg_info = None; self.defeated = False
+        # the grade table column this boss's bars follow (R.grade_column: the two bosses of a two-boss fight have their own)
+        self.column = R.grade_column(row.get('puppetId')) if bossrush else R.GRADE_BASE
         self.brk = BreakTracker(R.boss_break_points(row, level))
         name = time.strftime('%Y%m%d_%H%M%S') + '_' + ''.join(c for c in title if c.isalnum())[:24]
         os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
@@ -912,10 +922,12 @@ class Fight:
         self.frames = os.path.join(HERE, 'logs', name) if debug_dir else None
         if self.frames: os.makedirs(self.frames, exist_ok=True)
 
-    def update(self, fill, fill_rgb, edge_rgb, xn_ocr, timer_ocr, cum, duration, at=None):
+    def update(self, fill, fill_rgb, edge_rgb, xn_ocr, timer_ocr, grades, duration, at=None):
         now = at or time.time(); note = ''          # at: when the game showed the frame (wincapture's frame_time)
         if self.timer is None: self.timer = Timer(duration)
-        if xn_ocr is not None and not 1 <= xn_ocr <= 16: xn_ocr = None
+        cum = grades.get(self.column) or grades[R.GRADE_BASE]   # grades: R.load_grades(), the meter's current table
+        top = len(cum) - 1                                       # the counter at full HP: x21 (R.xn_top)
+        if xn_ocr is not None and not 1 <= xn_ocr <= top: xn_ocr = None
         # a real reading starts with the live-HP red at the bar's left end; flashes, the ghost covering the whole
         # bar, or the yellow BREAK overlay give other colors - those frames carry no fill information
         r_, g_, b_ = fill_rgb
@@ -923,26 +935,28 @@ class Fight:
         # --- segment tracking. Two signals: the counter (digit matcher every frame + OCR) and the bar refilling.
         #     A refill must hold for two frames; two agreeing counter reads can correct the segment either way.
         #     The counter is the authority. A refill only moves one bar past what the counter last confirmed: on
-        #     30 Oct a misread start (x11 for x16) plus a fake refill (a low fill under an overlay for ~0.5 s, then the
-        #     true fill back) put the meter 6 bars ahead, more than the counter may pull back up, and it stayed ahead
-        #     to the end (x1 and 51.4M shown, the counter said x7: ~9M). Early bars really do pass every 2-4 s (x16 is
-        #     0.93% of max HP, x1 is 50%), so the time between refills can't tell a fake one; the counter can.
+        #     30 Oct a misread start (x11 for the top bar) plus a fake refill (a low fill under an overlay for ~0.5 s, then
+        #     the true fill back) put the meter 6 bars ahead, more than the counter may pull back up, and it stayed ahead
+        #     to the end (x1 and 51.4M shown, the counter said x7: ~9M). Early bars really do pass every 2-4 s (x21 is
+        #     0.44% of max HP, x1 is 50% on a one-boss stage), so the time between refills can't tell a fake one; the
+        #     counter can.
         if self.bossrush:
             if xn_ocr and now - self.vote_at >= CONFIRM_GAP:
                 self.xn_votes.append(xn_ocr); self.xn_votes = self.xn_votes[-4:]; self.vote_at = now
             agreed = xn_ocr if xn_ocr and self.xn_votes.count(xn_ocr) >= 2 else None
             if agreed and agreed == self.seg: self.xn_anchor = (agreed, now)
             if self.seg is None:
-                # Interlink starts at x16. While the bar fades in, x16 reads as x11 (10 of 11 fights on 30 Oct, two
-                # agreeing reads 15-30 s in) or x6: anything but 16 takes three reads and stays a guess that a later
-                # x16 can overrule (a meter that joins a fight late still gets the right segment from three reads)
-                if xn_ocr == 16 or (agreed and self.xn_votes.count(agreed) >= 3):
-                    self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'; self.xn_anchor = (xn_ocr, now); self.seg_guess = xn_ocr != 16
-                    self.started_at_16 = xn_ocr == 16 and fill is not None and fill > 0.97
+                # Interlink starts at the top bar, x21. While the bar fades in, the start read as x11 (10 of 11 fights
+                # on 30 Oct, two agreeing reads 15-30 s in; x21 then fell outside the old x16 cap, so probably x21 with
+                # its 2 misread) or x6: anything but the top takes three reads and stays a guess that a later top read
+                # can overrule (a meter that joins a fight late still gets the right segment from three reads)
+                if xn_ocr == top or (agreed and self.xn_votes.count(agreed) >= 3):
+                    self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'; self.xn_anchor = (xn_ocr, now); self.seg_guess = xn_ocr != top
+                    self.started_at_top = xn_ocr == top and fill is not None and fill > 0.97
                     self.seg_fill = fill if fill is not None else 1.0
             # within a fight the counter only counts down: going up (x1->x4 reset the damage in 6 of 13 fights) takes
-            # three agreeing reads instead of two, and at most 3 bars - except from a start guess to x16
-            elif agreed and agreed != self.seg and (abs(agreed - self.seg) <= 3 or (agreed == 16 and getattr(self, 'seg_guess', False))) \
+            # three agreeing reads instead of two, and at most 3 bars - except from a start guess to the top bar
+            elif agreed and agreed != self.seg and (abs(agreed - self.seg) <= 3 or (agreed == top and getattr(self, 'seg_guess', False))) \
                     and (agreed < self.seg or self.xn_votes.count(agreed) >= 3):
                 note = f'segment x{self.seg}->x{agreed} (counter)'; self.xn_anchor = (agreed, now); self.seg_guess = False
                 self.seg = agreed; self.seg_fill = fill if fill is not None else 1.0; self.refill_pending = 0
@@ -973,7 +987,7 @@ class Fight:
         if fill is not None: self.last_fill = fill
         if self.timer.feed(timer_ocr, now) == 'resync': note = (note + ' timer resync').strip()
         # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s
-        if self.limit is None and self.bossrush and self.started_at_16 and self.timer.val is not None:
+        if self.limit is None and self.bossrush and self.started_at_top and self.timer.val is not None:
             if self.timer.at - self.created <= 4:
                 self.limit = int(5 * math.ceil(self.timer.val / 5))
                 note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
@@ -1106,7 +1120,7 @@ def load_korean_names(player_log=None):
 class Meter:
     def __init__(self, args, out):
         self.args, self.out = args, out
-        self.catalog, self.cum = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()
+        self.catalog, self.grades = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()   # grades: refresh_cycles
         # the OCR helper stops before it's ready when Windows has no OCR language it can use (an older helper had to
         # have en-US): the meter then runs on what it reads from pixels (the boss bar, xN, the game font's numbers)
         try: self.ocr = R.Ocr()
@@ -1809,10 +1823,10 @@ class Meter:
             game_dps = sum(vals); T = f.elapsed; loss = f.damage / f.max_hp if f.max_hp else 0
             msg += f' vs meter {f.damage / T:,.0f} ({f.title} Lv {f.level})' if T > 1 else ''
             self.time_check(f, game_dps)
-            if f.bossrush and f.started_at_16 and loss > 0.02 and T > 60:
+            if f.bossrush and f.started_at_top and loss > 0.02 and T > 60:
                 measured = game_dps * T / loss
                 predicted = R.boss_max_hp(f.row, f.level, use_calibration=False)
-            if f.bossrush and f.started_at_16 and loss > 0.02 and T > 60 and predicted and 0.5 <= measured / predicted <= 2:
+            if f.bossrush and f.started_at_top and loss > 0.02 and T > 60 and predicted and 0.5 <= measured / predicted <= 2:
                 # far off the prediction means the wrong boss was matched, not a better HP figure: never save that
                 kept = R.save_calibration(f.row['puppetId'], f.level, measured, predicted,
                                           f'{time.strftime("%Y-%m-%d %H:%M")} game {game_dps} T {T:.0f}')
@@ -2959,7 +2973,7 @@ class Meter:
                  'server': S.game_server(),
                  'meter': {'max_hp': f.max_hp, 'damage': f.damage, 'seconds': round(f.elapsed, 1),
                            'dps': round(f.damage / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
-                           'tracked_from_start': f.started_at_16, 'csv': os.path.basename(f.log.name),
+                           'tracked_from_start': f.started_at_top, 'csv': os.path.basename(f.log.name),
                            'time_limit_s': f.limit or self.overtime_limit(time.time()),
                            'breaks': f.brk.breaks, 'break_gauge_points': None if not f.brk.size else round(f.brk.size),
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
@@ -3749,7 +3763,7 @@ class Meter:
                         self.hidden_drop = (fill, run[1] + counts, now if counts else run[2]); ok = self.hidden_drop[1] >= 3
                     if ok:
                         self.hidden_drop = None
-                        self.fight.update(fill, fill_rgb, edge_rgb, None, None, self.cum, self.args.duration, self.frame_at())
+                        self.fight.update(fill, fill_rgb, edge_rgb, None, None, self.grades, self.args.duration, self.frame_at())
                         self.emit_fight(im, self.bar); self.bar_seen = now        # the bar is there, just not findable
                 self.snapshot(now); return
             else:
@@ -3788,7 +3802,8 @@ class Meter:
         need_title = self.fight is None or now - self.last_title > 8
         timer = None; text = None
         xn_box = R.box_at(bar, R.XN_BOX)
-        xn = xn_digits = X.read_counter(im.crop(tuple(int(v) for v in xn_box)), self.xn_tpl)   # digit shapes, every frame
+        top = R.xn_top(self.grades)                            # the counter at full HP (x21)
+        xn = xn_digits = X.read_counter(im.crop(tuple(int(v) for v in xn_box)), self.xn_tpl, top=top)   # digit shapes, every frame
         if not self.fight: self.instant_start(xn, now)
         if self.dud_check(bar, fill, xn, now):
             self.bar = None; self.out('status', 'waiting for a boss bar'); self.snapshot(now); return
@@ -3798,7 +3813,7 @@ class Meter:
         if done:
             text, meta = done
             timer = R.parse_timer(text.get('timer'))
-            if meta['xn_missing'] and xn is None: xn = R.parse_xn(text.get('xn'))
+            if meta['xn_missing'] and xn is None: xn = R.parse_xn(text.get('xn'), top)
             if meta['title']: self.identify(text.get('title'), xn)
         if self.text_due(now) and not self.band_frame:
             crops = {'timer': R.prep_text(im, R.timer_box(*self.frame_size), scale)}
@@ -3811,7 +3826,7 @@ class Meter:
             else:
                 text = self.ocr.read(crops)
                 timer = R.parse_timer(text.get('timer'))
-                if xn is None: xn = R.parse_xn(text.get('xn'))
+                if xn is None: xn = R.parse_xn(text.get('xn'), top)
                 if need_title: self.identify(text.get('title'), xn)
         if self.fight:
             self.save_debug(im, bar, now)
@@ -3819,7 +3834,7 @@ class Meter:
                 self.brk_at = now                                   # readings, sized for that pace
                 gauge, kind, _ = R.measure_break(im, bar)
                 self.fight.brk.feed(gauge, kind, now)
-            self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.cum, self.args.duration, self.frame_at())
+            self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.grades, self.args.duration, self.frame_at())
         snap = dict(bar=bar, fill=fill, fill_rgb=fill_rgb, edge_rgb=edge_rgb, xn_digits=xn_digits, xn_ocr=xn)
         if text: snap['ocr'] = text
         self.snapshot(now, **snap)
@@ -3921,7 +3936,8 @@ class Meter:
         if self.bar: self.fight.bar_geom = (self.bar['span'], self.bar['yc'])     # the bar this fight follows
         self.out('status', f'fight started: {self.fight.title} Lv {level}, max HP {hp:,}' + (' (Interlink)' if bossrush else ''))
         log.info(f"fight details: puppetId {row['puppetId']}, {how}, "
-                 f"bossrush space {self.bossrush_space}, csv {os.path.basename(self.fight.log.name)}")
+                 f"bossrush space {self.bossrush_space}, csv {os.path.basename(self.fight.log.name)}"
+                 + (f', HP bars {self.fight.column}' if self.fight.column != R.GRADE_BASE else ''))
 
     def instant_start(self, xn, now):
         """Interlink: the prep screen just named the boss and every Interlink boss has the same level as the last one,
