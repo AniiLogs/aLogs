@@ -3098,7 +3098,11 @@ class Meter:
         mine = {'score': [res.get('rating_stars') or 0, res.get('score') or 0],
                 'clear': -clear if clear is not None else None,             # higher is better for every key
                 'dps': card.get('avg_dps'), 'break': card.get('break'), 'taken': card.get('taken'), 'heal': card.get('heal')}
-        key = f"{self.uid}|{s.get('cycle')}|{s.get('puppetId')}"
+        # one best per stage: a two-boss fight's under its stage's bossId, the first boss, whichever boss the run ended
+        # on. The game keeps it so (BossRushMainCtrl.renderBossInfo, line 350; the result screen's new-best badges
+        # compare against the first boss's: BossRushBattleResultCtrl.initUI, line 60)
+        boss = s.get('puppetId'); _, order, partner = R.stage_of(boss, s.get('cycle')) if boss else (None, None, None)
+        key = f"{self.uid}|{s.get('cycle')}|{partner if order == 2 else boss}"
         path = os.path.join(HERE, 'logs', 'bests.json')
         try:
             with open(path, encoding='utf-8') as fh: bests = json.load(fh)
