@@ -530,7 +530,7 @@ def party_pill(pill, i):
     # a 3-4 letter one on 2 of 10 saved captures of 1 Nov (5 of 1508 pills read in the logs; a sixth kept '.2P' on one)
     pill = re.sub(r'^[\s.,]+(?=[1-4]\s*[Pp]|[Il]\s*P)', '', pill)
     pill = re.sub(r'^\s*([1-4]\s*[Pp]|[Il]\s*P)(?=[^\s/|])', r'\1 ', pill)
-    # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
+    # the name: its words joined (OCR splits 'MiraVosk' as 'Mira Vosk'); badge, marks and icons left out - they read
     # as one letter, or two odd ones ('iA')
     words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4][Pp]|[Il]P', w)
              and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()) or K.has_hangul(w))]

@@ -91,8 +91,8 @@ check('badge 4pK', lambda: party_read([f'1P{YOU}', '2P Brannoch', '3P @ Coolio',
       [(0, YOU, True), (1, 'Brannoch', False), (2, 'Coolio', False)])
 check('badge .4pK', lambda: party_read([f'1P{YOU}', '2P Brannoch', '3P @ Coolio', '.4pK']),
       [(0, YOU, True), (1, 'Brannoch', False), (2, 'Coolio', False)])
-check('badge .2P with a name', lambda: party_read([f'1P{YOU}', '.2P Brannoch', '3P Aeon Geon', '4p Ashgrove']),
-      [(0, YOU, True), (1, 'Brannoch', False), (2, 'AeonGeon', False), (3, 'Ashgrove', False)])
+check('badge .2P with a name', lambda: party_read([f'1P{YOU}', '.2P Brannoch', '3P Mira Vosk', '4p Ashgrove']),
+      [(0, YOU, True), (1, 'Brannoch', False), (2, 'MiraVosk', False), (3, 'Ashgrove', False)])
 
 # an ordinary misread still takes the Party screen's name; with no Party read, names stay as read (teammates aside)
 party = [member(0, YOU, me=True), member(1, 'Dynlight'), member(2, 'Coolio')]
