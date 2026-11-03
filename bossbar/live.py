@@ -1248,8 +1248,9 @@ def ocr_language_note(ocr):
     Before, a PC with no English OCR only had 'OCR helper did not start' in its log, or nothing (76c9f87), and its
     runs weren't read. English added later is found by Meter.ocr_recheck, which says so."""
     lang = ocr.language
-    fix = ('Windows Settings > Time & language > Language & region > add English (United States), or Install English '
-           "OCR on aLogs' DPS Meter page")
+    # Settings' page is Language on Windows 10, Language & region on 11 (adding English there installs its OCR)
+    fix = ('Windows Settings > Time & language > Language (Language & region on Windows 11) > Add a language > English '
+           "(United States), or Install English OCR on aLogs' DPS Meter page")
     if not ocr.started: log.warning(f"Windows OCR: none (its helper didn't start): {NO_ENGLISH_READS} can't be read, "
                                     "so runs aren't recorded or sent")
     # not said: a plain READY, which only a helper from before READY<TAB> gives (ocr_win.ps1 says its language too),

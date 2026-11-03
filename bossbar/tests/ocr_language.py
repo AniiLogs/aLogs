@@ -172,6 +172,9 @@ for langs, want, level, start in (
             if level == 'WARNING':
                 check(f"meter on {langs!r}: it says what isn't read", NOT_READ in said[0][1], True)
                 check(f"meter on {langs!r}: and that runs aren't recorded", "runs aren't recorded or sent" in said[0][1], True)
+                # where to add it, on Windows 10 (Time & language > Language) and 11 (> Language & region)
+                check(f"meter on {langs!r}: the Settings path", 'Fix: Windows Settings > Time & language > Language '
+                      '(Language & region on Windows 11) > Add a language > English (United States)' in said[0][1], True)
             print(f'meter on {langs!r}: {said[0][0]} {said[0][1]}')
         # status.json keeps every field it had, and adds ocr
         if keys is None: keys = set(status)

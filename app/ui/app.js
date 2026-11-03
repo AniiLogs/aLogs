@@ -1491,6 +1491,7 @@
   // pick it up, and the warning goes once the restarted meter's status says English).
   let ocrJob = null;   // the install: {state: "running", since} / "declined" / "failed" (message) / "installed" (restart, at)
   const OCR_NOT_READ = "Result screens, boss names and levels, Battle Data and the battle prep and Party screens";
+  const OCR_SETTINGS = "Windows Settings › Time & language › Language (Language & region on Windows 11) › Add a language › English (United States)";
   const languageName = (tag) => {
     try { return new Intl.DisplayNames(["en"], { type: "language" }).of(tag) || tag; } catch { return tag; }
   };
@@ -1535,10 +1536,12 @@
       button.disabled = running || restarting;
       button.textContent = running ? "Installing…" : ocrJob?.state === "failed" || ocrJob?.state === "declined" ? "Try again" : "Install English OCR";
     }
+    // Settings' page is Language on Windows 10, Language & region on 11; adding English (United States) there
+    // installs its OCR with it (a required language feature)
     for (const node of $$("[data-ocr-manual]")) node.textContent = noHelper
       ? "Quit aLogs (tray icon › Quit) and open it again. If this stays, reinstall aLogs, or press Report a problem on the Dashboard."
-      : ocrJob?.state === "failed" ? "You can add it yourself: Windows Settings › Time & language › Language & region › add English (United States)."
-      : "Windows asks for admin approval to install it. Or add it yourself: Windows Settings › Time & language › Language & region › add English (United States).";
+      : ocrJob?.state === "failed" ? `You can add it yourself: ${OCR_SETTINGS}. Windows adds its text recognition (OCR) with it.`
+      : `Windows asks for admin approval to install it. Or add it yourself: ${OCR_SETTINGS}.`;
   }
   async function installOcr() {
     if (ocrJob?.state === "running") return;
