@@ -1,6 +1,18 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.32",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "Fixed",
+    "items": [
+     "**Sanctum Helper's Auto difficulty** reads the party screen again when you queue for Egg Heist from your homeland, and catches a difficulty picked just before you start."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.31",
   "intro": "",
   "sections": [
@@ -146,52 +158,6 @@ window.PATCH_NOTES = [
      "**Disk space:** the text reader no longer leaves files in Windows' Temp folder (up to 1.8 GB on one PC).",
      "**Controller blocking** could stop the keyboard, mouse and controllers after a restart.",
      "**Sign in again** right after cancelling now always opens the Discord window."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.27",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "New",
-    "items": [
-     "**Egg Heist matches:** the meter reads each match's end screen (escaped or failed, difficulty, time, Loot This Match, Total Defeats, chests today) and sends it to the new **Egg Heist › Matches** board, with the screen as proof. The Rank Info screen's Egg Emperor stars are read at every resolution now too.",
-     "**Every screen at every common resolution:** results, prep screens, Challenge Stats, Battle Data and Egg Heist read the same at 720p, 1080p, 1440p and 4K (checked against real screenshots at each size).",
-     "**Sign in with Discord, right in the app** (DPS Meter › Leaderboards & account): Discord's page opens in your normal browser, you approve, and aLogs is signed in. No more copying a desktop token from the website. The AniiLogs page inside the app is signed in with the same account automatically, and Sign out works from the app too.",
-     "**AniiLogs inside the app:** a new AniiLogs page shows the website itself (Leaderboards, Map, Aniilog, Item-log, Team Builder and Profiles as tabs), always identical to aniilogs.github.io. Sign in there once and your marks sync with the site. Links that leave AniiLogs open in your browser.",
-     "**Checklists per character:** map, Aniilog and Item-log progress is kept for each character (UID), so characters on different servers have their own. In the app it follows the character you're logged into; on the website you pick it in Settings › Linked characters. Each character starts from what you had tracked before.",
-     "**Far less disk space:** the meter reads each screen's numbers into your records and only keeps a picture when it's needed (leaderboard proof, until it has been sent). Kept pictures are small JPEGs (~0.25 MB instead of ~5 MB), leftovers are cleared every hour, and the diagnostic captures are off by default. DPS Meter › Captures & logs › Keep screenshots can keep them for 6 hours, 1 to 7 days, or for good.",
-     "**Only your best runs go to the leaderboards,** once each: a run is sent when it beats one of your bests on that boss that week: score (most stars, then highest score), fastest clear, or your own Average DPS, BREAK, damage taken or healing from Battle Data. Every other run stays in your own records. The boards can rank by each of these.",
-     "**Screenshots as proof:** with \"Attach the result screenshot\" on, a best run goes with its result screen and its Battle Data, each a small 1280×720 picture. Anyone can hover the picture icon next to your entry to see them (Summary and Battle Data tabs). Your PC keeps no copy once they're sent.",
-     "**An on/off switch for the meter** (DPS Meter › Meter › Run the DPS meter), for when you only want Sanctum Helper or the AniiLogs pages.",
-     "**A much smaller app:** Sanctum Helper now uses Microsoft's .NET Desktop Runtime (9 or newer) instead of carrying its own ~150 MB copy. The installer offers to install the runtime if it's missing, and so does the Sanctum Helper page.",
-     "**Leaderboards by server:** records now say which game server they were played on (the app reads it from the game's settings, e.g. Aniimo-Americas), and the AniiLogs boards have a Server picker."
-    ]
-   },
-   {
-    "heading": "Improved",
-    "items": [
-     "**Egg Heist: block from the fade to black** (Results, off by default, experimental): when a match ends, button presses (and your controller, if it's blocked too) are held back from the fade to black until the end screen is read, so a stray press can't skip it. Needs Sanctum Helper running.",
-     "The AniiLogs page's **Profiles** tab opens your own profile directly, with a player search at the top.",
-     "**The meter notices the boss bar almost instantly.** It checks the spot where bars appeared before ten times a second, which takes under a millisecond, so a fight starts on the bar's first frame. The full search (now about 40 ms at any resolution, down from 155 ms at 1080p) only runs when a bar shows up somewhere new.",
-     "**Interlink fights start the instant the bar appears:** the prep screen already said which boss it is, so the meter no longer waits to read the name above the bar (it still reads it, to double-check).",
-     "**Controller blocking is built in.** The installer no longer installs HidHide. Results › Controller › Set up installs just its small driver (Windows asks for admin approval once), with no extra program, shortcut or Programs entry. Setup now also blocks the XInput side of Xbox-style controllers, which most games read. Uninstalling aLogs removes the driver again. The installer is about 8 MB smaller.",
-     "**See that controller blocking works:** Results › Controller lists each connected controller by name (XInput or DirectInput). Press a button and its row lights up, so you know which controller is which. Each one has its own Block switch, and **Test blocking** hides them for a second to prove the game would lose them, then shows them again. Works with virtual controllers from reWASD too.",
-     "Set up now repairs a HidHide install that never attached to your controllers (it looked installed but blocked nothing)."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "The meter no longer mistakes a File Explorer folder (or anything else) called \"Aniimo\" for the game: the dashboard said \"Game window found\" with the game closed. It now only takes the game's own window.",
-     "The AniiLogs page loads the website, and opening it no longer leaves an invisible layer that stopped tabs and buttons on the other pages from being clicked.",
-     "**The dashboard no longer gets stuck on \"Starting…\"** and your character no longer looks reset after an update: the hourly screenshot cleanup could delete the meter's (empty) send-queue folder, which stopped its status updates. Right after the game starts, the dashboard now says it's waiting for the game log: your UID is read fresh each session (so it's always the character you're actually on), and your saved name follows the moment it appears.",
-     "Fixed an occasional \"int too long to convert\" error when capturing the game window.",
-     "**No more endless \".NET\" prompts.** Updating could leave pieces of an older Sanctum Helper behind, which made Windows ask you to install .NET every time it started. The installer now replaces the bundled programs cleanly, closes Sanctum Helper before updating, and counts any .NET Desktop Runtime 9 or newer (including .NET 10) as already installed.",
-     "**No more wrong or misread boss names on the boards.** In Interlink the meter only matches this week's three bosses and always uses their real names, so \"Tucking\" or \"Omega Tuckin8\" become Omega Tucking. A run only goes to the leaderboards when the game's own log confirms you were in an Interlink scene. Fights in the open world are never counted as Interlink, and the meter remembers the scene for all three bosses of a visit, even if it started partway through.",
-     "The note over the result screen no longer lingers in the old spot for a second when Battle Data opens or the screen closes: it disappears as soon as the screen changes and comes back in the right place."
     ]
    }
   ]

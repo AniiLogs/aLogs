@@ -3,6 +3,12 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.32
+
+### Fixed
+- **Sanctum Helper's Auto difficulty** reads the party screen again when you queue for Egg Heist from your homeland,
+  and catches a difficulty picked just before you start.
+
 ## 0.1.31
 
 ### New
