@@ -197,7 +197,11 @@ def scene_of(space_id):
 # Labels exactly as the game writes them (its English text table): a read is snapped to the closest one, so small
 # text at 720p ("Tot al Da nn age") still records the game's wording.
 RESULT_STATS = ('Total Damage Dealt', 'Total BREAK Damage', 'Targets Defeated', 'Most Healing', 'Most Damage Taken',
-                'Most Hits Taken', 'Most Support Provided')     # the Interlink result screen's per-player highlight
+                'Most Hits Taken', 'Most Support Provided',
+                'Best Strike Damage')     # the Interlink result screen's per-player highlight
+# 'Best Strike Damage' (text id 1277896829) was left out: it stayed as read, so a slot with only that label read dropped
+# out (321 slot reads of 31 Oct-1 Nov carry it, all with a value read so far); of the 2228
+# logged label reads, only it and 2 misreads of it snap differently
 EGG_MODES = ('Egg Heist Team Mode', 'Egg Heist')
 
 def canon(text, choices, cutoff=0.6):

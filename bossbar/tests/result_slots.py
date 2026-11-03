@@ -60,6 +60,12 @@ check('label only: four players', lambda: [p[0] for p in players(reads, FOUR)], 
 check('label only, no party', lambda: players(reads)[2], (2, '', 'Total BREAK Damage', None))
 # a label misread a little ('Tota1 BREAK Darnage') is still the label
 check('label misread', lambda: players({**reads, **slot(2, '', 'Tota1 BREAK Darnage')}, FOUR)[2][2], 'Total BREAK Damage')
+# 'Best Strike Damage' is a stat label too (the game's text table; 321 slot reads of 31 Oct-1 Nov carry it): a slot
+# with only that label read stays, and a misread of it ('Best Str1ke Darnage') snaps to the game's wording
+check('label only: Best Strike Damage', lambda: players({**reads, **slot(2, '', 'Best Strike Damage')}, FOUR)[2],
+      (2, 'Coolio', 'Best Strike Damage', None))
+check('Best Strike Damage misread', lambda: players({**reads, **slot(2, '', 'Best Str1ke Darnage')}, FOUR)[2][2],
+      'Best Strike Damage')
 
 # solo: three empty slots read nothing, no phantom players
 solo = slot(0, 'Vaultkeep', 'Total Damage Dealt', '1912345')
