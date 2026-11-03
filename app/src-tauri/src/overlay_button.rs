@@ -70,7 +70,11 @@ const PILL_TEXT: [u8; 3] = [37, 44, 53];
 const WM_REFRESH: u32 = WM_APP + 1;
 const TIMER_FOLLOW: usize = 1;
 const ROW_CHECK_MS: u32 = 125; // the icon row is looked at 8 times a second (a 1400x135 strip at 4K)
-const ROW_GONE_MS: u64 = 300; // default: missing this long in fresh pictures, the game hid its icons, so the button goes too
+// default: missing this long in fresh pictures, the game hid its icons, so the button goes too. 750 ms, not 300: the
+// owner's app.log (29 h) had 2160 misses that came back within 2 s, 792 of them 300 ms or longer (a blink of the button
+// each) but only 267 of 750 ms or longer, and testers saw the button blink. A saved hide_ms is kept: every save writes it,
+// so a saved 300 can't be told from never having chosen
+const ROW_GONE_MS: u64 = 750;
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 
