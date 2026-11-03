@@ -1,6 +1,44 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.31",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "New",
+    "items": [
+     "**Two-boss Interlink stages:** when the middle stage has two bosses one after the other, aLogs follows them as one run on one clock. The DPS window and the Dashboard show **Boss 1/2**, then **2/2**, and the run goes to your Battle History and the leaderboards under the stage's first boss, with both bosses' damage and each boss's part. Both bosses count toward the middle's 40 stars, and your best is kept for the stage, whichever boss the run ended on.",
+     "**A warning when Windows can't read the game's text:** without Windows' English text recognition (OCR), result screens, boss names, Battle Data and the prep and Party screens can't be read, so runs aren't recorded or sent. The Dashboard and the DPS Meter page now say so, and **Install English OCR** adds it for you (Windows asks for admin permission). English added in Windows Settings while aLogs runs is picked up without restarting."
+    ]
+   },
+   {
+    "heading": "Improved",
+    "items": [
+     "**Interlink time limit:** the run's clock is read off the game's timer as the fight starts (or from the Overtime offering on the Party screen), so with Overtime (4:00) a kill after 3:00 counts as a clear.",
+     "**Player names:** names on the result and Battle Data screens are read as they appear on screen, and the name in your game menu, which links your character, is read by the same name reader.",
+     "**Result screens:** the time and each player's stats are read with the game's own digits.",
+     "**Battle Data:** the cards are counted on screen, so each number lands on its own card even when the text reader misses one.",
+     "**Smoother and lighter:** the first read of a result, Party or Battle Data screen no longer holds the meter up for about a second, and the name reader uses far less memory.",
+     "**The button over the game blinks less:** it now waits 0.75 s by default before hiding with the game's icons. If yours still blinks, pick a longer wait in General Settings › The button over the game."
+    ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "**Interlink HP bars:** the counter is read from ×21 down (×17 to ×21 were skipped), and damage follows the game's own bars, so an Interlink run's damage and DPS are right from its first bar.",
+     "**Interlink fights** no longer start on a boss level misread as the bar fades in, which ended the fight a minute later and started it over.",
+     "**Battle Data:** each player's Avg DPS, BREAK, damage taken and healing are their own, also when the result screen missed a teammate (the players after them could take the next player's card, yours included).",
+     "**You and your teammates in a run:** your row keeps your name and is marked as you, and no teammate is listed twice (with their Battle Data twice). The Party screen's read could take over a right one.",
+     "**Teammates in a run:** a teammate whose name or stats on the result screen weren't read is no longer left out of the run, and their Battle Data goes with them.",
+     "**One-character names:** a teammate whose name is a single letter or digit shows as it is, not blank or as another character, also when the Party screen misread it.",
+     "**Text recognition in any English:** on a PC with English OCR other than US English (UK, Australia, India...), the meter starts and reads the game's screens. Before, it didn't start at all.",
+     "**Ultrawide screens:** the boss bar is found at 3440×1440.",
+     "**Warning titles** are easy to read in the Meadow theme and in a light Custom theme."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.30",
   "intro": "",
   "sections": [
@@ -153,28 +191,6 @@ window.PATCH_NOTES = [
      "**No more endless \".NET\" prompts.** Updating could leave pieces of an older Sanctum Helper behind, which made Windows ask you to install .NET every time it started. The installer now replaces the bundled programs cleanly, closes Sanctum Helper before updating, and counts any .NET Desktop Runtime 9 or newer (including .NET 10) as already installed.",
      "**No more wrong or misread boss names on the boards.** In Interlink the meter only matches this week's three bosses and always uses their real names, so \"Tucking\" or \"Omega Tuckin8\" become Omega Tucking. A run only goes to the leaderboards when the game's own log confirms you were in an Interlink scene. Fights in the open world are never counted as Interlink, and the meter remembers the scene for all three bosses of a visit, even if it started partway through.",
      "The note over the result screen no longer lingers in the old spot for a second when Battle Data opens or the screen closes: it disappears as soon as the screen changes and comes back in the right place."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.26",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "New",
-    "items": [
-     "**Proof of your character:** when the app reads your name in the game menu (Esc or Start), it sends that part of the menu (your picture, name and UID) to AniiLogs as proof. Proven characters can't be claimed by anyone else.",
-     "**Disputes:** if another account proved your UID first, DPS Meter › Leaderboards & account offers to send a dispute with your proof, for a developer to check.",
-     "**Your whole team on the boards:** runs now say which party members are real players and which are AI, so every real teammate gets their own leaderboard row. When two app users send the same run, each one's UID is recorded on the other's run."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "The party on the prep screen is read wherever it sits (it moves with the boss's challenge text), all four slots are recognized (3P and 4P were missed), and your own slot is found by your green name, leader or not.",
-     "Teammates' names are read the same way on every screen, so one player never shows under two spellings.",
-     "In Interlink, a boss name read without \"Omega\" could be taken for the open-world Alpha of the same name, with wrong HP. Only this week's Interlink bosses are considered now, and a far-off HP reading is never saved."
     ]
    }
   ]

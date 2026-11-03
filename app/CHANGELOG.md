@@ -3,6 +3,49 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.31
+
+### New
+- **Two-boss Interlink stages:** when the middle stage has two bosses one after the other, aLogs follows them as one
+  run on one clock. The DPS window and the Dashboard show **Boss 1/2**, then **2/2**, and the run goes to your Battle
+  History and the leaderboards under the stage's first boss, with both bosses' damage and each boss's part. Both
+  bosses count toward the middle's 40 stars, and your best is kept for the stage, whichever boss the run ended on.
+- **A warning when Windows can't read the game's text:** without Windows' English text recognition (OCR), result
+  screens, boss names, Battle Data and the prep and Party screens can't be read, so runs aren't recorded or sent. The
+  Dashboard and the DPS Meter page now say so, and **Install English OCR** adds it for you (Windows asks for admin
+  permission). English added in Windows Settings while aLogs runs is picked up without restarting.
+
+### Improved
+- **Interlink time limit:** the run's clock is read off the game's timer as the fight starts (or from the Overtime
+  offering on the Party screen), so with Overtime (4:00) a kill after 3:00 counts as a clear.
+- **Player names:** names on the result and Battle Data screens are read as they appear on screen, and the name in
+  your game menu, which links your character, is read by the same name reader.
+- **Result screens:** the time and each player's stats are read with the game's own digits.
+- **Battle Data:** the cards are counted on screen, so each number lands on its own card even when the text reader
+  misses one.
+- **Smoother and lighter:** the first read of a result, Party or Battle Data screen no longer holds the meter up for
+  about a second, and the name reader uses far less memory.
+- **The button over the game blinks less:** it now waits 0.75 s by default before hiding with the game's icons. If
+  yours still blinks, pick a longer wait in General Settings › The button over the game.
+
+### Fixed
+- **Interlink HP bars:** the counter is read from ×21 down (×17 to ×21 were skipped), and damage follows the game's
+  own bars, so an Interlink run's damage and DPS are right from its first bar.
+- **Interlink fights** no longer start on a boss level misread as the bar fades in, which ended the fight a minute
+  later and started it over.
+- **Battle Data:** each player's Avg DPS, BREAK, damage taken and healing are their own, also when the result screen
+  missed a teammate (the players after them could take the next player's card, yours included).
+- **You and your teammates in a run:** your row keeps your name and is marked as you, and no teammate is listed twice
+  (with their Battle Data twice). The Party screen's read could take over a right one.
+- **Teammates in a run:** a teammate whose name or stats on the result screen weren't read is no longer left out of
+  the run, and their Battle Data goes with them.
+- **One-character names:** a teammate whose name is a single letter or digit shows as it is, not blank or as another
+  character, also when the Party screen misread it.
+- **Text recognition in any English:** on a PC with English OCR other than US English (UK, Australia, India...), the
+  meter starts and reads the game's screens. Before, it didn't start at all.
+- **Ultrawide screens:** the boss bar is found at 3440×1440.
+- **Warning titles** are easy to read in the Meadow theme and in a light Custom theme.
+
 ## 0.1.30
 
 ### New
