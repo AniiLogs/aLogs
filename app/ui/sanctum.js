@@ -305,7 +305,7 @@
         select("Language", "Sanctum Helper language", "The language of the overlay and notices. Game terms use the game's own wording in that language.", [["Auto", `Same as the game${info().gameLanguage ? ` (${info().gameLanguage})` : ""}`], ...languages]),
       ),
       group("App",
-        toggle("ShowNotifications", "Notifications", "A short notice in the top-right corner when the difficulty or the Sanctum is found."),
+        toggle("ShowNotifications", "Notifications", "A short notice when the difficulty or the Sanctum is found. With the DPS meter on, it shows like every aLogs notice, where General Settings › Notifications puts it."),
       ),
       el("p", { class: "hint" }, "Sanctum Helper runs while aLogs does, unless you switch it off here, in the sidebar or with the button over the game. The game window's title and whether overlays show in recordings are set once for all of aLogs, in General Settings."),
     ];

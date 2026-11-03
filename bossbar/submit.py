@@ -147,6 +147,7 @@ class Submitter(threading.Thread):
         self.linked = None                   # (uid, name, proven) last linked, so a character is sent once per change
         self.dispute = _read_json(DISPUTE)   # another account proved our UID first: what a dispute would send
         self.last_result = None              # shown in the app: (time, text)
+        self.on_sent = None                  # (payload, reply) after a record reached the leaderboards (the meter's notice)
         log.info('leaderboard submissions: ' + (f"on ({self.config['api_url']})" if self.config else 'off (opt in from the app)'))
         self.retry_big_proofs()
 
@@ -340,6 +341,9 @@ class Submitter(threading.Thread):
                         try: os.remove(DISPUTE)
                         except OSError: pass
                     self.last_result = (time.time(), f'sent {name[:-5]}')
+                    if self.on_sent and item.get('endpoint') == 'submissions':
+                        try: self.on_sent(item.get('payload') or {}, reply)
+                        except Exception as e: log.warning(f'leaderboard: notice for {name} failed ({e!r})')
                     if _unchanged(path, raw): os.remove(path); self.drop_proof(item)
                     else: self.wake.set()           # replaced while it was sending (a newer read): send that one too
                 except urllib.error.HTTPError as e:
@@ -405,6 +409,27 @@ def card_of(cards, player, i):
     if isinstance(slot, int) and any(isinstance(c.get('slot'), int) for c in cards):
         return next((c for c in cards if c.get('slot') == slot), {})
     return cards[i] if i < len(cards) else {}
+
+def sent_notice(payload, reply=None):
+    """(title, details, accent) for the notice over the game when a record reached the leaderboards (Sarg's
+    suggestion, 3 Nov: say what was sent and where, like Sanctum Helper's difficulty notices); None for what isn't a
+    leaderboard record of its own (Challenge Stats' week total). Re-sent records (the same run read again, a rank that
+    moved) say updated."""
+    kind = payload.get('kind')
+    num = lambda v: f'{v:,}' if isinstance(v, int) and not isinstance(v, bool) else None
+    stars = f"{payload['stars']} stars" if isinstance(payload.get('stars'), int) else None
+    boss = ((payload.get('boss') or {}).get('name') or '').strip() or None
+    verb = 'updated' if (reply or {}).get('updated') else 'sent'
+    if kind == 'interlink_run': head, parts, accent = f'Interlink run {verb}', [boss, stars, num(payload.get('score'))], '#7fb2ff'
+    elif kind == 'interlink_best': head, parts, accent = f'Interlink best {verb}', [boss, stars, num(payload.get('score'))], '#7fb2ff'
+    elif kind == 'sim_run': head, parts, accent = f'Holo-Battle Sim run {verb}', [payload.get('trial'), payload.get('difficulty')], '#9be27a'
+    elif kind == 'eggheist_match':
+        head, parts, accent = f'Egg Heist match {verb}', [payload.get('difficulty'), num(payload.get('score'))], '#ffc861'
+    elif kind == 'eggheist_season':
+        head, parts, accent = f'Egg Heist rank {verb}', [(payload.get('rank') or {}).get('name'), num(payload.get('score'))], '#ffc861'
+    else: return None
+    return head, ' \u00b7 '.join(str(p) for p in parts if p), accent
+
 
 def run_payload(summary, uid):
     """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter). A two-boss middle

@@ -3,6 +3,18 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.33
+
+### New
+- **A notice when a record is sent:** each time a run, a Holo-Battle Sim win or your Egg Heist rank reaches the
+  leaderboards, a small notice over the game says what was sent and to which board ("Interlink run sent · Alpha
+  Scorchhowl · 17 stars · 17,061"). Set it up in General Settings › **Notifications**: where it shows (top right,
+  top middle, middle right, middle left, or anywhere you drag it), how it comes in (fade, slide or drop), or turn it
+  off. Sanctum Helper's notices ("Chaos Mode found") show the same way and wait their turn, so two never overlap.
+
+### Fixed
+- **Beta Menu bug reports** say which aLogs you're on, not an old test list's build.
+
 ## 0.1.32
 
 ### Fixed

@@ -345,3 +345,7 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .beta-retired { margin-top: 12px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 12px; }
 .beta-retired ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .beta-retired li { display: flex; justify-content: space-between; gap: 12px; }
+
+/* the notice's lock only matters for its Custom spot (General Settings > Notifications) */
+.notify-lock { display: none; }
+.group:has(select[data-k="leaderboard.notify_place"] option[value="custom"]:checked) .notify-lock { display: grid; }

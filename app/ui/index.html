@@ -353,6 +353,7 @@
         <header class="page-head"><h1>General Settings</h1></header>
         <div class="tabs" role="tablist" aria-label="General Settings">
           <button type="button" role="tab" data-tab="general" aria-selected="true">General</button>
+          <button type="button" role="tab" data-tab="notifications" aria-selected="false">Notifications</button>
           <button type="button" role="tab" data-tab="themes" aria-selected="false">Themes</button>
         </div>
       <div class="dps-panel is-active" data-panel="general">
@@ -408,6 +409,26 @@
       </div>
 
       <!-- Themes: the AniiLogs site's themes, for this window only -->
+      <div class="dps-panel" data-panel="notifications">
+        <p class="lead">Small notices over the game, in the spot you pick. They show while the game is in front, one at a time. Sanctum Helper's notices ("Chaos Mode found") show here the same way while the DPS meter is on; turn them on or off on the Sanctum Helper page.</p>
+        <div class="group">
+          <h2>Leaderboards</h2>
+          <label class="toggle"><input type="checkbox" data-k="leaderboard.notify_sent"><span></span>
+            <div><strong>Tell me when a record is sent to the leaderboards</strong><small>A small notice over the game each time a record reaches the leaderboards, with what it was and where it went (an Interlink run, a Holo-Battle Sim run, your Egg Heist rank...). Shown while the game is in front.</small></div></label>
+          <div class="row notify-options">
+            <label class="field"><span>Where it shows</span>
+              <select data-k="leaderboard.notify_place">
+                <option value="top-right">Top right, under the game's buttons (default)</option><option value="top-center">Top middle</option><option value="right">Middle right</option><option value="left">Middle left</option><option value="custom">Custom: drag it where you want</option>
+              </select></label>
+            <label class="field"><span>How it comes in</span>
+              <select data-k="leaderboard.notify_motion">
+                <option value="fade">Fades in (default)</option><option value="slide">Slides in from the edge</option><option value="drop">Drops down from the top</option>
+              </select></label>
+          </div>
+          <label class="toggle notify-lock"><input type="checkbox" data-k="leaderboard.notify_locked"><span></span>
+            <div><strong>Lock the notice's spot</strong><small>Unlocked, a sample notice stays on the game while it's in front. Drag it where you want the notices, then lock it again. Double-click the sample to put it back top right.</small></div></label>
+        </div>
+      </div>
       <div class="dps-panel" data-panel="themes">
         <p class="lead">The same themes as the AniiLogs website. They change how this window looks; the overlay in the game stays the same. Signed in, your theme follows your account: pick it here or on the site and both change.</p>
         <div class="group">

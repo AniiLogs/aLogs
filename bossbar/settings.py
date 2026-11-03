@@ -17,6 +17,7 @@ DATA = os.environ.get('ALOGS_DATA') or (
 os.makedirs(DATA, exist_ok=True)
 SETTINGS_FILE = os.path.join(DATA, 'settings.json')
 STATUS_FILE = os.path.join(DATA, 'status.json')
+NOTICES = os.path.join(DATA, 'notices')         # other modules' notices for the meter to show (Sanctum Helper)
 
 DEFAULTS = {
     'meter': {'enabled': True},               # the desktop app starts the meter only while this is on
@@ -83,6 +84,11 @@ DEFAULTS = {
         'token': '',                         # desktop token from the leaderboard page
         'link_character': True,              # link the detected character (UID + name) to the account
         'include_screenshots': True,         # attach the result screenshot as evidence
+        'notify_sent': True,                 # a toast over the game when a record reaches the leaderboards
+        'notify_place': 'top-right',         # where: 'top-right' (under the game's buttons), 'top-center', 'right', 'left',
+                                             # 'custom' (dragged there: positions.json 'notice')
+        'notify_motion': 'fade',             # how it comes in: 'fade', 'slide' (from the nearest edge), 'drop' (from the top)
+        'notify_locked': True,               # 'custom' place: off shows a sample notice to drag where they should show
     },
     # the settings the player changed themselves ('capture.keep_hours', ...), kept by the app: a default that changes in
     # a later version only moves the ones not listed, so a choice is never overwritten

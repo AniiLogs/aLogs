@@ -1,6 +1,24 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.33",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "New",
+    "items": [
+     "**A notice when a record is sent:** each time a run, a Holo-Battle Sim win or your Egg Heist rank reaches the leaderboards, a small notice over the game says what was sent and to which board (\"Interlink run sent · Alpha Scorchhowl · 17 stars · 17,061\"). Set it up in General Settings › **Notifications**: where it shows (top right, top middle, middle right, middle left, or anywhere you drag it), how it comes in (fade, slide or drop), or turn it off. Sanctum Helper's notices (\"Chaos Mode found\") show the same way and wait their turn, so two never overlap."
+    ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "**Beta Menu bug reports** say which aLogs you're on, not an old test list's build."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.32",
   "intro": "",
   "sections": [
@@ -112,52 +130,6 @@ window.PATCH_NOTES = [
      "**Lock the DPS window** shows as on when the window is locked.",
      "**Sanctum Helper's settings:** the key buttons show the new key, two quick Markers changes both stick, and errors stay until you close them.",
      "**Egg Heist's fade hold** works from its own switch and for as long as its setting allows."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.28",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "New",
-    "items": [
-     "**Sign in with Discord** from the sidebar, in a window of aLogs. Signed in, your account shows as a Discord button with a menu: your profile, your account, sign out.",
-     "**aLogs updates itself:** a new version shows in the sidebar; **Install now** or **Next time aLogs opens**. Betas are opt-in (About › Updates › Get beta updates).",
-     "**An on/off button in the game's icon row,** next to Chat, with a hotkey (Insert by default) or a controller combo. It turns the meter and Sanctum Helper off and on; each also has its own switch in the sidebar.",
-     "**Holo-Battle Sim on the leaderboards:** after a win, your time, stage, difficulty and setup from the Victory screen go to that stage's board.",
-     "**Interlink:** every run goes to your Battle History with its party, buffs and Battle Data, under the new 20 / 40 / 20 star rules.",
-     "**Egg Heist:** your matches and season rank reach the leaderboards.",
-     "**Your profile:** your in-game photos (pick them or upload new ones automatically), collection progress, level and EXP, catches, and an Online / AFK / Offline status.",
-     "**DPS window options** (DPS Meter › Overlay): spots for each mode, a dark background, a lock, and the result kept on screen after a kill (\"Defeated <boss>\").",
-     "**\"You're being attacked\"** pops up over your other windows when you're hit while tabbed out.",
-     "**Boss kill sound:** the game's kill sound dates the end of a world fight to the killing blow.",
-     "**Report a problem** on the Dashboard: send your logs, a note and screenshots to the developers.",
-     "**Sanctum Helper:** its map can sit over the game's minimap (experimental), and it knows the Whisperwake layouts.",
-     "A **setup guide**, a **name** (aLogs: Aniiloger's Companion App) and a **new icon**."
-    ]
-   },
-   {
-    "heading": "Improved",
-    "items": [
-     "**Screen capture rebuilt:** aLogs now watches the game on your graphics card, the way OBS does. Far less lag and stutter, especially at 4K and while streaming, and lighter between fights. It runs at a lower priority by default (General Settings › Performance).",
-     "**Overlays in recordings:** the DPS window and Sanctum Helper's maps show in screenshots and recordings on Windows 10 and 11 when you want them; pictures sent to the leaderboards stay the game alone.",
-     "**A faster meter:** it finds boss bars and reads screens much faster, and most settings apply without restarting it.",
-     "**New bosses right after a patch:** boss names and HP come from your own game files, including the Whisperwake update's new HP and BREAK formulas.",
-     "**Sanctum Helper** keeps up with fast turns, uses far less memory, and works on 16:10 and ultrawide screens.",
-     "Settings are organised in tabs, Updates moved to About, and closing aLogs is instant."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "**Fight times:** world fights start at the first hit and end at the kill, and BREAKs and ultimates no longer cut the clock short.",
-     "**Reading the screen at every size:** the boss bar, the ×N counter and names read right from 720p to 4K, and a level like \"Lv064\" no longer reads as Lv 6.",
-     "**Names:** short names, misread names and teammates' names are read right, and Battle Data cards carry each player's name.",
-     "**Disk space:** the text reader no longer leaves files in Windows' Temp folder (up to 1.8 GB on one PC).",
-     "**Controller blocking** could stop the keyboard, mouse and controllers after a restart.",
-     "**Sign in again** right after cancelling now always opens the Discord window."
     ]
    }
   ]

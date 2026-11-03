@@ -11,7 +11,8 @@
       rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
-    leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true },
+    leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true,
+      notify_place: "top-right", notify_motion: "fade", notify_locked: true },
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
     // only moves the ones not listed, so a choice is never overwritten
     user_set: [],
@@ -1265,7 +1266,10 @@
       form.set("kind", kind);
       form.set("uid", uid);
       form.set("app_version", rc ? `${version}+rc.${rc}` : version);
-      form.set("build", betaTests.build);
+      // the checklist's build for its tests; bugs are this aLogs' own ("0.1.33", "0.1.33 B2"): the shared list's
+      // build stayed "0.1.28-RC43" for bugs sent from 0.1.31
+      const running = `${version} ${await invoke("build_label").catch(() => "")}`.trim();
+      form.set("build", kind === "beta-tests" ? betaTests.build : running);
       for (const [key, value] of Object.entries(fields)) form.set(key, JSON.stringify(value));
       form.set("logs", new Blob([zip], { type: "application/zip" }), "logs.zip");
       for (const [name, blob] of shots) form.append("screenshot", blob, name);
