@@ -1915,12 +1915,22 @@ class Meter:
         f = self.awaiting[0] if self.awaiting and now <= self.awaiting[1] else None
         if f and vals:
             game_dps = sum(vals); T = f.elapsed; loss = f.damage / f.max_hp if f.max_hp else 0
-            msg += f' vs meter {f.damage / T:,.0f} ({f.title} Lv {f.level})' if T > 1 else ''
+            run = self.run_of(f)                                       # the run's damage: a two-boss fight's both bosses
+            msg += f' vs meter {run["damage"] / T:,.0f} ({run["title"]} Lv {f.level})' if T > 1 else ''
             self.time_check(f, game_dps)
-            if f.bossrush and f.started_at_top and loss > 0.02 and T > 60:
+            calibrate = f.bossrush and f.started_at_top and loss > 0.02 and T > 60
+            if calibrate and run['bosses'] is not None:
+                # Never from a two-boss middle fight, whichever boss it ended on: Battle Data has one team DPS for the
+                # run (BossRushBattleDetailResult; whether it covers both bosses isn't known until a live run shows it),
+                # and no share of it is one boss's. Taken as the boss on the bar's, it put the second boss's max HP
+                # ~1.2x too high, inside the guard below, and kept that for the boss from then on (calibration.json)
+                calibrate = False
+                log.info(f"Battle Data: no max HP measured from a two-boss fight ({', '.join(b['name'] for b in run['bosses'])}): "
+                         "its team DPS is the run's, not one boss's")
+            if calibrate:
                 measured = game_dps * T / loss
                 predicted = R.boss_max_hp(f.row, f.level, use_calibration=False)
-            if f.bossrush and f.started_at_top and loss > 0.02 and T > 60 and predicted and 0.5 <= measured / predicted <= 2:
+            if calibrate and predicted and 0.5 <= measured / predicted <= 2:
                 # far off the prediction means the wrong boss was matched, not a better HP figure: never save that
                 kept = R.save_calibration(f.row['puppetId'], f.level, measured, predicted,
                                           f'{time.strftime("%Y-%m-%d %H:%M")} game {game_dps} T {T:.0f}')
