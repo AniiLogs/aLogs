@@ -385,8 +385,22 @@ def _lineup(summary):
     lineup = [entry(m) for m in summary.get('party') or []]
     return {'lineup': lineup} if lineup else {}
 
+def _bosses(meter):
+    """{'bosses': a two-boss middle fight's bosses in order, as far as the run got} for a run's extra: [{id, name, maxHp,
+    damage, defeated, seconds}], seconds on the run's clock from the boss's bar showing to its last hit seen (to the
+    run's end for the last one; the gap between them counts to neither), None for a first boss the meter never saw.
+    Nothing for a one-boss fight."""
+    bosses = meter.get('bosses')
+    if not isinstance(bosses, list) or not bosses: return {}
+    return {'bosses': [{'id': str(b.get('id')), 'name': (b.get('name') or '')[:40] or None, 'maxHp': b.get('max_hp'),
+                        'damage': b.get('damage'), 'defeated': bool(b.get('defeated')), 'seconds': b.get('seconds')}
+                       for b in bosses[:2] if isinstance(b, dict)]}
+
 def run_payload(summary, uid):
-    """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter)."""
+    """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter). A two-boss middle
+    fight's run (weeks 4003-4005) goes as one run: boss is its stage's bossId, the first boss, whichever boss it ended
+    on (the id its result screen and bests use: BossRushBattleResultCtrl.initUI, BossRushMainCtrl.renderBossInfo);
+    playedAt its start; meterDamage and meterDps both bosses' over the run's time; extra.bosses each boss's part."""
     res = summary.get('result') or {}
     bd = summary.get('battle_data') or {}
     meter = summary.get('meter') or {}
@@ -423,7 +437,7 @@ def run_payload(summary, uid):
                   **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {}),
                   **({'endedByLeader': True} if res.get('ended_by_leader') else {}),
                   # the run's own clock as it started (4:00 with Overtime): what tells a quit run from one that ran out
-                  **({'timeLimitS': meter['time_limit_s']} if meter.get('time_limit_s') else {})},
+                  **({'timeLimitS': meter['time_limit_s']} if meter.get('time_limit_s') else {}), **_bosses(meter)},
     }
 
 def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):

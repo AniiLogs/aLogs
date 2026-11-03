@@ -423,7 +423,8 @@ def checks(R_):
         f, s = common(d, [GLAMEEP2], 180, False, 180)
         damage_checks(d, f, [False])
         check('d', 'no hand-off', not d.calls['next_boss'], d.calls['next_boss'])
-        check('d', 'no bosses list for a one-boss run', 'bosses' not in (s.get('meter') or {}), s.get('meter'))
+        check('d', 'the summary lists the one boss the run got to', [x['id'] for x in (s.get('meter') or {}).get('bosses') or []] == [GLAMEEP2],
+              s.get('meter'))
         key = next(iter(d.bests), '')
         check('d', "the best kept under the stage's bossId", key.endswith('|' + GLAMEEP2), list(d.bests))
     if e:

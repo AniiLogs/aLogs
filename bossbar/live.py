@@ -921,6 +921,7 @@ class Fight:
         # each boss of the run: t0/t1 wall time, start_s/end_s on the run's clock (elapsed)
         self.phases = [{'row': row, 'title': title, 'max_hp': max_hp, 'damage': 0, 'defeated': False,
                         't0': self.created, 't1': None, 'start_s': 0.0, 'end_s': None, 'breaks': 0}]
+        self.joined = False          # a run first seen at its second boss: that boss's start on the run's clock is set
         # Out in the world a boss's bar shows as soon as you're near it, often before anyone attacks: the fight's
         # clock starts at the first hit (between the last reading before the damage and the one that shows it).
         # Interlink's clock runs from the start, like the game's own timer.
@@ -1034,7 +1035,9 @@ class Fight:
         # boss: its damage on its own max HP, after the bosses already down in this run. A second boss whose counter
         # isn't read yet adds nothing (its fill alone can't place it among its 21 bars)
         dmg, seg = R.damage_dealt(self.boss_hp, self.seg_fill, self.seg if self.bossrush else None, cum, self.bossrush)
+        rose = False
         if dmg is not None and not (self.bossrush and self.seg is None and len(self.phases) > 1):
+            rose = dmg > self.phases[-1]['damage']
             self.damage = self.done_hp + dmg; self.phases[-1]['damage'] = dmg
         if not self.hit:
             if self.first_damage is None:
@@ -1053,6 +1056,11 @@ class Fight:
         tp = self.timer.predict(now)
         clock = self.limit or duration
         self.elapsed = (clock - tp) if tp is not None and tp <= clock else (now - self.t0 if self.hit else 0.0)
+        # each boss's time on the run's clock (run_of): its last hit seen, and where a run first seen at a two-boss
+        # fight's second boss starts (the clock when its bar showed: the meter started late)
+        if rose: self.phases[-1]['hit_s'] = round(self.elapsed, 1)
+        if self.order == 2 and len(self.phases) == 1 and not self.joined and tp is not None and tp <= clock:
+            self.joined = True; self.phases[0]['start_s'] = max(0.0, round(self.elapsed - (now - self.created), 1))
         avg = self.damage / self.elapsed if self.elapsed > 1 else 0
         (t_a, d_a), (t_b, d_b) = self.samples[0], self.samples[-1]
         self.recent = (d_b - d_a) / (t_b - t_a) if t_b - t_a > 0.5 else avg; self.avg = avg
@@ -1097,7 +1105,8 @@ class Fight:
         partner, on its own grade column (R.grade_column) with its own break gauge."""
         now = time.time(); p = self.phases[-1]
         left = self.boss_hp - (self.damage - self.done_hp)
-        p.update(damage=self.boss_hp, defeated=True, t1=now, end_s=round(self.elapsed, 1), breaks=self.brk.breaks)
+        # its time ends at its last hit seen (as it died), not with the gap before its partner shows up
+        p.update(damage=self.boss_hp, defeated=True, t1=now, end_s=p.get('hit_s', round(self.elapsed, 1)), breaks=self.brk.breaks)
         self.done_hp += self.boss_hp
         hp = R.boss_max_hp(row, self.level)
         self.row, self.title, self.boss_hp, self.partner, self.order = row, row['bossTitle_en'] or self.title, hp, None, 2
@@ -2907,10 +2916,12 @@ class Meter:
         score = V('score', sure if sure is not None else num(t.get('score')))
         secs = V('time', sure_time if sure_time is not None else first_num(t.get('time')))
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
-        full = clear_stars(f[0].row['puppetId'] if f else None)
+        # the result is the run's: a two-boss fight's under its stage's first boss, its damage both bosses' (run_of)
+        run = self.run_of(f[0]) if f else None
+        full = clear_stars(run['id'] if f else None)
         # the stars are a number only: the screen prints the run's grade (BossRushBattleResultCtrl.initUI), and no client
         # Lua shows bossrush_grade_data's grade names ("Eliminate"). A two-boss fight's score is left as read
-        score = interlink_score(score, rating, full, two_boss=bool(f and R.stage_of(f[0].row['puppetId'])[1]))
+        score = interlink_score(score, rating, full, two_boss=bool(run and run['bosses'] is not None))
         players = []
         for i in range(4):
             dx = i * 0.1765
@@ -2941,8 +2952,13 @@ class Meter:
         # clock, not proof of a kill: a solo player or the leader can End a run at any stars
         # (QuitBtnUIComponent.onQuitBtnClick; the HUD's own end button shows at full stars), and a wipe ends it too
         # (BossRushConst.LevelEndType: LeaderExit, AllPlayerDie, BossDie, TimeOver). Under the clock with fewer stars
-        # is no clear.
+        # is no clear. A two-boss middle fight is one run with one rating, capped as the center (40), and one clock, the
+        # first boss's (BossRushInfoUIComponent.setBossRushStar; level graph 78824533 nodes 5-11): its clear is the same
+        # test. Whether killing both always shows 40 is for a live run to show; the screen's call stands either way.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
+        if run and run['bosses'] is not None:                          # of the boss on the bar, its own max HP
+            left = f'{(f[0].max_hp - f[0].damage) / f[0].boss_hp if f[0].boss_hp else 0:.0%} of {f[0].title}, boss {f[0].order} of 2,'
+        else: left = f'{left:.0%}'
         # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration (180,
         # sys_config_data.BossRushCombatDuration). The screen shows min(the clock, ceil(the run's time))
         # (BossRushBattleResultCtrl.initUI), so a time-up reads the clock exactly. Every star at the clock's end is no
@@ -2951,11 +2967,12 @@ class Meter:
         cleared = bool(f and secs is not None and 0 < secs < limit and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
         elif f and secs is not None and secs < limit:
-            log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
+            log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left} HP left on the meter)')
         # the leader ended it ("The team leader has ended the challenge.", seen as the boss went): the site sorts out
         # what that makes the run (ended early with every star, or not counted)
         ended_by_leader = bool(f and getattr(self, 'leader_ended', None) is f[0])
-        boss = f[0].title if f else '(unknown - meter saw no fight)'
+        # the run's boss: a two-boss fight's first, the one its result screen names (BossRushBattleResultCtrl.initUI)
+        boss = run['title'] if f else '(unknown - meter saw no fight)'
         log.info(f'result screen read {self.result_reads}: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
         if again:                                                  # a later read: only the agreed numbers change
             party = self.party_for_result(now)
@@ -2974,10 +2991,10 @@ class Meter:
             w = csv.writer(fh)
             if new: w.writerow(['time', 'uid', 'cycle', 'boss', 'level', 'new_best', 'rating_stars', 'score', 'time_s',
                                 'players', 'meter_damage', 'meter_seconds', 'meter_dps', 'meter_csv', 'screenshot'])
-            fi = f[0] if f else None
+            fi = f[0] if f else None; dmg = run and run['damage']           # the run's damage, over the run's time
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, R.active_cycle_id(), boss, fi and fi.level,
                         'best' in banner.lower(), rating, score, secs, json.dumps(players, ensure_ascii=False),
-                        fi and fi.damage, fi and round(fi.elapsed), fi and round(fi.damage / fi.elapsed) if fi and fi.elapsed > 1 else None,
+                        dmg, fi and round(fi.elapsed), fi and round(dmg / fi.elapsed) if fi and fi.elapsed > 1 else None,
                         fi and os.path.basename(fi.log.name), os.path.relpath(shot, HERE) if shot else ''])
         party = self.party_for_result(now)
         you = next((m['name'] for m in party or [] if m.get('self')), None)
@@ -3042,34 +3059,64 @@ class Meter:
         self.hide_end_note()
         wc.click_at(x, y)
 
+    def run_of(self, f):
+        """The run a Fight tracked, as the game keeps it: {'id', 'title' (its boss), 'damage', 'max_hp', 'bosses'}.
+        A one-boss fight is its own boss, damage and max HP, with bosses None. A two-boss middle fight is one run under
+        its stage's bossId, the first boss, whichever boss it ended on: the result screen names that boss alone and the
+        run's best is kept under its id (BossRushBattleResultCtrl.initUI, line 60; BossRushMainCtrl.renderBossInfo,
+        line 350). Its damage and max HP are both bosses' as far as the run got, and bosses lists each in order: its
+        max HP, damage, whether it went down, and its time on the run's clock (from_s / to_s, seconds: from its bar's
+        first sight to its last hit seen, as it died, or to the run's end for the last one; the gap between the bosses
+        counts to neither) with its DPS over that time. A run first seen at its second boss (the meter started late)
+        counts the first one down at its full max HP: the second spawns only on the first one's death (level graph
+        78824533, nodes 16-19); its time is unknown (None)."""
+        run = {'id': f.row['puppetId'], 'title': f.title, 'damage': f.damage, 'max_hp': f.max_hp, 'bosses': None}
+        if not f.bossrush or getattr(f, 'order', None) is None: return run
+        bosses = []
+        for i, p in enumerate(f.phases):
+            to = round(f.elapsed, 1) if i == len(f.phases) - 1 else p['end_s']     # the last one ends with the run
+            secs = round(to - p['start_s'], 1) if to is not None and p['start_s'] is not None else None
+            bosses.append({'id': p['row']['puppetId'], 'name': p['title'], 'max_hp': p['max_hp'], 'damage': p['damage'],
+                           'defeated': p['defeated'], 'from_s': p['start_s'], 'to_s': to, 'seconds': secs,
+                           'dps': round(p['damage'] / secs) if secs and secs > 1 else None, 'breaks': p['breaks']})
+        first = f.phases[0]; run.update(id=first['row']['puppetId'], title=first['title'], bosses=bosses)
+        _, order, other = R.stage_of(first['row']['puppetId'])
+        row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['puppetId'] == other
+                    and r['fixed_hp_rate']), None) if order == 2 else None
+        if row:
+            hp = R.boss_max_hp(row, f.level)
+            bosses.insert(0, {'id': other, 'name': row['bossTitle_en'], 'max_hp': hp, 'damage': hp, 'defeated': True,
+                              'from_s': None, 'to_s': None, 'seconds': None, 'dps': None, 'breaks': None, 'seen': False})
+            run.update(id=other, title=row['bossTitle_en'] or first['title'], damage=f.damage + hp, max_hp=f.max_hp + hp)
+        return run
+
     def fight_summary(self, f, **parts):
         """logs/fights/<fight>.json: the meter's numbers plus whatever game screens belong to this fight
-        (result screen, Battle Data), merged as they appear."""
+        (result screen, Battle Data), merged as they appear. A two-boss middle fight's is the run's (run_of)."""
         d = os.path.join(HERE, 'logs', 'fights'); os.makedirs(d, exist_ok=True)
         path = os.path.join(d, os.path.splitext(os.path.basename(f.log.name))[0] + '.json')
         try:
             with open(path, encoding='utf-8') as fh: s = json.load(fh)
         except (OSError, ValueError):
-            s = {'boss': f.title, 'puppetId': f.row['puppetId'], 'level': f.level, 'uid': self.uid, 'cycle': R.active_cycle_id(),
+            run = self.run_of(f)
+            s = {'boss': run['title'], 'puppetId': run['id'], 'level': f.level, 'uid': self.uid, 'cycle': R.active_cycle_id(),
                  'started': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(f.t0)), 'bossrush': f.bossrush,
                  # the dungeon's own id from the game log: the same for everyone in that run, so two players' apps
                  # sending the run can be told apart from two unrelated runs with the same score
                  'instance': self.space if f.bossrush and self.space and scene_of(self.space) is None else None,
                  'interlink_scene': bool(getattr(f, 'scene_ok', False)),
                  'server': S.game_server(),
-                 'meter': {'max_hp': f.max_hp, 'damage': f.damage, 'seconds': round(f.elapsed, 1),
-                           'dps': round(f.damage / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
+                 # the run's damage and DPS over the run's time: a two-boss fight's both bosses (run_of)
+                 'meter': {'max_hp': run['max_hp'], 'damage': run['damage'], 'seconds': round(f.elapsed, 1),
+                           'dps': round(run['damage'] / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
                            'tracked_from_start': f.started_at_top, 'csv': os.path.basename(f.log.name),
                            'time_limit_s': f.limit or self.overtime_limit(time.time()),
                            'breaks': sum(p['breaks'] for p in f.phases[:-1]) + f.brk.breaks,
                            'break_gauge_points': None if not f.brk.size else round(f.brk.size),
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
                            else round(f.brk.rate(time.time())[0], 2),
-                           # a two-boss fight's bosses in order (Fight.phases): seconds on the run's clock
-                           **({'bosses': [{'id': p['row']['puppetId'], 'name': p['title'], 'max_hp': p['max_hp'],
-                                           'damage': p['damage'], 'defeated': p['defeated'], 'from_s': p['start_s'],
-                                           'to_s': p['end_s'], 'breaks': p['breaks']} for p in f.phases]}
-                              if len(f.phases) > 1 else {})}}
+                           # a two-boss stage's bosses in order, as far as the run got (run_of)
+                           **({'bosses': run['bosses']} if run['bosses'] is not None else {})}}
         s.update(parts)
         S.write_json(path, s, indent=1, ensure_ascii=False)
         # leaderboard: a run goes, once, when it beats one of your bests on this boss this week (see beats_best),
