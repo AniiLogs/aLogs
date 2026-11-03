@@ -354,6 +354,30 @@ def prep_text(img, box, scale, thr=190, size=3, pad=24):
     c = ImageOps.invert(c.point(lambda v: 255 if v > thr else 0))
     return ImageOps.expand(c, border=pad, fill=255)
 
+def _red_mask(c):
+    """Red text: red channel over 150 and at least 60 over green and blue (the boss's red level is ~(200, 60, 60))."""
+    r, g, b = c.split()
+    redness = ImageChops.subtract(r, ImageChops.lighter(g, b)).point(lambda v: 255 if v >= 60 else 0)
+    return ImageChops.multiply(r.point(lambda v: 255 if v > 150 else 0), redness)
+
+def has_red(img, box, scale):
+    """Red text in the box (at least a level's worth of red pixels): worth a prep_red() read. Only the box's left half,
+    where the level is (a centred title's right half has the element icon, often red, which would ask for the
+    second read on most bosses: 76 of 122 saved frames whole-box, 2 of 77 left half)."""
+    x0, y0, x1, y1 = box
+    c = img.crop((int(x0), int(y0), int((x0 + x1) / 2), int(y1))).convert('RGB')
+    return _red_mask(c).histogram()[255] >= 300 * scale * scale
+
+def prep_red(img, box, scale, thr=190, size=3, pad=24):
+    """prep_text() with red text kept too. The boss title's 'Lv.65' turns red (after a red warning triangle) when the
+    player's Aniimo is under the boss's level; as grey it is ~110, far under thr, so prep_text drops it (report
+    11-03). Only for the level: orange-red ground (lava) passes as red too and can bury the name (parse_title_pair)."""
+    c = img.crop(tuple(int(v) for v in box)).convert('RGB')
+    k = size / scale
+    c = c.resize((max(1, int(c.width * k)), max(1, int(c.height * k))), Image.BICUBIC)
+    text = ImageChops.lighter(c.convert('L').point(lambda v: 255 if v > thr else 0), _red_mask(c))
+    return ImageOps.expand(ImageOps.invert(text), border=pad, fill=255)
+
 def prep_white(img, box, scale, size=4):
     """Only near-white, unsaturated pixels count as text, so bright sky or sand around a box stays blank."""
     c = img.crop(tuple(int(v) for v in box)).convert('RGB'); k = size / scale
@@ -690,7 +714,8 @@ class NoOcr:
 DIGIT_FIX = str.maketrans({'O': '0', 'o': '0', 'Q': '0', 'D': '0', 'I': '1', 'l': '1', 'S': '5', 'B': '8', 'Z': '2', 'G': '6'})
 
 def parse_title(t):
-    m = re.search(r'L\s*[vVyYnN]\s*\.?\s*([0-9OoQDIlSBZG]+)', t or '')      # 'Lv', also misread as LV / LY / LN / Ly
+    # 'Lv', also misread as LV / LY / LN / Ly; the dot also comes back as a bullet / middle dot / comma (red 'Lv•65')
+    m = re.search(r'L\s*[vVyYnN]\s*[.•·,]?\s*([0-9OoQDIlSBZG]+)', t or '')
     digits = m.group(1).translate(DIGIT_FIX) if m else ''
     # no level starts with 0: a leading 0 is the dot after Lv read as one ('Lv064' for Lv.64 made Lv 6, B7 report)
     if len(digits) > 1: digits = digits.lstrip('0') or '0'
@@ -699,6 +724,13 @@ def parse_title(t):
     if level is not None and not 1 <= level <= 80: level = None
     title = (t[m.end():] if m else (t or '')).strip(' |Il')
     return level, strip_sparkling(re.sub(r'\s+', ' ', title).strip())
+
+def parse_title_pair(white, red=None):
+    """parse_title() of the white read (prep_text); when it has no level, the level from the red read (prep_red).
+    The name always comes from the white read."""
+    level, title = parse_title(white)
+    if level is None and red: level = parse_title(red)[0]
+    return level, title
 
 def strip_sparkling(title):
     """'Sparkling- Young Omega Sherro' -> 'Young Omega Sherro'. Sparkling is a cosmetic variant (one of the Aniilog's
@@ -970,14 +1002,16 @@ def read_frame(im, ocr, cropped=False, want=('title', 'xn', 'timer')):
     if not bar: return None
     fill, flash, ghost = measure_fill(im, bar)
     scale = bar['span'] / REF_SPAN; crops = {}
-    if 'title' in want: crops['title'] = prep_text(im, box_at(bar, TITLE_BOX), scale)
+    if 'title' in want:
+        crops['title'] = prep_text(im, box_at(bar, TITLE_BOX), scale)
+        if has_red(im, box_at(bar, TITLE_BOX), scale): crops['title_red'] = prep_red(im, box_at(bar, TITLE_BOX), scale)
     if 'xn' in want: crops['xn'] = prep_short(im, box_at(bar, XN_BOX), scale)
     if 'timer' in want and not cropped: crops['timer'] = prep_text(im, timer_box(*im.size), scale)
     text = ocr.read(crops) if crops else {}
     if 'timer' in crops and parse_timer(text.get('timer')) is None:     # second try: wider box, bolder threshold
         text['timer'] = ocr.read({'timer': prep_text(im, timer_box(*im.size, wide=True), scale, thr=170, size=4, pad=40)})['timer']
     out = {'bar': bar, 'fill': fill, 'flash_px': flash, 'ghost_px': ghost, 'ocr': text}
-    if 'title' in text: out['level'], out['title'] = parse_title(text['title'])
+    if 'title' in text: out['level'], out['title'] = parse_title_pair(text['title'], text.get('title_red'))
     if 'xn' in text: out['xn'] = parse_xn(text['xn'])
     if 'timer' in text: out['timer_s'] = parse_timer(text['timer'])
     return out

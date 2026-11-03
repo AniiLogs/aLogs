@@ -280,9 +280,9 @@ def play(name, script, uid, t_start, clock):
             return orig_next(f, row, why)
         live.Fight.next_boss = next_boss
     orig_identify = m.identify
-    def identify(title_text, xn):
+    def identify(title_text, xn, red_text=None):
         before = (m.fight, len(getattr(m.fight, 'phases', [None]))) if m.fight else None
-        orig_identify(title_text, xn)
+        orig_identify(title_text, xn, red_text)
         calls['identify'].append((round(GAME.t, 2), title_text, before, list(m.switch_votes)))
     m.identify = identify
     fights, frames = [], []

@@ -33,6 +33,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   own bars, so an Interlink run's damage and DPS are right from its first bar.
 - **Interlink fights** no longer start on a boss level misread as the bar fades in, which ended the fight a minute
   later and started it over.
+- **Bosses above your Aniimo's level:** the game shows their level in red, which aLogs couldn't read, so the fight
+  was never recorded. It's read now.
 - **Battle Data:** each player's Avg DPS, BREAK, damage taken and healing are their own, also when the result screen
   missed a teammate (the players after them could take the next player's card, yours included).
 - **You and your teammates in a run:** your row keeps your name and is marked as you, and no teammate is listed twice

@@ -4120,11 +4120,15 @@ class Meter:
             text, meta = done
             timer = R.parse_timer(text.get('timer'))
             if meta['xn_missing'] and xn is None: xn = R.parse_xn(text.get('xn'), top)
-            if meta['title']: self.identify(text.get('title'), xn)
+            if meta['title']: self.identify(text.get('title'), xn, text.get('title_red'))
         if self.text_due(now) and not self.band_frame:
             crops = {'timer': R.prep_text(im, R.timer_box(*self.frame_size), scale)}
             if xn is None: crops['xn'] = R.prep_short(im, xn_box, scale)            # OCR as a second opinion
-            if need_title: crops['title'] = R.prep_text(im, R.box_at(bar, R.TITLE_BOX), scale)
+            if need_title:
+                crops['title'] = R.prep_text(im, R.box_at(bar, R.TITLE_BOX), scale)
+                # an under-levelled player's boss level is red: a second read that keeps red (R.prep_red)
+                if R.has_red(im, R.box_at(bar, R.TITLE_BOX), scale):
+                    crops['title_red'] = R.prep_red(im, R.box_at(bar, R.TITLE_BOX), scale)
             self.last_text = now
             if need_title: self.last_title = now
             meta = {'xn_missing': xn is None, 'title': need_title}
@@ -4133,7 +4137,7 @@ class Meter:
                 text = self.ocr.read(crops)
                 timer = R.parse_timer(text.get('timer'))
                 if xn is None: xn = R.parse_xn(text.get('xn'), top)
-                if need_title: self.identify(text.get('title'), xn)
+                if need_title: self.identify(text.get('title'), xn, text.get('title_red'))
         if self.fight:
             self.save_debug(im, bar, now)
             if now - getattr(self, 'brk_at', 0) >= CONFIRM_GAP:   # ~10 readings a second: a refill shows as a jump between two
@@ -4214,9 +4218,10 @@ class Meter:
                            'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], bar['span']),
                            'break': f.brk.info(time.time()), 'screen': self.last_screen})
 
-    def identify(self, title_text, xn):
-        """Match the boss. A running fight keeps its boss unless 3 clean reads in a row say otherwise."""
-        level, title = R.parse_title(title_text)
+    def identify(self, title_text, xn, red_text=None):
+        """Match the boss. A running fight keeps its boss unless 3 clean reads in a row say otherwise. red_text: the
+        title read with red kept (R.prep_red), for the level when it is red."""
+        level, title = R.parse_title_pair(title_text, red_text)
         level = self.args.level or level
         in_world = self.space is not None and scene_of(self.space) is not None   # open world / homeland, per the game log
         bossrush = not in_world and (xn is not None or self.bossrush_space or (self.fight is not None and self.fight.bossrush))
