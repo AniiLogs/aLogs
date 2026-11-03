@@ -385,7 +385,7 @@ def _lineup(summary):
     lineup = [entry(m) for m in summary.get('party') or []]
     return {'lineup': lineup} if lineup else {}
 
-def run_payload(summary, uid, duration=180):
+def run_payload(summary, uid):
     """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter)."""
     res = summary.get('result') or {}
     bd = summary.get('battle_data') or {}
@@ -411,7 +411,9 @@ def run_payload(summary, uid, duration=180):
         'gameUid': summary.get('uid') or uid, 'cycle': summary.get('cycle'),
         'boss': {'id': summary.get('puppetId'), 'name': summary.get('boss'), 'level': summary.get('level')},
         'score': res.get('score'), 'stars': res.get('rating_stars'), 'clearTimeS': secs,
-        'cleared': None if secs is None else res['cleared'] if 'cleared' in res else secs < duration,
+        # the result screen's call (every star under the clock), never the time alone: the leader's or a solo
+        # player's End and a wipe finish under the clock at any stars (QuitBtnUIComponent, BossRushConst.LevelEndType)
+        'cleared': None if secs is None else bool(res.get('cleared')),
         'teamDps': bd.get('team_avg_dps'), 'meterDps': meter.get('dps'), 'meterDamage': meter.get('damage'),
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
         # the leader's Season Buffs and Special Offering from the Party screen's icons: [{id, name, level}]

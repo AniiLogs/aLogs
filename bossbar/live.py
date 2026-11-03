@@ -207,8 +207,9 @@ def canon(text, choices, cutoff=0.6):
     best = max(choices, key=lambda c: difflib.SequenceMatcher(None, t, norm(c)).ratio())
     return best if difflib.SequenceMatcher(None, t, norm(best)).ratio() >= cutoff else text
 
-CLEAR_STARS = 20       # an Interlink clear: the full rating, 20 on the left and right bosses (BossRushMaxStarSideBoss)
-CENTER_STARS = 40      # and 40 on the center boss: a 26-star center run that ended at 95 s with most of its HP left was no clear
+CLEAR_STARS = 20       # an Interlink clear: the full rating, 20 on the left and right bosses (sys_config_data.BossRushMaxStarSideBoss)
+CENTER_STARS = 40      # and 40 on the center boss (x BossRushStarMultiplierMidBoss, the HUD's cap: BossRushInfoUIComponent.setBossRushStar);
+                       # a 26-star center run that ended at 95 s with most of its HP left was no clear
 
 STAR_CAPS = os.path.join(HERE, 'logs', 'star_caps.json')   # the caps the Interlink screen last showed: {'side', 'center', 'cycle'}
 
@@ -231,10 +232,15 @@ def clear_stars(puppet_id):
     return center if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else side
 
 def interlink_score(score, stars, cap=None):
-    """An Interlink score checked against its stars: the game gives a star per 1,000 points, up to the boss's cap
-    (12,058 is 12 stars, 21,519 on a 20-star boss 20). A score whose thousands don't match had a 1 read as a 7 (OCR:
-    17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the one reading that matches is used. When more than
-    one does, the score is left unread (None) rather than sent wrong."""
+    """An Interlink score checked against its stars. It is not stars x 1,000: each grade a boss passes is worth its
+    startScore + hpScore (bossrush_grade_data: 500 + 500 a star grade, 2,500 + 2,500 the kill, "Eliminate"), the
+    center boss counts double, stars and score (sys_config_data.BossRushStarMultiplierMidBoss), and the server adds
+    them up. No client Lua reads those columns, so that sum is inferred; it fits every real run read right. Below the
+    cap the score is in its stars' thousand (12,058 is 12 stars); at the cap it is anything above that, as full stars
+    keep scoring until the clock runs out and a kill adds more (21,519 on a 20-star boss is 20). A score whose
+    thousands don't match had a 1 read as a 7 (OCR: 17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the
+    one reading that matches is used. When more than one does, the score is left unread (None) rather than sent wrong.
+    The stars are never changed from the score."""
     if score is None or stars is None: return score
     fits = lambda s: s // 1000 == stars or (cap is not None and stars == cap and s // 1000 > stars)
     if fits(score): return score
@@ -410,7 +416,7 @@ def parse_battle_data(text):
     return cards
 
 # ---------------------------------------------------------------- timer
-OVERTIME_S = 60          # s: the Overtime offering's extra time (a 3:00 fight becomes 4:00)
+OVERTIME_S = 60          # s: the Overtime offering's extra time (a 3:00 fight becomes 4:00; bossrush_buff_data[208].additionalTime)
 MAX_CLOCK = 900          # s: readings above this are misreads; a run's own clock can start above --duration (Overtime: 4:00)
 
 class Timer:
@@ -2709,9 +2715,9 @@ class Meter:
         score, secs = V('score', sure if sure is not None else num(t.get('score'))), V('time', first_num(t.get('time')))
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         full = clear_stars(f[0].row['puppetId'] if f else None)
+        # the stars are a number only: the screen prints the run's grade (BossRushBattleResultCtrl.initUI), and no client
+        # Lua shows bossrush_grade_data's grade names ("Eliminate")
         score = interlink_score(score, rating, full)
-        # the grade above the full rating is the kill, "Eliminate": the full stars
-        if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = full
         players = []
         for i in range(4):
             name = V(f'name{i}', (t.get(f'name{i}') or '').strip(' /|'))
@@ -2731,11 +2737,16 @@ class Meter:
             log.info('result screen: not sure which slot is you (a party with other players, and your name not known yet), '
                      'so the character name is left as it is')
         # A clear: finished before the clock ran out with the full rating (clear_stars: 20 left and right, 40 in the
-        # center; it was 15 before the Whisperwake update), and the game's time is exact. A run quit early ("The team
-        # leader has ended the challenge.") also finishes under the clock, but with fewer stars: that is no clear.
+        # center; it was 15 before the Whisperwake update), and the game's time is exact. That is every star under the
+        # clock, not proof of a kill: a solo player or the leader can End a run at any stars
+        # (QuitBtnUIComponent.onQuitBtnClick; the HUD's own end button shows at full stars), and a wipe ends it too
+        # (BossRushConst.LevelEndType: LeaderExit, AllPlayerDie, BossDie, TimeOver). Under the clock with fewer stars
+        # is no clear.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
-        # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration. Every star at the clock's end
-        # is no kill: a team at full stars keeps hitting for score until time runs out.
+        # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration (180,
+        # sys_config_data.BossRushCombatDuration). The screen shows min(the clock, ceil(the run's time))
+        # (BossRushBattleResultCtrl.initUI), so a time-up reads the clock exactly. Every star at the clock's end is no
+        # kill: a team at full stars keeps hitting for score until time runs out.
         limit = ((f[0].limit or None) if f else None) or self.overtime_limit(now) or self.args.duration
         cleared = bool(f and secs is not None and 0 < secs < limit and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
@@ -2922,7 +2933,7 @@ class Meter:
         if s.get('sent'): return
         s['sent'] = True
         S.write_json(path, s, indent=1, ensure_ascii=False)
-        self.submitter.enqueue(S.run_payload(s, self.uid, self.args.duration), (s.get('result') or {}).get('screenshot'),
+        self.submitter.enqueue(S.run_payload(s, self.uid), (s.get('result') or {}).get('screenshot'),
                                battle=(s.get('battle_data') or {}).get('screenshot'), party=s.get('party_screenshot'))
 
     def check_pending_run(self, now):
