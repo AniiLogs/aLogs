@@ -3,6 +3,12 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.34
+
+### Fixed
+- **Holo-Battle Sim wins** are sent again when the last boss's bar vanishes on the kill: the Victory screen is read
+  even while the meter is still waiting for that bar, so leaving it quickly no longer loses the run.
+
 ## 0.1.33
 
 ### New
