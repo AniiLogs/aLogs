@@ -900,6 +900,8 @@ class BreakTracker:
 
 HANDOFF_XN = 3          # a two-boss fight's second boss counts as on the bar from its counter's top 4 bars (x21-x18):
                         # each is 0.23% of its HP (bossrush_grade_data rows 1-7, bossHpLossPercent_3), ~0.3 s apiece
+FIGHT_CSV = ['wall_s', 'timer_s', 'timer_ocr', 'xn_ocr', 'segment', 'fill_pct', 'fill_rgb', 'edge_rgb',   # logs/<fight>.csv
+             'team_damage', 'avg_dps', 'dps_5s', 'note', 'break_left_pct', 'break_phase']
 
 class Fight:
     """One run on one boss bar. A two-boss middle fight (weeks 4003-4005: bossrush_guanka_data rows with a bossId_2)
@@ -942,8 +944,10 @@ class Fight:
         os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
         self.log = open(os.path.join(HERE, 'logs', name + '.csv'), 'w', newline='', encoding='utf-8')
         self.w = csv.writer(self.log)
-        self.w.writerow(['wall_s', 'timer_s', 'timer_ocr', 'xn_ocr', 'segment', 'fill_pct', 'fill_rgb', 'edge_rgb',
-                         'team_damage', 'avg_dps', 'dps_5s', 'note', 'break_left_pct', 'break_phase'])
+        # a two-boss stage's run keeps one CSV for both bosses, each row marked with the boss on the bar (its spawn
+        # order, 1 or 2: R.stage_of); a one-boss fight's CSV keeps the columns it always had
+        self.boss_col = order is not None
+        self.w.writerow(FIGHT_CSV + (['boss'] if self.boss_col else []))
         self.frames = os.path.join(HERE, 'logs', name) if debug_dir else None
         if self.frames: os.makedirs(self.frames, exist_ok=True)
 
@@ -1066,11 +1070,15 @@ class Fight:
         self.recent = (d_b - d_a) / (t_b - t_a) if t_b - t_a > 0.5 else avg; self.avg = avg
         if not note and now - getattr(self, 'row_at', 0) < CONFIRM_GAP: return None   # ~10 rows a second is plenty
         self.row_at = now
-        self.w.writerow([round(now - self.created, 2), None if tp is None else round(tp, 1), timer_ocr, xn_ocr, self.seg,
-                         None if fill is None else round(fill * 100, 2), '%02x%02x%02x' % fill_rgb, '%02x%02x%02x' % edge_rgb,
-                         self.damage, round(avg), round(self.recent), note,
-                         None if self.brk.left is None else round(self.brk.left * 100, 1), self.brk.phase])
+        self.write([round(now - self.created, 2), None if tp is None else round(tp, 1), timer_ocr, xn_ocr, self.seg,
+                    None if fill is None else round(fill * 100, 2), '%02x%02x%02x' % fill_rgb, '%02x%02x%02x' % edge_rgb,
+                    self.damage, round(avg), round(self.recent), note,
+                    None if self.brk.left is None else round(self.brk.left * 100, 1), self.brk.phase])
         return None
+
+    def write(self, cells):
+        """One row of the fight's CSV. A two-boss stage's run adds the boss on the bar (1 or 2) as its last column."""
+        self.w.writerow(cells + [None] * (len(FIGHT_CSV) - len(cells)) + [self.order] if self.boss_col else cells)
 
     def mark_defeated(self, why):
         """The boss went down (killed or caught): the bar vanishes before the last hit can be read, so count the rest."""
@@ -1080,8 +1088,8 @@ class Fight:
         self.phases[-1].update(damage=self.boss_hp, defeated=True)
         self.avg = self.damage / self.elapsed if self.elapsed > 1 else 0
         try:
-            self.w.writerow([round(time.time() - self.created, 2), None, None, None, self.seg, 0.0, '', '', self.damage,
-                             round(self.avg), round(self.recent), f'defeated ({why}): final {left:,} HP counted'])
+            self.write([round(time.time() - self.created, 2), None, None, None, self.seg, 0.0, '', '', self.damage,
+                        round(self.avg), round(self.recent), f'defeated ({why}): final {left:,} HP counted'])
             self.log.flush()
         except ValueError: pass                                         # CSV already closed (confirmed after the fight)
 
@@ -1121,8 +1129,8 @@ class Fight:
                f'its last {left:,} HP counted')
         log.info(f'fight: {msg} (run damage {self.damage:,}, {self.elapsed:.0f}s)')
         try:
-            self.w.writerow([round(now - self.created, 2), None, None, None, None, None, '', '', self.damage,
-                             round(self.avg), round(self.recent), msg])
+            self.write([round(now - self.created, 2), None, None, None, None, None, '', '', self.damage,
+                        round(self.avg), round(self.recent), msg])
         except ValueError: pass
 
     def close(self):
