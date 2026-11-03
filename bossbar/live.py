@@ -234,13 +234,14 @@ def clear_stars(puppet_id):
 def interlink_score(score, stars, cap=None):
     """An Interlink score checked against its stars. It is not stars x 1,000: each grade a boss passes is worth its
     startScore + hpScore (bossrush_grade_data: 500 + 500 a star grade, 2,500 + 2,500 the kill, "Eliminate"), the
-    center boss counts double, stars and score (sys_config_data.BossRushStarMultiplierMidBoss), and the server adds
-    them up. No client Lua reads those columns, so that sum is inferred; it fits every real run read right. Below the
-    cap the score is in its stars' thousand (12,058 is 12 stars); at the cap it is anything above that, as full stars
-    keep scoring until the clock runs out and a kill adds more (21,519 on a 20-star boss is 20). A score whose
-    thousands don't match had a 1 read as a 7 (OCR: 17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the
-    one reading that matches is used. When more than one does, the score is left unread (None) rather than sent wrong.
-    The stars are never changed from the score."""
+    center boss's stars count double (sys_config_data.BossRushStarMultiplierMidBoss, BossRushInfoUIComponent's star
+    cap) and its score too (real runs only: no game file says so), and the server adds them up. No client Lua reads
+    those columns, so that sum is inferred; it fits every real run read right. Below the cap the score is in its
+    stars' thousand (12,058 is 12 stars); at the cap it is anything above that, as full stars keep scoring until the
+    clock runs out and a kill adds more (21,519 on a 20-star boss is 20). A score whose thousands don't match had a 1
+    read as a 7 (OCR: 17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the one reading that matches is
+    used. When more than one does, the score is left unread (None) rather than sent wrong. The stars are never changed
+    from the score."""
     if score is None or stars is None: return score
     fits = lambda s: s // 1000 == stars or (cap is not None and stars == cap and s // 1000 > stars)
     if fits(score): return score
@@ -1706,7 +1707,11 @@ class Meter:
         if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
         if head.strip().lower().startswith('party'):
             self.test_frame(im, 'party', now)
-            self.names_first(self.party_screen, (im, now, u, ux, H), self.party_names(im, u, ux, H), 20); return
+            # at party_screen's own pace (2 s): a pill's ready mark or voice icon changes its look, and each change
+            # would send all four to the name models at every screen read, where the screen reads them every 2 s
+            if now - getattr(self, 'party_seen', 0) >= 2:
+                self.names_first(self.party_screen, (im, now, u, ux, H), self.party_names(im, u, ux, H), 20)
+            return
         if re.sub(r'[^a-z]', '', head.lower()).startswith('holobattlei'): self.interlink_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
@@ -1754,18 +1759,20 @@ class Meter:
         text = self.ocr.read({'d': ImageOps.expand(rows, border=20, fill=255)}).get('d', '')
         read = parse_battle_data(text)
         log.info(f'Battle Data read {self.bd_reads}: OCR {text!r} -> {read}')   # whole: a run can be re-read from the log
-        # the cards are counted on screen (bd_card_count), by OCR only when they can't be. Either way the count is the
-        # most any read found: a read never finds a card that isn't there (OCR needs each card's 'Average DPS'), and
-        # settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct)
+        # the cards are counted on screen (bd_card_count), by OCR when they can't be or it found more. Either way the
+        # count is the most any read found: a read never finds a card that isn't there (OCR needs each card's 'Average
+        # DPS'), and settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct). A count on screen
+        # under OCR's is cards it didn't see (the middle two of four sit where two cards would), not fewer cards
         before = getattr(self, 'bd_cards', 0); seen = self.bd_card_count(im, u, ux, H)
-        n = self.bd_cards = min(4, max(before, seen or len(read)))
+        n = self.bd_cards = min(4, max(before, seen, len(read)))
         read = [dict(read[i]) if i < len(read) else {} for i in range(n)]
         self.battle_data_font(im, u, ux, H, read)
         # the count and this read's numbers at it. A count off the party's is only logged: the game's panel
         # (Guis/Panels/BossRushBattleDetailResult) lists the run's player records, AI ones too, but where the cards sit
         # is in its prefab, and no 2- or 3-card screen has been seen yet
         if n != before:
-            said = 'counted on screen' if seen else "OCR's count (not counted on screen)"
+            said = ('counted on screen' if seen >= len(read) else f"OCR's count (only {seen} counted on screen)") if seen \
+                else "OCR's count (not counted on screen)"
             if party and len(party) != n: said += f', but the Party screen had {len(party)} players'
             log.info(f'Battle Data cards: {said} -> {n} cards {[{k: c.get(k) for k, _ in self.BD_ROWS} for c in read]}')
         cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}

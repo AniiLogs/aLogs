@@ -470,6 +470,7 @@ class Ocr:
             Ocr.swept = True; threading.Thread(target=sweep_temp, daemon=True, name='temp-sweep').start()
         self.native = os.path.exists(OCR_EXE); self.lock = threading.Lock(); self.n = 0; self.dir = None; self.last = {}
         self.name_cache = {}   # name box signature -> its read (read_native)
+        self.cache_lock = threading.Lock()
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         if self.native:
             self.p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
@@ -515,10 +516,13 @@ class Ocr:
         import hangulnames as K
         # a name box that looks as it did a read ago (the Party and result screens stay up, read every few seconds)
         # takes that read: the two text models cost ~0.2 s a name
+        # (names_bg reads on this helper too: the cache is read with get() and changed under cache_lock, so the other
+        # thread dropping the oldest entry can't break a lookup or the drop)
         known, sigs = {}, {}
         for k in list(names):
             sigs[k] = name_signature(images[k])
-            if sigs[k] in self.name_cache: known[k] = self.name_cache[sigs[k]]
+            hit = self.name_cache.get(sigs[k])
+            if hit is not None: known[k] = hit
         images = {k: v for k, v in images.items() if k not in known}
         names = {k: v for k, v in names.items() if k not in known}
         if not images: return known
@@ -568,9 +572,10 @@ class Ocr:
         for k in found:
             name = settled[k] if k in settled else korean(k, out[k])
             if name: out[k] = name
-        for k in names:
-            self.name_cache[sigs[k]] = out[k]
-            if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
+        with self.cache_lock:
+            for k in names:
+                self.name_cache[sigs[k]] = out[k]
+                if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
         out.update(known)
         return out
 
