@@ -749,6 +749,18 @@ fn ocr_install_outcome(code: Option<i32>) -> Value {
     }
 }
 
+/// app.log's line for the install's outcome: its state and what the page said, so a failure's Windows error code
+/// (0x800F0954...) is in the logs a player sends with Report a problem (collect_logs), the one thing there that says
+/// why it failed; for an install, whether Windows wants a restart. Nothing from the player or the PC is in it.
+fn ocr_install_log(outcome: &Value) -> String {
+    let state = outcome["state"].as_str().unwrap_or("");
+    match outcome["message"].as_str() {
+        Some(message) => format!("English OCR: {state}: {message}"),
+        None if outcome["restart"] == true => format!("English OCR: {state} (Windows wants a restart to finish)"),
+        None => format!("English OCR: {state}"),
+    }
+}
+
 /// The DPS Meter page's "Install English OCR" (shown only when status.json says Windows OCR isn't English). Windows
 /// asks for admin approval, then adds it, which can take several minutes: on a worker thread, so the window keeps
 /// going (the page shows it working). Once it's in, the meter restarts, so its OCR helper (which picks its language
@@ -760,7 +772,7 @@ fn install_english_ocr(app: AppHandle) -> Value {
         Ok(status) => ocr_install_outcome(status.code()),
         Err(e) => json!({ "state": "failed", "message": format!("Windows couldn't install English OCR (PowerShell didn't start: {e}).") }),
     };
-    app_log(&format!("English OCR: {}", outcome["state"].as_str().unwrap_or("")));
+    app_log(&ocr_install_log(&outcome));
     if outcome["state"] == "installed" {
         stop_meter_inner(&app.state::<Meter>());
         let _ = ensure_meter(&app);
@@ -895,7 +907,7 @@ mod scrub_tests {
 /// runs elevated, and what each outcome tells the player.
 #[cfg(test)]
 mod ocr_install_tests {
-    use super::{ocr_install_command, ocr_install_outcome, OCR_INSTALL_SCRIPT};
+    use super::{ocr_install_command, ocr_install_log, ocr_install_outcome, OCR_INSTALL_SCRIPT};
     use base64::Engine;
 
     #[test]
@@ -937,5 +949,16 @@ mod ocr_install_tests {
         assert!(ocr_install_outcome(Some(0x8024_402Cu32 as i32))["message"].as_str().unwrap().contains("internet"));
         assert!(ocr_install_outcome(Some(0x8000_4005u32 as i32))["message"].as_str().unwrap().contains("0x80004005"));
         assert_eq!(ocr_install_outcome(None)["state"], "failed");
+    }
+
+    #[test]
+    fn log_line_has_the_error() {
+        // app.log (in Report a problem's logs): the error code a failure gives, not only "failed"
+        let managed = ocr_install_log(&ocr_install_outcome(Some(0x800F_0954u32 as i32)));
+        assert!(managed.starts_with("English OCR: failed: ") && managed.contains("0x800F0954"), "{managed}");
+        assert!(ocr_install_log(&ocr_install_outcome(Some(0x8000_4005u32 as i32))).contains("0x80004005"));
+        assert!(ocr_install_log(&ocr_install_outcome(Some(1223))).starts_with("English OCR: declined: "));
+        assert_eq!(ocr_install_log(&ocr_install_outcome(Some(0))), "English OCR: installed");
+        assert_eq!(ocr_install_log(&ocr_install_outcome(Some(3010))), "English OCR: installed (Windows wants a restart to finish)");
     }
 }
