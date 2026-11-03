@@ -981,7 +981,9 @@ class Fight:
                 # can overrule (a meter that joins a fight late still gets the right segment from three reads)
                 if xn_ocr == top or (agreed and self.xn_votes.count(agreed) >= 3):
                     self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'; self.xn_anchor = (xn_ocr, now); self.seg_guess = xn_ocr != top
-                    self.started_at_top = xn_ocr == top and fill is not None and fill > 0.97
+                    # from the run's start only: never a two-boss fight's second boss (its own top bar comes mid-run)
+                    if len(self.phases) == 1 and self.order != 2:
+                        self.started_at_top = xn_ocr == top and fill is not None and fill > 0.97
                     self.seg_fill = fill if fill is not None else 1.0
             # within a fight the counter only counts down: going up (x1->x4 reset the damage in 6 of 13 fights) takes
             # three agreeing reads instead of two, and at most 3 bars - except from a start guess to the top bar
@@ -1015,8 +1017,10 @@ class Fight:
                 self.seg_fill = min(self.seg_fill, fill); self.low_pending = None
         if fill is not None: self.last_fill = fill
         if self.timer.feed(timer_ocr, now) == 'resync': note = (note + ' timer resync').strip()
-        # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s
-        if self.limit is None and self.bossrush and self.started_at_top and self.timer.val is not None:
+        # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s. Only
+        # in the run's first phase: a two-boss fight's clock is the run's (one 180/240 s clock, level graph 78824533
+        # nodes 5-11), and what is left of it when the second boss shows up is no time limit
+        if self.limit is None and self.bossrush and self.started_at_top and self.timer.val is not None and len(self.phases) == 1:
             if self.timer.at - self.created <= 4:
                 self.limit = int(5 * math.ceil(self.timer.val / 5))
                 note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
