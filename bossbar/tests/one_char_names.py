@@ -7,7 +7,8 @@ pill under it, the dark pill, and a made-up name in the game's own font (gamefon
 install), at 4K and scaled to 1440p, 1080p, 900p and 720p as a smaller screen shows it. Every name box goes through
 Meter.result_names and Ocr.read as result_screen reads them:
 - a one-character name reads as itself (both Latin reads keep the pill and the portrait's foot around a lone character
-  and read it as nothing or another character; the Korean model's read of the tidied box doesn't);
+  and read it as nothing or another character; the Korean model's read of the tidied box doesn't), its look-alikes
+  (q and 9, O and 0, c and C) told apart by the game's font;
 - a longer name still reads as itself, and a slot with no player (no pill, only the portrait) reads as nothing;
 - a read of nothing is kept in the name cache only for UNSURE_S: the same box is read again after that, not answered
   from the cache for the rest of the session. A read it's sure of stays.
@@ -60,13 +61,22 @@ def boxes(im):
 
 ocr = R.Ocr()
 SIZES = {'4K': (3840, 2160), '1440p': (2560, 1440), '1080p': (1920, 1080), '900p': (1600, 900), '720p': (1280, 720)}
-SCREENS = [['B', 'e', '4', ''], ['Y', 'Moxie', '', 'a'], ['', 'd', 'Rin_42', '9']]
+SCREENS = [['B', 'e', '4', ''], ['Y', 'Moxie', '', 'a'], ['', 'd', 'Rin_42', '9'],
+           # look-alikes the Korean model's pick alone got wrong (q as 9, small letters as capitals): the game's font
+           # settles them
+           ['q', 'c', 's', 'v'], ['w', 'u', 'n', '']]
 for size, (W, H) in SIZES.items():
     for names in SCREENS:
         crops, grey = boxes(screen(names, W, H))
         ocr.name_cache.clear()
         got = ocr.read(crops, names={k: 24 for k in crops}, raws=grey)
         check(f'{size} {names}', [got[f'name{i}'] for i in range(4)], names)
+    # z and O are missed at some sizes (read as nothing, kept for UNSURE_S only), but never read as Z or 0
+    crops, grey = boxes(screen(['z', 'O', '', ''], W, H))
+    ocr.name_cache.clear()
+    got = ocr.read(crops, names={k: 24 for k in crops}, raws=grey)
+    check(f'{size} z: itself or nothing', got['name0'] in ('z', ''), True)
+    check(f'{size} O: itself or nothing', got['name1'] in ('O', ''), True)
 
 # the name cache: a sure read stays, nothing (a slot with no player) is read again once UNSURE_S has passed
 crops, grey = boxes(screen(['B', 'Moxie', '', '']))

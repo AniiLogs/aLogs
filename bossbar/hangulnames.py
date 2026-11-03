@@ -26,6 +26,10 @@ LONE_P = 0.9          # a tidied box the Korean model reads as one Latin letter 
 # too, and the game's own fonts decide
 TWINS = {'7': 'ㄱ', 'L': 'ㄴ', '2': 'ㄹ', 'Z': 'ㄹ', '0': 'ㅇ', 'O': 'ㅇ', 'o': 'ㅇ', 'T': 'ㅜ', 'E': 'ㅌ', 'C': 'ㄷ',
          'l': 'ㅣ', 'I': 'ㅣ', '1': 'ㅣ', '-': 'ㅡ', 'H': 'ㅐ', 'A': 'ㅅ', 'V': 'ㅅ', 'D': 'ㅁ', 'S': 'ㅈ'}
+# a lone character's look-alikes, which the game's font tells apart (KoreanNames.lone): small letters drawn as their
+# capital made smaller (the model read a lone c, s, v or z as the capital), and these groups (q read as 9, O as 0)
+SMALL_CAPS = 'cosuvwxz'
+LOOKALIKES = ('0Oo', '9q', '1lI')
 
 
 def is_hangul(c):
@@ -159,6 +163,22 @@ class KoreanNames:
         a, b = part.width / part.height, g.width / g.height
         aspect = min(a, b) / max(a, b)
         return _iou(part, g.resize(part.size, Image.NEAREST)) * aspect
+
+    def lone(self, img, letters):
+        """lone_latin's character for the tidied box `img`, settled against the game's font: of it and its look-alikes
+        (SMALL_CAPS' other case, LOOKALIKES), the one whose shape fits the ink best. '' when there is none, or nothing
+        fits the ink as a letter. On synthetic result screens at 720p-4K the model's pick was a look-alike for q, O, c,
+        s, v and z, and the font's best fit was right for every letter and digit."""
+        c = lone_latin(letters)
+        if not c: return ''
+        mask = img.convert('L').point(lambda v: 255 if v < INK else 0)
+        box = mask.getbbox()
+        if not box: return ''
+        part = mask.crop(box).convert('1')
+        cands = {c} | ({c.swapcase()} if c.lower() in SMALL_CAPS else set()) | {x for g in LOOKALIKES if c in g for x in g}
+        fits = {x: self.fit(part, x) for x in sorted(cands)}
+        best = max(fits, key=fits.get)
+        return best if fits[best] >= NOT_A_LETTER else ''
 
     def read(self, img, text, letters):
         """The name in Hangul when the game's Korean letters fit it, else None (the English OCR's `text` stands).
