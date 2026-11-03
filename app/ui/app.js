@@ -140,7 +140,7 @@
       accentText: "#79e5c2", coral: "#f48972" },
     meadow: { label: "Meadow", colors: { background: "#f8f2d7", backgroundAlt: "#ccebe4", surface: "#fffaf0", surfaceRaised: "#f3edd8",
       border: "#b7d2c7", text: "#24473f", muted: "#506a62", primary: "#4fcda5", secondary: "#258c76", highlight: "#f4bd4f" },
-      accentText: "#1c756b", goldText: "#8a5a00", coral: "#b84c3b" },
+      accentText: "#1c756b", goldText: "#8a5a00", coral: "#b84c3b", coralText: "#a33d2d" },
     emberpup: { label: "Emberpup", colors: { background: "#111218", backgroundAlt: "#2b1815", surface: "#1c1d27", surfaceRaised: "#292a36",
       border: "#4b4650", text: "#fff4e8", muted: "#bdb4b5", primary: "#ff742e", secondary: "#d9471d", highlight: "#ffc857" },
       accentText: "#ffad82", coral: "#ff742e" },
@@ -158,6 +158,8 @@
   };
   const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
   const readable = (background) => (contrast("#08110f", background) >= contrast("#fffdf3", background) ? "#08110f" : "#fffdf3");
+  const mixColor = (a, b, share) => `#${[1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * share
+    + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, "0")).join("")}`;
   function savedTheme() {
     try {
       const saved = JSON.parse(localStorage.getItem(THEME_KEY) || "{}");
@@ -177,9 +179,15 @@
     const accentText = preset ? preset.accentText : (contrast(c.primary, c.surface) >= 3 ? c.primary : c.text);
     // the highlight as text (notices, paths): the light theme's gold doesn't read on its pale panels
     const goldText = preset ? preset.goldText ?? c.highlight : (contrast(c.highlight, c.surface) >= 4.5 ? c.highlight : c.text);
+    // the coral as text (.note-warn: the English OCR warning's title, an out-of-date version's): 4.5:1 on its box (8%
+    // coral) over the page and the panels. Meadow's coral gave 4.08:1 (3.61 on the page's glow), and Custom's fixed
+    // coral 2.27:1 on a white one; Custom takes it where it reads, else Meadow's darker one, else its own text colour
+    const coral = preset ? preset.coral : "#f48972";
+    const coralText = preset ? preset.coralText ?? coral : [coral, THEMES.meadow.coralText].find((shade) =>
+      [c.background, c.backgroundAlt, c.surface].every((base) => contrast(shade, mixColor(coral, base, 0.08)) >= 4.5)) ?? c.text;
     const vars = { "--bg": c.background, "--bg-2": c.backgroundAlt, "--panel": c.surface, "--panel-2": c.surfaceRaised, "--line": c.border,
       "--text": c.text, "--muted": c.muted, "--accent": c.primary, "--accent-2": c.secondary, "--gold": c.highlight,
-      "--coral": preset ? preset.coral : "#f48972", "--accent-text": accentText, "--gold-text": goldText, "--on-accent": readable(c.primary) };
+      "--coral": coral, "--coral-text": coralText, "--accent-text": accentText, "--gold-text": goldText, "--on-accent": readable(c.primary) };
     Object.entries(vars).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
     document.documentElement.style.colorScheme = light ? "light" : "dark";
   }
