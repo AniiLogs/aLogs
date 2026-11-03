@@ -201,12 +201,13 @@ class NameReader:
         a, b = part.width / part.height, g.width / g.height
         return overlap(part, g.resize(part.size, Image.NEAREST), slack=1) * min(a, b) / max(a, b)
 
-    def number(self, img, box, margin=0.05, dark=False, right=False):
+    def number(self, img, box, margin=0.05, dark=False, right=False, unit=False):
         """The number in `box` (white text, or dark text on a light card with `dark`) read digit by digit against the
         game's own digits, or None unless every digit is clear. Windows OCR reads the result screen's bold 1 as a 7 now
         and then (17164 as 77764, 31 Oct), and skipped 7-digit BREAK values on Battle Data, which moved the card's
         later numbers up a row; the game's 1 and 7 are nothing alike. `right`: only the run of characters at the
-        box's right end (a value right-aligned after its label)."""
+        box's right end (a value right-aligned after its label). `unit`: a small letter after the number ("180s"),
+        left out."""
         if dark:
             ink, bg = ink_colour(img, box, dark=True)
             mask = ink_mask(img, box, ink, bg) if ink else None
@@ -217,6 +218,9 @@ class NameReader:
         # digits are all one height: a much shorter piece is a speck or a mark
         tall = max((h for _, _, h in spans), default=0)
         spans = [s for s in spans if s[2] >= 0.7 * tall]
+        # the result screen's 's' is 95 px against 127-132 px digits at 4K, kept above; in the game's font an 's' is 0.72
+        # of the tallest digit and every digit at least 0.94
+        if unit and len(spans) > 1 and spans[-1][2] < 0.85 * tall: spans = spans[:-1]
         if right:      # a right-aligned value: the run of characters at the right end, up to the gap before its label
             run = spans[-1:]
             for s in reversed(spans[:-1]):

@@ -2711,8 +2711,12 @@ class Meter:
         sure = reader.number(im, (ux + u * 0.43, H * 0.325, ux + u * 0.57, H * 0.415)) if reader else None
         # the stars too (OCR read 17 as 7 at 900p and 1080p); the gold star after them isn't white, so it's not read
         stars = reader.number(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41)) if reader else None
+        # and the time, less the 's' the screen writes after the seconds (BossRushBattleResultCtrl.initUI): with the 's'
+        # the font read none of 60 real result screens, without it all 60, the same at 720p-1440p
+        sure_time = reader.number(im, (ux + u * 0.68, H * 0.33, ux + u * 0.79, H * 0.41), unit=True) if reader else None
         rating = V('rating', stars if stars is not None else first_num(t.get('rating')))
-        score, secs = V('score', sure if sure is not None else num(t.get('score'))), V('time', first_num(t.get('time')))
+        score = V('score', sure if sure is not None else num(t.get('score')))
+        secs = V('time', sure_time if sure_time is not None else first_num(t.get('time')))
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         full = clear_stars(f[0].row['puppetId'] if f else None)
         # the stars are a number only: the screen prints the run's grade (BossRushBattleResultCtrl.initUI), and no client
@@ -2720,9 +2724,16 @@ class Meter:
         score = interlink_score(score, rating, full)
         players = []
         for i in range(4):
+            dx = i * 0.1765
             name = V(f'name{i}', (t.get(f'name{i}') or '').strip(' /|'))
             parts = [p.strip() for p in (t.get(f'stat{i}') or '').split(' / ') if p.strip()]
-            value = V(f'value{i}', next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
+            # the value under the stat's label by the game's font first, else OCR (the player card writes the stat floored,
+            # digits only: BossRushBattleResultCtrl, the stats from bossrush_fun_data). On 60 real result screens OCR
+            # left 10 values unread (7 a lone 1, Targets Defeated; 23 in the first reads saved then) and cut 2 short; the
+            # font read every one. 8 digits are more than number() takes, so those stay OCR's
+            sure_value = reader.number(im, (ux + u * (0.21 + dx), H * 0.600, ux + u * (0.33 + dx), H * 0.624)) if reader else None
+            value = V(f'value{i}', sure_value if sure_value is not None else
+                      next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
             label = V(f'label{i}', canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS))
             if name or value is not None: players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
         party_slots(players, self.party_for_result(now))
