@@ -494,6 +494,7 @@ class Ocr:
         self.native = os.path.exists(OCR_EXE); self.lock = threading.Lock(); self.n = 0; self.dir = None; self.last = {}
         self.name_cache = {}   # name box signature -> its read (read_native)
         self.cache_lock = threading.Lock()
+        self.gen = 0           # helpers started in this one's place (restart): a read asked of an older one isn't cached
         self.p, self.language = self.launch()
         if not self.native: self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
 
@@ -516,9 +517,10 @@ class Ocr:
         """A new helper in this one's place, which picks Windows OCR's language again: English added to Windows since
         this one started (Windows Settings) is read from then on, without restarting the meter (live.py ocr_recheck).
         Reads on other threads (names_bg reads on the meter's) wait for the swap (self.lock), then go to the new one;
-        the old one is closed. Raises as Ocr() does when the new one doesn't start, and this one keeps going."""
+        the old one is closed. Raises as Ocr() does when the new one doesn't start, and this one keeps going. A names
+        read that asked the old one stores nothing in name_cache after (self.gen: read_native)."""
         p, language = self.launch()
-        with self.lock: old, self.p, self.language = self.p, p, language
+        with self.lock: old, self.p, self.language = self.p, p, language; self.gen += 1
         with self.cache_lock: self.name_cache.clear()          # names read without Windows OCR's read to fall back on
         try: old.stdin.close(); old.wait(3)
         except Exception: old.kill()
@@ -573,12 +575,14 @@ class Ocr:
             tidy = {k: t for k in keys if k in names for t in [K.tidy(images[k], names[k])] if t is not None}
         work = [(k, 4 if k in names and k not in grey else 0, images[k]) for k in keys] + \
                [(k, 6, raws[k]) for k in grey] + [(k, 3, t) for k, t in tidy.items()]
+        gens = []                                    # the helper each ask() went to (self.gen)
         def ask(work):
             parts = [b'OCR2' if names else b'OCR1', struct.pack('<I', len(work))]
             for _, flags, img in work:
                 img = img if img.mode == 'L' else img.convert('L')
                 parts += ([bytes([flags])] if names else []) + [struct.pack('<II', *img.size), img.tobytes()]
             with self.lock:
+                gens.append(self.gen)
                 self.p.stdin.write(b''.join(parts)); self.p.stdin.flush()
                 return [self.p.stdout.readline().decode('utf-8', 'replace').rstrip('\r\n') for _ in work]
         lines = ask(work)
@@ -612,10 +616,15 @@ class Ocr:
         for k in found:
             name = settled[k] if k in settled else korean(k, out[k])
             if name: out[k] = name
+        # not stored when the helper was restarted since this read's first ask() (live.py ocr_look: English found):
+        # its reads are the old helper's, and restart's clear may have come first, so they'd be kept and answer this
+        # box from then on (22 of 24 such reads on real result screens did). Checked under cache_lock: the clear
+        # after the swap can't come between the check and the write
         with self.cache_lock:
-            for k in names:
-                self.name_cache[sigs[k]] = out[k]
-                if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
+            if gens[0] == self.gen:
+                for k in names:
+                    self.name_cache[sigs[k]] = out[k]
+                    if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
         out.update(known)
         return out
 

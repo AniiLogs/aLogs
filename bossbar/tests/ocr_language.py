@@ -15,7 +15,8 @@ empty value in its own environment, and reader.Ocr and the meter (which start it
 tag, which the helper also reads as none. Then the meter on each: Meter()'s log line and status.json's ocr
 (write_status); the same on a helper that doesn't start (NoOcr), on one that doesn't say (a plain READY) and on one
 that says another language (ko-KR: this PC's helper can't, so a stand-in says it); and the PowerShell helper
-(ocr_win.ps1, used when there is no ocr-helper.exe), which says en-US. Last, English added while the meter runs: a
+(ocr_win.ps1, used when there is no ocr-helper.exe), which says en-US. A names read whose helper restarts meanwhile
+keeps nothing of the old helper's in the name cache. Last, English added while the meter runs: a
 helper started later (the HP reader's) leaves status.json saying the meter's own has none, and ocr_recheck restarts
 every helper the meter has once a fresh one reads English; one whose restart fails or gives no English is named in the
 log, keeps status.json off English and is restarted at the next look. The drawn names are made up. Needs a PC with
@@ -23,7 +24,7 @@ en-US Windows OCR.
 
 Nothing is sent and nothing lands in your logs: the meter's data folder is a temporary one. Exit code 1 on any failure.
 """
-import logging, os, shutil, struct, subprocess, sys, tempfile, time, types
+import logging, os, shutil, struct, subprocess, sys, tempfile, threading, time, types
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 TMP = tempfile.mkdtemp(prefix='alogs_ocrlang_')
@@ -153,6 +154,33 @@ try:
     finally: ocr.close()
 finally: R.OCR_EXE = real_exe
 print(f'reader.Ocr: en-US, none and ko-KR as the helper says; PowerShell helper en-US')
+# a names read (names_bg's thread) on a helper that restarts meanwhile (ocr_look, English found): the read asked the
+# old helper, then the restart swapped it and cleared the name cache before the read stored its reads. Those are the
+# old helper's, so they aren't stored: the box is read again on the new one. Before, they were kept after the clear and
+# answered the box from then on. The read itself is as before
+with_langs(',')
+ocr = R.Ocr()
+asked, go = threading.Event(), threading.Event()
+real_clean = K.clean_latin
+def clean(text):                                # right after the read's ask() came back, before its cache write
+    if threading.current_thread().name == 'names-read' and not asked.is_set(): asked.set(); go.wait(10)
+    return real_clean(text)
+got = {}
+K.clean_latin = clean
+try:
+    t = threading.Thread(target=lambda: got.update(ocr.read({'n': BOXES[1][1]}, names={'n': 16})), name='names-read',
+                         daemon=True)
+    t.start(); asked.wait(10)
+    with_langs('en-US'); ocr.restart()
+    go.set(); t.join(10)
+finally: K.clean_latin = real_clean
+try:
+    check('restart mid-read: the read', got, {'n': LATIN})
+    check("restart mid-read: the old helper's reads aren't cached", list(ocr.name_cache.values()), [])
+    check('restart mid-read: the box is read again', ocr.cached({'n': BOXES[1][1]}, {'n': 16}), False)
+    check('restart mid-read: read on the new helper, then cached', (ocr.read({'n': BOXES[1][1]}, names={'n': 16}),
+          ocr.language, len(ocr.name_cache)), ({'n': LATIN}, 'en-US', 1))
+finally: ocr.close()
 
 # ---- the meter: its log line at start and status.json
 NOT_READ = "boss names and levels, result screens, Battle Data, the battle prep and Party screens can't be read"
