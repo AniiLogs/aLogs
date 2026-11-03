@@ -190,7 +190,10 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
             # Looked for around the left bracket's mirror image, not from the bar's thickness: a pale damage trail
             # along a bar's lower edge halved its measured thickness on Minespine (14 px of 27), and the estimate from
             # it ended the search 240 px before the real bracket
-            lines = [x for x in range(min(W - 1, int(W - lb + 0.06 * W)), max(int(lb + 0.3 * W), int(W - lb - 0.06 * W)), -1)
+            # Sized from the 16:9 area the HUD is drawn in, not the window: a 3440x1440 window's 1008 px bar is 0.29 of
+            # its width, under the 0.3 searched before, so ultrawide bars were never found
+            U = min(W, H * 16 / 9)
+            lines = [x for x in range(min(W - 1, int(W - lb + 0.06 * U)), max(int(lb + 0.3 * U), int(W - lb - 0.06 * U)), -1)
                      if _is_bracket(px, x, yc, thick, W, H)]
             rb = min(lines, key=lambda x: abs(lb + (x - lb) / 2 - W / 2)) if lines else None
     if lb is not None and rb is not None: span = rb - lb
@@ -351,6 +354,30 @@ def prep_text(img, box, scale, thr=190, size=3, pad=24):
     c = ImageOps.invert(c.point(lambda v: 255 if v > thr else 0))
     return ImageOps.expand(c, border=pad, fill=255)
 
+def _red_mask(c):
+    """Red text: red channel over 150 and at least 60 over green and blue (the boss's red level is ~(200, 60, 60))."""
+    r, g, b = c.split()
+    redness = ImageChops.subtract(r, ImageChops.lighter(g, b)).point(lambda v: 255 if v >= 60 else 0)
+    return ImageChops.multiply(r.point(lambda v: 255 if v > 150 else 0), redness)
+
+def has_red(img, box, scale):
+    """Red text in the box (at least a level's worth of red pixels): worth a prep_red() read. Only the box's left half,
+    where the level is (a centred title's right half has the element icon, often red, which would ask for the
+    second read on most bosses: 76 of 122 saved frames whole-box, 2 of 77 left half)."""
+    x0, y0, x1, y1 = box
+    c = img.crop((int(x0), int(y0), int((x0 + x1) / 2), int(y1))).convert('RGB')
+    return _red_mask(c).histogram()[255] >= 300 * scale * scale
+
+def prep_red(img, box, scale, thr=190, size=3, pad=24):
+    """prep_text() with red text kept too. The boss title's 'Lv.65' turns red (after a red warning triangle) when the
+    player's Aniimo is under the boss's level; as grey it is ~110, far under thr, so prep_text drops it (report
+    11-03). Only for the level: orange-red ground (lava) passes as red too and can bury the name (parse_title_pair)."""
+    c = img.crop(tuple(int(v) for v in box)).convert('RGB')
+    k = size / scale
+    c = c.resize((max(1, int(c.width * k)), max(1, int(c.height * k))), Image.BICUBIC)
+    text = ImageChops.lighter(c.convert('L').point(lambda v: 255 if v > thr else 0), _red_mask(c))
+    return ImageOps.expand(ImageOps.invert(text), border=pad, fill=255)
+
 def prep_white(img, box, scale, size=4):
     """Only near-white, unsaturated pixels count as text, so bright sky or sand around a box stays blank."""
     c = img.crop(tuple(int(v) for v in box)).convert('RGB'); k = size / scale
@@ -416,6 +443,13 @@ def prep_short(img, box, scale, copies=3):
     for i in range(copies): out.paste(c, (gap + i * (c.width + gap), gap))
     return out
 
+def grey_crop(img, box, height=48):
+    """A name box as it is on screen, in grey, for the Latin text model (Ocr.read's `raws`): it reads the letters'
+    soft edges better than any black and white preparation of them. A box taller than the model's 48 px is shrunk
+    smoothly here: the helper's own shrinking samples between pixels, and read a 4K name's capitals as small letters."""
+    c = img.crop(tuple(int(v) for v in box)).convert('L')
+    return c.resize((max(1, round(c.width * height / c.height)), height), Image.LANCZOS) if c.height > height else c
+
 def after_label(text, label):
     """What prep_labelled() read after its drawn label: "Player name: 0" or "Player name: / 0" -> "0"."""
     t = (text or '').strip()
@@ -433,6 +467,9 @@ def ink_aspect(img, box, thr=200):
 OCR_EXE = os.path.join(HERE, 'ocr-helper.exe')   # native helper (app/ocr-helper): grey pixels on stdin, no image files
 
 TEMP_PREFIX = 'bossbar_'
+# a name read of one character or none that the Korean model doesn't vouch for answers its box from the name cache while
+# that screen stays up, and this long after it was last looked at (Ocr.cached_read): not every later screen with the box
+UNSURE_S = 30
 
 def sweep_temp(hours=1):
     """Temp folders of OCR helpers from earlier runs (a crash or a forced close can't delete its own): gone."""
@@ -452,32 +489,81 @@ def name_signature(img):
     g = img.convert('L')
     return (g.size, g.resize((64, 16), Image.BILINEAR).point(lambda v: v // 64).tobytes())
 
+def ready_language(line):
+    """The OCR language in a helper's first line: 'READY<TAB>en-US' -> 'en-US', 'READY<TAB>' -> '' (no OCR language
+    on this PC), a plain 'READY' -> None (a helper that doesn't say: an older ocr-helper.exe). Anything else: it
+    didn't start."""
+    line = line.rstrip('\r\n')                    # not strip(): 'READY\t' is a helper with no OCR language
+    if line == 'READY': return None
+    if not line.startswith('READY\t'): raise RuntimeError('Windows OCR helper did not start')
+    return line[len('READY\t'):].strip()
+
+def ocr_english(language):
+    """Does Windows OCR read English, the game's language? `language` as Ocr.language: None (not said) -> None."""
+    return None if language is None else language.split('-')[0].lower() == 'en'
+
 class Ocr:
     swept = False
     korean = None      # hangulnames.KoreanNames once the game's fonts are read (live.py): Korean player names, read()
+    # The language Windows OCR reads in, as this reader's helper said when it started (ready_language): 'en-US' (or
+    # another English), the user's own language on a PC with no English OCR (ko-KR), '' with no OCR language at all;
+    # None when it doesn't say. Without English the game's text (boss names and levels, result screens, Battle Data,
+    # prep and Party screens) isn't read: live.py logs it and status.json carries it, and the app warns and offers to
+    # install English OCR. Kept on each reader, not the class: a helper picks its language as it starts (windows_ocr
+    # in app/ocr-helper), and one started later can pick another. On the class, the HP reader's (hit_watch: started at
+    # the first tab-out, 17 hours after the others on this PC) made status.json say English once English was added
+    # in Windows Settings, while the meter's own helpers still had none and nothing was read (review of 129a4a8).
+    language = None
+    started = True     # its helper did (NoOcr: it didn't, which status.json tells apart from no OCR language)
     def __init__(self):
         if not Ocr.swept:                              # in the background: a big Temp folder can take a while
             Ocr.swept = True; threading.Thread(target=sweep_temp, daemon=True, name='temp-sweep').start()
         self.native = os.path.exists(OCR_EXE); self.lock = threading.Lock(); self.n = 0; self.dir = None; self.last = {}
-        self.name_cache = {}   # name box signature -> its read (read_native)
+        self.name_cache = {}   # name box signature -> (its read, until when: None for good) (read_native)
+        # are unsure reads kept for UNSURE_S? Not in a replay (live.py): its saved screens come back to back, so how
+        # many of them an unsure read answered went by how fast the PC replayed them
+        self.keep_unsure = True
+        self.cache_lock = threading.Lock()
+        self.gen = 0           # helpers started in this one's place (restart): a read asked of an older one isn't cached
+        self.p, self.language = self.launch()
+        if not self.native: self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
+
+    def launch(self):
+        """Starts a helper: (its process, the language it says it reads in). Raises when it doesn't start."""
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         if self.native:
-            self.p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
-            if self.p.stdout.readline().strip() != b'READY': raise RuntimeError('Windows OCR helper did not start')
-            return
-        self.p = subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                                   os.path.join(HERE, 'ocr_win.ps1'), '-Server'],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
-                                  creationflags=flags)
-        if self.p.stdout.readline().strip() != 'READY': raise RuntimeError('Windows OCR helper did not start')
-        self.dir = tempfile.mkdtemp(prefix=TEMP_PREFIX)
+            p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
+            first = lambda: p.stdout.readline().decode('utf-8', 'replace')
+        else:
+            p = subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                                  os.path.join(HERE, 'ocr_win.ps1'), '-Server'],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                                 creationflags=flags)
+            first = p.stdout.readline
+        try: return p, ready_language(first())
+        except Exception: p.kill(); raise
 
-    def read(self, images, names=None):
+    def restart(self):
+        """A new helper in this one's place, which picks Windows OCR's language again: English added to Windows since
+        this one started (Windows Settings) is read from then on, without restarting the meter (live.py ocr_recheck).
+        Reads on other threads (names_bg reads on the meter's) wait for the swap (self.lock), then go to the new one;
+        the old one is closed. Raises as Ocr() does when the new one doesn't start, and this one keeps going. A names
+        read that asked the old one stores nothing in name_cache after (self.gen: read_native)."""
+        p, language = self.launch()
+        with self.lock: old, self.p, self.language = self.p, p, language; self.gen += 1
+        with self.cache_lock: self.name_cache.clear()          # names read without Windows OCR's read to fall back on
+        try: old.stdin.close(); old.wait(3)
+        except Exception: old.kill()
+
+    def read(self, images, names=None, raws=None):
         """{name: text} for {name: image}. `names` marks the boxes that hold a player's name, with the white padding
         their preparation added ({name: pad px}): those are read by the helper's Latin text model (PaddleOCR
         PP-OCRv6: 90% of real names exactly, Windows OCR 42%), and by its Korean model, settled against the game's
-        fonts (hangulnames), so a Hangul name reads as it is. Windows OCR's read is only kept when both find nothing."""
-        if self.native: return self.read_native(images, names or {})
+        fonts (hangulnames), so a Hangul name reads as it is. Windows OCR's read is only kept when both find nothing.
+        `raws` gives name boxes as they are on screen ({name: image}, grey_crop): the Latin model reads that instead
+        of the prepared box (195 of 195 labelled names on real 4K result screens that way, 180 prepared); Windows OCR
+        and the Korean model keep the prepared one."""
+        if self.native: return self.read_native(images, names or {}, raws or {})
         out = {}
         with self.lock:
             for name, img in images.items():
@@ -492,48 +578,121 @@ class Ocr:
                     except OSError: pass
         return out
 
-    def read_native(self, images, names):
+    def read_native(self, images, names, raws=None):
         """All images in one request: b'OCR1', count, then width, height and 8-bit grey pixels each (u32 LE).
         One line comes back per image, in order. With name boxes it's b'OCR2' (a flags byte before each image): the
-        boxes as they are, name boxes with the Latin model too (flag 4), then each name box tidied for the Korean
-        model alone (flags 1 + 2)."""
+        boxes as they are, name boxes with the Latin model too (flag 4) unless they have a grey crop in `raws`, then
+        those grey crops for the Latin model alone (flags 2 + 4), then each name box tidied for the Korean model alone
+        (flags 1 + 2). A grey crop read as one character or none, unless the Korean check settles it or the Korean
+        model reads one Latin letter or digit there (KoreanNames.lone), sends its prepared box to the Latin model after
+        (flags 2 + 4)."""
         import hangulnames as K
         # a name box that looks as it did a read ago (the Party and result screens stay up, read every few seconds)
         # takes that read: the two text models cost ~0.2 s a name
-        known, sigs = {}, {}
+        # (names_bg reads on this helper too: the cache is read with get() and changed under cache_lock, so the other
+        # thread dropping the oldest entry can't break a lookup or the drop)
+        # (a read kept for UNSURE_S is kept that long again: the Profile and the prep screen's Party read here every 2 s
+        # without names_first's cached(), and read it again every UNSURE_S on the frame loop)
+        known, sigs, now = {}, {}, time.monotonic()
         for k in list(names):
             sigs[k] = name_signature(images[k])
-            if sigs[k] in self.name_cache: known[k] = self.name_cache[sigs[k]]
+            hit = self.cached_read(sigs[k], now)
+            if hit is not None: known[k] = hit
         images = {k: v for k, v in images.items() if k not in known}
         names = {k: v for k, v in names.items() if k not in known}
         if not images: return known
         keys = list(images)
+        grey = [k for k in keys if k in names and k in (raws or {})]
         tidy = {}
         if names and self.korean:
             tidy = {k: t for k in keys if k in names for t in [K.tidy(images[k], names[k])] if t is not None}
-        work = [(k, 4 if k in names else 0, images[k]) for k in keys] + [(k, 3, t) for k, t in tidy.items()]
-        parts = [b'OCR2' if names else b'OCR1', struct.pack('<I', len(work))]
-        for _, flags, img in work:
-            img = img if img.mode == 'L' else img.convert('L')
-            parts += ([bytes([flags])] if names else []) + [struct.pack('<II', *img.size), img.tobytes()]
-        with self.lock:
-            self.p.stdin.write(b''.join(parts)); self.p.stdin.flush()
-            lines = [self.p.stdout.readline().decode('utf-8', 'replace').rstrip('\r\n') for _ in work]
+        work = [(k, 4 if k in names and k not in grey else 0, images[k]) for k in keys] + \
+               [(k, 6, raws[k]) for k in grey] + [(k, 3, t) for k, t in tidy.items()]
+        gens = []                                    # the helper each ask() went to (self.gen)
+        def ask(work):
+            parts = [b'OCR2' if names else b'OCR1', struct.pack('<I', len(work))]
+            for _, flags, img in work:
+                img = img if img.mode == 'L' else img.convert('L')
+                parts += ([bytes([flags])] if names else []) + [struct.pack('<II', *img.size), img.tobytes()]
+            with self.lock:
+                gens.append(self.gen)
+                self.p.stdin.write(b''.join(parts)); self.p.stdin.flush()
+                return [self.p.stdout.readline().decode('utf-8', 'replace').rstrip('\r\n') for _ in work]
+        lines = ask(work)
         out = {}
         for k, line in zip(keys, lines):
             text, _, latin = K.split_reply(line)
             # the Latin model's read of a name (a voice icon or mark after it dropped), else Windows OCR's
             out[k] = (K.clean_latin(latin) or text) if k in names else text
-        for (k, _, t), line in zip(work[len(keys):], lines[len(keys):]):
-            _, letters, _ = K.split_reply(line)
-            try: name = self.korean.read(t, out[k], letters)
-            except Exception: name = None            # a name the check can't settle keeps the Latin read
-            if name: out[k] = name
-        for k in names:
-            self.name_cache[sigs[k]] = out[k]
-            if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
+        # the grey crop's Latin read, when it found more than one character (its box's line was Windows OCR's alone)
+        short = []
+        for k, line in zip(grey, lines[len(keys):]):
+            latin = K.clean_latin(K.split_reply(line)[2])
+            if len(latin.replace(' ', '')) > 1: out[k] = latin
+            else: short.append(k)
+        n = len(keys) + len(grey)                    # each tidied name box and the Korean model's letters for it
+        found = {k: (t, K.split_reply(line)[1]) for (k, _, t), line in zip(work[n:], lines[n:])}
+        def korean(k, hint):
+            t, letters = found[k]
+            try: return self.korean.read(t, hint, letters)
+            except Exception: return None            # a name the check can't settle keeps the Latin read
+        # a grey crop read as one character or none: the scene around a lone character can swamp it there (a
+        # one-character name read as a letter or nothing on 720p Battle Data, read right prepared), so the box is read
+        # prepared, as before. Not when the Korean model reads Hangul there itself and the font check settles it: no Latin read can
+        # change that (KoreanNames.read only weighs one against a Latin-looking read), and most Hangul names are such
+        settled = {k: korean(k, '') for k in short if k in found and K.hangul_first(found[k][1])}
+        # nor when the Korean model reads the tidied box as one Latin letter or digit it is sure of: a one-character
+        # name. Both Latin reads keep the pill and the foot of the portrait around it, and on 10 real result screens
+        # read it as nothing or a CJK character (a 0.1 grey-level change flips them); the tidied box read right on all 10.
+        # The game's font picks between the model's character and its look-alikes (KoreanNames.lone: it read q as 9)
+        def lone_of(k):
+            try: return self.korean.lone(*found[k])
+            except Exception: return ''
+        lone = {k: c for k in short if k in found and not settled.get(k) for c in [lone_of(k)] if c}
+        out.update(lone)
+        again = [k for k in short if not settled.get(k) and k not in lone]
+        for k, line in zip(again, ask([(k, 6, images[k]) for k in again]) if again else []):
+            out[k] = K.clean_latin(K.split_reply(line)[2]) or out[k]
+        # the Korean check takes the Latin read as its hint (a Latin name the Korean model reads alike stays Latin):
+        # the grey crop's read keeps the same 72 of 73 labelled Hangul names the prepared crop's did
+        vouched = set(lone)
+        for k in found:
+            name = settled[k] if k in settled else korean(k, out[k])
+            if name: out[k] = name; vouched.add(k)
+        # not stored when the helper was restarted since this read's first ask() (live.py ocr_look: English found):
+        # its reads are the old helper's, and restart's clear may have come first, so they'd be kept and answer this
+        # box from then on (22 of 24 such reads on real result screens did). Checked under cache_lock: the clear
+        # after the swap can't come between the check and the write.
+        # A read of one character or none the Korean model didn't vouch for is kept for UNSURE_S only: it is a miss or
+        # a coin flip (a one-character name read as nothing on some result screens and a CJK character on others that
+        # differ by 0.1 grey level), and kept for good it answered every later screen with that box for the session
+        with self.cache_lock:
+            if gens[0] == self.gen:
+                for k in names:
+                    unsure = len(out[k].replace(' ', '')) <= 1 and k not in vouched
+                    self.name_cache.pop(sigs[k], None)              # stored again: last in, last dropped
+                    if unsure and not self.keep_unsure: continue
+                    self.name_cache[sigs[k]] = (out[k], now + UNSURE_S if unsure else None)
+                    if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
         out.update(known)
         return out
+
+    def cached_read(self, sig, now):
+        """The name cache's read of the name box with this signature, None when it has none (or its UNSURE_S ran out).
+        A read kept for UNSURE_S is kept that long again from now: a box still on screen (a Party screen up for minutes
+        in the lobby, looked at every 2 s) isn't read again every UNSURE_S, only on a later appearance."""
+        hit = self.name_cache.get(sig)
+        if hit is None or (hit[1] is not None and hit[1] <= now): return None
+        if hit[1] is not None:
+            with self.cache_lock:                      # not over a newer read, or back after restart's clear
+                if self.name_cache.get(sig) is hit: self.name_cache[sig] = (hit[0], now + UNSURE_S)
+        return hit[0]
+
+    def cached(self, images, names):
+        """Is every name box in `images` ({name: pad px}) read already (the name cache)? Only those are slow to read:
+        the text models, ~0.2 s a name, where Windows OCR takes a few ms."""
+        now = time.monotonic()
+        return not self.native or all([self.cached_read(name_signature(images[k]), now) is not None for k in names])
 
     def close(self):
         try: self.p.stdin.close(); self.p.wait(3)
@@ -542,10 +701,21 @@ class Ocr:
             import shutil
             shutil.rmtree(self.dir, ignore_errors=True)
 
+class NoOcr:
+    """In place of Ocr when its helper didn't start: every box reads as nothing (no OCR language, as status.json says)."""
+    native = False
+    language = ''
+    started = False
+    def __init__(self): self.name_cache = {}
+    def read(self, images, names=None, raws=None): return {k: '' for k in images}
+    def cached(self, images, names): return True
+    def close(self): pass
+
 DIGIT_FIX = str.maketrans({'O': '0', 'o': '0', 'Q': '0', 'D': '0', 'I': '1', 'l': '1', 'S': '5', 'B': '8', 'Z': '2', 'G': '6'})
 
 def parse_title(t):
-    m = re.search(r'L\s*[vVyYnN]\s*\.?\s*([0-9OoQDIlSBZG]+)', t or '')      # 'Lv', also misread as LV / LY / LN / Ly
+    # 'Lv', also misread as LV / LY / LN / Ly; the dot also comes back as a bullet / middle dot / comma (red 'Lv•65')
+    m = re.search(r'L\s*[vVyYnN]\s*[.•·,]?\s*([0-9OoQDIlSBZG]+)', t or '')
     digits = m.group(1).translate(DIGIT_FIX) if m else ''
     # no level starts with 0: a leading 0 is the dot after Lv read as one ('Lv064' for Lv.64 made Lv 6, B7 report)
     if len(digits) > 1: digits = digits.lstrip('0') or '0'
@@ -554,6 +724,13 @@ def parse_title(t):
     if level is not None and not 1 <= level <= 80: level = None
     title = (t[m.end():] if m else (t or '')).strip(' |Il')
     return level, strip_sparkling(re.sub(r'\s+', ' ', title).strip())
+
+def parse_title_pair(white, red=None):
+    """parse_title() of the white read (prep_text); when it has no level, the level from the red read (prep_red).
+    The name always comes from the white read."""
+    level, title = parse_title(white)
+    if level is None and red: level = parse_title(red)[0]
+    return level, title
 
 def strip_sparkling(title):
     """'Sparkling- Young Omega Sherro' -> 'Young Omega Sherro'. Sparkling is a cosmetic variant (one of the Aniilog's
@@ -568,15 +745,18 @@ def strip_sparkling(title):
 
 XN_FIX = str.maketrans({'l': '1', 'I': '1', 'i': '1', '|': '1', 'O': '0', 'o': '0', 'D': '0', 'Q': '0', 'S': '5', 's': '5'})
 
-def parse_xn(t):
-    """Majority vote over the repeated copies ('x16 / x16 / x16'). This font's 1 is often read as 7 or l/I."""
+def parse_xn(t, top=None):
+    """Majority vote over the repeated copies ('x21 / x21 / x21'), x1 up to the top bar's counter (top: xn_top(), x21).
+    This font's 1 is often read as 7 or l/I: a two-digit read above the top has its 7s read as 1s ('x77' -> 11,
+    'x70' -> 10). A read up to the top is a real bar and stays as it is: x17 is bar 5 now, not 11."""
+    top = top or xn_top()
     votes = []
     for m in re.finditer(r'[xX×]\s*([0-9lIi|OoDQSs]{1,2})(?![0-9])', t or ''):
         s = m.group(1).translate(XN_FIX)
         if not s.isdigit(): continue
         n = int(s)
-        if n > 16 and len(s) == 2: n = int(s.replace('7', '1'))      # 'x77' -> 11, 'x70' -> 10
-        if 1 <= n <= 16: votes.append(n)
+        if n > top and len(s) == 2: n = int(s.replace('7', '1'))
+        if 1 <= n <= top: votes.append(n)
     return max(set(votes), key=votes.count) if votes else None
 
 def parse_timer(t):
@@ -596,9 +776,33 @@ def load_catalog():
     fresh = {key(r): r for r in game}
     return [{**r, **fresh.pop(key(r), {})} for r in rows] + list(fresh.values())
 
+# Interlink's HP bars: bossrush_grade_data, the share of a boss's max HP lost at each grade, in three columns
+GRADE_BASE = 'bossHpLossPercent'
+GRADE_COLUMNS = (GRADE_BASE, 'bossHpLossPercent_2', 'bossHpLossPercent_3')
+GAME_GRADES = [None]      # the grade rows read from the player's game data (gamedata.cached_grades), when there are some
+
 def load_grades():
-    with open(os.path.join(HERE, 'boss_rush_grades.csv'), encoding='utf-8') as f:
-        return [float(r['cumulative_hp_loss_pct']) / 100 for r in csv.DictReader(f)]   # index = grade 0..16
+    """{column: [share of max HP lost at grade 0, 1, ... 21]} for the three columns of bossrush_grade_data: the game
+    data's own rows (read again by the meter after each game patch) when there are some, else the shipped
+    boss_rush_grades.csv (gamedata.write_grades). Build 3857679 has 22 rows: grades 0-20 and 21 "Eliminate"."""
+    rows = GAME_GRADES[0]
+    if not rows:
+        with open(os.path.join(HERE, 'boss_rush_grades.csv'), encoding='utf-8') as f: rows = list(csv.DictReader(f))
+    return {c: [float(r[c]) for r in rows] for c in GRADE_COLUMNS}
+
+def xn_top(grades=None):
+    """The bar counter at a boss's full HP, x21: one bar per grade above 0 (BossRushUtils.getBossTotalHpCount, line
+    339: #bossrush_grade_data; BossHpComp.refreshHpDisplay, line 74: the counter is that count - bar + 1)."""
+    return len((grades or load_grades())[GRADE_BASE]) - 1
+
+def grade_column(puppet_id):
+    """The bossrush_grade_data column a boss's HP bars follow, picked as the game picks it: BossRushUtils.lua's local
+    getBossHpLossPercentField (line 306) gives bossHpLossPercent_2 for spawn index 1, bossHpLossPercent_3 for index 2
+    and bossHpLossPercent otherwise, the index being ClientBossRushDungeon.getBossSpawnIndex (line 232), which
+    stage_of's order mirrors: 1 for a two-boss stage's bossId, 2 for its bossId_2, none on one-boss stages. So a
+    two-boss middle fight's first boss reaches its last bar (x1) at 95% of its HP lost, the second at 39.76%, every
+    other boss at 50%."""
+    return {1: 'bossHpLossPercent_2', 2: 'bossHpLossPercent_3'}.get(stage_of(puppet_id)[1], GRADE_BASE)
 
 def norm(s): return re.sub(r'[^a-z]', '', (s or '').lower())
 
@@ -720,6 +924,32 @@ def cycle_slot(cycle, boss_id):
         if str(boss_id) in (str(a), str(b)): return slot, c.get('split')
     return None, c.get('split')
 
+def stage_of(puppet_id, cycle=None):
+    """A boss's place in a week's fights: (slot, order, partner), slot as cycle_slot gives it.
+    In a two-boss fight (bossrush_guanka_data rows with a bossId_2: the week's bossIds2) order is the game's spawn index:
+    1 for the stage's bossId (spawner 78797760), 2 for its bossId_2 (spawner 91530847), and partner is the other boss's
+    id (ClientBossRushDungeon.getBossSpawnIndex, line 232: BOSS_SPAWNER_ORDER_BY_GRAPH {78797760, 91530847}). A one-boss
+    slot gives (slot, None, None), as the game gives no spawn index there. (None, None, None) when the boss isn't in
+    the week. cycle: a week's id, else the week running now, or when the boss isn't in it (or the schedule ran out)
+    the latest week that has it."""
+    if puppet_id is None: return None, None, None
+    try:
+        with open(CYCLES_FILE[0], encoding='utf-8') as f: cycles = json.load(f)
+    except OSError: return None, None, None
+    pid = str(puppet_id)
+    if cycle is None:
+        cycle = active_cycle_id()
+        if cycle_slot(cycle, pid)[0] is None:
+            weeks = [c for c in cycles if pid in {str(b) for b in c['bossIds'] + [x for x in c.get('bossIds2') or [] if x]}]
+            if weeks: cycle = max(weeks, key=lambda c: c['end'])['cycle']
+    slot = cycle_slot(cycle, pid)[0]
+    if slot is None: return None, None, None
+    c = next(c for c in cycles if str(c['cycle']) == str(cycle))
+    i = ('left', 'middle', 'right').index(slot)
+    first, second = c['bossIds'][i], (c.get('bossIds2') or [None] * 3)[i]
+    if not second: return slot, None, None
+    return (slot, 1, str(second)) if str(first) == pid else (slot, 2, str(first))
+
 CALIB = os.path.join(C.DATA, 'calibration.json')
 
 def load_calibration():
@@ -755,10 +985,13 @@ def boss_max_hp(row, level, use_calibration=True):
     return predicted
 
 def damage_dealt(max_hp_value, fill, xn, cum, bossrush=True):
-    """Team damage so far. Boss rush: the bar shows only the current star segment (xN = segments left)."""
+    """Team damage so far. Interlink: the bar shows only the HP of the bar (grade) being worked toward, and xN counts
+    the bars left, so that grade is g = len(cum) - xN: 1 at the top bar (x21), 21 at x1 (xn_top). cum: the boss's
+    column of the grade table (grade_column), the share of max HP lost at grades 0..21. max_hp_value: the max HP of
+    the boss now on the bar."""
     if not bossrush or xn is None: return round((1 - fill) * max_hp_value), None
-    g = 17 - xn
-    if not 1 <= g <= 16: return None, None
+    g = len(cum) - xn
+    if not 1 <= g <= len(cum) - 1: return None, None
     lo, hi = cum[g - 1], cum[g]
     return round((lo + (1 - fill) * (hi - lo)) * max_hp_value), {'grade': g, 'size_hp': round((hi - lo) * max_hp_value),
                                                                   'left_hp': round(fill * (hi - lo) * max_hp_value)}
@@ -769,14 +1002,16 @@ def read_frame(im, ocr, cropped=False, want=('title', 'xn', 'timer')):
     if not bar: return None
     fill, flash, ghost = measure_fill(im, bar)
     scale = bar['span'] / REF_SPAN; crops = {}
-    if 'title' in want: crops['title'] = prep_text(im, box_at(bar, TITLE_BOX), scale)
+    if 'title' in want:
+        crops['title'] = prep_text(im, box_at(bar, TITLE_BOX), scale)
+        if has_red(im, box_at(bar, TITLE_BOX), scale): crops['title_red'] = prep_red(im, box_at(bar, TITLE_BOX), scale)
     if 'xn' in want: crops['xn'] = prep_short(im, box_at(bar, XN_BOX), scale)
     if 'timer' in want and not cropped: crops['timer'] = prep_text(im, timer_box(*im.size), scale)
     text = ocr.read(crops) if crops else {}
     if 'timer' in crops and parse_timer(text.get('timer')) is None:     # second try: wider box, bolder threshold
         text['timer'] = ocr.read({'timer': prep_text(im, timer_box(*im.size, wide=True), scale, thr=170, size=4, pad=40)})['timer']
     out = {'bar': bar, 'fill': fill, 'flash_px': flash, 'ghost_px': ghost, 'ocr': text}
-    if 'title' in text: out['level'], out['title'] = parse_title(text['title'])
+    if 'title' in text: out['level'], out['title'] = parse_title_pair(text['title'], text.get('title_red'))
     if 'xn' in text: out['xn'] = parse_xn(text['xn'])
     if 'timer' in text: out['timer_s'] = parse_timer(text['timer'])
     return out

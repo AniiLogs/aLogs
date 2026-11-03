@@ -513,10 +513,14 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
             files.push((name.to_string(), bytes));
         }
     }
+    // "(B2, RC 64)"; a release has no name ("(RC 64)", not "(, RC 64)"), a build made without tauri-build.mjs neither
+    let mut build = vec![update::build_name()];
+    if update::build_number() > 0 { build.push(format!("RC {}", update::build_number())); }
+    build.retain(|part| !part.is_empty());
+    build.dedup_by_key(|part| part.replace(' ', ""));          // a build named by its RC ("RC53") says it once
+    let build = if build.is_empty() { String::new() } else { format!(" ({})", build.join(", ")) };
     let info = format!(
-        "aLogs {version} ({}, RC {})\nmeter running: {meter_on}\nsent: {}\n",
-        update::build_name(),
-        update::build_number(),
+        "aLogs {version}{build}\nmeter running: {meter_on}\nsent: {}\n",
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
     );
     files.push(("app.txt".into(), info.into_bytes()));
@@ -691,6 +695,120 @@ async fn test_controller_blocking() -> Result<Vec<String>, String> {
     hidhide::test_blocking()
 }
 
+/// Windows' English OCR (Windows.Media.Ocr, en-US) added the way Microsoft documents adding an OCR language
+/// (PowerToys Text Extractor, "Install an OCR language pack"), in Windows PowerShell as administrator. The meter reads
+/// the game's text with it: without it boss names, result screens and Battle Data aren't read, so runs aren't
+/// recorded or sent (status.json's ocr; the DPS Meter page and the Dashboard warn). Fixed: nothing from the player
+/// or the PC goes in it. Exits 0 when it's in, 3010 when Windows wants a restart to finish, 2 when Windows offers no
+/// en-US OCR, else with the error's HRESULT (0x800F0954...).
+const OCR_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; try { \
+$Capability = Get-WindowsCapability -Online | Where-Object { $_.Name -Like 'Language.OCR*en-US*' }; \
+if (-not $Capability) { exit 2 }; \
+$Result = $Capability | Add-WindowsCapability -Online; \
+if ($Result.RestartNeeded) { exit 3010 }; exit 0 \
+} catch { $Code = $_.Exception.HResult; if ($Code -eq 0) { $Code = 1 }; exit $Code }";
+
+/// The command that installs English OCR: PowerShell has Windows run OCR_INSTALL_SCRIPT as administrator (Windows'
+/// own admin prompt: ShellExecute's "runas", from PowerShell as hidhide::run_elevated does), waits for it and exits
+/// with its code; 1223 (ERROR_CANCELLED) only when the prompt is declined. Not Start-Process -Verb RunAs: it turns
+/// every failure to start into the same InvalidOperationException, with no inner exception and a message in the PC's
+/// own language, so any of them read as declined (a verb Windows lacks gave 1223) and the button said "press it
+/// again" for good. Process.Start throws the Win32Exception itself: 1223 is declined, any other code exits as its
+/// HRESULT (0x80070002: no Windows PowerShell). The script goes in encoded, so no quoting can change it.
+/// Except in ConstrainedLanguage mode (WDAC or AppLocker script rules, on managed PCs), which refuses
+/// ProcessStartInfo and Process.Start: that failed at once (0x80131501), and "Try again" with it, for good. There it's
+/// Start-Process -Verb RunAs, which that mode allows; as that can't tell a declined prompt from another failure to
+/// start, either exits 4 (ocr_install_outcome says both). In FullLanguage, as on most PCs, nothing changes.
+fn ocr_install_command() -> Command {
+    use base64::Engine;
+    let script: Vec<u8> = OCR_INSTALL_SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let encoded = base64::engine::general_purpose::STANDARD.encode(script);
+    // Windows PowerShell itself (the docs': not PowerShell 7), from the Windows folder
+    let locked = format!(
+        "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {{ try {{ $p = Start-Process \
+         -FilePath (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') \
+         -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}' \
+         -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode }} catch {{ exit 4 }} }}; ");
+    let outer = format!(
+        "{locked}try {{ $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), \
+         '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}'); \
+         $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
+         $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode }} \
+         catch {{ $e = $_.Exception; while ($e.InnerException) {{ $e = $e.InnerException }}; \
+         if ($e -is [System.ComponentModel.Win32Exception]) {{ if ($e.NativeErrorCode -eq 1223) {{ exit 1223 }}; exit (0x80070000 -bor $e.NativeErrorCode) }}; \
+         if ($e.HResult) {{ exit $e.HResult }}; exit 1 }}");
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &outer]).creation_flags(NO_WINDOW);
+    cmd
+}
+
+/// What the install's exit code means, for the warning: {"state": "installed", "restart": bool}, {"state":
+/// "declined", "message"} or {"state": "failed", "message"} (the page adds where to add it by hand).
+fn ocr_install_outcome(code: Option<i32>) -> Value {
+    let failed = |why: &str| json!({ "state": "failed", "message": format!("Windows couldn't install English OCR ({why}).") });
+    match code {
+        Some(0) => json!({ "state": "installed", "restart": false }),
+        Some(3010) => json!({ "state": "installed", "restart": true }),
+        Some(1223) => json!({ "state": "declined",
+            "message": "Windows' admin prompt was declined, so English OCR wasn't installed. Press the button again to retry." }),
+        // ConstrainedLanguage's Start-Process (ocr_install_command): declined and not started can't be told apart.
+        // Failed, so the page offers Try again and the Settings path under it
+        Some(4) => json!({ "state": "failed",
+            "message": "Windows' admin prompt was declined, or Windows couldn't start the installer, so English OCR wasn't installed. Press Try again to retry." }),
+        Some(2) => failed("Windows Update doesn't offer it for this PC"),
+        Some(code) => {
+            let hex = format!("0x{:08X}", code as u32);
+            match code as u32 {
+                0x800F_0954 => failed(&format!("error {hex}: this PC gets its updates from an organisation's server, which doesn't have it")),
+                0x8024_402C | 0x8024_0438 | 0x8024_401C | 0x8007_2EE7 | 0x8007_2EFD | 0x8007_2EE2 =>
+                    failed(&format!("error {hex}: Windows Update couldn't be reached; check the internet connection")),
+                0x800F_081F | 0x800F_0950 => failed(&format!("error {hex}: Windows couldn't find the files for it")),
+                // Microsoft's "Common Windows Update errors": the Windows Update service stopped or isn't running
+                0x8007_0422 => failed(&format!("error {hex}: the Windows Update service is turned off, and adding it needs it")),
+                // ERROR_ELEVATION_REQUIRED: the script ran, but not as administrator
+                0x8007_02E4 => failed(&format!("error {hex}: Windows didn't run it as administrator")),
+                // ERROR_FAIL_REBOOT_REQUIRED ("Restart the system to roll back changes made")
+                0x8007_0BC9 => failed(&format!("error {hex}: Windows has to restart first; restart it, then try again")),
+                _ => failed(&format!("error {hex}")),
+            }
+        }
+        None => failed("the installer stopped without an exit code"),
+    }
+}
+
+/// app.log's line for the install's outcome: its state and what the page said, so a failure's Windows error code
+/// (0x800F0954...) is in the logs a player sends with Report a problem (collect_logs), the one thing there that says
+/// why it failed; for an install, whether Windows wants a restart. Nothing from the player or the PC is in it.
+fn ocr_install_log(outcome: &Value) -> String {
+    let state = outcome["state"].as_str().unwrap_or("");
+    match outcome["message"].as_str() {
+        Some(message) => format!("English OCR: {state}: {message}"),
+        None if outcome["restart"] == true => format!("English OCR: {state} (Windows wants a restart to finish)"),
+        None => format!("English OCR: {state}"),
+    }
+}
+
+/// The DPS Meter page's "Install English OCR" (shown only when status.json says Windows OCR isn't English). Windows
+/// asks for admin approval, then adds it, which can take several minutes: on a worker thread, so the window keeps
+/// going (the page shows it working). Once it's in, the meter restarts, so its OCR helper (which picks its language
+/// as it starts) reads English; the warning goes when the new meter's status says so. Sanctum Helper, which builds
+/// its Windows OCR engine as it starts, restarts too when it runs.
+#[tauri::command(async)]
+fn install_english_ocr(app: AppHandle) -> Value {
+    app_log("English OCR: install pressed (Windows asks for admin approval)");
+    let outcome = match ocr_install_command().status() {
+        Ok(status) => ocr_install_outcome(status.code()),
+        Err(e) => json!({ "state": "failed", "message": format!("Windows couldn't install English OCR (PowerShell didn't start: {e}).") }),
+    };
+    app_log(&ocr_install_log(&outcome));
+    if outcome["state"] == "installed" {
+        stop_meter_inner(&app.state::<Meter>());
+        let _ = ensure_meter(&app);
+        sanctum::restart(&app, &read_settings());
+    }
+    outcome
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -728,6 +846,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held, capture_choose_icon,
             auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, auth::auth_window_open, auth::auth_window_close, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, photos::photos_stamp, site::site_view,
+            install_english_ocr,
             sanctum::install_dotnet_desktop,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
@@ -810,5 +929,101 @@ mod scrub_tests {
         assert!(!out.contains("Jo") && !out.contains("00e3"), "{out}");
         assert!(out.contains("<user>"), "{out}");
         assert_eq!(s.clean(r"C:\Users\Ana\x"), r"C:\Users\<user>\x");
+    }
+}
+
+/// The English OCR install, built but never run (running it changes Windows): the exact command, the script Windows
+/// runs elevated, and what each outcome tells the player.
+#[cfg(test)]
+mod ocr_install_tests {
+    use super::{ocr_install_command, ocr_install_log, ocr_install_outcome, OCR_INSTALL_SCRIPT};
+    use base64::Engine;
+
+    #[test]
+    fn command_is_the_fixed_elevated_script() {
+        let cmd = ocr_install_command();
+        assert_eq!(cmd.get_program(), "powershell");
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(args[..5], ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]);
+        assert_eq!(args.len(), 6);
+        let outer = &args[5];
+        // ConstrainedLanguage (a managed PC's WDAC or AppLocker), which refuses ProcessStartInfo and Process.Start:
+        // Start-Process, which it allows, first; a declined prompt and any other failure to start both exit 4
+        let (locked, full) = outer.split_at(outer.find("}; try { $i = ").expect(outer) + 3);
+        assert!(locked.starts_with("if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { try { \
+            $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') \
+            -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{locked}");
+        assert!(locked.ends_with("' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 4 } }; "),
+            "{locked}");
+        assert_eq!(outer.matches("exit 4 ").count(), 1);
+        assert!(!locked.contains("1223"));
+        // FullLanguage: as before
+        assert!(full.starts_with("try { $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot \
+            'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{full}");
+        assert!(full.ends_with("'); $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
+            $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode } \
+            catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; \
+            if ($e -is [System.ComponentModel.Win32Exception]) { if ($e.NativeErrorCode -eq 1223) { exit 1223 }; \
+            exit (0x80070000 -bor $e.NativeErrorCode) }; if ($e.HResult) { exit $e.HResult }; exit 1 }"), "{full}");
+        // declined (the Win32Exception's 1223) is told apart from any other failure to start: nothing else exits 1223
+        assert_eq!(outer.matches("exit 1223").count(), 1);
+        assert!(!full.contains("Start-Process"));
+        // what runs elevated, either way, is exactly the script, and the script is Microsoft's two documented lines
+        let scripts: Vec<String> = outer.split("-EncodedCommand ").skip(1).map(|rest| {
+            let bytes = base64::engine::general_purpose::STANDARD.decode(rest.split('\'').next().unwrap()).unwrap();
+            let utf16: Vec<u16> = bytes.chunks(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+            String::from_utf16(&utf16).unwrap()
+        }).collect();
+        assert_eq!(scripts, [OCR_INSTALL_SCRIPT, OCR_INSTALL_SCRIPT]);
+        assert!(OCR_INSTALL_SCRIPT.contains("$Capability = Get-WindowsCapability -Online | Where-Object { $_.Name -Like 'Language.OCR*en-US*' }"));
+        assert!(OCR_INSTALL_SCRIPT.contains("$Capability | Add-WindowsCapability -Online"));
+        assert!(!OCR_INSTALL_SCRIPT.contains("Remove-WindowsCapability"));
+        println!("{} {}", cmd.get_program().to_string_lossy(), args.join(" "));
+        println!("elevated: {OCR_INSTALL_SCRIPT}");
+    }
+
+    #[test]
+    fn outcomes() {
+        assert_eq!(ocr_install_outcome(Some(0))["state"], "installed");
+        assert_eq!(ocr_install_outcome(Some(0))["restart"], false);
+        assert_eq!(ocr_install_outcome(Some(3010))["restart"], true);
+        let declined = ocr_install_outcome(Some(1223));
+        assert_eq!(declined["state"], "declined");
+        assert!(declined["message"].as_str().unwrap().contains("declined"));
+        assert_eq!(ocr_install_outcome(Some(2))["state"], "failed");
+        // a managed PC's update server, offline: the error code, and in plain words what it means
+        let managed = ocr_install_outcome(Some(0x800F_0954u32 as i32));
+        assert_eq!(managed["state"], "failed");
+        assert!(managed["message"].as_str().unwrap().contains("0x800F0954"), "{managed}");
+        assert!(ocr_install_outcome(Some(0x8024_402Cu32 as i32))["message"].as_str().unwrap().contains("internet"));
+        assert!(ocr_install_outcome(Some(0x8000_4005u32 as i32))["message"].as_str().unwrap().contains("0x80004005"));
+        // in plain words: Windows Update's service off, not run as administrator, a restart Windows needs first
+        let message = |code: u32| ocr_install_outcome(Some(code as i32))["message"].as_str().unwrap().to_string();
+        assert!(message(0x8007_0422).contains("0x80070422") && message(0x8007_0422).contains("Windows Update service is turned off"));
+        assert!(message(0x8007_02E4).contains("administrator"));
+        assert!(message(0x8007_0BC9).contains("restart"));
+        // failing to start the elevated PowerShell for another reason than a declined prompt: failed, with its code
+        // (ERROR_NO_ASSOCIATION, as a verb Windows lacks gives)
+        assert_eq!(ocr_install_outcome(Some(0x8007_0483u32 as i32))["state"], "failed");
+        assert!(message(0x8007_0483).contains("0x80070483"));
+        assert_eq!(ocr_install_outcome(None)["state"], "failed");
+        // ConstrainedLanguage's Start-Process didn't start it: declined or not started, it can't say which. Failed (the
+        // page's Try again, and the Settings path under it), and the message says both
+        let locked = ocr_install_outcome(Some(4));
+        assert_eq!(locked["state"], "failed");
+        assert_eq!(locked["message"], "Windows' admin prompt was declined, or Windows couldn't start the installer, so English OCR \
+            wasn't installed. Press Try again to retry.");
+    }
+
+    #[test]
+    fn log_line_has_the_error() {
+        // app.log (in Report a problem's logs): the error code a failure gives, not only "failed"
+        let managed = ocr_install_log(&ocr_install_outcome(Some(0x800F_0954u32 as i32)));
+        assert!(managed.starts_with("English OCR: failed: ") && managed.contains("0x800F0954"), "{managed}");
+        assert!(ocr_install_log(&ocr_install_outcome(Some(0x8000_4005u32 as i32))).contains("0x80004005"));
+        assert!(ocr_install_log(&ocr_install_outcome(Some(1223))).starts_with("English OCR: declined: "));
+        assert!(ocr_install_log(&ocr_install_outcome(Some(4))).starts_with("English OCR: failed: Windows' admin prompt was declined, or "));
+        assert_eq!(ocr_install_log(&ocr_install_outcome(Some(0))), "English OCR: installed");
+        assert_eq!(ocr_install_log(&ocr_install_outcome(Some(3010))), "English OCR: installed (Windows wants a restart to finish)");
     }
 }

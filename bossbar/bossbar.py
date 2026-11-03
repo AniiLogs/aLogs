@@ -19,7 +19,7 @@ def main():
     ap.add_argument('--duration', type=int, default=180, help='fight length in seconds (boss rush: 180)')
     ap.add_argument('--not-bossrush', action='store_true', help='plain bar: fill = share of total HP')
     args = ap.parse_args()
-    catalog, cum, ocr = R.load_catalog(), R.load_grades(), R.Ocr(); results = []
+    catalog, grades, ocr = R.load_catalog(), R.load_grades(), R.Ocr(); results = []
     try:
         for p in args.shots:
             f = R.read_frame(Image.open(p), ocr, cropped=args.cropped)
@@ -34,6 +34,7 @@ def main():
             r['boss'] = row and {'puppetId': row['puppetId'], 'title': row['bossTitle_en'], 'variants': nvar}
             if row and level:
                 hp = R.boss_max_hp(row, level); r['max_hp'] = hp
+                cum = grades[R.grade_column(row['puppetId']) if bossrush else R.GRADE_BASE]   # the boss's HP bars
                 dmg, seg = R.damage_dealt(hp, f['fill'], r['xn'], cum, bossrush)
                 r['segment'] = seg; r['team_damage'] = dmg
                 if dmg is not None and r['timer_s'] is not None:

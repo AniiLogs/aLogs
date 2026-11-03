@@ -21,10 +21,15 @@ NOT_A_LETTER = 0.3    # ink no candidate fits even this well is an icon or a mar
 LATIN_SAME = 0.8      # the English OCR's read this like the model's Latin read: a Latin name, left alone
 SPECK = 5             # ink thinner than this many px is a speck, not part of a letter (the boxes are enlarged 2-4x)
 SPACE = 0.6           # a gap this many letter heights wide is a space
+LONE_P = 0.9          # a tidied box the Korean model reads as one Latin letter or digit this sure of: a one-character name
 # Korean letters the game draws almost like a Latin one: when the model sees the Latin one, the Korean one is drawn
 # too, and the game's own fonts decide
 TWINS = {'7': 'ㄱ', 'L': 'ㄴ', '2': 'ㄹ', 'Z': 'ㄹ', '0': 'ㅇ', 'O': 'ㅇ', 'o': 'ㅇ', 'T': 'ㅜ', 'E': 'ㅌ', 'C': 'ㄷ',
          'l': 'ㅣ', 'I': 'ㅣ', '1': 'ㅣ', '-': 'ㅡ', 'H': 'ㅐ', 'A': 'ㅅ', 'V': 'ㅅ', 'D': 'ㅁ', 'S': 'ㅈ'}
+# a lone character's look-alikes, which the game's font tells apart (KoreanNames.lone): small letters drawn as their
+# capital made smaller (the model read a lone c, s, v or z as the capital), and these groups (q read as 9, O as 0)
+SMALL_CAPS = 'cosuvwxz'
+LOOKALIKES = ('0Oo', '9q', '1lI')
 
 
 def is_hangul(c):
@@ -43,6 +48,22 @@ def split_reply(line):
     try: letters = json.loads(extra) if extra else None
     except ValueError: letters = None
     return text.strip(), letters, latin.strip()
+
+
+def hangul_first(letters):
+    """True when the Korean model's own best letters hold Hangul: KoreanNames.read then decides without the Latin
+    read it's given (that only counts against a Latin-looking best read)."""
+    return bool(letters) and has_hangul(''.join(picks[0][0] for _, picks in letters if picks))
+
+
+def lone_latin(letters):
+    """The Korean model's letters for a tidied name box, when they are one Latin letter or digit it is sure of
+    (LONE_P): that character, else ''. tidy() leaves a one-character name alone on white; the Latin model's reads of
+    the box still have the pill and the foot of the portrait above around it, and read it as nothing or another
+    character."""
+    if not letters or len(letters) != 1 or not letters[0][1]: return ''
+    c, p = letters[0][1][0]
+    return c if len(c) == 1 and c.isascii() and c.isalnum() and p >= LONE_P else ''
 
 
 def clean_latin(text):
@@ -142,6 +163,22 @@ class KoreanNames:
         a, b = part.width / part.height, g.width / g.height
         aspect = min(a, b) / max(a, b)
         return _iou(part, g.resize(part.size, Image.NEAREST)) * aspect
+
+    def lone(self, img, letters):
+        """lone_latin's character for the tidied box `img`, settled against the game's font: of it and its look-alikes
+        (SMALL_CAPS' other case, LOOKALIKES), the one whose shape fits the ink best. '' when there is none, or nothing
+        fits the ink as a letter. On synthetic result screens at 720p-4K the model's pick was a look-alike for q, O, c,
+        s, v and z, and the font's best fit was right for every letter and digit."""
+        c = lone_latin(letters)
+        if not c: return ''
+        mask = img.convert('L').point(lambda v: 255 if v < INK else 0)
+        box = mask.getbbox()
+        if not box: return ''
+        part = mask.crop(box).convert('1')
+        cands = {c} | ({c.swapcase()} if c.lower() in SMALL_CAPS else set()) | {x for g in LOOKALIKES if c in g for x in g}
+        fits = {x: self.fit(part, x) for x in sorted(cands)}
+        best = max(fits, key=fits.get)
+        return best if fits[best] >= NOT_A_LETTER else ''
 
     def read(self, img, text, letters):
         """The name in Hangul when the game's Korean letters fit it, else None (the English OCR's `text` stands).

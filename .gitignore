@@ -13,6 +13,7 @@ target/
 /bossbar/build/
 /bossbar/dist/
 /bossbar/ocr-helper.exe
+/bossbar/*.bak-*
 __pycache__/
 *.pyc
 
@@ -31,6 +32,7 @@ __pycache__/
 # material from the game itself: screenshots, extracted data, the game's font (read from your own install)
 /bossbar/test_shots/
 /bossbar/gamefont/
+/bossbar/icons/
 /bossbar/end_frames.png
 /aniimo_data/
 

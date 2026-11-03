@@ -140,7 +140,7 @@
       accentText: "#79e5c2", coral: "#f48972" },
     meadow: { label: "Meadow", colors: { background: "#f8f2d7", backgroundAlt: "#ccebe4", surface: "#fffaf0", surfaceRaised: "#f3edd8",
       border: "#b7d2c7", text: "#24473f", muted: "#506a62", primary: "#4fcda5", secondary: "#258c76", highlight: "#f4bd4f" },
-      accentText: "#1c756b", goldText: "#8a5a00", coral: "#b84c3b" },
+      accentText: "#1c756b", goldText: "#8a5a00", coral: "#b84c3b", coralText: "#a33d2d" },
     emberpup: { label: "Emberpup", colors: { background: "#111218", backgroundAlt: "#2b1815", surface: "#1c1d27", surfaceRaised: "#292a36",
       border: "#4b4650", text: "#fff4e8", muted: "#bdb4b5", primary: "#ff742e", secondary: "#d9471d", highlight: "#ffc857" },
       accentText: "#ffad82", coral: "#ff742e" },
@@ -158,6 +158,8 @@
   };
   const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
   const readable = (background) => (contrast("#08110f", background) >= contrast("#fffdf3", background) ? "#08110f" : "#fffdf3");
+  const mixColor = (a, b, share) => `#${[1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * share
+    + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, "0")).join("")}`;
   function savedTheme() {
     try {
       const saved = JSON.parse(localStorage.getItem(THEME_KEY) || "{}");
@@ -177,9 +179,15 @@
     const accentText = preset ? preset.accentText : (contrast(c.primary, c.surface) >= 3 ? c.primary : c.text);
     // the highlight as text (notices, paths): the light theme's gold doesn't read on its pale panels
     const goldText = preset ? preset.goldText ?? c.highlight : (contrast(c.highlight, c.surface) >= 4.5 ? c.highlight : c.text);
+    // the coral as text (.note-warn: the English OCR warning's title, an out-of-date version's): 4.5:1 on its box (8%
+    // coral) over the page and the panels. Meadow's coral gave 4.08:1 (3.61 on the page's glow), and Custom's fixed
+    // coral 2.27:1 on a white one; Custom takes it where it reads, else Meadow's darker one, else its own text colour
+    const coral = preset ? preset.coral : "#f48972";
+    const coralText = preset ? preset.coralText ?? coral : [coral, THEMES.meadow.coralText].find((shade) =>
+      [c.background, c.backgroundAlt, c.surface].every((base) => contrast(shade, mixColor(coral, base, 0.08)) >= 4.5)) ?? c.text;
     const vars = { "--bg": c.background, "--bg-2": c.backgroundAlt, "--panel": c.surface, "--panel-2": c.surfaceRaised, "--line": c.border,
       "--text": c.text, "--muted": c.muted, "--accent": c.primary, "--accent-2": c.secondary, "--gold": c.highlight,
-      "--coral": preset ? preset.coral : "#f48972", "--accent-text": accentText, "--gold-text": goldText, "--on-accent": readable(c.primary) };
+      "--coral": coral, "--coral-text": coralText, "--accent-text": accentText, "--gold-text": goldText, "--on-accent": readable(c.primary) };
     Object.entries(vars).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
     document.documentElement.style.colorScheme = light ? "light" : "dark";
   }
@@ -1454,7 +1462,10 @@
     const line = fresh ? String(status.status || "").replace("...", "…") : "";
     text("status", line.charAt(0).toUpperCase() + line.slice(1));   // the meter writes some lines lowercase
     const fight = fresh ? status.fight : null;
-    text("fight", fight ? `${fight.boss} Lv ${fight.level}${fight.segment ? ` · x${fight.segment}` : ""} — ${n(fight.avg_dps)} DPS` : "No fight in progress.");
+    // boss_of: a two-boss middle fight's boss on the bar, [1, 2] or [2, 2] (the meter's write_status); its damage and
+    // max HP are then the run's, both bosses' so far
+    const of = Array.isArray(fight?.boss_of) ? ` · boss ${fight.boss_of[0]}/${fight.boss_of[1]}` : "";
+    text("fight", fight ? `${fight.boss} Lv ${fight.level}${of}${fight.segment ? ` · x${fight.segment}` : ""} — ${n(fight.avg_dps)} DPS` : "No fight in progress.");
     text("fight-detail", fight ? `Team damage ${n(fight.damage)} of ${n(fight.max_hp)} HP · ${fight.seconds}s · ${n(fight.recent_dps)} DPS over the last 5 s` : "");
     const character = status.character || {};
     const who = character.uid ? `${character.name || "Name appears once you open the game menu (Esc) or your Profile"} · UID ${character.uid}` : "Waiting for the game log…";
@@ -1478,7 +1489,91 @@
     $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed || !get("leaderboard.submit") || !get("leaderboard.automation");
     // Windows 10 can't capture the game window without a yellow border: About explains what that means for streams
     $("[data-win10-capture]").hidden = status.borderless_capture !== false;
+    renderOcr();
   }
+  // Windows' OCR in English: the meter reads the game's text with it (boss names and levels, result screens, Battle
+  // Data, the prep and Party screens). Without it (status.json's ocr.english false: no OCR language, another one, or
+  // the OCR helper didn't start) runs aren't read, and before only meter.log said so. The Dashboard and the DPS Meter
+  // page show a warning then, never with English OCR (true) nor when the helper doesn't say (null), with a button that
+  // installs it (install_english_ocr: Windows' admin prompt, then minutes of installing; the meter then restarts to
+  // pick it up, and the warning goes once the restarted meter's status says English).
+  let ocrJob = null;   // the install: {state: "running", since} / "declined" / "failed" (message) / "installed" (restart, at)
+  const OCR_NOT_READ = "Result screens, boss names and levels, Battle Data and the battle prep and Party screens";
+  const OCR_SETTINGS = "Windows Settings › Time & language › Language (Language & region on Windows 11) › Add a language › English (United States)";
+  const languageName = (tag) => {
+    try { return new Intl.DisplayNames(["en"], { type: "language" }).of(tag) || tag; } catch { return tag; }
+  };
+  function renderOcr() {
+    const ocr = status.ocr || {};
+    // only from a status the running meter wrote (fresh, as render()'s): status.json stays on disk between sessions,
+    // so after English was added and Windows restarted, the last session's "english": false showed the warning, with
+    // an install button that worked, until the new meter's first write
+    const fresh = Number(status.time) > Date.now() / 1000 - 5;
+    const missing = Boolean(status.running) && fresh && ocr.english === false;
+    const running = ocrJob?.state === "running";
+    // installed: the old meter's status until the restarted one writes its own (a minute at most: a meter switched off
+    // meanwhile never does)
+    const restarting = ocrJob?.state === "installed" && !(Number(status.time) > ocrJob.at) && Date.now() / 1000 - ocrJob.at < 60;
+    if (ocrJob?.state === "installed" && !restarting && !missing) ocrJob = null;      // English now: done
+    const shown = missing || running || restarting;
+    for (const box of $$("[data-ocr-warn]")) box.hidden = !shown;
+    if (!shown) return;
+    const noHelper = ocr.started === false;
+    // switching (status.json's ocr.switching): the meter found English OCR on the PC while it ran, but one of its OCR
+    // helpers hasn't restarted with it yet (it tries again every minute). Before, this said the PC has no OCR language
+    // (or reads in another one) and offered to install English OCR, with an admin prompt, though it's installed
+    const switching = !noHelper && ocr.switching === true;
+    const other = !noHelper && !switching && ocr.language ? languageName(ocr.language) : "";      // "Korean (South Korea)"
+    for (const node of $$("[data-ocr-title]")) node.textContent = noHelper
+      ? "aLogs' text reader (OCR) didn't start, so the meter can't read the game's screens."
+      : switching ? "English OCR is installed on this PC, but the meter hasn't switched all of its text reading to it yet."
+      : other ? `Windows reads text (OCR) in ${other} on this PC, not English, so the meter can't read the game's screens reliably.`
+      : "Windows has no text recognition (OCR) language on this PC, so the meter can't read the game's screens.";
+    for (const node of $$("[data-ocr-what]")) node.textContent = switching
+      ? "Until it has, some of the game's screens may not be read, so a run may not be recorded or sent to the leaderboards. The meter tries again every minute."
+      : other ? `${OCR_NOT_READ} are misread or not read, so your runs may not be recorded or sent to the leaderboards. The game's text is English: installing Windows' English OCR fixes it.`
+      : `${OCR_NOT_READ} can't be read, so your runs aren't recorded or sent to the leaderboards.${noHelper ? "" : " Installing Windows' English OCR fixes it."}`;
+    const seconds = running ? Math.floor((Date.now() - ocrJob.since) / 1000) : 0;
+    const took = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    const state = running ? `Installing English OCR… ${took}. Approve Windows' admin prompt; installing can then take several minutes. aLogs keeps running meanwhile.`
+      : restarting ? "English OCR is installed. The meter is restarting to use it…"
+      : switching ? ""                                          // the title says it's installed
+      : ocrJob?.state === "installed" ? (ocrJob.restart ? "English OCR is installed: restart Windows to finish it, then open aLogs again."
+        : "English OCR is installed, but the meter doesn't see it yet: restart Windows, then open aLogs again.")
+      : ocrJob?.message || "";
+    for (const node of $$("[data-ocr-state]")) {
+      node.hidden = !state; node.textContent = state;
+      node.className = ocrJob?.state === "failed" || ocrJob?.state === "declined" ? "note-warn" : "";
+    }
+    for (const node of $$("[data-ocr-progress]")) node.hidden = !running && !restarting;
+    for (const button of $$("[data-ocr-install]")) {
+      // installing OCR can't start a helper that won't start; switching: it's installed
+      button.closest(".row").hidden = noHelper || switching;
+      button.disabled = running || restarting;
+      button.textContent = running ? "Installing…" : ocrJob?.state === "failed" || ocrJob?.state === "declined" ? "Try again" : "Install English OCR";
+    }
+    // Settings' page is Language on Windows 10, Language & region on 11; adding English (United States) there
+    // installs its OCR with it (a required language feature)
+    for (const node of $$("[data-ocr-manual]")) node.textContent = noHelper
+      ? "Quit aLogs (tray icon › Quit) and open it again. If this stays, reinstall aLogs, or press Report a problem on the Dashboard."
+      : switching ? "If this stays for more than a few minutes, quit aLogs (tray icon › Quit) and open it again."
+      : ocrJob?.state === "failed" ? `You can add it yourself: ${OCR_SETTINGS}. Windows adds its text recognition (OCR) with it.`
+      : `Windows asks for admin approval to install it. Or add it yourself: ${OCR_SETTINGS}.`;
+  }
+  async function installOcr() {
+    if (ocrJob?.state === "running") return;
+    ocrJob = { state: "running", since: Date.now() };
+    renderOcr();
+    const tick = setInterval(renderOcr, 1000);                  // the time it's taken so far; the window stays free
+    let outcome;
+    try { outcome = await invoke("install_english_ocr"); }
+    catch (error) { outcome = { state: "failed", message: `Windows couldn't install English OCR (${error}).` }; }
+    clearInterval(tick);
+    ocrJob = outcome?.state === "installed" ? { ...outcome, at: Date.now() / 1000 } : outcome || { state: "failed", message: "" };
+    renderOcr();
+    void refresh();
+  }
+  for (const button of $$("[data-ocr-install]")) button.addEventListener("click", installOcr);
   // Link character: the meter reads your Profile screen (three reads that agree) and you confirm what it read.
   let linkShown = false;      // a request from this window, so a finished one shows "Linked" once and then clears
   function renderLink(link) {

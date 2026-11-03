@@ -385,18 +385,58 @@ def _lineup(summary):
     lineup = [entry(m) for m in summary.get('party') or []]
     return {'lineup': lineup} if lineup else {}
 
-def run_payload(summary, uid, duration=180):
-    """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter)."""
+def _bosses(meter):
+    """{'bosses': a two-boss middle fight's bosses in order, as far as the run got} for a run's extra: [{id, name, maxHp,
+    damage, defeated, seconds}], seconds on the run's clock from the boss's bar showing to its last hit seen (to the
+    run's end for the last one; the gap between them counts to neither), None for a first boss the meter never saw.
+    Nothing for a one-boss fight."""
+    bosses = meter.get('bosses')
+    if not isinstance(bosses, list) or not bosses: return {}
+    return {'bosses': [{'id': str(b.get('id')), 'name': (b.get('name') or '')[:40] or None, 'maxHp': b.get('max_hp'),
+                        'damage': b.get('damage'), 'defeated': bool(b.get('defeated')), 'seconds': b.get('seconds')}
+                       for b in bosses[:2] if isinstance(b, dict)]}
+
+def card_of(cards, player, i):
+    """The Battle Data card of a result-screen player (the i-th in the result's list): the card of its slot, 1P-4P on both
+    screens. Not the i-th card: a slot the result screen didn't read (no name and no value) dropped out of its list and
+    every player after it took the next player's card (3 runs, one of them yours with another player's Avg DPS, 1 Nov).
+    By position only for summaries without slots."""
+    slot = player.get('slot')
+    if isinstance(slot, int) and any(isinstance(c.get('slot'), int) for c in cards):
+        return next((c for c in cards if c.get('slot') == slot), {})
+    return cards[i] if i < len(cards) else {}
+
+def run_payload(summary, uid):
+    """interlink_run from a logs/fights/<fight>.json summary (result screen + Battle Data + meter). A two-boss middle
+    fight's run (weeks 4003-4005) goes as one run: boss is its stage's bossId, the first boss, whichever boss it ended
+    on (the id its result screen and bests use: BossRushBattleResultCtrl.initUI, BossRushMainCtrl.renderBossInfo);
+    playedAt its start; meterDamage and meterDps both bosses' over the run's time; extra.bosses each boss's part."""
     res = summary.get('result') or {}
     bd = summary.get('battle_data') or {}
     meter = summary.get('meter') or {}
     players = []
     cards = bd.get('players') or []
-    for i, p in enumerate(res.get('players') or [{} for _ in cards]):
-        c = cards[i] if i < len(cards) else {}
+    listed = res.get('players') or [{} for _ in cards]
+    # a Battle Data card whose slot has no result-screen player goes too, as that slot's player (the card's name, no
+    # stat or value): the result screen left the slot unread, and the player and their card weren't sent at all
+    # (5 sent runs of 31 Oct-1 Nov had 3 players for 4 cards). In slot order, so partySize counts them
+    slots = {p.get('slot') for p in listed if isinstance(p.get('slot'), int)}
+    if slots:
+        extra = [{'slot': c['slot'], 'name': c.get('name'), 'ai': c.get('ai'), 'self': c.get('self')} for c in cards
+                 if isinstance(c.get('slot'), int) and 0 <= c['slot'] <= 3 and c['slot'] not in slots]
+        extra = list({p['slot']: p for p in extra}.values())          # one per slot: the API takes 4 players at most
+        # a card marked you when a listed result row already is you: the cards and the result screen each take the
+        # Party screen's you mark (party_slots), and when that mark sat on another slot whose result column went unread,
+        # the card in that slot took it, and the run went with two rows marked as you and your name twice (the API takes
+        # the first self row as the sender's numbers). Your row stays the result screen's; that card goes unnamed
+        if any(p.get('self') for p in listed):
+            extra = [{**p, 'name': None, 'self': None, 'unnamed': True} if p.get('self') else p for p in extra]
+        listed = sorted(listed + extra, key=lambda p: p['slot'] if isinstance(p.get('slot'), int) else 4)
+    for i, p in enumerate(listed):
+        c = card_of(cards, p, i)
         players.append({k: v for k, v in {
             # the result screen's name, else the Battle Data card's own (its slot's player from the Party screen)
-            'name': (p.get('name') or c.get('name') or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),
+            'name': (p.get('name') or (None if p.get('unnamed') else c.get('name')) or '')[:40] or None, 'stat': (p.get('stat') or '')[:60] or None, 'value': p.get('value'),
             'ai': p.get('ai') if isinstance(p.get('ai'), bool) else None,
             'self': True if p.get('self') else None,
             'avgDps': c.get('avg_dps'), 'breakValue': c.get('break'), 'damageTaken': c.get('taken'), 'heal': c.get('heal'),
@@ -411,7 +451,9 @@ def run_payload(summary, uid, duration=180):
         'gameUid': summary.get('uid') or uid, 'cycle': summary.get('cycle'),
         'boss': {'id': summary.get('puppetId'), 'name': summary.get('boss'), 'level': summary.get('level')},
         'score': res.get('score'), 'stars': res.get('rating_stars'), 'clearTimeS': secs,
-        'cleared': None if secs is None else res['cleared'] if 'cleared' in res else secs < duration,
+        # the result screen's call (every star under the clock), never the time alone: the leader's or a solo
+        # player's End and a wipe finish under the clock at any stars (QuitBtnUIComponent, BossRushConst.LevelEndType)
+        'cleared': None if secs is None else bool(res.get('cleared')),
         'teamDps': bd.get('team_avg_dps'), 'meterDps': meter.get('dps'), 'meterDamage': meter.get('damage'),
         'partySize': len(players) or None, 'players': players, 'playedAt': played,
         # the leader's Season Buffs and Special Offering from the Party screen's icons: [{id, name, level}]
@@ -421,7 +463,7 @@ def run_payload(summary, uid, duration=180):
                   **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {}),
                   **({'endedByLeader': True} if res.get('ended_by_leader') else {}),
                   # the run's own clock as it started (4:00 with Overtime): what tells a quit run from one that ran out
-                  **({'timeLimitS': meter['time_limit_s']} if meter.get('time_limit_s') else {})},
+                  **({'timeLimitS': meter['time_limit_s']} if meter.get('time_limit_s') else {}), **_bosses(meter)},
     }
 
 def score_payload(screen, boss, score, stars, uid, cycle, boss_id=None):

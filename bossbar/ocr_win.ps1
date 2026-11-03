@@ -1,6 +1,7 @@
 # Runs Windows' built-in OCR (Windows.Media.Ocr) on image files.
 #   ocr_win.ps1 a.png b.png      -> one line per image: "<path><TAB><text>"
-#   ocr_win.ps1 -Server          -> stays running; reads one image path per line on stdin, answers the same way
+#   ocr_win.ps1 -Server          -> stays running: first "READY<TAB><language>" (en-US; nothing without en-US OCR),
+#                                   then reads one image path per line on stdin, answers the same way
 # Recognized lines are joined with ' / '.
 param([switch]$Server, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Paths)
 
@@ -36,7 +37,10 @@ function Read-Text([string]$p) {
 }
 
 if ($Server) {
-    [Console]::Out.WriteLine('READY'); [Console]::Out.Flush()
+    # the language Windows OCR reads in after a tab, as ocr-helper.exe says it (reader.ready_language): en-US, or
+    # nothing when this PC has no en-US OCR (then every line comes back empty)
+    $language = if ($engine) { $engine.RecognizerLanguage.LanguageTag } else { '' }
+    [Console]::Out.WriteLine("READY`t$language"); [Console]::Out.Flush()
     while ($null -ne ($line = [Console]::In.ReadLine())) {
         $line = $line.Trim()
         if ($line -eq '') { continue }

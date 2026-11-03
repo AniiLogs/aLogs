@@ -54,6 +54,7 @@ IDLE_INTERVAL = 0.25    # out in the world with no boss bar and nothing to watch
                         # report, B4: 8-13 whole 4K window copies a second while just standing at home)
 CONFIRM_GAP = 0.09      # a reading that confirms an earlier one (a big drop, a refill, a counter vote) must come at
                         # least this long after it, so a one-off effect lasting a few fast frames can't confirm itself
+LEVEL_CONFIRM = 3       # s an Interlink level other than the season's must be read alone before a fight starts on it
 XN_STALE = 40           # s a boss rush counter read keeps bounding refills (the late bars take 15-25 s each)
 SETTINGS = os.path.join(HERE, 'overlay_positions.json')
 
@@ -196,7 +197,11 @@ def scene_of(space_id):
 # Labels exactly as the game writes them (its English text table): a read is snapped to the closest one, so small
 # text at 720p ("Tot al Da nn age") still records the game's wording.
 RESULT_STATS = ('Total Damage Dealt', 'Total BREAK Damage', 'Targets Defeated', 'Most Healing', 'Most Damage Taken',
-                'Most Hits Taken', 'Most Support Provided')     # the Interlink result screen's per-player highlight
+                'Most Hits Taken', 'Most Support Provided',
+                'Best Strike Damage')     # the Interlink result screen's per-player highlight
+# 'Best Strike Damage' (text id 1277896829) was left out: it stayed as read, so a slot with only that label read dropped
+# out (321 slot reads of 31 Oct-1 Nov carry it, all with a value read so far); of the 2228
+# logged label reads, only it and 2 misreads of it snap differently
 EGG_MODES = ('Egg Heist Team Mode', 'Egg Heist')
 
 def canon(text, choices, cutoff=0.6):
@@ -207,8 +212,9 @@ def canon(text, choices, cutoff=0.6):
     best = max(choices, key=lambda c: difflib.SequenceMatcher(None, t, norm(c)).ratio())
     return best if difflib.SequenceMatcher(None, t, norm(best)).ratio() >= cutoff else text
 
-CLEAR_STARS = 20       # an Interlink clear: the full rating, 20 on the left and right bosses (BossRushMaxStarSideBoss)
-CENTER_STARS = 40      # and 40 on the center boss: a 26-star center run that ended at 95 s with most of its HP left was no clear
+CLEAR_STARS = 20       # an Interlink clear: the full rating, 20 on the left and right bosses (sys_config_data.BossRushMaxStarSideBoss)
+CENTER_STARS = 40      # and 40 on the center boss (x BossRushStarMultiplierMidBoss, the HUD's cap: BossRushInfoUIComponent.setBossRushStar);
+                       # a 26-star center run that ended at 95 s with most of its HP left was no clear
 
 STAR_CAPS = os.path.join(HERE, 'logs', 'star_caps.json')   # the caps the Interlink screen last showed: {'side', 'center', 'cycle'}
 
@@ -226,18 +232,32 @@ def star_caps():
     return CLEAR_STARS, CENTER_STARS
 
 def clear_stars(puppet_id):
-    """The full rating of an Interlink boss: the center boss's cap for this week's center boss, the side cap otherwise."""
+    """The full rating of an Interlink boss: the center boss's cap for this week's center boss, the side cap otherwise.
+    The cap is the place's, not the boss's (BossRushUtils.getCurBossRushPlace, line 288; BossRushInfoUIComponent.
+    setBossRushStar, line 187), so both bosses of a two-boss middle fight (weeks 4003-4005: bossrush_guanka_data
+    bossId + bossId_2) get the center's: cycle_slot counts both."""
     side, center = star_caps()
-    return center if puppet_id is not None and R.active_cycle_slots().get('middle') == str(puppet_id) else side
+    return center if puppet_id is not None and R.cycle_slot(R.active_cycle_id(), puppet_id)[0] == 'middle' else side
 
-def interlink_score(score, stars, cap=None):
-    """An Interlink score checked against its stars: the game gives a star per 1,000 points, up to the boss's cap
-    (12,058 is 12 stars, 21,519 on a 20-star boss 20). A score whose thousands don't match had a 1 read as a 7 (OCR:
-    17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the one reading that matches is used. When more than
-    one does, the score is left unread (None) rather than sent wrong."""
+def interlink_score(score, stars, cap=None, two_boss=False):
+    """An Interlink score checked against its stars. It is not stars x 1,000: each grade a boss passes is worth its
+    startScore + hpScore (bossrush_grade_data: 500 + 500 a star grade, 2,500 + 2,500 the kill, "Eliminate"), the
+    center boss's stars count double (sys_config_data.BossRushStarMultiplierMidBoss, BossRushInfoUIComponent's star
+    cap) and its score too (real runs only: no game file says so), and the server adds them up. No client Lua reads
+    those columns, so that sum is inferred; it fits every real run read right. Below the cap the score is in its
+    stars' thousand (12,058 is 12 stars); at the cap it is anything above that, as full stars keep scoring until the
+    clock runs out and a kill adds more (21,519 on a 20-star boss is 20). A score whose thousands don't match had a 1
+    read as a 7 (OCR: 17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the one reading that matches is
+    used. When more than one does, the score is left unread (None) rather than sent wrong. The stars are never changed
+    from the score. two_boss: a two-boss middle fight's run (R.stage_of gives its boss an order; weeks 4003-4005). How
+    the server builds its one score from two bosses is unknown until a live run shows it (no client Lua reads those
+    score columns, and kills add bonus score), so a score that doesn't fit its stars is kept as read: the reading
+    may well be right, and only the font-sure read is trusted there."""
     if score is None or stars is None: return score
     fits = lambda s: s // 1000 == stars or (cap is not None and stars == cap and s // 1000 > stars)
     if fits(score): return score
+    if two_boss:
+        log.info(f"score {score} kept as read: {stars} stars, a two-boss fight (how its score is built isn't known)"); return score
     digits = str(score); sevens = [i for i, c in enumerate(digits) if c == '7']
     found = set()
     for mask in range(1, 1 << len(sevens)):
@@ -410,7 +430,7 @@ def parse_battle_data(text):
     return cards
 
 # ---------------------------------------------------------------- timer
-OVERTIME_S = 60          # s: the Overtime offering's extra time (a 3:00 fight becomes 4:00)
+OVERTIME_S = 60          # s: the Overtime offering's extra time (a 3:00 fight becomes 4:00; bossrush_buff_data[208].additionalTime)
 MAX_CLOCK = 900          # s: readings above this are misreads; a run's own clock can start above --duration (Overtime: 4:00)
 
 class Timer:
@@ -506,27 +526,103 @@ def vote(votes, key, value):
     c = votes.get(key)
     return max(c, key=lambda v: (c[v], -list(c).index(v))) if c else value
 
-def party_slots(players, party):
+def party_pill(pill, i):
+    """A Party screen pill's read ('2P @ Flora O': the badge, a ready mark, the name, the voice icon) as (its slot, the
+    name), the pill being the i-th; None when no name is left."""
+    # the text model reads the badge onto the name ('1PMinMax'): a space after it, so it's dropped below. Its P can read
+    # small ('4pR'), and a speck can come before it ('.4pR'): kept as a name, the badge glued a one-character name into
+    # a 3-4 letter one on 2 of 10 saved captures of 1 Nov (5 of 1508 pills read in the logs; a sixth kept '.2P' on one)
+    pill = re.sub(r'^[\s.,]+(?=[1-4]\s*[Pp]|[Il]\s*P)', '', pill)
+    pill = re.sub(r'^\s*([1-4]\s*[Pp]|[Il]\s*P)(?=[^\s/|])', r'\1 ', pill)
+    # the name: its words joined (OCR splits 'MiraVosk' as 'Mira Vosk'); badge, marks and icons left out - they read
+    # as one letter, or two odd ones ('iA')
+    words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4][Pp]|[Il]P', w)
+             and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()) or K.has_hangul(w))]
+    name = ''.join(words)
+    if not name: return None
+    # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
+    # and the result screen and Battle Data list players by badge, 1P to 4P (the pill's place if it misread)
+    badge = re.match(r'\s*([1-4])\s*[Pp]|\s*([Il])\s*P', pill)
+    return (int((badge.group(1) or badge.group(2)).translate(str.maketrans('Il', '11'))) - 1 if badge else i), name
+
+def sure_read(ocr, img):
+    """Is this name box's read in the name cache for good? A read of one character or none only is when the Korean
+    model vouched for it (Ocr.read_native: KoreanNames.lone, font-checked, or a Hangul name the font settled)."""
+    hit = getattr(ocr, 'name_cache', {}).get(R.name_signature(img))
+    return bool(hit) and hit[1] is None
+
+def party_slots(players, party, sure=(), you=None):
     """Each result-screen (or Battle Data) column takes the Party screen's player of the same slot: both list players
     by badge, 1P to 4P, left to right (a run as 2P with three real players lined up on all three screens, 30 Oct). The
     name comes from the Party screen, read clearly there, with its AI flag and you; the column's own read only checks it.
     A misread like 'Dyn*ht' no longer has to be guessed at. A column that clearly reads as another member's name (the
-    order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read."""
+    order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read.
+    Each member goes to one column at most: first to a column that clearly reads their name, then to their slot's
+    column; a column whose slot's member went to another keeps its own read, with no AI flag or you from the party.
+    Given to both (by name to one, by slot to the other), one player was listed twice in 7 sent runs of 1 Nov (their
+    Battle Data cards too), 2 of them with two rows marked as you. Names are compared folded (TEAM.fold: 0 as O, 1 as
+    l): in 5 saved runs a column read a member's name that only folding matches, and stayed unmatched.
+    Two columns keep their own read: one that reads as `you` (your character name, when the game menu showed it) is
+    you, and no other column takes the Party screen's you; one of one Latin letter or digit the Korean model vouched
+    for (`sure`: those slots, sure_read) is that player. The Party screen's read of either slot can only be worse: its
+    filter never keeps a one-character name, and on its other layout (pills ~0.018 H higher, before everyone is ready)
+    its boxes read the title above or half a pill. 6 of 59 sent runs had no row marked as you (the result screen read
+    your exact name in all 6), and 4 of 10 saved runs of 1 Nov sent a one-character teammate's misread."""
     if not party:
         for p in players:
             if p.get('name') and not p.get('self'): p['name'] = TEAM.steady(p['name'])
         return
     by_slot = {m['slot']: m for m in party}
-    sim = lambda a, b: difflib.SequenceMatcher(None, (a or '').casefold(), (b or '').casefold()).ratio()
-    for p in players:
-        m = by_slot.get(p['slot'])
-        other = max((x for x in party if x is not m), key=lambda x: sim(x['name'], p['name']), default=None)
-        if other and sim(other['name'], p['name']) >= 0.8 and (m is None or sim(other['name'], p['name']) >= sim(m['name'], p['name']) + 0.3):
-            log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, the Party screen's {other['name']!r} (slot {other['slot'] + 1}), not slot {p['slot'] + 1}'s {m and m['name']!r}")
-            m = other
-        if m is None: continue
-        if p['name'] and sim(m['name'], p['name']) < 0.3: log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, taken as slot {p['slot'] + 1}'s {m['name']!r}")
+    sim = lambda a, b: difflib.SequenceMatcher(None, TEAM.fold(a), TEAM.fold(b)).ratio()
+    taken, rest = set(), []                      # members (by slot) given to a column; the columns left to settle
+    # the Party screen's you: its mark, or your name. Its vote keeps a slot's commonest name but the last read's mark,
+    # so a shuffled read can leave your name unmarked in one slot and the mark on another (1 saved run)
+    mine = {x['slot'] for x in party if x.get('self') or (you and same_name(x['name'], you))}
+    def give(p, m):                              # a member taken as you takes every Party you: never two rows
         p.update(name=m['name'], ai=bool(m.get('ai')), self=bool(m.get('self')))
+        taken.update(mine if m['slot'] in mine else {m['slot']})
+    me = max((p for p in players if you and same_name(p.get('name'), you)), key=lambda p: sim(p['name'], you), default=None)
+    for p in players:
+        own, m = p.get('name') or '', by_slot.get(p['slot'])
+        if p is me:
+            if m and m['name'] != you: log.info(f"result: column {p['slot'] + 1} reads as you, not the Party screen's {m['name']!r}")
+            p.update(name=you, ai=False, self=True); taken.update(mine)
+        elif p['slot'] in sure and len(own) == 1 and own.isascii() and own.isalnum():
+            if m and m['name'] != own: log.info(f"result: column {p['slot'] + 1} reads {own!r} (sure), not the Party screen's {m['name']!r}")
+            p.setdefault('ai', False)
+        else: rest.append(p)
+    def named(p):                                # the free member this column clearly reads, when not its slot's
+        m = by_slot.get(p['slot'])
+        other = max((x for x in party if x is not m and x['slot'] not in taken), key=lambda x: sim(x['name'], p['name']), default=None)
+        s = sim(other['name'], p['name']) if other else 0
+        return (s, other) if s >= 0.8 and (m is None or s >= sim(m['name'], p['name']) + 0.3) else None
+    while True:                                  # the clearest read first, when two columns read one member
+        hits = [(h, p) for p in rest for h in [named(p)] if h]
+        if not hits: break
+        (s, other), p = max(hits, key=lambda h: h[0][0])
+        m = by_slot.get(p['slot'])
+        log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, the Party screen's {other['name']!r} (slot {other['slot'] + 1}), not slot {p['slot'] + 1}'s {m and m['name']!r}")
+        give(p, other); rest.remove(p)
+    for p in rest:
+        m = by_slot.get(p['slot'])
+        if m is None: continue
+        if m['slot'] in taken:
+            log.info(f"result: column {p['slot'] + 1} keeps its read {p['name']!r}: slot {p['slot'] + 1}'s {m['name']!r} is another column's")
+            if p['name']: p['name'] = TEAM.steady(p['name'])
+            continue
+        if p['name'] and sim(m['name'], p['name']) < 0.3: log.info(f"result: column {p['slot'] + 1} reads {p['name']!r}, taken as slot {p['slot'] + 1}'s {m['name']!r}")
+        give(p, m)
+
+def mark_you(players, party, known):
+    """After party_slots, on the result screen: your row is the one it marked, else the first that reads as your known
+    name or as the Party screen's you; never a second one. Each row's AI flag, when party_slots gave none, is the Party's
+    for its name."""
+    you = next((m['name'] for m in party or [] if m.get('self')), None)
+    mine = any(p.get('self') for p in players)
+    for p in players:
+        if not mine and ((known and same_name(p['name'], known)) or (you and p['name'] == you)): p['self'] = mine = True
+        p['self'] = bool(p.get('self'))
+        p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
 
 def own_name(known, names, party):
     """Which name on the result screen is the player running the meter. You aren't always the 1P slot (in someone
@@ -758,6 +854,7 @@ def refresh_cycles(meter):
                 log.warning(f"the game data at {gamedata.find_game_data(meter.args.player_log)} is older than this week "
                             f"(latest week {cycles[-1]['cycle']}): using aLogs' own boss list and week schedule instead")
                 R.GAME_BOSSES[0] = None; meter.catalog = R.load_catalog(); R.CYCLES_FILE[0] = os.path.join(R.HERE, 'boss_rush_cycles.json')
+                R.GAME_GRADES[0] = None; meter.grades = R.load_grades()
         except Exception as e:
             log.warning(f'could not check the game data: {e}')
         if stale:
@@ -776,10 +873,23 @@ def refresh_cycles(meter):
                 if changed or new: log.info(f'boss list read from the game data: {len(bosses)} rows' + (f', new: {new[:10]}' if new else ''))
         except Exception as e:
             log.warning(f'could not read the boss list from the game data: {e}')
+        try:   # Interlink's HP bars too (bossrush_grade_data): the Whisperwake update took them from 16 bars to 21
+            grades, changed = gamedata.cached_grades(os.path.join(HERE, 'game_grades.json'), meter.args.player_log)
+            if grades:
+                R.GAME_GRADES[0] = grades; meter.grades = R.load_grades()
+                if changed: log.info(f'Interlink HP bars read from the game data: {len(grades) - 1} bars')
+        except Exception as e:
+            log.warning(f'could not read the Interlink HP bars from the game data: {e}')
         try:
             cycles, changed = gamedata.cached_cycles(os.path.join(HERE, 'game_cycles.json'), meter.args.player_log)
             if cycles:
-                if changed or not os.path.exists(path):
+                # Written whenever it isn't what the game data says now, not only when the cache changed: the stale
+                # check above already took that `changed`, and a file from an aLogs before 91d115c (no bossIds2) was
+                # then never rewritten, so a two-boss fight's second boss had no slot (and an old week's id and HP)
+                try:
+                    with open(path, encoding='utf-8') as f: on_disk = json.load(f)
+                except (OSError, ValueError): on_disk = None
+                if on_disk != json.loads(json.dumps(cycles)):
                     S.write_json(path, cycles)
                     log.info(f'boss rush weeks read from the game data: {len(cycles)} (latest {cycles[-1]["cycle"]})')
                 R.CYCLES_FILE[0] = path
@@ -869,10 +979,32 @@ class BreakTracker:
         return {'left': self.left, 'phase': self.phase, 'kind': self.kind, 'rate': overall, 'rate_now': recent,
                 'breaks': self.breaks, 'last_after': self.last_after, 'size': self.size}
 
+HANDOFF_XN = 3          # a two-boss fight's second boss counts as on the bar from its counter's top 4 bars (x21-x18):
+                        # each is 0.23% of its HP (bossrush_grade_data rows 1-7, bossHpLossPercent_3), ~0.3 s apiece
+FIGHT_CSV = ['wall_s', 'timer_s', 'timer_ocr', 'xn_ocr', 'segment', 'fill_pct', 'fill_rgb', 'edge_rgb',   # logs/<fight>.csv
+             'team_damage', 'avg_dps', 'dps_5s', 'note', 'break_left_pct', 'break_phase']
+
 class Fight:
-    def __init__(self, title, level, row, max_hp, bossrush, debug_dir=None):
+    """One run on one boss bar. A two-boss middle fight (weeks 4003-4005: bossrush_guanka_data rows with a bossId_2)
+    is one run in two phases: the stage's level graph starts its single 180/240 s clock as the first boss enters
+    combat and nothing on its two-boss path restarts it (Scene.1070 scene_graph_data[78824533] nodes 5-11), the
+    second boss spawns only on the first one's death (nodes 16-19), and the result screen is one run
+    (BossRushBattleResultCtrl.initUI, line 60). So the Timer, the clock, the time limit and the CSV are the run's,
+    while the bar's own state (segment, counter votes, refills, break gauge) is each boss's. max_hp and damage are the
+    run's: the bosses' max HP so far and the damage to them (the first boss's max HP once it is down, plus the
+    current boss's damage), so max_hp - damage is still the HP left on the bar; boss_hp is the current boss's."""
+    def __init__(self, title, level, row, max_hp, bossrush, debug_dir=None, partner=None, order=None):
         self.title, self.level, self.row, self.max_hp, self.bossrush = title, level, row, max_hp, bossrush
         self.t0 = self.created = time.time(); self.damage = 0; self.samples = collections.deque()
+        # partner: the catalog row of the boss that follows this one in a two-boss fight (R.stage_of order 1), else
+        # None; order: the boss's place in its stage (R.stage_of: 1, 2, None on one-boss stages)
+        self.partner, self.order = partner, order
+        self.boss_hp = max_hp        # the max HP of the boss now on the bar
+        self.done_hp = 0             # the max HP of the bosses already down in this run (a two-boss fight's first)
+        # each boss of the run: t0/t1 wall time, start_s/end_s on the run's clock (elapsed)
+        self.phases = [{'row': row, 'title': title, 'max_hp': max_hp, 'damage': 0, 'defeated': False,
+                        't0': self.created, 't1': None, 'start_s': 0.0, 'end_s': None, 'breaks': 0}]
+        self.joined = False          # a run first seen at its second boss: that boss's start on the run's clock is set
         # Out in the world a boss's bar shows as soon as you're near it, often before anyone attacks: the fight's
         # clock starts at the first hit (between the last reading before the damage and the one that shows it).
         # Interlink's clock runs from the start, like the game's own timer.
@@ -885,21 +1017,27 @@ class Fight:
         # the run's own time limit, read off the game's clock as the fight starts (3:00 by default, 4:00 with the
         # Overtime blessing, more if the game's default goes up); None when the meter didn't see the start
         self.limit = None
-        self.started_at_16 = False; self.refill_pending = 0; self.refill_at = 0.0; self.seg_info = None; self.defeated = False
+        self.started_at_top = False; self.refill_pending = 0; self.refill_at = 0.0; self.seg_info = None; self.defeated = False
+        # the grade table column this boss's bars follow (R.grade_column: the two bosses of a two-boss fight have their own)
+        self.column = R.grade_column(row.get('puppetId')) if bossrush else R.GRADE_BASE
         self.brk = BreakTracker(R.boss_break_points(row, level))
         name = time.strftime('%Y%m%d_%H%M%S') + '_' + ''.join(c for c in title if c.isalnum())[:24]
         os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
         self.log = open(os.path.join(HERE, 'logs', name + '.csv'), 'w', newline='', encoding='utf-8')
         self.w = csv.writer(self.log)
-        self.w.writerow(['wall_s', 'timer_s', 'timer_ocr', 'xn_ocr', 'segment', 'fill_pct', 'fill_rgb', 'edge_rgb',
-                         'team_damage', 'avg_dps', 'dps_5s', 'note', 'break_left_pct', 'break_phase'])
+        # a two-boss stage's run keeps one CSV for both bosses, each row marked with the boss on the bar (its spawn
+        # order, 1 or 2: R.stage_of); a one-boss fight's CSV keeps the columns it always had
+        self.boss_col = order is not None
+        self.w.writerow(FIGHT_CSV + (['boss'] if self.boss_col else []))
         self.frames = os.path.join(HERE, 'logs', name) if debug_dir else None
         if self.frames: os.makedirs(self.frames, exist_ok=True)
 
-    def update(self, fill, fill_rgb, edge_rgb, xn_ocr, timer_ocr, cum, duration, at=None):
+    def update(self, fill, fill_rgb, edge_rgb, xn_ocr, timer_ocr, grades, duration, at=None):
         now = at or time.time(); note = ''          # at: when the game showed the frame (wincapture's frame_time)
         if self.timer is None: self.timer = Timer(duration)
-        if xn_ocr is not None and not 1 <= xn_ocr <= 16: xn_ocr = None
+        cum = grades.get(self.column) or grades[R.GRADE_BASE]   # grades: R.load_grades(), the meter's current table
+        top = len(cum) - 1                                       # the counter at full HP: x21 (R.xn_top)
+        if xn_ocr is not None and not 1 <= xn_ocr <= top: xn_ocr = None
         # a real reading starts with the live-HP red at the bar's left end; flashes, the ghost covering the whole
         # bar, or the yellow BREAK overlay give other colors - those frames carry no fill information
         r_, g_, b_ = fill_rgb
@@ -907,26 +1045,40 @@ class Fight:
         # --- segment tracking. Two signals: the counter (digit matcher every frame + OCR) and the bar refilling.
         #     A refill must hold for two frames; two agreeing counter reads can correct the segment either way.
         #     The counter is the authority. A refill only moves one bar past what the counter last confirmed: on
-        #     30 Oct a misread start (x11 for x16) plus a fake refill (a low fill under an overlay for ~0.5 s, then the
-        #     true fill back) put the meter 6 bars ahead, more than the counter may pull back up, and it stayed ahead
-        #     to the end (x1 and 51.4M shown, the counter said x7: ~9M). Early bars really do pass every 2-4 s (x16 is
-        #     0.93% of max HP, x1 is 50%), so the time between refills can't tell a fake one; the counter can.
+        #     30 Oct a misread start (x11 for the top bar) plus a fake refill (a low fill under an overlay for ~0.5 s, then
+        #     the true fill back) put the meter 6 bars ahead, more than the counter may pull back up, and it stayed ahead
+        #     to the end (x1 and 51.4M shown, the counter said x7: ~9M). Early bars really do pass every 2-4 s (x21 is
+        #     0.44% of max HP, x1 is 50% on a one-boss stage), so the time between refills can't tell a fake one; the
+        #     counter can.
         if self.bossrush:
             if xn_ocr and now - self.vote_at >= CONFIRM_GAP:
                 self.xn_votes.append(xn_ocr); self.xn_votes = self.xn_votes[-4:]; self.vote_at = now
             agreed = xn_ocr if xn_ocr and self.xn_votes.count(xn_ocr) >= 2 else None
             if agreed and agreed == self.seg: self.xn_anchor = (agreed, now)
-            if self.seg is None:
-                # Interlink starts at x16. While the bar fades in, x16 reads as x11 (10 of 11 fights on 30 Oct, two
-                # agreeing reads 15-30 s in) or x6: anything but 16 takes three reads and stays a guess that a later
-                # x16 can overrule (a meter that joins a fight late still gets the right segment from three reads)
-                if xn_ocr == 16 or (agreed and self.xn_votes.count(agreed) >= 3):
-                    self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'; self.xn_anchor = (xn_ocr, now); self.seg_guess = xn_ocr != 16
-                    self.started_at_16 = xn_ocr == 16 and fill is not None and fill > 0.97
+            if self.handoff_due(agreed, top):
+                # a two-boss fight's first boss at its last bar, and the counter back up at the top: its partner holds
+                # the bar now (the game resets xN to x21 for it: ClientBossRushDungeon.onSecondBossActivated, line 202).
+                # Not a refill, and the bar need not vanish in between (BossTitleItemV2.refreshBossTitle, line 345)
+                last = self.seg
+                self.next_boss(self.partner, f'its bar came back at x{agreed} after x{last}')
+                cum = grades.get(self.column) or grades[R.GRADE_BASE]
+                self.seg = agreed; self.xn_anchor = (agreed, now); self.xn_votes = [agreed]; self.vote_at = now
+                self.seg_fill = fill if fill is not None else 1.0
+                note = f'segment x{agreed} (counter, boss {len(self.phases)})'
+            elif self.seg is None:
+                # Interlink starts at the top bar, x21. While the bar fades in, the start read as x11 (10 of 11 fights
+                # on 30 Oct, two agreeing reads 15-30 s in; x21 then fell outside the old x16 cap, so probably x21 with
+                # its 2 misread) or x6: anything but the top takes three reads and stays a guess that a later top read
+                # can overrule (a meter that joins a fight late still gets the right segment from three reads)
+                if xn_ocr == top or (agreed and self.xn_votes.count(agreed) >= 3):
+                    self.seg = xn_ocr; note = f'segment x{xn_ocr} (counter)'; self.xn_anchor = (xn_ocr, now); self.seg_guess = xn_ocr != top
+                    # from the run's start only: never a two-boss fight's second boss (its own top bar comes mid-run)
+                    if len(self.phases) == 1 and self.order != 2:
+                        self.started_at_top = xn_ocr == top and fill is not None and fill > 0.97
                     self.seg_fill = fill if fill is not None else 1.0
             # within a fight the counter only counts down: going up (x1->x4 reset the damage in 6 of 13 fights) takes
-            # three agreeing reads instead of two, and at most 3 bars - except from a start guess to x16
-            elif agreed and agreed != self.seg and (abs(agreed - self.seg) <= 3 or (agreed == 16 and getattr(self, 'seg_guess', False))) \
+            # three agreeing reads instead of two, and at most 3 bars - except from a start guess to the top bar
+            elif agreed and agreed != self.seg and (abs(agreed - self.seg) <= 3 or (agreed == top and getattr(self, 'seg_guess', False))) \
                     and (agreed < self.seg or self.xn_votes.count(agreed) >= 3):
                 note = f'segment x{self.seg}->x{agreed} (counter)'; self.xn_anchor = (agreed, now); self.seg_guess = False
                 self.seg = agreed; self.seg_fill = fill if fill is not None else 1.0; self.refill_pending = 0
@@ -956,15 +1108,31 @@ class Fight:
                 self.seg_fill = min(self.seg_fill, fill); self.low_pending = None
         if fill is not None: self.last_fill = fill
         if self.timer.feed(timer_ocr, now) == 'resync': note = (note + ' timer resync').strip()
-        # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s
-        if self.limit is None and self.bossrush and self.started_at_16 and self.timer.val is not None:
+        # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s. Only
+        # in the run's first phase: a two-boss fight's clock is the run's (one 180/240 s clock, level graph 78824533
+        # nodes 5-11), and what is left of it when the second boss shows up is no time limit
+        if self.limit is None and self.bossrush and self.started_at_top and self.timer.val is not None and len(self.phases) == 1:
             if self.timer.at - self.created <= 4:
                 self.limit = int(5 * math.ceil(self.timer.val / 5))
-                note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
+                if self.order is not None and self.limit not in (duration, duration + OVERTIME_S):
+                    # A two-boss stage's level graph ends the run on one of two clocks only (Scene.1070
+                    # scene_graph_data[78824533]: node 9 at 180 s, sys_config_data.BossRushCombatDuration, the meter's
+                    # --duration; node 11 at 240 s with Overtime, bossrush_buff_data[208].additionalTime). A top bar
+                    # with any other time left is not the run's start but its second boss at x21, the first one never
+                    # seen (the fight started from the prep screen on the stage's first boss): no limit from it, and
+                    # the run isn't tracked from its start
+                    note = (note + f' {self.limit // 60}:{self.limit % 60:02d} left at a top bar mid-run: no time limit').strip()
+                    self.limit = 0; self.started_at_top = False
+                else: note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
             else: self.limit = 0                     # read too late to tell: the result screen's time decides
-        # damage follows the current state, so a corrected segment also corrects the total
-        dmg, seg = R.damage_dealt(self.max_hp, self.seg_fill, self.seg if self.bossrush else None, cum, self.bossrush)
-        if dmg is not None: self.damage = dmg
+        # damage follows the current state, so a corrected segment also corrects the total. The bar shows the current
+        # boss: its damage on its own max HP, after the bosses already down in this run. A second boss whose counter
+        # isn't read yet adds nothing (its fill alone can't place it among its 21 bars)
+        dmg, seg = R.damage_dealt(self.boss_hp, self.seg_fill, self.seg if self.bossrush else None, cum, self.bossrush)
+        rose = False
+        if dmg is not None and not (self.bossrush and self.seg is None and len(self.phases) > 1):
+            rose = dmg > self.phases[-1]['damage']
+            self.damage = self.done_hp + dmg; self.phases[-1]['damage'] = dmg
         if not self.hit:
             if self.first_damage is None:
                 if fill is not None and self.low_pending is None: self.first_damage = self.damage   # from a real reading
@@ -982,30 +1150,94 @@ class Fight:
         tp = self.timer.predict(now)
         clock = self.limit or duration
         self.elapsed = (clock - tp) if tp is not None and tp <= clock else (now - self.t0 if self.hit else 0.0)
+        # each boss's time on the run's clock (run_of): its last hit seen, and where a run first seen at a two-boss
+        # fight's second boss starts (the clock when its bar showed: the meter started late)
+        if rose: self.phases[-1]['hit_s'] = round(self.elapsed, 1)
+        if self.order == 2 and len(self.phases) == 1 and not self.joined and tp is not None and tp <= clock:
+            self.joined = True; self.phases[0]['start_s'] = max(0.0, round(self.elapsed - (now - self.created), 1))
         avg = self.damage / self.elapsed if self.elapsed > 1 else 0
         (t_a, d_a), (t_b, d_b) = self.samples[0], self.samples[-1]
         self.recent = (d_b - d_a) / (t_b - t_a) if t_b - t_a > 0.5 else avg; self.avg = avg
         if not note and now - getattr(self, 'row_at', 0) < CONFIRM_GAP: return None   # ~10 rows a second is plenty
         self.row_at = now
-        self.w.writerow([round(now - self.created, 2), None if tp is None else round(tp, 1), timer_ocr, xn_ocr, self.seg,
-                         None if fill is None else round(fill * 100, 2), '%02x%02x%02x' % fill_rgb, '%02x%02x%02x' % edge_rgb,
-                         self.damage, round(avg), round(self.recent), note,
-                         None if self.brk.left is None else round(self.brk.left * 100, 1), self.brk.phase])
+        self.write([round(now - self.created, 2), None if tp is None else round(tp, 1), timer_ocr, xn_ocr, self.seg,
+                    None if fill is None else round(fill * 100, 2), '%02x%02x%02x' % fill_rgb, '%02x%02x%02x' % edge_rgb,
+                    self.damage, round(avg), round(self.recent), note,
+                    None if self.brk.left is None else round(self.brk.left * 100, 1), self.brk.phase])
         return None
+
+    def boss_of(self):
+        """(the boss on the bar, of how many) on a two-boss stage: (1, 2) or (2, 2), its spawn order (R.stage_of), also
+        for a run the meter first saw at its second boss; None for a one-boss fight. For the overlay and the app."""
+        return (self.order, 2) if self.bossrush and self.order is not None else None
+
+    def write(self, cells):
+        """One row of the fight's CSV. A two-boss stage's run adds the boss on the bar (1 or 2) as its last column."""
+        self.w.writerow(cells + [None] * (len(FIGHT_CSV) - len(cells)) + [self.order] if self.boss_col else cells)
 
     def mark_defeated(self, why):
         """The boss went down (killed or caught): the bar vanishes before the last hit can be read, so count the rest."""
         if self.defeated: return
         left = self.max_hp - self.damage
         self.defeated = True; self.damage = self.max_hp
+        self.phases[-1].update(damage=self.boss_hp, defeated=True)
         self.avg = self.damage / self.elapsed if self.elapsed > 1 else 0
         try:
-            self.w.writerow([round(time.time() - self.created, 2), None, None, None, self.seg, 0.0, '', '', self.damage,
-                             round(self.avg), round(self.recent), f'defeated ({why}): final {left:,} HP counted'])
+            self.write([round(time.time() - self.created, 2), None, None, None, self.seg, 0.0, '', '', self.damage,
+                        round(self.avg), round(self.recent), f'defeated ({why}): final {left:,} HP counted'])
             self.log.flush()
         except ValueError: pass                                         # CSV already closed (confirmed after the fight)
 
+    def partner_due(self):
+        """A two-boss fight's first boss in its last three bars (x3-x1: its last 25% on bossHpLossPercent_2): its
+        partner can take the bar any moment."""
+        return self.partner is not None and self.seg is not None and self.seg <= 3
+
+    def handoff_due(self, agreed, top):
+        """The bar's own sign that a two-boss fight's first boss is down and its partner has the bar: the first boss in
+        its last bar (x1, or x2 nearly empty: x1 is only 5% of its HP, bossrush_grade_data bossHpLossPercent_2 row 20)
+        and two counter reads agreeing on one of the top bars. The counter only counts down within one boss, and the
+        game puts the second boss back at x21 (BossTitleItemV2.switchBossRushTarget, line 484). Never from a start
+        guess (seg_guess: a segment taken from three reads of a counter not at its top): while the first boss's bar
+        fades in its x21 can read as x1, and the top read that follows is that boss's own start, which update's
+        guess rule takes. Handed over then, the first boss counted as down at the run's start and its own bars were
+        read on its partner's grade column (tests/two_boss.py scenario k: 51.4M for a run of 15.3M)."""
+        return (self.partner is not None and agreed is not None and self.seg is not None and agreed >= top - HANDOFF_XN
+                and not getattr(self, 'seg_guess', False)
+                and (self.seg == 1 or (self.seg == 2 and self.seg_fill < 0.05)))
+
+    def next_boss(self, row, why):
+        """A two-boss fight's hand-off to the first boss's partner (`row`). The first boss is down: the graph spawns its
+        partner only on its spawner's death (level graph 78824533 nodes 16-19), so its full max HP counts, as in
+        mark_defeated. The run goes on: same Timer, clock, time limit and CSV; the bar's own state starts over for the
+        partner, on its own grade column (R.grade_column) with its own break gauge."""
+        now = time.time(); p = self.phases[-1]
+        left = self.boss_hp - (self.damage - self.done_hp)
+        # its time ends at its last hit seen (as it died), not with the gap before its partner shows up
+        p.update(damage=self.boss_hp, defeated=True, t1=now, end_s=p.get('hit_s', round(self.elapsed, 1)), breaks=self.brk.breaks)
+        self.done_hp += self.boss_hp
+        hp = R.boss_max_hp(row, self.level)
+        self.row, self.title, self.boss_hp, self.partner, self.order = row, row['bossTitle_en'] or self.title, hp, None, 2
+        self.max_hp = self.done_hp + hp; self.damage = self.done_hp; self.defeated = False
+        self.phases.append({'row': row, 'title': self.title, 'max_hp': hp, 'damage': 0, 'defeated': False,
+                            't0': now, 't1': None, 'start_s': round(self.elapsed, 1), 'end_s': None, 'breaks': 0})
+        self.seg = None; self.seg_fill = 1.0; self.seg_guess = False; self.seg_info = None; self.last_fill = None
+        self.xn_votes = []; self.xn_anchor = None; self.refill_pending = 0; self.refill_at = 0.0; self.low_pending = None
+        self.column = R.grade_column(row.get('puppetId'))
+        self.brk = BreakTracker(R.boss_break_points(row, self.level))
+        msg = (f'boss {len(self.phases)} of 2: {self.title}, max HP {hp:,} ({why}); the first boss is down, '
+               f'its last {left:,} HP counted')
+        log.info(f'fight: {msg} (run damage {self.damage:,}, {self.elapsed:.0f}s)')
+        try:
+            self.write([round(now - self.created, 2), None, None, None, None, None, '', '', self.damage,
+                        round(self.avg), round(self.recent), msg])
+        except ValueError: pass
+
     def close(self):
+        p = self.phases[-1]
+        if p['t1'] is None:
+            p.update(t1=time.time(), end_s=round(self.elapsed, 1), breaks=self.brk.breaks,
+                     damage=self.damage - self.done_hp, defeated=self.defeated)
         try: self.log.close()
         except Exception: pass
 
@@ -1040,34 +1272,36 @@ def sim_gate_pill(im, box, u):
     return best >= 0.012 * u * w / (box[2] - box[0])
 
 class OcrWorker(threading.Thread):
-    """Reads text crops on its own OCR helper so the frame loop never waits for OCR (one job at a time)."""
-    def __init__(self):
+    """Reads text crops on its own OCR helper so the frame loop never waits for OCR (one job at a time). Given an
+    `ocr`, it reads on that one instead (names_bg: the frame loop's helper, the one with the name models)."""
+    def __init__(self, ocr=None):
         super().__init__(daemon=True)
-        self.ocr = None; self.job = None; self.result = None; self.wake = threading.Event(); self.stop = False
+        self.ocr = ocr; self.own = ocr is None; self.job = None; self.result = None; self.wake = threading.Event(); self.stop = False
     @property
     def busy(self): return self.job is not None
-    def submit(self, crops, meta):
-        if self.job is None: self.job = (crops, meta); self.wake.set()
+    def submit(self, crops, meta, **kw):           # kw: Ocr.read's names= and raws=
+        if self.job is None: self.job = (crops, meta, kw); self.wake.set()
     def take(self):
         r, self.result = self.result, None
         return r
     def run(self):
-        try: self.ocr = R.Ocr()                     # its helper starts here, so the meter's first look doesn't wait
-        except Exception as e: log.warning(f'background OCR helper did not start: {e!r}'); return
+        if self.own:
+            try: self.ocr = R.Ocr()                 # its helper starts here, so the meter's first look doesn't wait
+            except Exception as e: log.warning(f'background OCR helper did not start: {e!r}'); return
         while not self.stop:
             if not self.wake.wait(0.5): continue
             self.wake.clear()
             if self.stop or self.job is None: continue                  # woken to close
-            crops, meta = self.job
+            crops, meta, kw = self.job
             t0 = time.perf_counter()
-            try: text = self.ocr.read(crops)
+            try: text = self.ocr.read(crops, **kw)
             except Exception as e:
                 log.warning(f'background OCR failed: {e!r}'); text = {}
             self.longest = max(getattr(self, 'longest', 0.0), (time.perf_counter() - t0) * 1000)   # for the load line
             self.result = (text, meta); self.job = None
     def close(self):
         self.stop = True; self.wake.set()
-        if self.ocr: self.ocr.close()
+        if self.ocr and self.own: self.ocr.close()
 
 def load_korean_names(player_log=None):
     """In the background: the game's English and Korean fonts (read from the game install once, then kept in the data
@@ -1084,16 +1318,54 @@ def load_korean_names(player_log=None):
         except Exception as e: log.info(f'Korean names: off ({e!r})')
     threading.Thread(target=run, daemon=True, name='korean-names').start()
 
+# What the meter can't read without English OCR: the game's text is English, and Windows OCR reads it all but player
+# names (the helper's own text models read those). The app's warning says the same (DPS Meter page, Dashboard).
+NO_ENGLISH_READS = 'boss names and levels, result screens, Battle Data, the battle prep and Party screens'
+OCR_RECHECK = 60        # seconds between looks for English OCR added while the meter runs (Meter.ocr_recheck)
+OCR_SAY_AGAIN = 3600    # seconds before a look's warning that hasn't changed is in meter.log again (Meter.ocr_warn)
+
+def ocr_language_note(ocr):
+    """Once at start, in meter.log: the language Windows OCR reads in (the meter's own reader's, Ocr.language), with
+    a warning when it isn't English, or there is none (no OCR language on the PC, or the helper didn't start: NoOcr).
+    Before, a PC with no English OCR only had 'OCR helper did not start' in its log, or nothing (76c9f87), and its
+    runs weren't read. English added later is found by Meter.ocr_recheck, which says so."""
+    lang = ocr.language
+    # Settings' page is Language on Windows 10, Language & region on 11 (adding English there installs its OCR)
+    fix = ('Windows Settings > Time & language > Language (Language & region on Windows 11) > Add a language > English '
+           "(United States), or Install English OCR on aLogs' DPS Meter page")
+    if not ocr.started: log.warning(f"Windows OCR: none (its helper didn't start): {NO_ENGLISH_READS} can't be read, "
+                                    "so runs aren't recorded or sent")
+    # not said: a plain READY, which only a helper from before READY<TAB> gives (ocr_win.ps1 says its language too),
+    # such as the built copies in bossbar/dist until the next meter:build
+    elif lang is None: log.info('Windows OCR: language not said (an OCR helper from before this version: ocr-helper.exe '
+                                'or ocr_win.ps1)')
+    elif R.ocr_english(lang): log.info(f'Windows OCR: {lang}')
+    elif lang: log.warning(f"Windows OCR: {lang}, not English: {NO_ENGLISH_READS} can't be read reliably, so runs may "
+                           f"not be recorded or sent. Fix: {fix}")
+    else: log.warning(f"Windows OCR: none (no OCR language on this PC): {NO_ENGLISH_READS} can't be read, so runs "
+                      f"aren't recorded or sent. Fix: {fix}")
+
 # ---------------------------------------------------------------- meter
 class Meter:
     def __init__(self, args, out):
         self.args, self.out = args, out
-        self.catalog, self.cum = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()
-        self.ocr = R.Ocr(); self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
+        self.catalog, self.grades = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()   # grades: refresh_cycles
+        # the OCR helper not starting (an older one stopped when Windows had no en-US OCR; now it starts and says it has
+        # no language): the meter then runs on what it reads from pixels (the boss bar, xN, the game font's numbers)
+        try: self.ocr = R.Ocr()
+        except Exception as e:
+            log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
+        self.ocr.keep_unsure = args.replay is None          # a replay reads the same whatever the PC's speed
+        ocr_language_note(self.ocr); self.ocr_checked = time.time()       # ocr_recheck: its helpers just picked
+        self.ocr_said = {}           # ocr_look's warnings the last look gave, and when each was logged (ocr_warn)
+        self.ocr_found = False       # the last look's helper read English: the PC has it (status.json's ocr.switching)
+        self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
         load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
         self.screen_bg = None if args.replay is not None else OcrWorker()     # the screens' text (check_battle_data)
-        for w in (self.ocr_bg, self.screen_bg):
+        # the screens' player names, read for the first time (names_first), on self.ocr's own helper
+        self.names_bg = None if args.replay is not None or not self.ocr.native else OcrWorker(self.ocr)
+        for w in (self.ocr_bg, self.screen_bg, self.names_bg):
             if w: w.start()
         self.frames = 0; self.frame_size = (0, 0)
         self.bar = None; self.bar_seen = 0.0; self.last_text = 0.0; self.last_title = 0.0; self.last_frame = 0.0
@@ -1136,6 +1408,7 @@ class Meter:
         self.link = None             # Link character in progress (link_poll)
         self.prep_boss = None        # (time, catalog row) of the boss the battle prep screen showed last
         self.rush_level = last_rush_level()   # Interlink bosses' level (the same for every boss of a season)
+        self.odd_level = None        # ((puppetId, level), first and last read): a new fight's Interlink level, not rush_level
         if self.uid: log.info(f'player uid {self.uid} (from the game log)')
         if not args.replay:   # also before the game's first run: it waits for Player.log (the UID came only after a restart)
             self.logw = LogWatcher(args.player_log, self.events); self.logw.start()
@@ -1251,6 +1524,11 @@ class Meter:
             except ValueError: app = 0
             cpu = (getattr(self, 'cpu_load', None) or setattr(self, 'cpu_load', CpuLoad()) or self.cpu_load).sample(pid.value, app)
             ours = [os.getpid(), app, pcstats.sanctum_pid()]           # aLogs' programs: meter, app, Sanctum Helper
+            # ...and the meter's OCR helpers (the frame loop's, which holds the name models, the bar's and the screens'
+            # text, the HP number's): the name models' memory never showed in a report (278 MB for the widths 419 real
+            # names need, 740 MB after 19 widths, measured on the helper alone)
+            ours += [getattr(getattr(o, 'p', None), 'pid', 0) for o in (self.ocr, getattr(self.ocr_bg, 'ocr', None),
+                                                                       getattr(self.screen_bg, 'ocr', None), getattr(self, 'hp_ocr', None))]
             gpu = (getattr(self, 'gpu_load', None) or setattr(self, 'gpu_load', pcstats.GpuLoad()) or self.gpu_load).sample()
             gpu_text = (f"GPU game {gpu['by_pid'].get(pid.value, 0):.0f}%, aLogs {sum(gpu['by_pid'].get(q, 0) for q in ours if q):.0f}%, "
                         f"whole card {gpu['total']:.0f}%") if gpu else 'GPU ?'
@@ -1264,6 +1542,8 @@ class Meter:
             if bg: bg.longest = 0.0
             peak_text = (f"longest look {p.get('look', 0):.0f} ms, longest screen read {p.get('prep', 0):.0f} ms to prepare + "
                          f"{ocr_ms:.0f} ms to read")
+            nb = getattr(self, 'names_bg', None)                       # players' names read first (names_first)
+            if nb: peak_text += f", players' names {getattr(nb, 'longest', 0.0):.0f} ms to read"; nb.longest = 0.0
             c = getattr(self, 'load_counts', None) or {'whole': 0, 'part': 0, 'reads': 0}
             span = now - getattr(self, 'load_since', now - 60); self.load_since = now
             where = ('homeland' if scene_of(self.space) == HOMELAND_SCENE else 'Interlink' if self.bossrush_space
@@ -1304,7 +1584,7 @@ class Meter:
             # during ultimates, so a vanished bar alone proves nothing. Count the rest only with confirmation: the
             # game's Catch Countdown, or the bar staying gone for the whole grace period with the boss nearly down.
             # (Interlink kills are confirmed by the result screen's time, see result_screen.)
-            left = (f.max_hp - f.damage) / f.max_hp if f.max_hp else 1
+            left = (f.max_hp - f.damage) / f.boss_hp if f.boss_hp else 1      # of the boss on the bar (Fight: max_hp is the run's)
             if why.startswith('caught') and not f.bossrush and f.hit and (f.timer is None or f.timer.predict(time.time()) is None):
                 # A finishing ultimate hides the HUD (bar included) for its cutscene, then its attack plays out and the
                 # killing blow lands at its end, followed by ~3 s of kill-cam and the Catch Countdown. So the fight
@@ -1325,7 +1605,7 @@ class Meter:
             if self.last_screen and why != 'meter closed' and f.hit and not unattended:
                 try:          # the overlay's final numbers: showing them must never keep the fight from closing
                     self.out('fight_end', {'damage': f.damage, 'max_hp': f.max_hp, 'elapsed': f.elapsed, 'defeated': f.defeated,
-                                           'title': f.title,
+                                           'title': f.title, 'boss': f.boss_of(),
                                            'avg': f.damage / f.elapsed if f.elapsed > 1 else 0, 'bossrush': f.bossrush,
                                            'holosim': self.holosim_space,
                                            'screen': self.last_screen})
@@ -1409,12 +1689,15 @@ class Meter:
                 w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid or '', *ev])
         except OSError: pass
 
-    def time_check(self, f, game_dps):
+    def time_check(self, f, game_dps, run=None):
         """Which fight time the game's Battle Data uses: the time its team DPS implies (damage / DPS) next to the meter's
         two candidates - up to the last frame with the boss bar (what the meter shows now), and up to the fight's end
-        (the bar can be hidden by a finishing ultimate). One line per fight in logs/time_check.csv, to settle it."""
-        if not game_dps or not f.damage: return
-        game_s = f.damage / game_dps; to_end = getattr(f, 'ended', time.time()) - f.t0
+        (the bar can be hidden by a finishing ultimate). One line per fight in logs/time_check.csv, to settle it.
+        run (run_of): the run's boss and damage. A two-boss middle fight's are both bosses', its first boss at its max
+        HP even when the meter joined at the second one, under the stage's first boss; a one-boss fight's are its own."""
+        damage, title = (run['damage'], run['title']) if run else (f.damage, f.title)
+        if not game_dps or not damage: return
+        game_s = damage / game_dps; to_end = getattr(f, 'ended', time.time()) - f.t0
         log.info(f"time check: the game's team DPS implies {game_s:.1f}s; the meter counted {f.elapsed:.1f}s "
                  f'(to the last bar reading) and {to_end:.1f}s (to the end of the fight)')
         path = os.path.join(HERE, 'logs', 'time_check.csv'); new = not os.path.exists(path)
@@ -1422,7 +1705,7 @@ class Meter:
             with open(path, 'a', newline='', encoding='utf-8') as fh:
                 w = csv.writer(fh)
                 if new: w.writerow(['when', 'boss', 'interlink', 'damage', 'game_team_dps', 'game_seconds', 'meter_seconds', 'to_end_seconds'])
-                w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), f.title, f.bossrush, f.damage, game_dps,
+                w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), title, f.bossrush, damage, game_dps,
                             round(game_s, 1), round(f.elapsed, 1), round(to_end, 1)])
         except OSError: pass
 
@@ -1485,6 +1768,29 @@ class Meter:
     # rows' heights, as shares of the screen; the value's box runs from the card's centre + 0.015 to + 0.081 (u)
     BD_ROWS = (('avg_dps', 0.5833), ('break', 0.6255), ('taken', 0.6667), ('heal', 0.7088))
 
+    @staticmethod
+    def bd_card_count(im, u, ux, H):
+        """How many cards Battle Data shows, counted from pixels: the light runs along a line between the BREAK and
+        Damage Taken rows (y 0.645), each about a card wide (0.165-0.167 u on 55 real 4K captures) and centred where
+        that many cards side by side would be (0.1943 u apart, as their boxes are placed). 0 when they don't line up
+        like that (the screen sliding in, something in front of it). OCR's count put every box half a card off when it
+        missed one: its first read found 3 of 4 cards on 14 of those 55 screens and none on 5 more; this found 4 on all
+        55, scaled down to 720p as well (under 1 ms)."""
+        y = int(H * 0.645); N = 400
+        row = im.crop((int(ux), y, int(ux + u), y + 1)).convert('RGB').resize((N, 1), Image.BOX).tobytes()
+        runs, start = [], None
+        for x in range(N + 1):
+            px = row[3 * x:3 * x + 3] if x < N else b'\0\0\0'
+            light = min(px) >= 190 and max(px) - min(px) <= 40           # the card's pale grey, not the coloured scene
+            if light and start is None: start = x
+            elif not light and start is not None: runs.append((start / N, x / N)); start = None
+        cards = [(a, b) for a, b in runs if b - a >= 0.12]
+        n = len(cards)
+        if not 1 <= n <= 4: return 0
+        if any(b - a > 0.19 or abs((a + b) / 2 - (0.5 + (i - (n - 1) / 2) * 0.1943)) > 0.02 for i, (a, b) in enumerate(cards)):
+            return 0
+        return n
+
     def battle_data_font(self, im, u, ux, H, read):
         """Each card's values read digit by digit against the game's own digits, over OCR's in `read` (in place).
         OCR skipped 7-digit BREAK values, which moved the card's later numbers up a row (BREAK got Damage Taken's,
@@ -1517,9 +1823,10 @@ class Meter:
             self.last_results = now
             crops = self.screen_crops(im, False)
             return self.read_screen(im, now, self.ocr.read(crops) if crops else {})
+        if self.names_waiting(): return             # a screen waits for its players' names: it's handled first
         done = bg.take()
         if done: self.read_screen(done[1][0], done[1][1], done[0])
-        if bg.busy or not getattr(self, 'frame_full', True) or not self.screen_read_due(now, quick): return
+        if bg.busy or self.names_waiting() or not getattr(self, 'frame_full', True) or not self.screen_read_due(now, quick): return
         self.last_results = now; self.screen_read_sig = getattr(self, "top_sig", None)
         t0 = time.perf_counter()
         crops = self.screen_crops(im, quick)
@@ -1528,6 +1835,33 @@ class Meter:
             bg.submit(crops, (im, now))
             if getattr(self, 'load_counts', None): self.load_counts['reads'] += 1
         else: self.read_screen(im, now, {})                            # nothing on screen to read
+
+    def names_first(self, handler, args, crops=None, pad=0, raws=None):
+        """handler(*args, names=(crops, raws)): a screen's reader, whose read takes these player-name boxes (crops:
+        {key: prepared box}, `pad` their padding, raws: grey_crop's, for Ocr.read). A name read the first time costs
+        the two text models ~0.2 s, and the frame loop stood still for them. So when a box isn't in the name cache,
+        names_bg reads the boxes first, on the same helper, and the reader runs once they're in (names_due) with its
+        own frame and time: its read then takes the names from the cache, so it reads what it would have. No other
+        screen is read meanwhile (names_waiting), so screens are still handled in order. At once when every box was
+        read before (the same screen read again), and in replays and tests. On 12 real 4K screens of each, a first
+        read held the frame loop 0.9 s (result, Party) and 1.1 s (Battle Data) at the median, 1.7 s at most; now
+        0.21, 0.05 and 0.22 s, 0.24 s at most, with the same readings."""
+        nb = getattr(self, 'names_bg', None)
+        names = {k: pad for k in crops or {}}
+        if crops and nb is not None and not nb.busy and not self.ocr.cached(crops, names):
+            nb.submit(crops, (handler, args, (crops, raws)), names=names, raws=raws); return
+        handler(*args, names=(crops, raws) if crops else None)
+
+    def names_due(self):
+        """The screen reader waiting for its players' names (names_first), once names_bg has read them."""
+        done = self.names_bg.take() if getattr(self, 'names_bg', None) else None
+        if done:
+            handler, args, names = done[1]
+            handler(*args, names=names)
+
+    def names_waiting(self):
+        nb = getattr(self, 'names_bg', None)
+        return bool(nb and (nb.busy or nb.result is not None))
 
     def screen_read_due(self, now, quick=False):
         """Time for the next screen read: 0.1 s after the last one when the screen changed since (seen on the top part
@@ -1553,7 +1887,7 @@ class Meter:
         if cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30: return True
         bg = getattr(self, 'screen_bg', None)
         if bg is None: return True
-        if not bg.busy and self.screen_read_due(now):
+        if not bg.busy and not self.names_waiting() and self.screen_read_due(now):
             # only for a screen read: just its boxes (screen_parts), unless a screen is up (then whole frames until it's gone)
             return True if now < getattr(self, 'full_until', 0) else 'screen'
         return False
@@ -1601,7 +1935,7 @@ class Meter:
                     self.parts_said = now; log.info(f"screen read: {spotted} spotted, whole frames while it's up")
                 self.last_results = 0; return
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
-        self.game_menu(heads.get('me', ''), heads.get('uid', ''), im, u, ux, H)
+        self.menu_name(im, u, ux, H, heads)
         self.profile_notes(heads, im, now, u, ux, H)
         if 'catch' in heads.get('cc', '').lower():                     # a caught boss: its fight was won
             if now - self.catch_seen > 30: log.info(f"Catch Countdown on screen: {heads.get('cc')!r}")
@@ -1623,14 +1957,21 @@ class Meter:
                 if self.clicks < 6: self.open_battle_data(im, u, ux, H)                 # first click or a retry
                 else: self.end_auto('Battle Data did not open after 6 clicks')
             self.test_frame(im, 'result', now)
-            self.result_screen(im, now, u, ux, H, heads.get('cs', ''))
+            crops, grey = self.result_names(im, u, ux, H)
+            self.names_first(self.result_screen, (im, now, u, ux, H, heads.get('cs', '')), crops, 24, grey)
             return
         if 'battle time' in heads.get('sv', '').lower(): self.test_frame(im, 'sim_result', now); self.sim_result(im, now, u, ux, H); return
         if 'challenge' in heads.get('cs', '').lower(): self.test_frame(im, 'challenge', now); self.challenge_stats(im, now, u, ux, H); return
         if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
         if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
-        if head.strip().lower().startswith('party'): self.test_frame(im, 'party', now); self.party_screen(im, now, u, ux, H); return
+        if head.strip().lower().startswith('party'):
+            self.test_frame(im, 'party', now)
+            # at party_screen's own pace (2 s): a pill's ready mark or voice icon changes its look, and each change
+            # would send all four to the name models at every screen read, where the screen reads them every 2 s
+            if now - getattr(self, 'party_seen', 0) >= 2:
+                self.names_first(self.party_screen, (im, now, u, ux, H), self.party_names(im, u, ux, H), 20)
+            return
         if re.sub(r'[^a-z]', '', head.lower()).startswith('holobattlei'): self.interlink_screen(im, now, u, ux, H); return
         if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
@@ -1642,6 +1983,20 @@ class Meter:
         if self.auto_until and not getattr(self, 'bd_hold', False):
             self.bd_hold = True; self.auto_until = min(self.auto_until, now + BATTLE_DATA_PAUSE)
             log.info(f'Battle Data is open: holding {BATTLE_DATA_PAUSE} s while it is read')
+        crops, grey = self.bd_names(im, self.bd_card_count(im, u, ux, H), u, ux, H)
+        self.names_first(self.battle_data, (im, now, u, ux, H, head), crops, 0, grey)
+
+    @staticmethod
+    def bd_names(im, n, u, ux, H):
+        """Battle Data's name tabs of n cards: prep_white's for Windows OCR and the Korean model, grey_crop's for the
+        Latin model ({card: box} each)."""
+        boxes = {i: (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
+                     ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547) for i in range(n)}
+        return {i: R.prep_white(im, b, u / 2000) for i, b in boxes.items()}, {i: R.grey_crop(im, b) for i, b in boxes.items()}
+
+    def battle_data(self, im, now, u, ux, H, head, names=None):
+        """Battle Data on screen: each card's four values and its player, voted over the reads of one appearance, saved
+        with the fight. `names`: bd_names' boxes, already read (names_first)."""
         if self.fight: self.end_fight('Battle Data screen')           # can show up while the bar dropout is still bridged
         # one appearance is one Battle Data (left open, or reopened from a menu, it isn't a new one for 30 s), read again
         # while it's up (SCREEN_READS in all, 0.5 s apart): each card value is the one most reads agree on
@@ -1664,21 +2019,33 @@ class Meter:
         text = self.ocr.read({'d': ImageOps.expand(rows, border=20, fill=255)}).get('d', '')
         read = parse_battle_data(text)
         log.info(f'Battle Data read {self.bd_reads}: OCR {text!r} -> {read}')   # whole: a run can be re-read from the log
-        # a read never finds a card that isn't there (each needs its own 'Average DPS'), so the most any read found
-        # is the count: settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct)
-        n = self.bd_cards = min(4, max(getattr(self, 'bd_cards', 0), len(read)))
+        # the cards are counted on screen (bd_card_count), by OCR when they can't be or it found more. Either way the
+        # count is the most any read found: a read never finds a card that isn't there (OCR needs each card's 'Average
+        # DPS'), and settling on the commonest let one copy of a 4-player run keep 3 cards (31 Oct). A count on screen
+        # under OCR's is cards it didn't see (the middle two of four sit where two cards would), not fewer cards
+        before = getattr(self, 'bd_cards', 0); seen = self.bd_card_count(im, u, ux, H)
+        n = self.bd_cards = min(4, max(before, seen, len(read)))
         read = [dict(read[i]) if i < len(read) else {} for i in range(n)]
         self.battle_data_font(im, u, ux, H, read)
+        # the count and this read's numbers at it. A count off the party's is only logged: the game's panel
+        # (Guis/Panels/BossRushBattleDetailResult) lists the run's player records, AI ones too, but where the cards sit
+        # is in its prefab, and no 2- or 3-card screen has been seen yet
+        if n != before:
+            said = ('counted on screen' if seen >= len(read) else f"OCR's count (only {seen} counted on screen)") if seen \
+                else "OCR's count (not counted on screen)"
+            if party and len(party) != n: said += f', but the Party screen had {len(party)} players'
+            log.info(f'Battle Data cards: {said} -> {n} cards {[{k: c.get(k) for k, _ in self.BD_ROWS} for c in read]}')
         cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}
                  for i in range(n)]
         # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),
-        # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position
-        names = self.ocr.read({i: R.prep_white(im, (ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 - 0.045), H * 0.512,
-                                                    ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547), u / 2000)
-                               for i in range(n)}, names={i: 0 for i in range(n)}) if n else {}
+        # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position.
+        # The Latin model reads the tab as it is on screen (grey_crop), Windows OCR and the Korean model prep_white's
+        crops, grey = names if names and len(names[0]) == n else self.bd_names(im, n, u, ux, H)
+        names = self.ocr.read(crops, names={i: 0 for i in crops}, raws=grey) if n else {}
         for i, c in enumerate(cards):
             c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
-        party_slots(cards, party)
+        party_slots(cards, party, sure={i for i in crops if sure_read(self.ocr, crops[i])},
+                    you=self.character_name if character_verified(self.uid) else None)
         vals = [c['avg_dps'] for c in cards if c['avg_dps'] is not None]
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         if again:                                                  # a later read: only the agreed numbers change
@@ -1692,12 +2059,22 @@ class Meter:
         f = self.awaiting[0] if self.awaiting and now <= self.awaiting[1] else None
         if f and vals:
             game_dps = sum(vals); T = f.elapsed; loss = f.damage / f.max_hp if f.max_hp else 0
-            msg += f' vs meter {f.damage / T:,.0f} ({f.title} Lv {f.level})' if T > 1 else ''
-            self.time_check(f, game_dps)
-            if f.bossrush and f.started_at_16 and loss > 0.02 and T > 60:
+            run = self.run_of(f)                                       # the run's damage: a two-boss fight's both bosses
+            msg += f' vs meter {run["damage"] / T:,.0f} ({run["title"]} Lv {f.level})' if T > 1 else ''
+            self.time_check(f, game_dps, run)
+            calibrate = f.bossrush and f.started_at_top and loss > 0.02 and T > 60
+            if calibrate and run['bosses'] is not None:
+                # Never from a two-boss middle fight, whichever boss it ended on: Battle Data has one team DPS for the
+                # run (BossRushBattleDetailResult; whether it covers both bosses isn't known until a live run shows it),
+                # and no share of it is one boss's. Taken as the boss on the bar's, it put the second boss's max HP
+                # ~1.2x too high, inside the guard below, and kept that for the boss from then on (calibration.json)
+                calibrate = False
+                log.info(f"Battle Data: no max HP measured from a two-boss fight ({', '.join(b['name'] for b in run['bosses'])}): "
+                         "its team DPS is the run's, not one boss's")
+            if calibrate:
                 measured = game_dps * T / loss
                 predicted = R.boss_max_hp(f.row, f.level, use_calibration=False)
-            if f.bossrush and f.started_at_16 and loss > 0.02 and T > 60 and predicted and 0.5 <= measured / predicted <= 2:
+            if calibrate and predicted and 0.5 <= measured / predicted <= 2:
                 # far off the prediction means the wrong boss was matched, not a better HP figure: never save that
                 kept = R.save_calibration(f.row['puppetId'], f.level, measured, predicted,
                                           f'{time.strftime("%Y-%m-%d %H:%M")} game {game_dps} T {T:.0f}')
@@ -1947,19 +2324,18 @@ class Meter:
         if now - gate.get('look', 0) < 0.15: return       # the level and the button in one look: no wait on either
         gate['look'] = now; self.sim_gate_state = gate
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
-        t = self.ocr.read({'b': R.prep_bright(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), k),
-                           **({} if gate.get('last') else {'l': R.prep_bright(im, (ux + u * 0.02, H * 0.015, ux + u * 0.20, H * 0.08), k)})})
-        if 'l' in t:                                               # the level, read until it's the last one
+        if not gate.get('last'):                                   # the level, read until it's the last one
+            t = self.ocr.read({'l': R.prep_bright(im, (ux + u * 0.02, H * 0.015, ux + u * 0.20, H * 0.08), k)})
             m = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', t.get('l') or '')
             gate['last'] = bool(m and m.group(1) == m.group(2) and int(m.group(1)) > 1)
             if not gate['last']: return
             log.info(f"Holo-Battle Sim: last level ({t.get('l')!r}): the exit gate is watched")
-        up = 'endholo' in re.sub(r'[^a-z]', '', (t.get('b') or '').lower())
-        if up and not sim_gate_pill(im, (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66), u):
-            if now - gate.get('said', 0) > 10:                     # the words without the button: the gate's own label
-                gate['said'] = now; log.info('Holo-Battle Sim: "End Holo-Battle Sim" seen, but not on its button')
-            up = False
         if getattr(self, 'sim_ctl', None): return
+        # the button: its pill's colour first (~10 ms at 4K), its words only when the pill is there (~50 ms to prepare
+        # and read). Both read on every level, it was ~60 ms a look, 0.15 s apart; the words alone are the gate's own
+        # label too
+        box = (ux + u * 0.50, H * 0.40, ux + u * 0.90, H * 0.66)
+        up = sim_gate_pill(im, box, u) and 'endholo' in re.sub(r'[^a-z]', '', (self.ocr.read({'b': R.prep_bright(im, box, k)}).get('b') or '').lower())
         if up:
             if not gate.get('first_up'):
                 gate['first_up'] = now; log.info('Holo-Battle Sim: the exit gate button is up; watching for your Y or F')
@@ -2367,16 +2743,30 @@ class Meter:
         boss = slot_row['bossTitle_en'] if slot_row else (self.cycle_boss(name.strip(' /|'))
                                                          or self.cycle_boss(label.split('/')[-1].strip()))
         self.read_party(im, now, u, ux, H)
-        row = slot_row or next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
-                                and int(r['puppetId']) in R.active_cycle_bosses()), None)
-        if row: self.prep_boss = (now, row)
-        score = interlink_score(score, stars, clear_stars(row['puppetId']) if row else None)
+        row = self.stage_first(slot_row or next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
+                                                 and int(r['puppetId']) in R.active_cycle_bosses()), None))
+        if row: self.prep_boss = (now, row); boss = row['bossTitle_en'] or boss       # the best goes under that boss
+        score = interlink_score(score, stars, clear_stars(row['puppetId']) if row else None,
+                                two_boss=bool(row and R.stage_of(row['puppetId'])[1]))      # a two-boss stage's best: as read
         log.info(f'battle prep screen: OCR pill {pill!r}, name {name!r} -> {boss}: best score {score}, stars {stars}')
         # the score can read before the stars ('14026', then '14026 | 14' two seconds later sent a best without its
         # stars, 30 Oct): only the same score and stars on two reads in a row count
         key = (boss, score, stars)
         agreed = getattr(self, 'prep_read', None) == key; self.prep_read = key
         if score is not None and stars is not None and boss and agreed: self.record_score(im, 'battle_prep', boss, score, stars)
+
+    def stage_first(self, row):
+        """The boss a run on this boss's stage starts with, and keeps its best under: a two-boss middle fight's second
+        boss (R.stage_of order 2: the week's bossId_2) gives its stage's first, the bossId. The level graph spawns the
+        bossId as the level starts and the bossId_2 only on its death (Scene.1070 scene_graph_data[78824533], nodes
+        1-4 and 16-19), and the game keeps one best per stage under the bossId (BossRushMainCtrl.renderBossInfo, line
+        350). So a prep or Party screen that names the second boss (how a two-boss stage's screens name it isn't known
+        until a live run shows them) neither starts the run on it nor files its best under it. Any other row as is."""
+        if not row: return row
+        _, order, first = R.stage_of(row['puppetId'])
+        if order != 2: return row
+        return next((r for r in self.catalog if r['table'] == 'puppet_data' and r['puppetId'] == first
+                     and r['bossTitle_en'] and r['fixed_hp_rate']), row)
 
     def cycle_boss(self, text):
         """The boss name on the battle prep screen, matched to one of this week's three bosses. The boss art behind
@@ -2471,18 +2861,22 @@ class Meter:
             try: S.write_json(STAR_CAPS, {'side': side, 'center': center, 'cycle': R.active_cycle_id(), 'seen': time.strftime('%Y-%m-%d %H:%M:%S')})
             except OSError: pass
 
-    def party_screen(self, im, now, u, ux, H):
+    def party_names(self, im, u, ux, H):
+        """The Party screen's four name pills, prepared ({'n0'..'n3': box})."""
+        return {f'n{i}': R.prep_bright(im, (ux + u * a, H * b, ux + u * c, H * d), u / 2000) for i, (a, b, c, d) in enumerate(self.PARTY_SLOTS)}
+
+    def party_screen(self, im, now, u, ux, H, names=None):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
         name, the voice icon), and who is who. Every real player's card shows CP and the game's AI teammates' don't
         (with real players in the party "No team available. Cannot chat." still shows, so it says nothing about AI).
         You: your saved name, else the yellow name. Read in the bright-text preparation (the yellow name is lost to the
         white-text one). Feeds the same party as the old prep screen, so the result screen can tell which name is you
-        and fix its own misreads."""
+        and fix its own misreads. `names`: party_names' pills, already read (names_first)."""
         if now - getattr(self, 'party_seen', 0) < 2: return
         self.party_seen = now; k = u / 2000
         keep_sample(im, 'party')
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
-        crops = {f'n{i}': R.prep_bright(im, box(*s), k) for i, s in enumerate(self.PARTY_SLOTS)}
+        crops = dict(names[0]) if names else self.party_names(im, u, ux, H)
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
         t = self.ocr.read(crops, names={f'n{i}': 20 for i in range(4)})       # (prep_bright pads 20 px)
@@ -2494,19 +2888,9 @@ class Meter:
             # (yellow from (224,192,80) to (240,224,128) by scene; the yellowish 1P badge alone is ~1% of a pill, a name 3.5-5%)
             return sum(1 for r, g, b in px if r >= 0xc8 and g >= 0xa8 and r - b >= 0x50) > 0.025 * len(px)
         for i in range(4):
-            pill = t.get(f'n{i}') or ''
-            # the text model reads the badge onto the name ('1PMinMax'): a space after it, so it's dropped below
-            pill = re.sub(r'^\s*([1-4Il])\s*P(?=[^\s/|])', r'\1P ', pill)
-            # the name: its words joined (OCR splits 'AeonGeon' as 'Aeon Geon'); badge, marks and icons left out - they read
-            # as one letter, or two odd ones ('iA')
-            words = [w for w in re.split(r'[\s/|]+', pill) if not re.fullmatch(r'[1-4Il]P', w)
-                     and (len(w) >= 3 or (len(w) == 2 and w[0].isupper() and not w[1].isupper()) or K.has_hangul(w))]
-            name = ''.join(words)
-            if not name: continue
-            # the slot is the pill's own badge ('3P'), not where the pill sits: not being 1P may move you to the middle,
-            # and the result screen and Battle Data list players by badge, 1P to 4P (the pill's place if it misread)
-            badge = re.match(r'\s*([1-4Il])\s*P', pill)
-            slot = int(badge.group(1).translate(str.maketrans('Il', '11'))) - 1 if badge else i
+            got = party_pill(t.get(f'n{i}') or '', i)
+            if not got: continue
+            slot, name = got
             card = t.get(f'a{i}') or ''
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
@@ -2520,8 +2904,8 @@ class Meter:
                             'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
                             'cp': int(cp.group(1)) if cp else old.get('cp')})
         boss = self.cycle_boss((t.get('boss') or '').strip(' /|'))
-        row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
-                    and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None
+        row = self.stage_first(next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
+                                     and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None)
         if row: self.prep_boss = (now, row)
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}")
         members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge
@@ -2637,10 +3021,27 @@ class Meter:
         """The party read on the prep screen of this run (recent enough to be the same run), or None."""
         return self.party['members'] if self.party and now - self.party['at'] < 900 else None
 
-    def result_screen(self, im, now, u, ux, H, banner):
+    @staticmethod
+    def result_names(im, u, ux, H):
+        """The result screen's four player-name boxes: prepared for Windows OCR and the Korean model, and grey_crop's
+        for the Latin model ({'name0'..'name3': box} each)."""
+        crops, grey = {}, {}
+        for i in range(4):
+            dx = i * 0.1765
+            # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
+            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p. As wide as the name pill can get (0.07 cut
+            # a player's long name at both ends 25 times on 1 Nov), and below the stat number above it
+            # The Latin model reads the box as it is on screen (grey_crop): 195 of 195 labelled names on real 4K result
+            # screens, 180 from this preparation; scaled to 720p-1440p 194-195, where it was 158-188
+            box = (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655)
+            crops[f'name{i}'] = R.prep_text(im, box, u / 2000, thr=130); grey[f'name{i}'] = R.grey_crop(im, box)
+        return crops, grey
+
+    def result_screen(self, im, now, u, ux, H, banner, names=None):
         """Fight result right after a boss: Challenge Rating (stars), Challenge Score, Completion Time and one
         highlight stat per player. It doesn't name the boss, so it is tied to the fight the meter just tracked.
-        Rows go to logs/results.csv; a 'New Best Record' also updates that boss in scores.csv."""
+        Rows go to logs/results.csv; a 'New Best Record' also updates that boss in scores.csv. `names`: result_names'
+        boxes, already read (names_first)."""
         # read again while it's up (SCREEN_READS in all, 0.4 s apart; the Battle Data click often ends it after one or
         # two): each value is the one most reads agree on, and later reads only update the run's numbers
         again = now - self.result_seen < 30
@@ -2652,14 +3053,12 @@ class Meter:
             'rating': R.prep_short(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41), k),     # short: tiled
             'score': R.prep_text(im, (ux + u * 0.43, H * 0.325, ux + u * 0.57, H * 0.415), k, size=1),
             'time': R.prep_short(im, (ux + u * 0.68, H * 0.33, ux + u * 0.79, H * 0.41), k)}
+        named, grey = names or self.result_names(im, u, ux, H)
         for i in range(4):
             dx = i * 0.1765
-            # a soft threshold keeps thin letters (no split or lost first letters): 130 reads every name at 720p,
-            # 900p, 1080p, 1440p and 4K; 160 lost a 'T' at 720p and 1080p. As wide as the name pill can get (0.07 cut
-            # 'Soul_ShadowXD' to 'oul_Shadow' 25 times on 1 Nov), and below the stat number above it
-            crops[f'name{i}'] = R.prep_text(im, (ux + u * (0.13 + dx), H * 0.618, ux + u * (0.24 + dx), H * 0.655), k, thr=130)
+            crops[f'name{i}'] = named[f'name{i}']
             crops[f'stat{i}'] = R.prep_text(im, (ux + u * (0.21 + dx), H * 0.575, ux + u * (0.33 + dx), H * 0.625), k, thr=160)
-        t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)})
+        t = self.ocr.read(crops, names={f'name{i}': 24 for i in range(4)}, raws=grey)
         num = lambda s: int(re.sub(r'\D', '', s)) if re.search(r'\d', s or '') else None
         V = lambda key, value: vote(self.result_votes, key, value)
         # the score digit by digit against the game's font when it reads clearly (OCR's 1 can come out as a 7)
@@ -2667,21 +3066,42 @@ class Meter:
         sure = reader.number(im, (ux + u * 0.43, H * 0.325, ux + u * 0.57, H * 0.415)) if reader else None
         # the stars too (OCR read 17 as 7 at 900p and 1080p); the gold star after them isn't white, so it's not read
         stars = reader.number(im, (ux + u * 0.20, H * 0.33, ux + u * 0.275, H * 0.41)) if reader else None
+        # and the time, less the 's' the screen writes after the seconds (BossRushBattleResultCtrl.initUI): with the 's'
+        # the font read none of 60 real result screens, without it all 60, the same at 720p-1440p
+        sure_time = reader.number(im, (ux + u * 0.68, H * 0.33, ux + u * 0.79, H * 0.41), unit=True) if reader else None
         rating = V('rating', stars if stars is not None else first_num(t.get('rating')))
-        score, secs = V('score', sure if sure is not None else num(t.get('score'))), V('time', first_num(t.get('time')))
+        score = V('score', sure if sure is not None else num(t.get('score')))
+        secs = V('time', sure_time if sure_time is not None else first_num(t.get('time')))
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
-        full = clear_stars(f[0].row['puppetId'] if f else None)
-        score = interlink_score(score, rating, full)
-        # the grade above the full rating is the kill, "Eliminate": the full stars
-        if rating is None and re.search(r'elim', t.get('rating') or '', re.I): rating = full
+        # the result is the run's: a two-boss fight's under its stage's first boss, its damage both bosses' (run_of)
+        run = self.run_of(f[0]) if f else None
+        full = clear_stars(run['id'] if f else None)
+        # the stars are a number only: the screen prints the run's grade (BossRushBattleResultCtrl.initUI), and no client
+        # Lua shows bossrush_grade_data's grade names ("Eliminate"). A two-boss fight's score is left as read
+        score = interlink_score(score, rating, full, two_boss=bool(run and run['bosses'] is not None))
         players = []
         for i in range(4):
+            dx = i * 0.1765
             name = V(f'name{i}', (t.get(f'name{i}') or '').strip(' /|'))
             parts = [p.strip() for p in (t.get(f'stat{i}') or '').split(' / ') if p.strip()]
-            value = V(f'value{i}', next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
+            # the value under the stat's label by the game's font first, else OCR (the player card writes the stat floored,
+            # digits only: BossRushBattleResultCtrl, the stats from bossrush_fun_data). On 60 real result screens OCR
+            # left 10 values unread (7 a lone 1, Targets Defeated; 23 in the first reads saved then) and cut 2 short; the
+            # font read every one. 8 digits are more than number() takes, so those stay OCR's
+            sure_value = reader.number(im, (ux + u * (0.21 + dx), H * 0.600, ux + u * (0.33 + dx), H * 0.624)) if reader else None
+            value = V(f'value{i}', sure_value if sure_value is not None else
+                      next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
             label = V(f'label{i}', canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS))
-            if name or value is not None: players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
-        party_slots(players, self.party_for_result(now))
+            # a slot is a player when its name, its value or its stat label was read: a slot with its label read but
+            # neither of the others dropped out, and that player and their Battle Data card weren't sent (5 sent runs,
+            # 31 Oct-1 Nov; 38 of 178 slot reads dropped in the logs had the label). party_slots gives it the Party
+            # screen's player of that slot. The label never reads where no player is: 0 of 540 boxes off the cards
+            # (beside the row and in the bands above and below it) on 60 saved result screens, 196 of 232 on the
+            # cards of the 58 4K ones in a single read
+            if name or value is not None or label in RESULT_STATS:
+                players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
+        party_slots(players, self.party_for_result(now), sure={i for i in range(4) if sure_read(self.ocr, named[f'name{i}'])},
+                    you=self.character_name if character_verified(self.uid) else None)
         mine = self.character_name if character_verified(self.uid) else \
             own_name(self.character_name, [p['name'] for p in players], self.party_for_result(now))
         if mine and mine != self.character_name:
@@ -2693,27 +3113,34 @@ class Meter:
             log.info('result screen: not sure which slot is you (a party with other players, and your name not known yet), '
                      'so the character name is left as it is')
         # A clear: finished before the clock ran out with the full rating (clear_stars: 20 left and right, 40 in the
-        # center; it was 15 before the Whisperwake update), and the game's time is exact. A run quit early ("The team
-        # leader has ended the challenge.") also finishes under the clock, but with fewer stars: that is no clear.
+        # center; it was 15 before the Whisperwake update), and the game's time is exact. That is every star under the
+        # clock, not proof of a kill: a solo player or the leader can End a run at any stars
+        # (QuitBtnUIComponent.onQuitBtnClick; the HUD's own end button shows at full stars), and a wipe ends it too
+        # (BossRushConst.LevelEndType: LeaderExit, AllPlayerDie, BossDie, TimeOver). Under the clock with fewer stars
+        # is no clear. A two-boss middle fight is one run with one rating, capped as the center (40), and one clock, the
+        # first boss's (BossRushInfoUIComponent.setBossRushStar; level graph 78824533 nodes 5-11): its clear is the same
+        # test. Whether killing both always shows 40 is for a live run to show; the screen's call stands either way.
         left = (f[0].max_hp - f[0].damage) / f[0].max_hp if f and f[0].max_hp else 0
-        # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration. Every star at the clock's end
-        # is no kill: a team at full stars keeps hitting for score until time runs out.
+        if run and run['bosses'] is not None:                          # of the boss on the bar, its own max HP
+            left = f'{(f[0].max_hp - f[0].damage) / f[0].boss_hp if f[0].boss_hp else 0:.0%} of {f[0].title}, boss {f[0].order} of 2,'
+        else: left = f'{left:.0%}'
+        # The clock is the run's own (f.limit: Overtime makes it 4:00), else --duration (180,
+        # sys_config_data.BossRushCombatDuration). The screen shows min(the clock, ceil(the run's time))
+        # (BossRushBattleResultCtrl.initUI), so a time-up reads the clock exactly. Every star at the clock's end is no
+        # kill: a team at full stars keeps hitting for score until time runs out.
         limit = ((f[0].limit or None) if f else None) or self.overtime_limit(now) or self.args.duration
         cleared = bool(f and secs is not None and 0 < secs < limit and f[0].bossrush and (rating or 0) >= full)
         if cleared: f[0].elapsed = secs; log.info(f'result screen: cleared in {secs}s')
         elif f and secs is not None and secs < limit:
-            log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left:.0%} HP left on the meter)')
+            log.info(f'result screen: ended at {secs}s without a clear (rating {rating}, {left} HP left on the meter)')
         # the leader ended it ("The team leader has ended the challenge.", seen as the boss went): the site sorts out
         # what that makes the run (ended early with every star, or not counted)
         ended_by_leader = bool(f and getattr(self, 'leader_ended', None) is f[0])
-        boss = f[0].title if f else '(unknown - meter saw no fight)'
+        # the run's boss: a two-boss fight's first, the one its result screen names (BossRushBattleResultCtrl.initUI)
+        boss = run['title'] if f else '(unknown - meter saw no fight)'
         log.info(f'result screen read {self.result_reads}: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
         if again:                                                  # a later read: only the agreed numbers change
-            party = self.party_for_result(now)
-            you = next((m['name'] for m in party or [] if m.get('self')), None)
-            for p in players:
-                p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
-                p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
+            mark_you(players, self.party_for_result(now), self.character_name)
             if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                    'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader,
                                                    'screenshot': self.result_shot, 'reads': self.result_reads})
@@ -2725,16 +3152,13 @@ class Meter:
             w = csv.writer(fh)
             if new: w.writerow(['time', 'uid', 'cycle', 'boss', 'level', 'new_best', 'rating_stars', 'score', 'time_s',
                                 'players', 'meter_damage', 'meter_seconds', 'meter_dps', 'meter_csv', 'screenshot'])
-            fi = f[0] if f else None
+            fi = f[0] if f else None; dmg = run and run['damage']           # the run's damage, over the run's time
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, R.active_cycle_id(), boss, fi and fi.level,
                         'best' in banner.lower(), rating, score, secs, json.dumps(players, ensure_ascii=False),
-                        fi and fi.damage, fi and round(fi.elapsed), fi and round(fi.damage / fi.elapsed) if fi and fi.elapsed > 1 else None,
+                        dmg, fi and round(fi.elapsed), fi and round(dmg / fi.elapsed) if fi and fi.elapsed > 1 else None,
                         fi and os.path.basename(fi.log.name), os.path.relpath(shot, HERE) if shot else ''])
         party = self.party_for_result(now)
-        you = next((m['name'] for m in party or [] if m.get('self')), None)
-        for p in players:
-            p['self'] = bool(p.get('self') or (self.character_name and same_name(p['name'], self.character_name)) or (you and p['name'] == you))
-            p.setdefault('ai', any(m['ai'] and m['name'] == p['name'] for m in party or []))
+        mark_you(players, party, self.character_name)
         party_shot = None
         if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
             party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False)
@@ -2793,28 +3217,64 @@ class Meter:
         self.hide_end_note()
         wc.click_at(x, y)
 
+    def run_of(self, f):
+        """The run a Fight tracked, as the game keeps it: {'id', 'title' (its boss), 'damage', 'max_hp', 'bosses'}.
+        A one-boss fight is its own boss, damage and max HP, with bosses None. A two-boss middle fight is one run under
+        its stage's bossId, the first boss, whichever boss it ended on: the result screen names that boss alone and the
+        run's best is kept under its id (BossRushBattleResultCtrl.initUI, line 60; BossRushMainCtrl.renderBossInfo,
+        line 350). Its damage and max HP are both bosses' as far as the run got, and bosses lists each in order: its
+        max HP, damage, whether it went down, and its time on the run's clock (from_s / to_s, seconds: from its bar's
+        first sight to its last hit seen, as it died, or to the run's end for the last one; the gap between the bosses
+        counts to neither) with its DPS over that time. A run first seen at its second boss (the meter started late)
+        counts the first one down at its full max HP: the second spawns only on the first one's death (level graph
+        78824533, nodes 16-19); its time is unknown (None)."""
+        run = {'id': f.row['puppetId'], 'title': f.title, 'damage': f.damage, 'max_hp': f.max_hp, 'bosses': None}
+        if not f.bossrush or getattr(f, 'order', None) is None: return run
+        bosses = []
+        for i, p in enumerate(f.phases):
+            to = round(f.elapsed, 1) if i == len(f.phases) - 1 else p['end_s']     # the last one ends with the run
+            secs = round(to - p['start_s'], 1) if to is not None and p['start_s'] is not None else None
+            bosses.append({'id': p['row']['puppetId'], 'name': p['title'], 'max_hp': p['max_hp'], 'damage': p['damage'],
+                           'defeated': p['defeated'], 'from_s': p['start_s'], 'to_s': to, 'seconds': secs,
+                           'dps': round(p['damage'] / secs) if secs and secs > 1 else None, 'breaks': p['breaks']})
+        first = f.phases[0]; run.update(id=first['row']['puppetId'], title=first['title'], bosses=bosses)
+        _, order, other = R.stage_of(first['row']['puppetId'])
+        row = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['puppetId'] == other
+                    and r['fixed_hp_rate']), None) if order == 2 else None
+        if row:
+            hp = R.boss_max_hp(row, f.level)
+            bosses.insert(0, {'id': other, 'name': row['bossTitle_en'], 'max_hp': hp, 'damage': hp, 'defeated': True,
+                              'from_s': None, 'to_s': None, 'seconds': None, 'dps': None, 'breaks': None, 'seen': False})
+            run.update(id=other, title=row['bossTitle_en'] or first['title'], damage=f.damage + hp, max_hp=f.max_hp + hp)
+        return run
+
     def fight_summary(self, f, **parts):
         """logs/fights/<fight>.json: the meter's numbers plus whatever game screens belong to this fight
-        (result screen, Battle Data), merged as they appear."""
+        (result screen, Battle Data), merged as they appear. A two-boss middle fight's is the run's (run_of)."""
         d = os.path.join(HERE, 'logs', 'fights'); os.makedirs(d, exist_ok=True)
         path = os.path.join(d, os.path.splitext(os.path.basename(f.log.name))[0] + '.json')
         try:
             with open(path, encoding='utf-8') as fh: s = json.load(fh)
         except (OSError, ValueError):
-            s = {'boss': f.title, 'puppetId': f.row['puppetId'], 'level': f.level, 'uid': self.uid, 'cycle': R.active_cycle_id(),
+            run = self.run_of(f)
+            s = {'boss': run['title'], 'puppetId': run['id'], 'level': f.level, 'uid': self.uid, 'cycle': R.active_cycle_id(),
                  'started': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(f.t0)), 'bossrush': f.bossrush,
                  # the dungeon's own id from the game log: the same for everyone in that run, so two players' apps
                  # sending the run can be told apart from two unrelated runs with the same score
                  'instance': self.space if f.bossrush and self.space and scene_of(self.space) is None else None,
                  'interlink_scene': bool(getattr(f, 'scene_ok', False)),
                  'server': S.game_server(),
-                 'meter': {'max_hp': f.max_hp, 'damage': f.damage, 'seconds': round(f.elapsed, 1),
-                           'dps': round(f.damage / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
-                           'tracked_from_start': f.started_at_16, 'csv': os.path.basename(f.log.name),
+                 # the run's damage and DPS over the run's time: a two-boss fight's both bosses (run_of)
+                 'meter': {'max_hp': run['max_hp'], 'damage': run['damage'], 'seconds': round(f.elapsed, 1),
+                           'dps': round(run['damage'] / f.elapsed) if f.elapsed > 1 else None, 'segment_left': f.seg,
+                           'tracked_from_start': f.started_at_top, 'csv': os.path.basename(f.log.name),
                            'time_limit_s': f.limit or self.overtime_limit(time.time()),
-                           'breaks': f.brk.breaks, 'break_gauge_points': None if not f.brk.size else round(f.brk.size),
+                           'breaks': sum(p['breaks'] for p in f.phases[:-1]) + f.brk.breaks,
+                           'break_gauge_points': None if not f.brk.size else round(f.brk.size),
                            'break_rate_pct_s': None if f.brk.rate(time.time())[0] is None
-                           else round(f.brk.rate(time.time())[0], 2)}}
+                           else round(f.brk.rate(time.time())[0], 2),
+                           # a two-boss stage's bosses in order, as far as the run got (run_of)
+                           **({'bosses': run['bosses']} if run['bosses'] is not None else {})}}
         s.update(parts)
         S.write_json(path, s, indent=1, ensure_ascii=False)
         # leaderboard: a run goes, once, when it beats one of your bests on this boss this week (see beats_best),
@@ -2844,12 +3304,16 @@ class Meter:
         players = res.get('players') or []
         cards = (s.get('battle_data') or {}).get('players') or []
         me = next((i for i, p in enumerate(players) if p.get('self')), 0 if len(players) <= 1 else None)
-        card = cards[me] if me is not None and me < len(cards) else {}
+        card = S.card_of(cards, players[me] if me < len(players) else {}, me) if me is not None else {}
         clear = res.get('time_s') if res.get('cleared') else None
         mine = {'score': [res.get('rating_stars') or 0, res.get('score') or 0],
                 'clear': -clear if clear is not None else None,             # higher is better for every key
                 'dps': card.get('avg_dps'), 'break': card.get('break'), 'taken': card.get('taken'), 'heal': card.get('heal')}
-        key = f"{self.uid}|{s.get('cycle')}|{s.get('puppetId')}"
+        # one best per stage: a two-boss fight's under its stage's bossId, the first boss, whichever boss the run ended
+        # on. The game keeps it so (BossRushMainCtrl.renderBossInfo, line 350; the result screen's new-best badges
+        # compare against the first boss's: BossRushBattleResultCtrl.initUI, line 60)
+        boss = s.get('puppetId'); _, order, partner = R.stage_of(boss, s.get('cycle')) if boss else (None, None, None)
+        key = f"{self.uid}|{s.get('cycle')}|{partner if order == 2 else boss}"
         path = os.path.join(HERE, 'logs', 'bests.json')
         try:
             with open(path, encoding='utf-8') as fh: bests = json.load(fh)
@@ -2884,7 +3348,7 @@ class Meter:
         if s.get('sent'): return
         s['sent'] = True
         S.write_json(path, s, indent=1, ensure_ascii=False)
-        self.submitter.enqueue(S.run_payload(s, self.uid, self.args.duration), (s.get('result') or {}).get('screenshot'),
+        self.submitter.enqueue(S.run_payload(s, self.uid), (s.get('result') or {}).get('screenshot'),
                                battle=(s.get('battle_data') or {}).get('screenshot'), party=s.get('party_screenshot'))
 
     def check_pending_run(self, now):
@@ -2949,6 +3413,30 @@ class Meter:
                 if sid == self.space: self.holosim_space = True
             elif kind == 'uid': self.set_uid(sid)
             elif kind == 'leave': self.egg_space_at = time.time()   # the fade that follows is a load, not a match's end (egg_fade)
+
+    @staticmethod
+    def menu_names(im, u, ux, H):
+        """The menu's name box (SCREEN_BOXES 'me'): prepared as the screen read has it, for Windows OCR and the Korean
+        model, and grey_crop's for the Latin model ({'me': box} each)."""
+        box = (ux + u * 0.657, H * 0.068, ux + u * 0.86, H * 0.104)
+        return {'me': R.prep_text(im, box, u / 2000)}, {'me': R.grey_crop(im, box)}
+
+    def menu_name(self, im, u, ux, H, heads, names=None):
+        """The menu's name for game_menu. The menu stays still, so a Windows OCR misread of it (the screen read's, heads)
+        comes back read after read, and two in a row prove it: the logs have a proven name read with a letter swapped
+        or one added 5 times, and another player's 4-letter name read as nothing. With your UID under it, the name
+        models read the box instead, as on the result screen (Ocr.read's `names`; the Korean model reads a Hangul name,
+        which Windows OCR can't). On 19 labelled menu views (9 openings, 6 names; 1080p, 1440p and 4K, and each scaled
+        to 720p-4K) the name proven right goes from 17 to 19 at their own size, 58 to 63 of 76 scaled, and wrong from
+        1 and 4 to none; the rest have the UID unread. `names`: menu_names' boxes, already read (names_first)."""
+        uid_text = heads.get('uid', '')
+        if not self.uid or self.uid not in re.sub(r'\D', '', uid_text.replace('O', '0')):
+            return self.game_menu(heads.get('me', ''), uid_text, im, u, ux, H)
+        if names is None:
+            crops, grey = self.menu_names(im, u, ux, H)
+            return self.names_first(self.menu_name, (im, u, ux, H, heads), crops, 24, grey)
+        crops, grey = names
+        self.game_menu(self.ocr.read(crops, names={'me': 24}, raws=grey).get('me', ''), uid_text, im, u, ux, H)
 
     def game_menu(self, name, uid_text, im=None, u=0, ux=0, H=0, where='menu', sure=True):
         """The menu opened with Esc or Start shows your name with your UID right under it (and the Profile screen
@@ -3461,6 +3949,9 @@ class Meter:
 
     def step(self):
         self.reload_settings(time.time())
+        # a screen read whose players' names are in now (names_first): handled before anything else, as when the names
+        # were read in place, and the frame loop stood still meanwhile
+        self.names_due()
         # holds end on time even without a picture (the game closed or minimized during one): checked first
         hold = getattr(self, 'egg_hold', None)
         if hold and time.time() > hold[0]: self.egg_hold_end('time limit')
@@ -3491,7 +3982,7 @@ class Meter:
             log.info('in a homeland: not capturing until you leave' if home else 'left the homeland: capturing again')
         if home:
             self.bar = None; self.out('status', 'In a homeland: the meter is resting'); return
-        self.check_pending_run(time.time())
+        if not self.names_waiting(): self.check_pending_run(time.time())     # (Battle Data waiting for its names counts)
         # while a fight's bar is locked, the top of the frame is all that's needed (cheaper capture)
         partial = self.fight is not None and self.bar is not None and time.time() - self.bar_seen < 1.0 \
             and self.args.replay is None
@@ -3548,8 +4039,11 @@ class Meter:
                         S.write_json(BAR_SPOT, self.bar_spots)
                     except OSError: pass
             # in Interlink, while the game log still has you in the run, the fight waits longer for its bar: hidden
-            # 20 s by an effect or a dropped capture, it split one Minespine run in two and sent the 13 s fragment
-            elif self.fight and now - self.bar_seen < (BAR_GONE_GRACE * 4 if self.fight.bossrush and self.bossrush_space else BAR_GONE_GRACE):
+            # 20 s by an effect or a dropped capture, it split one Minespine run in two and sent the 13 s fragment.
+            # So does a two-boss fight waiting for its second boss, either way: nothing forces that boss into combat and
+            # the gap's length is unknown (level graph 78824533: no fbForceEnterCombat after node 3)
+            elif self.fight and now - self.bar_seen < (BAR_GONE_GRACE * 4 if self.fight.bossrush and (self.bossrush_space or self.fight.partner is not None)
+                                                       else BAR_GONE_GRACE):
                 # The bar can hide for a while (effects, BREAK, ultimate animations, menus): the fight stays open and
                 # continues when the bar comes back. A "Catch Countdown" means the boss was caught.
                 self.watch_end_note(im)
@@ -3573,7 +4067,7 @@ class Meter:
                         self.hidden_drop = (fill, run[1] + counts, now if counts else run[2]); ok = self.hidden_drop[1] >= 3
                     if ok:
                         self.hidden_drop = None
-                        self.fight.update(fill, fill_rgb, edge_rgb, None, None, self.cum, self.args.duration, self.frame_at())
+                        self.fight.update(fill, fill_rgb, edge_rgb, None, None, self.grades, self.args.duration, self.frame_at())
                         self.emit_fight(im, self.bar); self.bar_seen = now        # the bar is there, just not findable
                 self.snapshot(now); return
             else:
@@ -3604,15 +4098,18 @@ class Meter:
             if now - self.not_bar_since >= BAR_GONE_S:
                 log.info(f'boss bar lost (the locked spot reads {fill:.0%} in rgb{fill_rgb}, the fight was at {last:.0%})')
                 self.not_bar_since = None; self.bar = None
-                self.end_fight('boss bar gone'); self.snapshot(now); return
+                # a two-boss fight waiting for its second boss stays open: the bar-gone grace decides, as for a hidden bar
+                if self.fight.partner is None: self.end_fight('boss bar gone')
+                self.snapshot(now); return
             self.snapshot(now); return                     # not a reading of this fight's HP
         self.not_bar_since = None
         self.bar_seen = now
         scale = bar['span'] / R.REF_SPAN
-        need_title = self.fight is None or now - self.last_title > 8
+        need_title = self.fight is None or now - self.last_title > self.title_gap()
         timer = None; text = None
         xn_box = R.box_at(bar, R.XN_BOX)
-        xn = xn_digits = X.read_counter(im.crop(tuple(int(v) for v in xn_box)), self.xn_tpl)   # digit shapes, every frame
+        top = R.xn_top(self.grades)                            # the counter at full HP (x21)
+        xn = xn_digits = X.read_counter(im.crop(tuple(int(v) for v in xn_box)), self.xn_tpl, top=top)   # digit shapes, every frame
         if not self.fight: self.instant_start(xn, now)
         if self.dud_check(bar, fill, xn, now):
             self.bar = None; self.out('status', 'waiting for a boss bar'); self.snapshot(now); return
@@ -3622,12 +4119,16 @@ class Meter:
         if done:
             text, meta = done
             timer = R.parse_timer(text.get('timer'))
-            if meta['xn_missing'] and xn is None: xn = R.parse_xn(text.get('xn'))
-            if meta['title']: self.identify(text.get('title'), xn)
+            if meta['xn_missing'] and xn is None: xn = R.parse_xn(text.get('xn'), top)
+            if meta['title']: self.identify(text.get('title'), xn, text.get('title_red'))
         if self.text_due(now) and not self.band_frame:
             crops = {'timer': R.prep_text(im, R.timer_box(*self.frame_size), scale)}
             if xn is None: crops['xn'] = R.prep_short(im, xn_box, scale)            # OCR as a second opinion
-            if need_title: crops['title'] = R.prep_text(im, R.box_at(bar, R.TITLE_BOX), scale)
+            if need_title:
+                crops['title'] = R.prep_text(im, R.box_at(bar, R.TITLE_BOX), scale)
+                # an under-levelled player's boss level is red: a second read that keeps red (R.prep_red)
+                if R.has_red(im, R.box_at(bar, R.TITLE_BOX), scale):
+                    crops['title_red'] = R.prep_red(im, R.box_at(bar, R.TITLE_BOX), scale)
             self.last_text = now
             if need_title: self.last_title = now
             meta = {'xn_missing': xn is None, 'title': need_title}
@@ -3635,23 +4136,25 @@ class Meter:
             else:
                 text = self.ocr.read(crops)
                 timer = R.parse_timer(text.get('timer'))
-                if xn is None: xn = R.parse_xn(text.get('xn'))
-                if need_title: self.identify(text.get('title'), xn)
+                if xn is None: xn = R.parse_xn(text.get('xn'), top)
+                if need_title: self.identify(text.get('title'), xn, text.get('title_red'))
         if self.fight:
             self.save_debug(im, bar, now)
             if now - getattr(self, 'brk_at', 0) >= CONFIRM_GAP:   # ~10 readings a second: a refill shows as a jump between two
                 self.brk_at = now                                   # readings, sized for that pace
                 gauge, kind, _ = R.measure_break(im, bar)
                 self.fight.brk.feed(gauge, kind, now)
-            self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.cum, self.args.duration, self.frame_at())
+            bosses = len(self.fight.phases)
+            self.fight.update(fill, fill_rgb, edge_rgb, xn, timer, self.grades, self.args.duration, self.frame_at())
+            if len(self.fight.phases) != bosses: self.boss_handed_over(f'its bar came back at x{self.fight.seg}')
         snap = dict(bar=bar, fill=fill, fill_rgb=fill_rgb, edge_rgb=edge_rgb, xn_digits=xn_digits, xn_ocr=xn)
         if text: snap['ocr'] = text
         self.snapshot(now, **snap)
         if self.fight: self.emit_fight(im, bar)
 
     def text_due(self, now):
-        """Time to read the bar's text (timer, name, xN fallback): about once a second, the name every 8 s."""
-        need_title = self.fight is None or now - self.last_title > 8
+        """Time to read the bar's text (timer, name, xN fallback): about once a second, the name every 8 s (title_gap)."""
+        need_title = self.fight is None or now - self.last_title > self.title_gap()
         return (need_title or now - self.last_text >= 1.0) and not (self.ocr_bg and self.ocr_bg.busy)
 
     def plausible_bar(self, found, im):
@@ -3707,15 +4210,18 @@ class Meter:
             if 3 <= age < 30: keep_sample(im, 'interlink_start')
             elif 60 <= age < 120: keep_sample(im, 'interlink_mid')
         self.last_screen = (self.origin[0], self.origin[1], self.frame_size[0], self.frame_size[1])
-        self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'xn': f.seg, 'fill': f.seg_fill,
+        # max_hp and damage are the run's (a two-boss fight's both bosses); boss_hp is the max HP of the boss on the bar
+        self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'boss_hp': f.boss_hp, 'xn': f.seg, 'fill': f.seg_fill,
                            'damage': f.damage, 'elapsed': f.elapsed, 'avg': f.avg, 'recent': f.recent,
+                           'boss': f.boss_of(),
                            'bossrush': f.bossrush, 'holosim': self.holosim_space, 'seg_size': si.get('size_hp'), 'seg_left': si.get('left_hp'),
                            'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], bar['span']),
                            'break': f.brk.info(time.time()), 'screen': self.last_screen})
 
-    def identify(self, title_text, xn):
-        """Match the boss. A running fight keeps its boss unless 3 clean reads in a row say otherwise."""
-        level, title = R.parse_title(title_text)
+    def identify(self, title_text, xn, red_text=None):
+        """Match the boss. A running fight keeps its boss unless 3 clean reads in a row say otherwise. red_text: the
+        title read with red kept (R.prep_red), for the level when it is red."""
+        level, title = R.parse_title_pair(title_text, red_text)
         level = self.args.level or level
         in_world = self.space is not None and scene_of(self.space) is not None   # open world / homeland, per the game log
         bossrush = not in_world and (xn is not None or self.bossrush_space or (self.fight is not None and self.fight.bossrush))
@@ -3725,17 +4231,64 @@ class Meter:
                 self.out('status', f'reading boss name... ("{title}" Lv {level})')
             return
         if self.fight:
-            if row['puppetId'] == self.fight.row['puppetId'] and level == self.fight.level:
+            f = self.fight
+            if row['puppetId'] == f.row['puppetId'] and level == f.level:
                 self.switch_votes = []; return
+            if f.partner is not None and row['puppetId'] == f.partner['puppetId']:
+                # A two-boss fight's partner (the week's bossId_2 for this stage, R.stage_of): the same run going on,
+                # never a new fight. Its name shows only once the first boss is down (level graph 78824533 nodes
+                # 16-19), so one clean read will do while the first boss is in its last bars, two otherwise. Both
+                # bosses have the stage's level (bossrush_cycle_data bossLv): another level is a misread
+                if level != f.level: return
+                self.switch_votes.append((row['puppetId'], level)); self.switch_votes = self.switch_votes[-3:]
+                need = 1 if f.partner_due() else 2
+                if self.switch_votes[-need:] != [(row['puppetId'], level)] * need: return
+                f.next_boss(row, f'its name read {title_text!r}')
+                self.boss_handed_over(f'title read {title_text!r}, xN {xn}'); return
+            if any(p['row']['puppetId'] == row['puppetId'] for p in f.phases[:-1]):
+                return             # a boss already down in this run never comes back: a read from before the hand-off
             self.switch_votes.append((row['puppetId'], level)); self.switch_votes = self.switch_votes[-3:]
             if len(self.switch_votes) < 3 or len(set(self.switch_votes)) != 1: return
             self.end_fight('different boss')
+        elif bossrush and self.bossrush_space and self.rush_level and not self.args.level and level != self.rush_level:
+            # Every Interlink boss has the season's level (rush_level: the last Interlink fight's, Lv 60 in 61 of 62
+            # starts to 2 Nov), so another level on a new fight is a misread: 1 Nov's 'Lv.9 Älp14a Scorchhowl' started a
+            # Lv 9 fight (8.5M max HP for 37.9M) that ended as 'different boss' 64 s on. Wait for the next read, as the
+            # two-boss partner does. Reads come back to back with no fight (~0.1 s apart), so a few alike are one frame's
+            # misread: only the same level read alone for LEVEL_CONFIRM seconds (no gap over 2 s) is a new season's
+            # level, and starts it
+            odd, now = (row['puppetId'], level), time.time()
+            if not self.odd_level or self.odd_level[0] != odd or now - self.odd_level[2] > 2: self.odd_level = (odd, now, now)
+            self.odd_level = self.odd_level[:2] + (now,)
+            if now - self.odd_level[1] < LEVEL_CONFIRM:
+                self.out('status', f'reading boss level... ("{title}" Lv {level}, Interlink bosses are Lv {self.rush_level})')
+                return
+        self.odd_level = None
         self.start_fight(row, level, title, bossrush, f'title read {title_text!r}, xN {xn}')
         if bossrush: self.rush_level = level
 
+    def boss_handed_over(self, how):
+        """A two-boss fight went on to its second boss (Fight.next_boss): the same run, no end and no "Fight over"."""
+        f = self.fight; self.switch_votes = []
+        self.out('status', f'next boss: {f.title} Lv {f.level}, max HP {f.boss_hp:,} (boss {len(f.phases)} of 2, Interlink)')
+        log.info(f"fight details: puppetId {f.row['puppetId']}, boss {len(f.phases)} of 2, {how}, HP bars {f.column}")
+
+    def title_gap(self):
+        """Seconds between reads of the name above the bar during a fight: 8, and 2 while a two-boss fight's partner can
+        show up any moment (its first boss in its last bars, or the partner's name read once already)."""
+        f = self.fight
+        if f and f.partner is not None and (f.partner_due() or (self.switch_votes and self.switch_votes[-1][0] == f.partner['puppetId'])):
+            return 2
+        return 8
+
     def start_fight(self, row, level, title, bossrush, how):
         hp = R.boss_max_hp(row, level)
-        self.fight = Fight(row['bossTitle_en'] or title, level, row, hp, bossrush, debug_dir=not self.args.no_debug_frames)
+        # a two-boss middle fight's first boss has a partner to come (R.stage_of: the stage's bossId_2), from the data
+        _, order, partner_id = R.stage_of(row['puppetId']) if bossrush else (None, None, None)
+        partner = next((r for r in self.catalog if r['table'] == 'puppet_data' and r['puppetId'] == partner_id
+                        and r['fixed_hp_rate']), None) if order == 1 else None
+        self.fight = Fight(row['bossTitle_en'] or title, level, row, hp, bossrush, debug_dir=not self.args.no_debug_frames,
+                           partner=partner, order=order)
         if DAMAGE_NUMBERS and self.args.cfg['capture'].get('damage_numbers') and self.args.replay is None:   # experimental
             if self.numbers is None:
                 import dmgnumbers as N
@@ -3745,7 +4298,9 @@ class Meter:
         if self.bar: self.fight.bar_geom = (self.bar['span'], self.bar['yc'])     # the bar this fight follows
         self.out('status', f'fight started: {self.fight.title} Lv {level}, max HP {hp:,}' + (' (Interlink)' if bossrush else ''))
         log.info(f"fight details: puppetId {row['puppetId']}, {how}, "
-                 f"bossrush space {self.bossrush_space}, csv {os.path.basename(self.fight.log.name)}")
+                 f"bossrush space {self.bossrush_space}, csv {os.path.basename(self.fight.log.name)}"
+                 + (f', HP bars {self.fight.column}' if self.fight.column != R.GRADE_BASE else '')
+                 + (f", two-boss fight: {partner['bossTitle_en']} ({partner_id}) comes next" if partner else ''))
 
     def instant_start(self, xn, now):
         """Interlink: the prep screen just named the boss and every Interlink boss has the same level as the last one,
@@ -3790,20 +4345,106 @@ class Meter:
         self.last_status = now; f = self.fight; sub = self.submitter
         self.link_poll(now)
         self.presence_tick(now)
+        short = self.ocr_not_english(); ocr = short[0][1] if short else self.ocr       # status.json's ocr, below
         C.write_status({
             'time': now, 'pid': os.getpid(), 'status': self.status_text,
             'game_window': bool(self.hwnd), 'capture': wc.shared.source or None,
             'homeland': bool(getattr(self, 'homeland_rest', False)),   # nothing captured there (the app's button too)
             'frame': list(self.last_size) if self.last_size else None, 'boss_bar': self.bar is not None,
+            # boss_of: a two-boss middle fight's boss on the bar, [1, 2] or [2, 2] (None on one-boss fights); damage and
+            # max_hp are the run's, both bosses' so far (Fight)
             'fight': f and {'boss': f.title, 'level': f.level, 'segment': f.seg, 'damage': f.damage, 'max_hp': f.max_hp,
-                            'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent)},
+                            'seconds': round(f.elapsed), 'avg_dps': round(f.avg), 'recent_dps': round(f.recent),
+                            'boss_of': f.boss_of()},
             'character': {'uid': self.uid, 'name': self.character_name, 'verified': character_verified(self.uid),
                           'dispute': self.submitter.dispute if self.submitter else None,
                           'link': self.link and {k: self.link[k] for k in ('request', 'state', 'name', 'uid')}},
             'auto_battle_data': bool(self.auto_until),
             'leaderboard': {'on': bool(sub and sub.config), 'pending': sub.pending() if sub else 0,
                             'last': sub.last_result if sub else None},
+            # Windows OCR's language (the meter's own reader's, Ocr.language: null with none, or when the helper
+            # doesn't say) and whether it's English: false (no OCR language, another one, or no helper: started false)
+            # and the app warns that the game's screens can't be read, with a button that installs English OCR; null
+            # (not said): no warning. English added while the meter runs: true within OCR_RECHECK (ocr_recheck), once
+            # every helper the meter has reads it; until then the language of the first one without it (ocr_not_english)
+            # and switching true once a look has found English (ocr_found): the app then says English OCR is installed
+            # and the meter is switching to it, not that the PC has none, and offers no install
+            'ocr': {'language': ocr.language or None, 'english': R.ocr_english(ocr.language), 'started': self.ocr.started,
+                    'switching': bool(short) and self.ocr_found},
         })
+
+    def ocr_readers(self):
+        """The meter's OCR readers, each with whose it is: its own (names_bg reads on it too; NoOcr when its helper
+        didn't start), then the bar's, the screens' and the HP number's (hit_watch's, from the first tab-out on) once
+        their helper has started (Ocr). Each picked Windows OCR's language as its helper started (Ocr.language)."""
+        others = (("the bar's", getattr(self.ocr_bg, 'ocr', None)), ("the screens'", getattr(self.screen_bg, 'ocr', None)),
+                  ("the HP number's", getattr(self, 'hp_ocr', None)))
+        return [("the meter's own", self.ocr)] + [(whose, o) for whose, o in others if isinstance(o, R.Ocr)]
+
+    def ocr_not_english(self):
+        """The meter's OCR readers (ocr_readers) whose helper doesn't read English (ocr_english false), in that order:
+        none with English OCR. Not one that doesn't say (None), as ocr_language_note."""
+        return [(whose, o) for whose, o in self.ocr_readers() if R.ocr_english(o.language) is False]
+
+    def ocr_recheck(self, now):
+        """Without English OCR (status.json's ocr.english false): has Windows got it since? A helper picks its language
+        as it starts, so English added in Windows Settings while aLogs ran (the app's warning and meter.log both say
+        to) wasn't read until aLogs restarted, and nothing said so (the app's Install English OCR restarts the meter
+        itself). Every OCR_RECHECK seconds a helper started for the look says what Windows OCR picks now (10 ms to
+        start, on a thread of its own: the frame loop never waits); English, and every helper the meter has restarts
+        in place (Ocr.restart: a fight going on keeps going), so the game's screens are read from then on, status.json
+        says English and the app's warning goes. Not with NoOcr: its helper didn't start at all, which installing OCR
+        doesn't change. Each helper's own language counts (ocr_not_english), not only the meter's own: one whose
+        restart failed, or came back without English, is looked at again OCR_RECHECK on (ocr_look)."""
+        if not self.ocr.started or not self.ocr_not_english(): return
+        if now - self.ocr_checked < OCR_RECHECK: return
+        if getattr(self, 'ocr_probe', None) and self.ocr_probe.is_alive(): return
+        self.ocr_checked = now
+        self.ocr_probe = threading.Thread(target=self.ocr_look, daemon=True, name='ocr-recheck'); self.ocr_probe.start()
+
+    def ocr_look(self):
+        """ocr_recheck's look, on its own thread: a helper started now, and when it reads English, every helper the
+        meter has without it restarted (its own, which names_bg shares, the bar's, the screens' and the HP number's).
+        Then each one's language again: meter.log says English is read only when every one reads it. One whose
+        restart raised, or whose new helper has no English either (Windows still adding it, say), is named there (once
+        while it stays: ocr_warn), and ocr_recheck looks again OCR_RECHECK on (status.json says not English meanwhile).
+        Before, the line said the helpers restarted whatever they read, and the looks stopped once the meter's own read
+        English."""
+        try: look = R.Ocr()
+        except Exception: return
+        try: language = look.language
+        finally: look.close()
+        if self.stop: return
+        self.ocr_found = bool(R.ocr_english(language))
+        if not self.ocr_found: return
+        short = self.ocr_not_english()
+        was = short[0][1].language if short else self.ocr.language
+        said = {}                            # this look's warnings, by which (ocr_warn)
+        for whose, ocr in short:
+            if isinstance(ocr, R.Ocr):       # a worker's helper not started yet isn't listed: it starts with English
+                try: ocr.restart()
+                except Exception as e: said[whose] = f'OCR helper did not restart ({whose}): {e!r}'
+        short = self.ocr_not_english()
+        if short:
+            still = ', '.join(f"{whose}: {o.language or 'none'}" for whose, o in short)
+            said['still'] = (f'Windows OCR: English was added while the meter ran, but not every OCR helper restarted '
+                             f"with it ({still}), so the game's text isn't all read yet: another look in {OCR_RECHECK} s")
+            self.ocr_warn(said, time.time())
+            return
+        self.ocr_said = {}
+        log.info(f"Windows OCR: {self.ocr.language} now (was {was or 'none'}): English was added while the meter ran, "
+                 "so its OCR helpers restarted and the game's screens are read")
+
+    def ocr_warn(self, said, now):
+        """ocr_look's warnings ({which: line}), in meter.log when the last look didn't give that line (another helper,
+        language or error), and again OCR_SAY_AGAIN on while it stays; the looks in between log nothing, though each
+        still tries the restart. Before, every look logged them: a restart that kept failing wrote one or two WARNING
+        lines a minute all session, pushing the rest out of meter.log (4 x 5 MB, which a report sends)."""
+        last, self.ocr_said = self.ocr_said, {}
+        for which, line in said.items():
+            was = last.get(which)
+            if was and was[0] == line and now - was[1] < OCR_SAY_AGAIN: self.ocr_said[which] = was; continue
+            log.warning(line); self.ocr_said[which] = (line, now)
 
     def run(self):
         if self.args.replay is None:                     # this week's bosses from the game data, after each patch
@@ -3817,6 +4458,7 @@ class Meter:
             except Exception as e:
                 log.exception('error in step'); self.out('status', f'error: {e!r} (details in logs/meter.log)')
             self.write_status(time.time())
+            if self.args.replay is None: self.ocr_recheck(time.time())
             if self.args.replay is not None and not self.args.replay: break
             interval = self.fight_interval() if self.fight else self.args.interval
             if self.fight and self.args.replay is None:
@@ -3844,6 +4486,7 @@ class Meter:
             self.submitter.presence(self.presence_sent[0], 'offline', wait=True)     # aLogs closing: you're offline
         if self.ocr_bg: self.ocr_bg.close()
         if self.screen_bg: self.screen_bg.close()
+        if self.names_bg: self.names_bg.close()
         if self.submitter: self.submitter.stop = True
         if self.logw: self.logw.stop = True
 
@@ -3867,6 +4510,12 @@ def stop_handles():
 def fmt(n):
     n = float(n)
     return f'{n / 1e6:.2f}M' if n >= 1e6 else f'{n / 1e3:.1f}K' if n >= 1e4 else f'{n:,.0f}'
+
+def boss_row(d):
+    """The DPS window's last row on a two-boss middle fight: the boss on the bar, 'Boss 1/2' or 'Boss 2/2' (its 'fight'
+    or 'fight_end' message's 'boss': Fight.boss_of). Nothing on a one-boss fight. The Team row above it is the run's
+    damage then, both bosses' so far (Fight)."""
+    return [(('Boss', f"{d['boss'][0]}/{d['boss'][1]}"), '#ffffff', 0.015)] if d.get('boss') else []
 
 _last_status = [None]
 _status_logged = {}
@@ -4297,7 +4946,8 @@ def run_overlay(meter, hide):
     def show_hp(d):
         bar = d.get('bar')
         if not bar or not show_hp_labels: hide_hp(); return
-        left = max(0, d['max_hp'] - d['damage']); max_hp = d['max_hp'] or 1
+        # the HP left on the bar's boss: the run's max HP less its damage is that boss's (Fight), out of its own max HP
+        left = max(0, d['max_hp'] - d['damage']); max_hp = d.get('boss_hp') or d['max_hp'] or 1
         # numbers white with a thin black outline; HP and BREAK with a thick one: HP in the bar's colour where the HP
         # ends, BREAK white, yellow when BROKEN, grey-blue refilling, orange gauge (draw, break_text)
         draw('pct', f'{left / max_hp * 100:.1f}%', bar)
@@ -4318,15 +4968,16 @@ def run_overlay(meter, hide):
         return [(f"{fmt(d['avg'])} DPS" if hit else '— DPS', '#ffd36a', 0.0235, 'ib'),  # big italic, like the HUD's
                 (('Last 5s', f"{fmt(d['recent'])} DPS" if hit else 'waiting...'), '#ffffff', 0.015),
                 (('Team', f"{fmt(d['damage'])} / {fmt(d['max_hp'])} HP"), '#ffffff', 0.015),
-                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)]
+                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)] + boss_row(d)
 
     def final_lines(d):
-        """The fight's result, left in the stats spot for a few seconds: the final hit is counted by then."""
+        """The fight's result, left in the stats spot for a few seconds: the final hit is counted by then. A two-boss
+        fight's comes once, at the run's end: there is no fight end between its bosses (Fight.next_boss)."""
         return [(f"{fmt(d['avg'])} DPS", '#ffd36a', 0.0235, 'ib'),
                 (('Result', f"Defeated {d['title']}" if d['defeated'] and d.get('title')   # the boss's name on the bar
                   else 'Defeated' if d['defeated'] else 'Fight over'), '#ffffff', 0.015),
                 (('Team', f"{fmt(d['damage'])} / {fmt(d['max_hp'])} HP"), '#ffffff', 0.015),
-                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)]
+                (('Time', clock(d['elapsed'])), '#ffffff', 0.015)] + boss_row(d)
 
     def break_text(b):
         """(text, colour) for the break gauge line under the boss bar, or None while it can't be read."""

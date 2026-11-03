@@ -12,7 +12,7 @@ only returned when every character matches clearly.
 Pillow only (the packaged meter has no numpy). Checked on a real 4K menu (and it scaled to 1440p, 1080p and 900p):
 the name read exactly at each size; the UID's digits, every zero included, at 4K and 1440p.
 """
-import string
+import collections, string
 from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 CHARS = string.ascii_uppercase + string.ascii_lowercase + string.digits
@@ -23,6 +23,7 @@ EDGE = 120             # the distance-field level the game's text edge sits at (
 MIN_SCORE = 0.6        # a character must overlap its best match at least this much...
 MIN_MARGIN = 0.05      # ...and beat the next best by this much
 TWINS = set('Il')      # a capital I and a small l: the same bar, 2 px apart in height at 4K - never vouched for
+FITS_KEPT = 1000       # character shapes whose shape_fit scores are kept, the last used (10,000 digit scores, ~1 MB)
 
 
 def text_mask(img, box, bright=190, grey=50):
@@ -38,10 +39,13 @@ def text_mask(img, box, bright=190, grey=50):
     return m.crop(bbox).convert('1') if bbox else None
 
 
-def ink_colour(img, box, far=80):
+def ink_colour(img, box, far=80, dark=False):
     """(text colour, background colour) in a box of dark or light text on a plain-ish card: the background is its
     commonest colour, the text that of the pixels farthest from it (the text is the box's strongest contrast, more
-    than a coloured mark after it). (None, bg) if nothing stands out."""
+    than a coloured mark after it). (None, bg) if nothing stands out. `dark`: the text is darker than its card. Big
+    digits can fill most of the box, and then its commonest colour is the ink: that came out as a light text on a dark
+    card (9 of 880 values on 55 real Battle Data screens, all left unread). Then the ink is that colour and the card is
+    the box's top and bottom rows, above and below the digits; (None, bg) if those aren't lighter either."""
     c = img.crop(tuple(int(v) for v in box)).convert('RGB')
     q = c.quantize(16, method=Image.Quantize.MEDIANCUT); pal = q.getpalette()
     i = max(q.getcolors())[1]; bg = tuple(pal[3 * i:3 * i + 3])
@@ -50,7 +54,13 @@ def ink_colour(img, box, far=80):
     top = dist.getextrema()[1]
     if top < far: return None, bg
     core = dist.point(lambda v: 255 if v >= top * 0.85 else 0)
-    return tuple(int(v) for v in ImageStat.Stat(c, core).median), bg
+    ink = tuple(int(v) for v in ImageStat.Stat(c, core).median)
+    if dark and sum(ink) > sum(bg):
+        w, h = c.size; edge = Image.new('RGB', (w, 2))
+        edge.paste(c.crop((0, 0, w, 1)), (0, 0)); edge.paste(c.crop((0, h - 1, w, h)), (0, 1))
+        ink, bg = bg, tuple(int(v) for v in ImageStat.Stat(edge).median)
+        if sum(bg) <= sum(ink): return None, bg
+    return ink, bg
 
 
 def drop_icon(mask):
@@ -164,6 +174,7 @@ class NameReader:
     def __init__(self, font):
         self.font = font                     # gamefont.GameFont (its distance field)
         self.cache = {}
+        self.fits = collections.OrderedDict()   # shape_fit's scores by character shape, the most recently used last
 
     def glyph(self, ch, px):
         key = (ch, px)
@@ -186,20 +197,34 @@ class NameReader:
 
     def shape_fit(self, part, ch, px=64):
         """How well one character's ink is `ch` whatever its size: the game font's glyph scaled onto the ink, times
-        how alike their width to height is (0..1). For big bold numbers drawn larger than any font size read() tries."""
+        how alike their width to height is (0..1). For big bold numbers drawn larger than any font size read() tries.
+        Kept per shape (its exact pixels): a screen up is read 10-20 times, and its digits are the same pixels each
+        time. 16 Battle Data values at 4K: 175 ms a read, 41 ms read again; on 55 Battle Data and 60 result screens
+        every value the same as without it."""
+        key = (px, part.mode, part.size, part.tobytes())
+        fits = self.fits.get(key)
+        if fits is None:
+            fits = self.fits[key] = {}
+            if len(self.fits) > FITS_KEPT: self.fits.popitem(last=False)
+        else: self.fits.move_to_end(key)
+        if ch not in fits: fits[ch] = self._shape_fit(part, ch, px)
+        return fits[ch]
+
+    def _shape_fit(self, part, ch, px):
         g = self.glyph(ch, px)
         if g is None: return 0.0
         a, b = part.width / part.height, g.width / g.height
         return overlap(part, g.resize(part.size, Image.NEAREST), slack=1) * min(a, b) / max(a, b)
 
-    def number(self, img, box, margin=0.05, dark=False, right=False):
+    def number(self, img, box, margin=0.05, dark=False, right=False, unit=False):
         """The number in `box` (white text, or dark text on a light card with `dark`) read digit by digit against the
         game's own digits, or None unless every digit is clear. Windows OCR reads the result screen's bold 1 as a 7 now
         and then (17164 as 77764, 31 Oct), and skipped 7-digit BREAK values on Battle Data, which moved the card's
         later numbers up a row; the game's 1 and 7 are nothing alike. `right`: only the run of characters at the
-        box's right end (a value right-aligned after its label)."""
+        box's right end (a value right-aligned after its label). `unit`: a small letter after the number ("180s"),
+        left out."""
         if dark:
-            ink, bg = ink_colour(img, box)
+            ink, bg = ink_colour(img, box, dark=True)
             mask = ink_mask(img, box, ink, bg) if ink else None
         else:
             mask = text_mask(img, box)
@@ -208,6 +233,9 @@ class NameReader:
         # digits are all one height: a much shorter piece is a speck or a mark
         tall = max((h for _, _, h in spans), default=0)
         spans = [s for s in spans if s[2] >= 0.7 * tall]
+        # the result screen's 's' is 95 px against 127-132 px digits at 4K, kept above; in the game's font an 's' is 0.72
+        # of the tallest digit and every digit at least 0.94
+        if unit and len(spans) > 1 and spans[-1][2] < 0.85 * tall: spans = spans[:-1]
         if right:      # a right-aligned value: the run of characters at the right end, up to the gap before its label
             run = spans[-1:]
             for s in reversed(spans[:-1]):
