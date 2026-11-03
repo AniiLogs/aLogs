@@ -4248,6 +4248,7 @@ class Meter:
         self.last_status = now; f = self.fight; sub = self.submitter
         self.link_poll(now)
         self.presence_tick(now)
+        short = self.ocr_not_english(); ocr = short[0][1] if short else self.ocr       # status.json's ocr, below
         C.write_status({
             'time': now, 'pid': os.getpid(), 'status': self.status_text,
             'game_window': bool(self.hwnd), 'capture': wc.shared.source or None,
@@ -4267,10 +4268,23 @@ class Meter:
             # Windows OCR's language (the meter's own reader's, Ocr.language: null with none, or when the helper
             # doesn't say) and whether it's English: false (no OCR language, another one, or no helper: started false)
             # and the app warns that the game's screens can't be read, with a button that installs English OCR; null
-            # (not said): no warning. English added while the meter runs: true within OCR_RECHECK (ocr_recheck)
-            'ocr': {'language': self.ocr.language or None, 'english': R.ocr_english(self.ocr.language),
-                    'started': self.ocr.started},
+            # (not said): no warning. English added while the meter runs: true within OCR_RECHECK (ocr_recheck), once
+            # every helper the meter has reads it; until then the language of the first one without it (ocr_not_english)
+            'ocr': {'language': ocr.language or None, 'english': R.ocr_english(ocr.language), 'started': self.ocr.started},
         })
+
+    def ocr_readers(self):
+        """The meter's OCR readers, each with whose it is: its own (names_bg reads on it too; NoOcr when its helper
+        didn't start), then the bar's, the screens' and the HP number's (hit_watch's, from the first tab-out on) once
+        their helper has started (Ocr). Each picked Windows OCR's language as its helper started (Ocr.language)."""
+        others = (("the bar's", getattr(self.ocr_bg, 'ocr', None)), ("the screens'", getattr(self.screen_bg, 'ocr', None)),
+                  ("the HP number's", getattr(self, 'hp_ocr', None)))
+        return [("the meter's own", self.ocr)] + [(whose, o) for whose, o in others if isinstance(o, R.Ocr)]
+
+    def ocr_not_english(self):
+        """The meter's OCR readers (ocr_readers) whose helper doesn't read English (ocr_english false), in that order:
+        none with English OCR. Not one that doesn't say (None), as ocr_language_note."""
+        return [(whose, o) for whose, o in self.ocr_readers() if R.ocr_english(o.language) is False]
 
     def ocr_recheck(self, now):
         """Without English OCR (status.json's ocr.english false): has Windows got it since? A helper picks its language
@@ -4280,8 +4294,9 @@ class Meter:
         start, on a thread of its own: the frame loop never waits); English, and every helper the meter has restarts
         in place (Ocr.restart: a fight going on keeps going), so the game's screens are read from then on, status.json
         says English and the app's warning goes. Not with NoOcr: its helper didn't start at all, which installing OCR
-        doesn't change."""
-        if not self.ocr.started or R.ocr_english(self.ocr.language) is not False: return
+        doesn't change. Each helper's own language counts (ocr_not_english), not only the meter's own: one whose
+        restart failed, or came back without English, is looked at again OCR_RECHECK on (ocr_look)."""
+        if not self.ocr.started or not self.ocr_not_english(): return
         if now - self.ocr_checked < OCR_RECHECK: return
         if getattr(self, 'ocr_probe', None) and self.ocr_probe.is_alive(): return
         self.ocr_checked = now
@@ -4289,18 +4304,28 @@ class Meter:
 
     def ocr_look(self):
         """ocr_recheck's look, on its own thread: a helper started now, and when it reads English, every helper the
-        meter has restarted (its own, which names_bg shares, the bar's, the screens' and the HP number's)."""
+        meter has without it restarted (its own, which names_bg shares, the bar's, the screens' and the HP number's).
+        Then each one's language again: meter.log says English is read only when every one reads it. One whose
+        restart raised, or whose new helper has no English either (Windows still adding it, say), is named there, and
+        ocr_recheck looks again OCR_RECHECK on (status.json says not English meanwhile). Before, the line said the
+        helpers restarted whatever they read, and the looks stopped once the meter's own read English."""
         try: look = R.Ocr()
         except Exception: return
         try: language = look.language
         finally: look.close()
         if not R.ocr_english(language) or self.stop: return
-        was = self.ocr.language
-        for ocr in (self.ocr, getattr(self.ocr_bg, 'ocr', None), getattr(self.screen_bg, 'ocr', None),
-                    getattr(self, 'hp_ocr', None)):
-            if isinstance(ocr, R.Ocr):       # a worker's helper not started yet starts with English anyway
+        short = self.ocr_not_english()
+        was = short[0][1].language if short else self.ocr.language
+        for whose, ocr in short:
+            if isinstance(ocr, R.Ocr):       # a worker's helper not started yet isn't listed: it starts with English
                 try: ocr.restart()
-                except Exception as e: log.warning(f'OCR helper did not restart: {e!r}')
+                except Exception as e: log.warning(f'OCR helper did not restart ({whose}): {e!r}')
+        short = self.ocr_not_english()
+        if short:
+            still = ', '.join(f"{whose}: {o.language or 'none'}" for whose, o in short)
+            log.warning(f'Windows OCR: English was added while the meter ran, but not every OCR helper restarted with '
+                        f"it ({still}), so the game's text isn't all read yet: another look in {OCR_RECHECK} s")
+            return
         log.info(f"Windows OCR: {self.ocr.language} now (was {was or 'none'}): English was added while the meter ran, "
                  "so its OCR helpers restarted and the game's screens are read")
 

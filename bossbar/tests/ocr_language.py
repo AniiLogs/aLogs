@@ -17,8 +17,9 @@ tag, which the helper also reads as none. Then the meter on each: Meter()'s log 
 that says another language (ko-KR: this PC's helper can't, so a stand-in says it); and the PowerShell helper
 (ocr_win.ps1, used when there is no ocr-helper.exe), which says en-US. Last, English added while the meter runs: a
 helper started later (the HP reader's) leaves status.json saying the meter's own has none, and ocr_recheck restarts
-every helper the meter has once a fresh one reads English. The drawn names are made up. Needs a PC with en-US
-Windows OCR.
+every helper the meter has once a fresh one reads English; one whose restart fails or gives no English is named in the
+log, keeps status.json off English and is restarted at the next look. The drawn names are made up. Needs a PC with
+en-US Windows OCR.
 
 Nothing is sent and nothing lands in your logs: the meter's data folder is a temporary one. Exit code 1 on any failure.
 """
@@ -272,6 +273,69 @@ if callable(recheck):
     check('English: no more rechecks', m.ocr_probe is probe, True)
 for w in workers: w.close()
 m.hp_ocr.close(); m.ocr.close()
+# a restart that doesn't give English: the bar's helper doesn't start again (Ocr.restart raises), or its new one has
+# none either (Windows still adding it, say). meter.log names it, status.json doesn't say English, and the next look
+# (OCR_RECHECK on) restarts it alone. Before, the log said every helper restarted and the screens are read,
+# status.json said English (the meter's own read it) and the looks stopped: the bar's title went unread all session
+real_launch = R.Ocr.launch
+for case in ('raise', 'none'):
+    with_langs(',')
+    m, lines, status = meter()
+    workers = [live.OcrWorker(), live.OcrWorker()]
+    for w in workers: w.start()
+    deadline = time.time() + 10
+    while any(w.ocr is None for w in workers) and time.time() < deadline: time.sleep(0.01)
+    m.ocr_bg, m.screen_bg = workers
+    m.hp_ocr = R.Ocr()
+    bar = m.ocr_bg.ocr
+    helpers = lambda: (m.ocr, m.ocr_bg.ocr, m.screen_bg.ocr, m.hp_ocr)
+    with_langs('en-US')
+    def launch(self):
+        if self is not bar: return real_launch(self)
+        if case == 'raise': raise RuntimeError('Windows OCR helper did not start')
+        with_langs(',')                                 # its new helper picks none
+        try: return real_launch(self)
+        finally: with_langs('en-US')
+    LOG.lines = []
+    R.Ocr.launch = launch
+    try:
+        m.ocr_checked -= live.OCR_RECHECK
+        m.ocr_recheck(time.time()); m.ocr_probe.join(10)
+    finally: R.Ocr.launch = real_launch
+    check(f'{case}: the others restarted, the bar\'s not with English', [o.language for o in helpers()],
+          ['en-US', '', 'en-US', 'en-US'])
+    check(f'{case}: the restart that raised is logged', [t for _, t in LOG.lines if t.startswith('OCR helper did not restart')],
+          ["OCR helper did not restart (the bar's): RuntimeError('Windows OCR helper did not start')"] if case == 'raise' else [])
+    said = ocr_lines(LOG.lines)
+    check(f'{case}: the line names the bar\'s helper', said,
+          [('WARNING', "Windows OCR: English was added while the meter ran, but not every OCR helper restarted with it "
+                       "(the bar's: none), so the game's text isn't all read yet: another look in 60 s")])
+    print(f'{case}: {said[0][0]} {said[0][1]}' if said else f'{case}: no line')
+    check(f"{case}: status ocr isn't English", status_now(m).get('ocr'), {'language': None, 'english': False, 'started': True})
+    probe = m.ocr_probe
+    m.ocr_recheck(time.time())
+    check(f'{case}: the next look waits OCR_RECHECK', m.ocr_probe is probe, True)
+    pids = [o.p.pid for o in helpers()]
+    LOG.lines = []
+    m.ocr_checked -= live.OCR_RECHECK
+    m.ocr_recheck(time.time())
+    check(f'{case}: looked at again', m.ocr_probe is not probe, True)
+    m.ocr_probe.join(10)
+    check(f'{case}: again: every helper reads English', [o.language for o in helpers()], ['en-US'] * 4)
+    check(f"{case}: again: the bar's alone restarted", [o.p.pid == pid for o, pid in zip(helpers(), pids)],
+          [True, False, True, True])
+    check(f'{case}: again: the line', ocr_lines(LOG.lines),
+          [('INFO', "Windows OCR: en-US now (was none): English was added while the meter ran, so its OCR helpers "
+                    "restarted and the game's screens are read")])
+    check(f'{case}: again: status ocr', status_now(m).get('ocr'), {'language': 'en-US', 'english': True, 'started': True})
+    m.ocr_bg.submit({'t': BOXES[0][1]}, 'bar'); deadline = time.time() + 10
+    while m.ocr_bg.result is None and time.time() < deadline: time.sleep(0.01)
+    check(f"{case}: again: the bar's helper reads", m.ocr_bg.take(), ({'t': TITLE}, 'bar'))
+    probe = m.ocr_probe; m.ocr_checked -= live.OCR_RECHECK
+    m.ocr_recheck(time.time())
+    check(f'{case}: English everywhere: no more rechecks', m.ocr_probe is probe, True)
+    for w in workers: w.close()
+    m.hp_ocr.close(); m.ocr.close()
 # a helper that didn't start (NoOcr) isn't rechecked: installing OCR doesn't start it
 m, lines, status = meter(no_helper)
 if callable(getattr(m, 'ocr_recheck', None)):
