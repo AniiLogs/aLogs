@@ -715,13 +715,22 @@ if ($Result.RestartNeeded) { exit 3010 }; exit 0 \
 /// own language, so any of them read as declined (a verb Windows lacks gave 1223) and the button said "press it
 /// again" for good. Process.Start throws the Win32Exception itself: 1223 is declined, any other code exits as its
 /// HRESULT (0x80070002: no Windows PowerShell). The script goes in encoded, so no quoting can change it.
+/// Except in ConstrainedLanguage mode (WDAC or AppLocker script rules, on managed PCs), which refuses
+/// ProcessStartInfo and Process.Start: that failed at once (0x80131501), and "Try again" with it, for good. There it's
+/// Start-Process -Verb RunAs, which that mode allows; as that can't tell a declined prompt from another failure to
+/// start, either exits 4 (ocr_install_outcome says both). In FullLanguage, as on most PCs, nothing changes.
 fn ocr_install_command() -> Command {
     use base64::Engine;
     let script: Vec<u8> = OCR_INSTALL_SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
     // Windows PowerShell itself (the docs': not PowerShell 7), from the Windows folder
+    let locked = format!(
+        "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {{ try {{ $p = Start-Process \
+         -FilePath (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') \
+         -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}' \
+         -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode }} catch {{ exit 4 }} }}; ");
     let outer = format!(
-        "try {{ $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), \
+        "{locked}try {{ $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), \
          '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}'); \
          $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
          $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode }} \
@@ -742,6 +751,10 @@ fn ocr_install_outcome(code: Option<i32>) -> Value {
         Some(3010) => json!({ "state": "installed", "restart": true }),
         Some(1223) => json!({ "state": "declined",
             "message": "Windows' admin prompt was declined, so English OCR wasn't installed. Press the button again to retry." }),
+        // ConstrainedLanguage's Start-Process (ocr_install_command): declined and not started can't be told apart.
+        // Failed, so the page offers Try again and the Settings path under it
+        Some(4) => json!({ "state": "failed",
+            "message": "Windows' admin prompt was declined, or Windows couldn't start the installer, so English OCR wasn't installed. Press Try again to retry." }),
         Some(2) => failed("Windows Update doesn't offer it for this PC"),
         Some(code) => {
             let hex = format!("0x{:08X}", code as u32);
@@ -934,21 +947,34 @@ mod ocr_install_tests {
         assert_eq!(args[..5], ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]);
         assert_eq!(args.len(), 6);
         let outer = &args[5];
-        assert!(outer.starts_with("try { $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot \
-            'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{outer}");
-        assert!(outer.ends_with("'); $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
+        // ConstrainedLanguage (a managed PC's WDAC or AppLocker), which refuses ProcessStartInfo and Process.Start:
+        // Start-Process, which it allows, first; a declined prompt and any other failure to start both exit 4
+        let (locked, full) = outer.split_at(outer.find("}; try { $i = ").expect(outer) + 3);
+        assert!(locked.starts_with("if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { try { \
+            $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') \
+            -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{locked}");
+        assert!(locked.ends_with("' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 4 } }; "),
+            "{locked}");
+        assert_eq!(outer.matches("exit 4 ").count(), 1);
+        assert!(!locked.contains("1223"));
+        // FullLanguage: as before
+        assert!(full.starts_with("try { $i = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot \
+            'System32\\WindowsPowerShell\\v1.0\\powershell.exe'), '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "), "{full}");
+        assert!(full.ends_with("'); $i.Verb = 'RunAs'; $i.UseShellExecute = $true; $i.WindowStyle = 'Hidden'; \
             $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode } \
             catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; \
             if ($e -is [System.ComponentModel.Win32Exception]) { if ($e.NativeErrorCode -eq 1223) { exit 1223 }; \
-            exit (0x80070000 -bor $e.NativeErrorCode) }; if ($e.HResult) { exit $e.HResult }; exit 1 }"), "{outer}");
+            exit (0x80070000 -bor $e.NativeErrorCode) }; if ($e.HResult) { exit $e.HResult }; exit 1 }"), "{full}");
         // declined (the Win32Exception's 1223) is told apart from any other failure to start: nothing else exits 1223
         assert_eq!(outer.matches("exit 1223").count(), 1);
-        assert!(!outer.contains("Start-Process"));
-        // what runs elevated is exactly the script, and the script is Microsoft's two documented lines
-        let encoded = outer.split("-EncodedCommand ").nth(1).unwrap().split('\'').next().unwrap();
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
-        let utf16: Vec<u16> = bytes.chunks(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
-        assert_eq!(String::from_utf16(&utf16).unwrap(), OCR_INSTALL_SCRIPT);
+        assert!(!full.contains("Start-Process"));
+        // what runs elevated, either way, is exactly the script, and the script is Microsoft's two documented lines
+        let scripts: Vec<String> = outer.split("-EncodedCommand ").skip(1).map(|rest| {
+            let bytes = base64::engine::general_purpose::STANDARD.decode(rest.split('\'').next().unwrap()).unwrap();
+            let utf16: Vec<u16> = bytes.chunks(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+            String::from_utf16(&utf16).unwrap()
+        }).collect();
+        assert_eq!(scripts, [OCR_INSTALL_SCRIPT, OCR_INSTALL_SCRIPT]);
         assert!(OCR_INSTALL_SCRIPT.contains("$Capability = Get-WindowsCapability -Online | Where-Object { $_.Name -Like 'Language.OCR*en-US*' }"));
         assert!(OCR_INSTALL_SCRIPT.contains("$Capability | Add-WindowsCapability -Online"));
         assert!(!OCR_INSTALL_SCRIPT.contains("Remove-WindowsCapability"));
@@ -981,6 +1007,12 @@ mod ocr_install_tests {
         assert_eq!(ocr_install_outcome(Some(0x8007_0483u32 as i32))["state"], "failed");
         assert!(message(0x8007_0483).contains("0x80070483"));
         assert_eq!(ocr_install_outcome(None)["state"], "failed");
+        // ConstrainedLanguage's Start-Process didn't start it: declined or not started, it can't say which. Failed (the
+        // page's Try again, and the Settings path under it), and the message says both
+        let locked = ocr_install_outcome(Some(4));
+        assert_eq!(locked["state"], "failed");
+        assert_eq!(locked["message"], "Windows' admin prompt was declined, or Windows couldn't start the installer, so English OCR \
+            wasn't installed. Press Try again to retry.");
     }
 
     #[test]
@@ -990,6 +1022,7 @@ mod ocr_install_tests {
         assert!(managed.starts_with("English OCR: failed: ") && managed.contains("0x800F0954"), "{managed}");
         assert!(ocr_install_log(&ocr_install_outcome(Some(0x8000_4005u32 as i32))).contains("0x80004005"));
         assert!(ocr_install_log(&ocr_install_outcome(Some(1223))).starts_with("English OCR: declined: "));
+        assert!(ocr_install_log(&ocr_install_outcome(Some(4))).starts_with("English OCR: failed: Windows' admin prompt was declined, or "));
         assert_eq!(ocr_install_log(&ocr_install_outcome(Some(0))), "English OCR: installed");
         assert_eq!(ocr_install_log(&ocr_install_outcome(Some(3010))), "English OCR: installed (Windows wants a restart to finish)");
     }
