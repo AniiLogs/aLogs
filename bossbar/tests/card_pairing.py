@@ -4,7 +4,7 @@
 
 A slot the result screen didn't read (no name and no value) drops out of its player list; paired by position, every
 player after it took the next slot's card (1 Nov: your row went with another player's Avg DPS, BREAK, damage taken and
-heal). Made-up players and numbers; the data folder is a temporary one. Exit code 1 on any failure.
+heal). That slot's card goes too, as its player (5 sent runs left one out). Made-up players and numbers; the data folder is a temporary one. Exit code 1 on any failure.
 """
 import os, shutil, sys, tempfile, types
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,10 +25,20 @@ def summary(players, cards):
     return {'result': {'players': players, 'score': 30000, 'rating_stars': 30, 'time_s': 150, 'cleared': False},
             'battle_data': {'players': cards}, 'meter': {'csv': 'run.csv'}, 'cycle': 4001, 'puppetId': 1}
 
-# slot 2 (3P) not read on the result screen: 4P keeps 4P's card, not a shifted one
+# slot 2 (3P) not read on the result screen: 4P keeps 4P's card, not a shifted one, and 3P goes as its card's
+# player (the card's name, no stat or value), in its place, counted in the party
 sent = S.run_payload(summary([player(0), player(1), player(3, me=True)], CARDS), 'uid')
-check('dropped slot: Avg DPS by player', [p.get('avgDps') for p in sent['players']], [10000, 20000, 40000])
-check('dropped slot: heal by player', [p.get('heal') for p in sent['players']], [0, 1, 3])
+check('dropped slot: Avg DPS by player', [p.get('avgDps') for p in sent['players']], [10000, 20000, 30000, 40000])
+check('dropped slot: heal by player', [p.get('heal') for p in sent['players']], [0, 1, 2, 3])
+check('dropped slot: its card player', sent['players'][2], {'name': 'P3', 'avgDps': 30000, 'breakValue': 3000, 'damageTaken': 1500, 'heal': 2})
+check('dropped slot: party size', sent['partySize'], 4)
+check('dropped slot: you once', [p.get('self') for p in sent['players']], [None, None, None, True])
+# a slot kept for its stat label alone (no name, no value): its card's name, the label, no value
+sent = S.run_payload(summary([player(0), {'slot': 1, 'name': '', 'stat': 'Most Healing', 'value': None}, player(2), player(3)], CARDS), 'uid')
+check('label only: sent', sent['players'][1], {'name': 'P2', 'stat': 'Most Healing', 'avgDps': 20000, 'breakValue': 2000, 'damageTaken': 1000, 'heal': 1})
+# a solo run: one card, one player, nothing added
+sent = S.run_payload(summary([player(0, me=True)], CARDS[:1]), 'uid')
+check('solo: one player', [p.get('avgDps') for p in sent['players']], [10000])
 # every slot read: as before
 sent = S.run_payload(summary([player(i) for i in range(4)], CARDS), 'uid')
 check('all slots: Avg DPS', [p.get('avgDps') for p in sent['players']], [10000, 20000, 30000, 40000])
@@ -49,6 +59,12 @@ got = live.Meter.beats_best(m, summary([player(0), player(1), player(3, me=True)
 best = __import__('json').load(open(os.path.join(live.HERE, 'logs', 'bests.json'), encoding='utf-8'))
 check('bests: your Avg DPS', next(iter(best.values())).get('dps'), 40000)
 check('bests: your heal', next(iter(best.values())).get('heal'), 3)
+# a player with no name and no value in the list (kept for its stat label): your card is still yours
+os.remove(os.path.join(live.HERE, 'logs', 'bests.json'))
+got = live.Meter.beats_best(m, summary([player(0), {'slot': 1, 'name': '', 'stat': 'Most Healing', 'value': None},
+                                         player(2), player(3, me=True)], CARDS))
+best = __import__('json').load(open(os.path.join(live.HERE, 'logs', 'bests.json'), encoding='utf-8'))
+check('bests with a label-only player: your Avg DPS', next(iter(best.values())).get('dps'), 40000)
 
 shutil.rmtree(TMP, ignore_errors=True)
 if fails:

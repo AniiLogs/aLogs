@@ -398,7 +398,7 @@ def _bosses(meter):
 
 def card_of(cards, player, i):
     """The Battle Data card of a result-screen player (the i-th in the result's list): the card of its slot, 1P-4P on both
-    screens. Not the i-th card: a slot the result screen didn't read (no name and no value) drops out of its list and
+    screens. Not the i-th card: a slot the result screen didn't read (no name and no value) dropped out of its list and
     every player after it took the next player's card (3 runs, one of them yours with another player's Avg DPS, 1 Nov).
     By position only for summaries without slots."""
     slot = player.get('slot')
@@ -416,7 +416,17 @@ def run_payload(summary, uid):
     meter = summary.get('meter') or {}
     players = []
     cards = bd.get('players') or []
-    for i, p in enumerate(res.get('players') or [{} for _ in cards]):
+    listed = res.get('players') or [{} for _ in cards]
+    # a Battle Data card whose slot has no result-screen player goes too, as that slot's player (the card's name, no
+    # stat or value): the result screen left the slot unread, and the player and their card weren't sent at all
+    # (5 sent runs of 31 Oct-1 Nov had 3 players for 4 cards). In slot order, so partySize counts them
+    slots = {p.get('slot') for p in listed if isinstance(p.get('slot'), int)}
+    if slots:
+        extra = [{'slot': c['slot'], 'name': c.get('name'), 'ai': c.get('ai'), 'self': c.get('self')} for c in cards
+                 if isinstance(c.get('slot'), int) and 0 <= c['slot'] <= 3 and c['slot'] not in slots]
+        extra = list({p['slot']: p for p in extra}.values())          # one per slot: the API takes 4 players at most
+        listed = sorted(listed + extra, key=lambda p: p['slot'] if isinstance(p.get('slot'), int) else 4)
+    for i, p in enumerate(listed):
         c = card_of(cards, p, i)
         players.append({k: v for k, v in {
             # the result screen's name, else the Battle Data card's own (its slot's player from the Party screen)

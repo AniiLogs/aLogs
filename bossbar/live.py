@@ -3086,7 +3086,14 @@ class Meter:
             value = V(f'value{i}', sure_value if sure_value is not None else
                       next((num(p) for p in reversed(parts) if re.fullmatch(r'[\d,.\s]+', p)), None))
             label = V(f'label{i}', canon(next((p for p in parts if not re.fullmatch(r'[\d,.\s]+', p)), ''), RESULT_STATS))
-            if name or value is not None: players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
+            # a slot is a player when its name, its value or its stat label was read: a slot with its label read but
+            # neither of the others dropped out, and that player and their Battle Data card weren't sent (5 sent runs,
+            # 31 Oct-1 Nov; 38 of 178 slot reads dropped in the logs had the label). party_slots gives it the Party
+            # screen's player of that slot. The label never reads where no player is: 0 of 540 boxes off the cards
+            # (beside the row and in the bands above and below it) on 60 saved result screens, 196 of 232 on the
+            # cards of the 58 4K ones in a single read
+            if name or value is not None or label in RESULT_STATS:
+                players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
         party_slots(players, self.party_for_result(now), sure={i for i in range(4) if sure_read(self.ocr, named[f'name{i}'])},
                     you=self.character_name if character_verified(self.uid) else None)
         mine = self.character_name if character_verified(self.uid) else \
