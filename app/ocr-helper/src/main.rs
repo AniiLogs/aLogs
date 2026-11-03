@@ -2,6 +2,9 @@
 //! text models for player names: a Latin one (names read far better than Windows OCR does) and a Korean one (Hangul,
 //! which the English OCR can't see).
 //!
+//! A PC without en-US OCR uses another English it has, else its user's own languages; with no OCR language at all
+//! every Windows OCR line is empty, and the name models still read.
+//!
 //! Prints `READY` at start, then answers requests on stdin until it closes:
 //!   request: b"OCR1", u32 LE image count, then per image u32 LE width, u32 LE height, width*height grey bytes
 //!   answer:  one UTF-8 line per image, in order: the recognised lines joined with " / "
@@ -17,7 +20,6 @@
 //! into this program: nothing to install or download on the player's PC.
 #![windows_subsystem = "windows"]   // no console window
 
-use std::collections::HashMap;
 use std::io::{self, BufWriter, Read, Write};
 use tract_onnx::prelude::*;
 use windows::core::{Result, HSTRING};
@@ -31,12 +33,29 @@ const KOREAN_DICT: &str = include_str!("../model/korean_dict.txt");
 const LATIN_MODEL: &[u8] = include_bytes!("../model/latin_rec.onnx");
 const LATIN_DICT: &str = include_str!("../model/latin_dict.txt");
 const MODEL_HEIGHT: usize = 48;
+/// The input widths the models run at: a box is padded to the first one that fits (past the last, to steps of 32).
+/// Each width is an optimised plan of its own (15-22 MB, ~150 ms to build), and the Korean model's crops vary with
+/// the name's length: on the 419 labelled names they needed 10 widths of 96-384 px in steps of 32, now 4.
+const WIDTHS: [usize; 10] = [128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072];
+const PLANS: usize = 4;               // plans kept per model, the most recently used (19 widths took 740 MB, now ~200)
 const CANDIDATES: usize = 4;          // the likeliest characters sent per letter (plus the best Hangul and Latin ones)
 
 fn read_u32(r: &mut impl Read) -> io::Result<u32> {
     let mut b = [0u8; 4];
     r.read_exact(&mut b)?;
     Ok(u32::from_le_bytes(b))
+}
+
+/// Windows OCR in English, the game's language: en-US, else another English the PC has, else one of the user's own
+/// languages. None when the PC has none of them (TryCreate* fails: Windows gives null).
+fn windows_ocr() -> Option<OcrEngine> {
+    let create = |tag: &HSTRING| Language::CreateLanguage(tag).and_then(|l| OcrEngine::TryCreateFromLanguage(&l)).ok();
+    create(&HSTRING::from("en-US"))
+        .or_else(|| OcrEngine::AvailableRecognizerLanguages().ok()?.into_iter()
+            .filter_map(|l| l.LanguageTag().ok())
+            .find(|t| t.to_string().to_ascii_lowercase().starts_with("en-"))
+            .and_then(|t| create(&t)))
+        .or_else(|| OcrEngine::TryCreateFromUserProfileLanguages().ok())
 }
 
 /// The text of one grey image, lines joined with " / "; empty when it can't be read.
@@ -60,12 +79,48 @@ fn is_hangul(c: char) -> bool {
     matches!(c, '\u{1100}'..='\u{11ff}' | '\u{3130}'..='\u{318f}' | '\u{ac00}'..='\u{d7a3}')
 }
 
+/// A box taller than the model's 48 px, shrunk to nw x 48 (row by row) as PIL's bilinear resize does it: each pixel
+/// a weighted average of all those it covers. Prepared name boxes are about 3x too tall, and sampling only the 2x2
+/// nearest pixels dropped detail: of the 419 labelled names, 357 read exactly through the meter that way, 365 shrunk
+/// like this (366 with WIDTHS; grey crops to the Latin model 384 either way, 386 with WIDTHS), no kind of box worse.
+fn shrink(w: usize, h: usize, grey: &[u8], nw: usize) -> Vec<f32> {
+    let (across, down) = (weights(w, nw), weights(h, MODEL_HEIGHT));
+    let mut rows = vec![0f32; h * nw];
+    for y in 0..h {
+        for (x, (lo, k)) in across.iter().enumerate() {
+            rows[y * nw + x] = k.iter().enumerate().map(|(i, v)| v * grey[y * w + lo + i] as f32).sum();
+        }
+    }
+    let mut out = vec![0f32; MODEL_HEIGHT * nw];
+    for (y, (lo, k)) in down.iter().enumerate() {
+        for x in 0..nw { out[y * nw + x] = k.iter().enumerate().map(|(i, v)| v * rows[(lo + i) * nw + x]).sum(); }
+    }
+    out
+}
+
+/// Scaling `from` px to `to`: per new pixel, the first old one it takes and their weights (a triangle as wide as
+/// the shrink, as PIL's bilinear filter, summing to 1).
+fn weights(from: usize, to: usize) -> Vec<(usize, Vec<f32>)> {
+    let scale = from as f32 / to as f32;
+    let support = scale.max(1.0);
+    (0..to).map(|i| {
+        let centre = (i as f32 + 0.5) * scale;
+        let lo = ((centre - support + 0.5) as isize).max(0) as usize;
+        let hi = ((centre + support + 0.5) as isize).min(from as isize) as usize;
+        let mut k: Vec<f32> = (lo..hi).map(|x| (1.0 - ((x as f32 - centre + 0.5) / support).abs()).max(0.0)).collect();
+        let sum: f32 = k.iter().sum();
+        if sum > 0.0 { for v in &mut k { *v /= sum; } }
+        (lo, k)
+    }).collect()
+}
+
 /// A text-line model (CTC), loaded the first time it's needed. The image is scaled to the model's 48 px height and
-/// padded to a width in steps of 32, so a few optimised plans (one per width) cover every name box.
+/// padded to one of a few widths (WIDTHS), each an optimised plan; only the last few used are kept, so its memory
+/// stays bounded however many sizes come in.
 struct Recognizer {
     bytes: &'static [u8],
     model: Option<InferenceModel>,
-    plans: HashMap<usize, TypedRunnableModel<TypedModel>>,
+    plans: Vec<(usize, TypedRunnableModel<TypedModel>)>,   // (width, plan), the most recently used last
     chars: Vec<String>,   // index 0 is CTC's blank, the last a space
 }
 
@@ -77,38 +132,50 @@ impl Recognizer {
         let mut chars = vec![String::new()];
         chars.extend(dict.lines().map(str::to_string));
         chars.push(" ".to_string());
-        Recognizer { bytes, model: None, plans: HashMap::new(), chars }
+        Recognizer { bytes, model: None, plans: Vec::new(), chars }
     }
 
     fn plan(&mut self, width: usize) -> TractResult<&TypedRunnableModel<TypedModel>> {
-        if !self.plans.contains_key(&width) {
+        if let Some(i) = self.plans.iter().position(|(w, _)| *w == width) {
+            let used = self.plans.remove(i);
+            self.plans.push(used);
+        } else {
             if self.model.is_none() { self.model = Some(tract_onnx::onnx().model_for_read(&mut &self.bytes[..])?); }
             let plan = self.model.clone().unwrap()
                 .with_input_fact(0, f32::fact([1, 3, MODEL_HEIGHT, width]).into())?
                 .into_optimized()?.into_runnable()?;
-            self.plans.insert(width, plan);
+            if self.plans.len() >= PLANS { self.plans.remove(0); }    // the least recently used goes
+            self.plans.push((width, plan));
         }
-        Ok(&self.plans[&width])
+        Ok(&self.plans.last().unwrap().1)
     }
 
     /// Each letter the model finds, with `extra` likeliest characters beyond the best (0: the best alone).
     fn letters(&mut self, w: usize, h: usize, grey: &[u8], extra: usize) -> TractResult<Vec<Letter>> {
         if w == 0 || h == 0 { return Ok(Vec::new()); }
         let nw = ((w as f32 * MODEL_HEIGHT as f32 / h as f32).round() as usize).clamp(16, 3200);
-        let width = (nw + 32).max(96).div_ceil(32) * 32;          // a little room after the name, in steps of 32
-        // bilinear scaling to nw x 48, grey in all three channels, (v / 255 - 0.5) / 0.5; the padding stays 0
+        let room = nw + 32;                                         // a little room after the name
+        let width = WIDTHS.iter().copied().find(|&x| x >= room).unwrap_or(room.div_ceil(32) * 32);
+        // scaled to nw x 48 (shrunk smoothly when taller, else bilinear), grey in all three channels,
+        // (v / 255 - 0.5) / 0.5; the padding stays 0
         let mut input = tract_ndarray::Array4::<f32>::zeros((1, 3, MODEL_HEIGHT, width));
         let (sx, sy) = (w as f32 / nw as f32, h as f32 / MODEL_HEIGHT as f32);
+        let shrunk = (h > MODEL_HEIGHT).then(|| shrink(w, h, grey, nw));
         for y in 0..MODEL_HEIGHT {
             let fy = ((y as f32 + 0.5) * sy - 0.5).clamp(0.0, (h - 1) as f32);
             let (y0, ty) = (fy.floor() as usize, fy.fract());
             let y1 = (y0 + 1).min(h - 1);
             for x in 0..nw {
-                let fx = ((x as f32 + 0.5) * sx - 0.5).clamp(0.0, (w - 1) as f32);
-                let (x0, tx) = (fx.floor() as usize, fx.fract());
-                let x1 = (x0 + 1).min(w - 1);
-                let p = |xx: usize, yy: usize| grey[yy * w + xx] as f32;
-                let v = (p(x0, y0) * (1.0 - tx) + p(x1, y0) * tx) * (1.0 - ty) + (p(x0, y1) * (1.0 - tx) + p(x1, y1) * tx) * ty;
+                let v = match &shrunk {
+                    Some(small) => small[y * nw + x],
+                    None => {
+                        let fx = ((x as f32 + 0.5) * sx - 0.5).clamp(0.0, (w - 1) as f32);
+                        let (x0, tx) = (fx.floor() as usize, fx.fract());
+                        let x1 = (x0 + 1).min(w - 1);
+                        let p = |xx: usize, yy: usize| grey[yy * w + xx] as f32;
+                        (p(x0, y0) * (1.0 - tx) + p(x1, y0) * tx) * (1.0 - ty) + (p(x0, y1) * (1.0 - tx) + p(x1, y1) * tx) * ty
+                    }
+                };
                 let n = (v / 255.0 - 0.5) / 0.5;
                 for c in 0..3 { input[[0, c, y, x]] = n; }
             }
@@ -173,8 +240,8 @@ fn letters_json(letters: &[Letter]) -> String {
 }
 
 fn main() -> Result<()> {
-    let engine = OcrEngine::TryCreateFromLanguage(&Language::CreateLanguage(&HSTRING::from("en-US"))?)?;
-    let max_dim = OcrEngine::MaxImageDimension()?;
+    let engine = windows_ocr();
+    let max_dim = OcrEngine::MaxImageDimension().unwrap_or(0);
     let mut korean = Recognizer::new(KOREAN_MODEL, KOREAN_DICT);
     let mut latin = Recognizer::new(LATIN_MODEL, LATIN_DICT);
     let mut input = io::stdin().lock();
@@ -195,7 +262,10 @@ fn main() -> Result<()> {
             if input.read_exact(&mut grey).is_err() { return Ok(()); }
             let f = flags[0];
             // flag 2: no English OCR (the meter sends it the box itself, the models a copy of their own)
-            let mut line = if f & 2 != 0 { String::new() } else { recognise(&engine, max_dim, w, h, &grey) };
+            let mut line = match &engine {
+                Some(engine) if f & 2 == 0 => recognise(engine, max_dim, w, h, &grey),
+                _ => String::new(),
+            };
             if f & 5 != 0 {
                 let k = if f & 1 != 0 { letters_json(&korean.letters(w as usize, h as usize, &grey, CANDIDATES).unwrap_or_default()) } else { String::new() };
                 let l = if f & 4 != 0 { latin.text(w as usize, h as usize, &grey) } else { String::new() };
