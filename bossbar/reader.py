@@ -496,6 +496,9 @@ class Ocr:
             Ocr.swept = True; threading.Thread(target=sweep_temp, daemon=True, name='temp-sweep').start()
         self.native = os.path.exists(OCR_EXE); self.lock = threading.Lock(); self.n = 0; self.dir = None; self.last = {}
         self.name_cache = {}   # name box signature -> (its read, until when: None for good) (read_native)
+        # are unsure reads kept for UNSURE_S? Not in a replay (live.py): its saved screens come back to back, so how
+        # many of them an unsure read answered went by how fast the PC replayed them
+        self.keep_unsure = True
         self.cache_lock = threading.Lock()
         self.gen = 0           # helpers started in this one's place (restart): a read asked of an older one isn't cached
         self.p, self.language = self.launch()
@@ -644,6 +647,7 @@ class Ocr:
                 for k in names:
                     unsure = len(out[k].replace(' ', '')) <= 1 and k not in vouched
                     self.name_cache.pop(sigs[k], None)              # stored again: last in, last dropped
+                    if unsure and not self.keep_unsure: continue
                     self.name_cache[sigs[k]] = (out[k], now + UNSURE_S if unsure else None)
                     if len(self.name_cache) > 256: self.name_cache.pop(next(iter(self.name_cache)))
         out.update(known)

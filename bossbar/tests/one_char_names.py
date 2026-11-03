@@ -107,6 +107,13 @@ try:
     check('cache: later, the empty slot is read again', ocr.cached({'n': crops['name2']}, {'n': 24}), False)
     check('cache: later, the read again', ocr.read(crops, names=names, raws=grey), {'name0': 'B', 'name1': 'Moxie', 'name2': '', 'name3': ''})
 finally: R.time = real
+
+# a replay (Meter with --replay: keep_unsure False) keeps no unsure read: its saved screens come back to back, so it would
+# answer as many of them as the PC replayed in UNSURE_S
+ocr.name_cache.clear(); ocr.keep_unsure = False
+check('replay: read', ocr.read(crops, names=names, raws=grey), {'name0': 'B', 'name1': 'Moxie', 'name2': '', 'name3': ''})
+check('replay: the names read sure are kept', ocr.cached({'a': crops['name0'], 'b': crops['name1']}, {'a': 24, 'b': 24}), True)
+check('replay: the empty slot is read again on the next screen', ocr.cached({'n': crops['name2']}, {'n': 24}), False)
 ocr.close()
 
 shutil.rmtree(TMP, ignore_errors=True)

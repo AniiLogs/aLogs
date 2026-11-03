@@ -1274,6 +1274,7 @@ class Meter:
         try: self.ocr = R.Ocr()
         except Exception as e:
             log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
+        self.ocr.keep_unsure = args.replay is None          # a replay reads the same whatever the PC's speed
         ocr_language_note(self.ocr); self.ocr_checked = time.time()       # ocr_recheck: its helpers just picked
         self.ocr_said = {}           # ocr_look's warnings the last look gave, and when each was logged (ocr_warn)
         self.ocr_found = False       # the last look's helper read English: the PC has it (status.json's ocr.switching)
