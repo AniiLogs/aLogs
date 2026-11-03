@@ -196,6 +196,9 @@ class Unsaid(R.NoOcr):
 m, lines, status = meter(Unsaid)
 check("not said: status ocr", status.get('ocr'), {'language': None, 'english': None, 'started': True})
 check("not said: its line", [lvl for lvl, _ in ocr_lines(lines)], ['INFO'])
+# ...which only a helper from before READY<TAB> is (ocr_win.ps1 says its language too, above)
+check("not said: it names an old helper", [t for _, t in ocr_lines(lines)],
+      ['Windows OCR: language not said (an OCR helper from before this version: ocr-helper.exe or ocr_win.ps1)'])
 # another language, as the helper's user-profile fallback gives on a Korean PC with no English OCR (this PC can't make
 # its helper say one: it has en-US alone)
 class Korean(R.NoOcr):

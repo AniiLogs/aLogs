@@ -1252,7 +1252,10 @@ def ocr_language_note(ocr):
            "OCR on aLogs' DPS Meter page")
     if not ocr.started: log.warning(f"Windows OCR: none (its helper didn't start): {NO_ENGLISH_READS} can't be read, "
                                     "so runs aren't recorded or sent")
-    elif lang is None: log.info("Windows OCR: language not said (the PowerShell helper or an older OCR helper)")
+    # not said: a plain READY, which only a helper from before READY<TAB> gives (ocr_win.ps1 says its language too),
+    # such as the built copies in bossbar/dist until the next meter:build
+    elif lang is None: log.info('Windows OCR: language not said (an OCR helper from before this version: ocr-helper.exe '
+                                'or ocr_win.ps1)')
     elif R.ocr_english(lang): log.info(f'Windows OCR: {lang}')
     elif lang: log.warning(f"Windows OCR: {lang}, not English: {NO_ENGLISH_READS} can't be read reliably, so runs may "
                            f"not be recorded or sent. Fix: {fix}")
