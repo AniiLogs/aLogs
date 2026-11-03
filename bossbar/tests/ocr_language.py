@@ -19,8 +19,8 @@ that says another language (ko-KR: this PC's helper can't, so a stand-in says it
 keeps nothing of the old helper's in the name cache. Last, English added while the meter runs: a
 helper started later (the HP reader's) leaves status.json saying the meter's own has none, and ocr_recheck restarts
 every helper the meter has once a fresh one reads English; one whose restart fails or gives no English is named in the
-log, keeps status.json off English and is restarted at the next look. The drawn names are made up. Needs a PC with
-en-US Windows OCR.
+log (once while it stays), keeps status.json off English (switching to it) and is restarted at the next look. The
+drawn names are made up. Needs a PC with en-US Windows OCR.
 
 Nothing is sent and nothing lands in your logs: the meter's data folder is a temporary one. Exit code 1 on any failure.
 """
@@ -105,6 +105,10 @@ def meter(make_ocr=None):
 
 def ocr_lines(lines): return [(lvl, t) for lvl, t in lines if t.startswith('Windows OCR')]
 
+def ocr_says(language, english, started=True, switching=False):
+    """status.json's ocr as the meter writes it (write_status)."""
+    return {'language': language, 'english': english, 'started': started, 'switching': switching}
+
 live.load_korean_names = lambda *a, **k: None     # the game's fonts: not needed here
 print(f'helper: {R.OCR_EXE}')
 if not os.path.exists(R.OCR_EXE): print('no ocr-helper.exe: build it (cd app && npm run ocr:build)'); sys.exit(1)
@@ -186,9 +190,9 @@ finally: ocr.close()
 NOT_READ = "boss names and levels, result screens, Battle Data, the battle prep and Party screens can't be read"
 keys = None
 for langs, want, level, start in (
-        ('en-US', {'language': 'en-US', 'english': True, 'started': True}, 'INFO', 'Windows OCR: en-US'),
-        (',', {'language': None, 'english': False, 'started': True}, 'WARNING', 'Windows OCR: none (no OCR language on this PC)'),
-        ('ko-KR', {'language': None, 'english': False, 'started': True}, 'WARNING', 'Windows OCR: none (no OCR language on this PC)')):
+        ('en-US', ocr_says('en-US', True), 'INFO', 'Windows OCR: en-US'),
+        (',', ocr_says(None, False), 'WARNING', 'Windows OCR: none (no OCR language on this PC)'),
+        ('ko-KR', ocr_says(None, False), 'WARNING', 'Windows OCR: none (no OCR language on this PC)')):
     with_langs(langs)
     m, lines, status = meter()
     try:
@@ -216,7 +220,7 @@ for f in ('time', 'pid', 'status', 'game_window', 'capture', 'homeland', 'frame'
 def no_helper(*a, **k): raise RuntimeError('Windows OCR helper did not start')
 m, lines, status = meter(no_helper)
 check('no helper: Meter.ocr', type(m.ocr).__name__, 'NoOcr')
-check('no helper: status ocr', status.get('ocr'), {'language': None, 'english': False, 'started': False})
+check('no helper: status ocr', status.get('ocr'), ocr_says(None, False, started=False))
 said = ocr_lines(lines)
 check('no helper: its line', [(lvl, t[:len("Windows OCR: none (its helper didn't start)")]) for lvl, t in said],
       [('WARNING', "Windows OCR: none (its helper didn't start)")])
@@ -226,7 +230,7 @@ print(f'no helper: {said[0][0]} {said[0][1]}' if said else 'no helper: no line')
 class Unsaid(R.NoOcr):
     started = True; language = None
 m, lines, status = meter(Unsaid)
-check("not said: status ocr", status.get('ocr'), {'language': None, 'english': None, 'started': True})
+check("not said: status ocr", status.get('ocr'), ocr_says(None, None))
 check("not said: its line", [lvl for lvl, _ in ocr_lines(lines)], ['INFO'])
 # ...which only a helper from before READY<TAB> is (ocr_win.ps1 says its language too, above)
 check("not said: it names an old helper", [t for _, t in ocr_lines(lines)],
@@ -236,7 +240,7 @@ check("not said: it names an old helper", [t for _, t in ocr_lines(lines)],
 class Korean(R.NoOcr):
     started = True; language = 'ko-KR'
 m, lines, status = meter(Korean)
-check('ko-KR: status ocr', status.get('ocr'), {'language': 'ko-KR', 'english': False, 'started': True})
+check('ko-KR: status ocr', status.get('ocr'), ocr_says('ko-KR', False))
 said = ocr_lines(lines)
 check('ko-KR: its line', [(lvl, t[:len('Windows OCR: ko-KR, not English')]) for lvl, t in said],
       [('WARNING', 'Windows OCR: ko-KR, not English')])
@@ -265,7 +269,7 @@ later = R.Ocr()                                         # as hit_watch's, starte
 try:
     check('English added: a later helper says', later.language, 'en-US')
     check("English added: a later helper doesn't change status ocr", status_now(m).get('ocr'),
-          {'language': None, 'english': False, 'started': True})
+          ocr_says(None, False))
     check("English added: the meter's own helper still reads nothing", m.ocr.read({'t': BOXES[0][1]}), {'t': ''})
 finally: later.close()
 recheck = getattr(m, 'ocr_recheck', None)
@@ -295,7 +299,7 @@ if callable(recheck):
     check('English found: one line', [(lvl, t[:len('Windows OCR: en-US now')]) for lvl, t in said],
           [('INFO', 'Windows OCR: en-US now')])
     print(f'English found: {said[0][0]} {said[0][1]}' if said else 'English found: no line')
-    check('English found: status ocr', status_now(m).get('ocr'), {'language': 'en-US', 'english': True, 'started': True})
+    check('English found: status ocr', status_now(m).get('ocr'), ocr_says('en-US', True))
     probe = m.ocr_probe; m.ocr_checked -= live.OCR_RECHECK       # English now: no more looks
     recheck(time.time())
     check('English: no more rechecks', m.ocr_probe is probe, True)
@@ -360,7 +364,11 @@ for case in ('raise', 'none'):
     LOG.lines = []
     looks(1)
     check(f'{case}: an hour on: said again', [lvl for lvl, _ in LOG.lines], ['WARNING'] * (2 if case == 'raise' else 1))
-    check(f"{case}: status ocr isn't English", status_now(m).get('ocr'), {'language': None, 'english': False, 'started': True})
+    # English OCR is on the PC (the look's helper read it): status.json says the meter is switching to it, so the app
+    # doesn't say there is no OCR language nor offer to install it (before: as with none, install button and all)
+    check(f"{case}: status ocr: switching to English", status_now(m).get('ocr'), ocr_says(None, False, switching=True))
+    with_langs(','); looks(1); with_langs('en-US')      # a look that reads no English again: not switching
+    check(f"{case}: no English again: status ocr", status_now(m).get('ocr'), ocr_says(None, False))
     probe = m.ocr_probe
     m.ocr_recheck(time.time())
     check(f'{case}: the next look waits OCR_RECHECK', m.ocr_probe is probe, True)
@@ -376,7 +384,7 @@ for case in ('raise', 'none'):
     check(f'{case}: again: the line', ocr_lines(LOG.lines),
           [('INFO', "Windows OCR: en-US now (was none): English was added while the meter ran, so its OCR helpers "
                     "restarted and the game's screens are read")])
-    check(f'{case}: again: status ocr', status_now(m).get('ocr'), {'language': 'en-US', 'english': True, 'started': True})
+    check(f'{case}: again: status ocr', status_now(m).get('ocr'), ocr_says('en-US', True))
     m.ocr_bg.submit({'t': BOXES[0][1]}, 'bar'); deadline = time.time() + 10
     while m.ocr_bg.result is None and time.time() < deadline: time.sleep(0.01)
     check(f"{case}: again: the bar's helper reads", m.ocr_bg.take(), ({'t': TITLE}, 'bar'))

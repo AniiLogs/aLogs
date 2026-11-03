@@ -1276,6 +1276,7 @@ class Meter:
             log.warning(f'OCR helper did not start ({e!r}): text is not read'); self.ocr = R.NoOcr()
         ocr_language_note(self.ocr); self.ocr_checked = time.time()       # ocr_recheck: its helpers just picked
         self.ocr_said = {}           # ocr_look's warnings the last look gave, and when each was logged (ocr_warn)
+        self.ocr_found = False       # the last look's helper read English: the PC has it (status.json's ocr.switching)
         self.fight = None; self.hwnd = None; self.use_screen = False; self.blank = 0
         load_korean_names(getattr(args, 'player_log', None))
         self.ocr_bg = None if args.replay is not None else OcrWorker()        # the boss bar's title, timer, xN
@@ -4272,7 +4273,10 @@ class Meter:
             # and the app warns that the game's screens can't be read, with a button that installs English OCR; null
             # (not said): no warning. English added while the meter runs: true within OCR_RECHECK (ocr_recheck), once
             # every helper the meter has reads it; until then the language of the first one without it (ocr_not_english)
-            'ocr': {'language': ocr.language or None, 'english': R.ocr_english(ocr.language), 'started': self.ocr.started},
+            # and switching true once a look has found English (ocr_found): the app then says English OCR is installed
+            # and the meter is switching to it, not that the PC has none, and offers no install
+            'ocr': {'language': ocr.language or None, 'english': R.ocr_english(ocr.language), 'started': self.ocr.started,
+                    'switching': bool(short) and self.ocr_found},
         })
 
     def ocr_readers(self):
@@ -4316,7 +4320,9 @@ class Meter:
         except Exception: return
         try: language = look.language
         finally: look.close()
-        if not R.ocr_english(language) or self.stop: return
+        if self.stop: return
+        self.ocr_found = bool(R.ocr_english(language))
+        if not self.ocr_found: return
         short = self.ocr_not_english()
         was = short[0][1].language if short else self.ocr.language
         said = {}                            # this look's warnings, by which (ocr_warn)

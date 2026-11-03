@@ -1519,18 +1519,25 @@
     for (const box of $$("[data-ocr-warn]")) box.hidden = !shown;
     if (!shown) return;
     const noHelper = ocr.started === false;
-    const other = !noHelper && ocr.language ? languageName(ocr.language) : "";      // "Korean (South Korea)"
+    // switching (status.json's ocr.switching): the meter found English OCR on the PC while it ran, but one of its OCR
+    // helpers hasn't restarted with it yet (it tries again every minute). Before, this said the PC has no OCR language
+    // (or reads in another one) and offered to install English OCR, with an admin prompt, though it's installed
+    const switching = !noHelper && ocr.switching === true;
+    const other = !noHelper && !switching && ocr.language ? languageName(ocr.language) : "";      // "Korean (South Korea)"
     for (const node of $$("[data-ocr-title]")) node.textContent = noHelper
       ? "aLogs' text reader (OCR) didn't start, so the meter can't read the game's screens."
+      : switching ? "English OCR is installed on this PC, but the meter hasn't switched all of its text reading to it yet."
       : other ? `Windows reads text (OCR) in ${other} on this PC, not English, so the meter can't read the game's screens reliably.`
       : "Windows has no text recognition (OCR) language on this PC, so the meter can't read the game's screens.";
-    for (const node of $$("[data-ocr-what]")) node.textContent = other
-      ? `${OCR_NOT_READ} are misread or not read, so your runs may not be recorded or sent to the leaderboards. The game's text is English: installing Windows' English OCR fixes it.`
+    for (const node of $$("[data-ocr-what]")) node.textContent = switching
+      ? "Until it has, some of the game's screens may not be read, so a run may not be recorded or sent to the leaderboards. The meter tries again every minute."
+      : other ? `${OCR_NOT_READ} are misread or not read, so your runs may not be recorded or sent to the leaderboards. The game's text is English: installing Windows' English OCR fixes it.`
       : `${OCR_NOT_READ} can't be read, so your runs aren't recorded or sent to the leaderboards.${noHelper ? "" : " Installing Windows' English OCR fixes it."}`;
     const seconds = running ? Math.floor((Date.now() - ocrJob.since) / 1000) : 0;
     const took = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
     const state = running ? `Installing English OCR… ${took}. Approve Windows' admin prompt; installing can then take several minutes. aLogs keeps running meanwhile.`
       : restarting ? "English OCR is installed. The meter is restarting to use it…"
+      : switching ? ""                                          // the title says it's installed
       : ocrJob?.state === "installed" ? (ocrJob.restart ? "English OCR is installed: restart Windows to finish it, then open aLogs again."
         : "English OCR is installed, but the meter doesn't see it yet: restart Windows, then open aLogs again.")
       : ocrJob?.message || "";
@@ -1540,7 +1547,8 @@
     }
     for (const node of $$("[data-ocr-progress]")) node.hidden = !running && !restarting;
     for (const button of $$("[data-ocr-install]")) {
-      button.closest(".row").hidden = noHelper;                 // installing OCR can't start a helper that won't start
+      // installing OCR can't start a helper that won't start; switching: it's installed
+      button.closest(".row").hidden = noHelper || switching;
       button.disabled = running || restarting;
       button.textContent = running ? "Installing…" : ocrJob?.state === "failed" || ocrJob?.state === "declined" ? "Try again" : "Install English OCR";
     }
@@ -1548,6 +1556,7 @@
     // installs its OCR with it (a required language feature)
     for (const node of $$("[data-ocr-manual]")) node.textContent = noHelper
       ? "Quit aLogs (tray icon › Quit) and open it again. If this stays, reinstall aLogs, or press Report a problem on the Dashboard."
+      : switching ? "If this stays for more than a few minutes, quit aLogs (tray icon › Quit) and open it again."
       : ocrJob?.state === "failed" ? `You can add it yourself: ${OCR_SETTINGS}. Windows adds its text recognition (OCR) with it.`
       : `Windows asks for admin approval to install it. Or add it yourself: ${OCR_SETTINGS}.`;
   }
