@@ -1674,7 +1674,7 @@ class Meter:
                     self.parts_said = now; log.info(f"screen read: {spotted} spotted, whole frames while it's up")
                 self.last_results = 0; return
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
-        self.game_menu(heads.get('me', ''), heads.get('uid', ''), im, u, ux, H)
+        self.menu_name(im, u, ux, H, heads)
         self.profile_notes(heads, im, now, u, ux, H)
         if 'catch' in heads.get('cc', '').lower():                     # a caught boss: its fight was won
             if now - self.catch_seen > 30: log.info(f"Catch Countdown on screen: {heads.get('cc')!r}")
@@ -3082,6 +3082,30 @@ class Meter:
                 if sid == self.space: self.holosim_space = True
             elif kind == 'uid': self.set_uid(sid)
             elif kind == 'leave': self.egg_space_at = time.time()   # the fade that follows is a load, not a match's end (egg_fade)
+
+    @staticmethod
+    def menu_names(im, u, ux, H):
+        """The menu's name box (SCREEN_BOXES 'me'): prepared as the screen read has it, for Windows OCR and the Korean
+        model, and grey_crop's for the Latin model ({'me': box} each)."""
+        box = (ux + u * 0.657, H * 0.068, ux + u * 0.86, H * 0.104)
+        return {'me': R.prep_text(im, box, u / 2000)}, {'me': R.grey_crop(im, box)}
+
+    def menu_name(self, im, u, ux, H, heads, names=None):
+        """The menu's name for game_menu. The menu stays still, so a Windows OCR misread of it (the screen read's, heads)
+        comes back read after read, and two in a row prove it: the logs have a proven name read with a letter swapped
+        or one added 5 times, and another player's 4-letter name read as nothing. With your UID under it, the name
+        models read the box instead, as on the result screen (Ocr.read's `names`; the Korean model reads a Hangul name,
+        which Windows OCR can't). On 19 labelled menu views (9 openings, 6 names; 1080p, 1440p and 4K, and each scaled
+        to 720p-4K) the name proven right goes from 17 to 19 at their own size, 58 to 63 of 76 scaled, and wrong from
+        1 and 4 to none; the rest have the UID unread. `names`: menu_names' boxes, already read (names_first)."""
+        uid_text = heads.get('uid', '')
+        if not self.uid or self.uid not in re.sub(r'\D', '', uid_text.replace('O', '0')):
+            return self.game_menu(heads.get('me', ''), uid_text, im, u, ux, H)
+        if names is None:
+            crops, grey = self.menu_names(im, u, ux, H)
+            return self.names_first(self.menu_name, (im, u, ux, H, heads), crops, 24, grey)
+        crops, grey = names
+        self.game_menu(self.ocr.read(crops, names={'me': 24}, raws=grey).get('me', ''), uid_text, im, u, ux, H)
 
     def game_menu(self, name, uid_text, im=None, u=0, ux=0, H=0, where='menu', sure=True):
         """The menu opened with Esc or Start shows your name with your UID right under it (and the Profile screen
