@@ -10,8 +10,8 @@ Meter.result_names and Ocr.read as result_screen reads them:
   and read it as nothing or another character; the Korean model's read of the tidied box doesn't), its look-alikes
   (q and 9, O and 0, c and C) told apart by the game's font;
 - a longer name still reads as itself, and a slot with no player (no pill, only the portrait) reads as nothing;
-- a read of nothing is kept in the name cache only for UNSURE_S: the same box is read again after that, not answered
-  from the cache for the rest of the session. A read it's sure of stays.
+- a read of nothing is kept in the name cache while its screen stays up and UNSURE_S after: the same box on a later
+  appearance is read again, not answered from the cache for the rest of the session. A read it's sure of stays.
 Needs the real OCR helper (bossbar/ocr-helper.exe) and the game's fonts in bossbar/gamefont. The data folder is a
 temporary one. Exit code 1 on any failure.
 """
@@ -84,9 +84,16 @@ ocr.name_cache.clear()
 ocr.read(crops, names={k: 24 for k in crops}, raws=grey)
 names = {k: 24 for k in crops}
 check('cache: every box answered from it at once', ocr.cached(crops, names), True)
-real = R.time
-R.time = types.SimpleNamespace(monotonic=lambda: real.monotonic() + getattr(R, 'UNSURE_S', 30) + 1)
+real, clock = R.time, [R.time.monotonic()]
+R.time = types.SimpleNamespace(monotonic=lambda: clock[0])
+UNSURE_S = getattr(R, 'UNSURE_S', 30)
 try:
+    # while the screen stays up, looked at every 2 s (names_first: cached()), the empty slot isn't read again
+    for _ in range(3 * UNSURE_S // 2):
+        clock[0] += 2
+        if not ocr.cached(crops, names): break
+    check('cache: the empty slot, the screen up for 3 x UNSURE_S', ocr.cached({'n': crops['name2']}, {'n': 24}), True)
+    clock[0] += UNSURE_S + 1                                  # the screen gone that long: a later appearance
     check('cache: later, the one-character name still is', ocr.cached({'n': crops['name0']}, {'n': 24}), True)
     check('cache: later, the longer name still is', ocr.cached({'n': crops['name1']}, {'n': 24}), True)
     check('cache: later, the empty slot is read again', ocr.cached({'n': crops['name2']}, {'n': 24}), False)

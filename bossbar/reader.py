@@ -443,8 +443,8 @@ def ink_aspect(img, box, thr=200):
 OCR_EXE = os.path.join(HERE, 'ocr-helper.exe')   # native helper (app/ocr-helper): grey pixels on stdin, no image files
 
 TEMP_PREFIX = 'bossbar_'
-# a name read of one character or none that the Korean model doesn't vouch for answers its box from the name cache this
-# long: the rest of that screen's appearance (result_screen, Battle Data: 30 s), not every later screen with the same box
+# a name read of one character or none that the Korean model doesn't vouch for answers its box from the name cache while
+# that screen stays up, and this long after it was last looked at (Ocr.cached_read): not every later screen with the box
 UNSURE_S = 30
 
 def sweep_temp(hours=1):
@@ -647,12 +647,22 @@ class Ocr:
         out.update(known)
         return out
 
+    def cached_read(self, sig, now):
+        """The name cache's read of the name box with this signature, None when it has none (or its UNSURE_S ran out).
+        A read kept for UNSURE_S is kept that long again from now: a box still on screen (a Party screen up for minutes
+        in the lobby, looked at every 2 s) isn't read again every UNSURE_S, only on a later appearance."""
+        hit = self.name_cache.get(sig)
+        if hit is None or (hit[1] is not None and hit[1] <= now): return None
+        if hit[1] is not None:
+            with self.cache_lock:                      # not over a newer read, or back after restart's clear
+                if self.name_cache.get(sig) is hit: self.name_cache[sig] = (hit[0], now + UNSURE_S)
+        return hit[0]
+
     def cached(self, images, names):
         """Is every name box in `images` ({name: pad px}) read already (the name cache)? Only those are slow to read:
         the text models, ~0.2 s a name, where Windows OCR takes a few ms."""
         now = time.monotonic()
-        return not self.native or all(hit is not None and (hit[1] is None or hit[1] > now)
-                                      for hit in (self.name_cache.get(name_signature(images[k])) for k in names))
+        return not self.native or all([self.cached_read(name_signature(images[k]), now) is not None for k in names])
 
     def close(self):
         try: self.p.stdin.close(); self.p.wait(3)
