@@ -57,6 +57,16 @@
         <header class="page-head">
           <h1>Dashboard</h1>
         </header>
+        <!-- Windows has no English OCR (status.json's ocr.english false): the game's screens aren't read. The same box
+             on the DPS Meter page; app.js renderOcr, its button install_english_ocr -->
+        <div class="notice ocr-warn" data-ocr-warn hidden>
+          <p class="note-warn" data-ocr-title></p>
+          <p data-ocr-what></p>
+          <div class="row"><button type="button" class="primary" data-ocr-install>Install English OCR</button></div>
+          <div class="update-progress ocr-progress" data-ocr-progress hidden><span></span></div>
+          <p data-ocr-state hidden></p>
+          <p class="hint" data-ocr-manual></p>
+        </div>
         <div class="cards">
           <article class="card"><h2>Game</h2><p data-s="game">—</p><small data-s="capture"></small></article>
           <article class="card"><h2>Boss bar</h2><p data-s="bar">—</p><small data-s="status"></small></article>
@@ -74,6 +84,15 @@
       <!-- DPS Meter: its sections as tabs across the top, like Sanctum Helper -->
       <section class="page page-wide" data-page-body="dps">
         <header class="page-head"><h1>DPS Meter</h1></header>
+        <!-- the Dashboard's English OCR warning, above the tabs so every tab shows it -->
+        <div class="notice ocr-warn" data-ocr-warn hidden>
+          <p class="note-warn" data-ocr-title></p>
+          <p data-ocr-what></p>
+          <div class="row"><button type="button" class="primary" data-ocr-install>Install English OCR</button></div>
+          <div class="update-progress ocr-progress" data-ocr-progress hidden><span></span></div>
+          <p data-ocr-state hidden></p>
+          <p class="hint" data-ocr-manual></p>
+        </div>
         <div class="tabs" role="tablist" aria-label="DPS Meter">
           <button type="button" role="tab" data-tab="meter" aria-selected="true">Meter</button>
           <button type="button" role="tab" data-tab="overlay" aria-selected="false">Overlay</button>

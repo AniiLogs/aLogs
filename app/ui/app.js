@@ -1481,7 +1481,75 @@
     $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed || !get("leaderboard.submit") || !get("leaderboard.automation");
     // Windows 10 can't capture the game window without a yellow border: About explains what that means for streams
     $("[data-win10-capture]").hidden = status.borderless_capture !== false;
+    renderOcr();
   }
+  // Windows' OCR in English: the meter reads the game's text with it (boss names and levels, result screens, Battle
+  // Data, the prep and Party screens). Without it (status.json's ocr.english false: no OCR language, another one, or
+  // the OCR helper didn't start) runs aren't read, and before only meter.log said so. The Dashboard and the DPS Meter
+  // page show a warning then, never with English OCR (true) nor when the helper doesn't say (null), with a button that
+  // installs it (install_english_ocr: Windows' admin prompt, then minutes of installing; the meter then restarts to
+  // pick it up, and the warning goes once the restarted meter's status says English).
+  let ocrJob = null;   // the install: {state: "running", since} / "declined" / "failed" (message) / "installed" (restart, at)
+  const OCR_NOT_READ = "Result screens, boss names and levels, Battle Data and the battle prep and Party screens";
+  const languageName = (tag) => {
+    try { return new Intl.DisplayNames(["en"], { type: "language" }).of(tag) || tag; } catch { return tag; }
+  };
+  function renderOcr() {
+    const ocr = status.ocr || {};
+    const missing = Boolean(status.running) && ocr.english === false;
+    const running = ocrJob?.state === "running";
+    // installed: the old meter's status until the restarted one writes its own (a minute at most: a meter switched off
+    // meanwhile never does)
+    const restarting = ocrJob?.state === "installed" && !(Number(status.time) > ocrJob.at) && Date.now() / 1000 - ocrJob.at < 60;
+    if (ocrJob?.state === "installed" && !restarting && !missing) ocrJob = null;      // English now: done
+    const shown = missing || running || restarting;
+    for (const box of $$("[data-ocr-warn]")) box.hidden = !shown;
+    if (!shown) return;
+    const noHelper = ocr.started === false;
+    const other = !noHelper && ocr.language ? languageName(ocr.language) : "";      // "Korean (South Korea)"
+    for (const node of $$("[data-ocr-title]")) node.textContent = noHelper
+      ? "aLogs' text reader (OCR) didn't start, so the meter can't read the game's screens."
+      : other ? `Windows reads text (OCR) in ${other} on this PC, not English, so the meter can't read the game's screens reliably.`
+      : "Windows has no text recognition (OCR) language on this PC, so the meter can't read the game's screens.";
+    for (const node of $$("[data-ocr-what]")) node.textContent = other
+      ? `${OCR_NOT_READ} are misread or not read, so your runs may not be recorded or sent to the leaderboards. The game's text is English: installing Windows' English OCR fixes it.`
+      : `${OCR_NOT_READ} can't be read, so your runs aren't recorded or sent to the leaderboards.${noHelper ? "" : " Installing Windows' English OCR fixes it."}`;
+    const seconds = running ? Math.floor((Date.now() - ocrJob.since) / 1000) : 0;
+    const took = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    const state = running ? `Installing English OCR… ${took}. Approve Windows' admin prompt; installing can then take several minutes. aLogs keeps running meanwhile.`
+      : restarting ? "English OCR is installed. The meter is restarting to use it…"
+      : ocrJob?.state === "installed" ? (ocrJob.restart ? "English OCR is installed: restart Windows to finish it, then open aLogs again."
+        : "English OCR is installed, but the meter doesn't see it yet: restart Windows, then open aLogs again.")
+      : ocrJob?.message || "";
+    for (const node of $$("[data-ocr-state]")) {
+      node.hidden = !state; node.textContent = state;
+      node.className = ocrJob?.state === "failed" || ocrJob?.state === "declined" ? "note-warn" : "";
+    }
+    for (const node of $$("[data-ocr-progress]")) node.hidden = !running && !restarting;
+    for (const button of $$("[data-ocr-install]")) {
+      button.closest(".row").hidden = noHelper;                 // installing OCR can't start a helper that won't start
+      button.disabled = running || restarting;
+      button.textContent = running ? "Installing…" : ocrJob?.state === "failed" || ocrJob?.state === "declined" ? "Try again" : "Install English OCR";
+    }
+    for (const node of $$("[data-ocr-manual]")) node.textContent = noHelper
+      ? "Quit aLogs (tray icon › Quit) and open it again. If this stays, reinstall aLogs, or press Report a problem on the Dashboard."
+      : ocrJob?.state === "failed" ? "You can add it yourself: Windows Settings › Time & language › Language & region › add English (United States)."
+      : "Windows asks for admin approval to install it. Or add it yourself: Windows Settings › Time & language › Language & region › add English (United States).";
+  }
+  async function installOcr() {
+    if (ocrJob?.state === "running") return;
+    ocrJob = { state: "running", since: Date.now() };
+    renderOcr();
+    const tick = setInterval(renderOcr, 1000);                  // the time it's taken so far; the window stays free
+    let outcome;
+    try { outcome = await invoke("install_english_ocr"); }
+    catch (error) { outcome = { state: "failed", message: `Windows couldn't install English OCR (${error}).` }; }
+    clearInterval(tick);
+    ocrJob = outcome?.state === "installed" ? { ...outcome, at: Date.now() / 1000 } : outcome || { state: "failed", message: "" };
+    renderOcr();
+    void refresh();
+  }
+  for (const button of $$("[data-ocr-install]")) button.addEventListener("click", installOcr);
   // Link character: the meter reads your Profile screen (three reads that agree) and you confirm what it read.
   let linkShown = false;      // a request from this window, so a finished one shows "Linked" once and then clears
   function renderLink(link) {
