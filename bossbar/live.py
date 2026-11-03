@@ -1033,7 +1033,16 @@ class Fight:
         if self.limit is None and self.bossrush and self.started_at_top and self.timer.val is not None and len(self.phases) == 1:
             if self.timer.at - self.created <= 4:
                 self.limit = int(5 * math.ceil(self.timer.val / 5))
-                note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
+                if self.order is not None and self.limit not in (duration, duration + OVERTIME_S):
+                    # A two-boss stage's level graph ends the run on one of two clocks only (Scene.1070
+                    # scene_graph_data[78824533]: node 9 at 180 s, sys_config_data.BossRushCombatDuration, the meter's
+                    # --duration; node 11 at 240 s with Overtime, bossrush_buff_data[208].additionalTime). A top bar
+                    # with any other time left is not the run's start but its second boss at x21, the first one never
+                    # seen (the fight started from the prep screen on the stage's first boss): no limit from it, and
+                    # the run isn't tracked from its start
+                    note = (note + f' {self.limit // 60}:{self.limit % 60:02d} left at a top bar mid-run: no time limit').strip()
+                    self.limit = 0; self.started_at_top = False
+                else: note = (note + f' time limit {self.limit // 60}:{self.limit % 60:02d}').strip()
             else: self.limit = 0                     # read too late to tell: the result screen's time decides
         # damage follows the current state, so a corrected segment also corrects the total. The bar shows the current
         # boss: its damage on its own max HP, after the bosses already down in this run. A second boss whose counter

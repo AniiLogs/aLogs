@@ -25,7 +25,8 @@ e) a wipe during the second boss, after a 25 s gap with no game-log Interlink sc
 slot (week 4003) and on a pre-4003 centre (week 4002); g1/g2) a boss that isn't the partner showing up, in a two-boss
 fight and in a one-boss fight: it ends the fight as before; h) the meter joining at the second boss, whose clock
 then shows what is left of the run's, which is no time limit; i) the second boss's bar first seen past its top bars,
-so its name hands over.
+so its name hands over; j) as h, with the prep screen's boss (the stage's first) starting the fight on the second
+boss's top bar: that bar's clock is no time limit either.
 
 Each run is checked as it is kept and would be sent: one CSV (a two-boss stage's with the boss on the bar as its last
 column), the summary's, results.csv's and the payload's boss (the stage's bossId), damage and DPS (the run's), the
@@ -59,7 +60,7 @@ logging.getLogger('meter').addHandler(LOG); logging.getLogger('meter').setLevel(
 
 ap = argparse.ArgumentParser()
 ap.add_argument('-v', action='store_true', help="print the meter's log")
-ap.add_argument('--only', help='scenarios to run, comma-separated (a,b,c,d,e,f1,f2,g1,g2,h,i)')
+ap.add_argument('--only', help='scenarios to run, comma-separated (a,b,c,d,e,f1,f2,g1,g2,h,i,j)')
 ap.add_argument('--trace', help='write what the meter put out to this JSON file')
 ap.add_argument('--no-checks', action='store_true', help='only run (for a checkout without the two-boss code)')
 ARGS = ap.parse_args()
@@ -259,6 +260,7 @@ def play(name, script, uid, t_start, clock):
     m.screen_crops = lambda im, quick: {n: frame for n, kind, box in m.SCREEN_BOXES if not quick or n in m.QUICK_BOXES}
     m.ocr_bg = LagWorker(m.ocr, script.ocr_lag); m.names_bg = LagWorker(m.ocr, 12)
     m.uid = uid; m.rush_level = LEVEL
+    if getattr(script, 'prep', None): m.prep_boss = (clock.t, ROW[script.prep])    # the prep screen just named it
     space = '7700112233'                                     # an Interlink instance: no scene number in its id
     m.events.put(('enter', space, None))
     if script.log_scene: m.events.put(('bossrush', space, None))
@@ -391,6 +393,12 @@ def scenarios():
     h1, h2 = hp(GLAMEEP2), hp(JABSTER2); d2 = 0.02 * h2 / 3.2
     S['i'] = (Script('4004').boss(GLAMEEP2, 0, 30, h1 / 30, kill=True).dead(GLAMEEP2, 30, 32.8).hidden(32.8, 36, JABSTER2, d2)
               .boss(JABSTER2, 36, 120, d2).hidden(120, 121).show_result(121, 128, 30, 30500, 120))
+    # j) as h, but the prep screen named the stage (its first boss: Meter.stage_first), so the fight starts from it on the
+    #    first sight of a bar, the second boss's x21 with 2:20 on the clock. That top bar is not the run's start, and
+    #    its clock is no time limit: killed at 170 s with 40 stars, cleared under the run's 3:00
+    j = (Script('4003').boss(TUCKING, 40, 170, hp(TUCKING) / 130, kill=True).dead(TUCKING, 170, 172.8)
+         .hidden(172.8, 173).show_result(173, 180, 40, 47100, 170))
+    j.prep = BLAZEN; S['j'] = j
     return S
 
 # ---------------------------------------------------------------- checks
@@ -618,7 +626,7 @@ def two_boss_extra(r, f, summ, first):
     check(n, 'the 40-star cap', res.get('star_cap') == 40, res.get('star_cap'))
 
 def checks(R_):
-    a, b, c, d, e, f1, f2, g1, g2, h, i = (R_.get(k) for k in ('a', 'b', 'c', 'd', 'e', 'f1', 'f2', 'g1', 'g2', 'h', 'i'))
+    a, b, c, d, e, f1, f2, g1, g2, h, i, j = (R_.get(k) for k in ('a', 'b', 'c', 'd', 'e', 'f1', 'f2', 'g1', 'g2', 'h', 'i', 'j'))
     if a:
         f, s = common(a, [BLAZEN, TUCKING], 180, True, 150)
         damage_checks(a, f, [True, False])
@@ -692,6 +700,27 @@ def checks(R_):
         t_in = next(p for p in i.script.parts if p[0] == 'boss' and p[1] == JABSTER2)[2]
         nb = i.calls['next_boss']
         check('i', 'handed over by the name within 2.5 s of the bar showing', nb and 'name read' in nb[0][2] and nb[0][0] - t_in <= 2.5, nb)
+    if j:
+        # the fight started from the prep screen on the stage's first boss, at the second boss's top bar mid-run: the
+        # partner's name hands over, and the clock it showed (2:20) is neither the run's limit nor its start
+        f = j.fights[0] if j.fights else None
+        check('j', 'one fight', len(j.fights) == 1, len(j.fights))
+        check('j', 'started from the prep screen on the first boss, then its partner', f and [p['row']['puppetId'] for p in f.phases] == [BLAZEN, TUCKING],
+              f and [p['row']['puppetId'] for p in f.phases])
+        check('j', 'no time limit from a clock read mid-run', f and not f.limit, f and f.limit)
+        check('j', 'not tracked from the run start', f and f.started_at_top is False, f and f.started_at_top)
+        el = [(t, e) for t, fi, e, d, read in j.frames if fi is f and read]
+        # (from its first clock reading on: the fight starts on the bar's first frame, before any text is read)
+        off = [(t, e) for t, e in el if t >= 41 and abs(e - t) > 1.5 and t < 170]
+        check('j', "the run's time follows the game's clock", el and not off, off[:3])
+        s = next(iter(j.summaries.values()), {}); res = s.get('result') or {}; m = s.get('meter') or {}
+        check('j', 'cleared as the result screen calls it (40 stars at 170 s, under 3:00)', res.get('cleared') is True, res)
+        check('j', "the summary: no time limit, not tracked from the start, the run's 170 s",
+              (m.get('time_limit_s'), m.get('tracked_from_start'), m.get('seconds')) == (None, False, 170), m)
+        if s:
+            pl = submit.run_payload(s, 'uid-test'); ex = pl.get('extra') or {}
+            check('j', "payload: cleared, no timeLimitS, under the stage's first boss",
+                  (pl['cleared'], ex.get('timeLimitS'), pl['boss']['id']) == (True, None, BLAZEN), (pl['cleared'], ex.get('timeLimitS'), pl['boss']))
     for r, first in ((g1, BLAZEN), (g2, SHERRO)):
         if not r: continue
         starts, overs = statuses(r, 'fight started'), statuses(r, 'fight over')
