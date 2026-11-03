@@ -1,6 +1,7 @@
 """Interlink weeks 4000-4005 through the meter's own helpers: every boss found from its bar title, in its slot, a
-two-boss middle fight's order and partner, and the full rating (star cap) each boss gets; and the shipped boss list
-against the game data (the build's check).
+two-boss middle fight's order and partner, and the full rating (star cap) each boss gets; the shipped boss list
+against the game data (the build's check); and the week schedule without a boss level (bossLv, which the meter's
+data reader misreads).
 
     python tests/interlink_weeks.py
 
@@ -77,7 +78,9 @@ def refresh_check():
         print('no game install found: the week schedule rewrite (refresh_cycles) is not checked'); return
     path = os.path.join(live.HERE, 'boss_rush_cycles.json')
     with open(R.CYCLES_FILE[0], encoding='utf-8') as f: shipped = json.load(f)
-    with open(path, 'w', encoding='utf-8') as f: json.dump([{k: v for k, v in c.items() if k != 'bossIds2'} for c in shipped], f)
+    # as an aLogs before 91d115c wrote it: no bossIds2, and the bossLv its reader got (1 for weeks 3000-4005)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump([{**{k: v for k, v in c.items() if k != 'bossIds2'}, 'bossLv': 1} for c in shipped], f)
     class Once:                                     # meter.stop: False for the pass, then True (no 6-hour wait)
         reads = 0
         @property
@@ -92,6 +95,7 @@ def refresh_check():
         check('refresh_cycles: an old data-folder schedule is rewritten from the game data (weeks that differ)',
               [c.get('cycle') for c, w in zip(written, want) if c != w] + ['count'] * (len(written) != len(want)), [])
         check('refresh_cycles: the meter reads it', R.CYCLES_FILE[0], path)
+        check('refresh_cycles: no bossLv left in the rewritten schedule', [c['cycle'] for c in written if 'bossLv' in c], [])
         check('refresh_cycles: 4003 Omega Tucking after the rewrite', R.stage_of('80000119', '4003'), ('middle', 2, '80000120'))
         check("refresh_cycles: the HP bars are the game data's", meter.grades, {c: [float(r[c]) for r in gamedata.read_grades(game)] for c in R.GRADE_COLUMNS})
         before = os.stat(path).st_mtime_ns
@@ -99,6 +103,28 @@ def refresh_check():
         with At(inside('4003')): live.refresh_cycles(meter)
         check('refresh_cycles: a schedule that matches is left alone', os.stat(path).st_mtime_ns, before)
     finally: R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], live.upload_cycles = real
+
+def level_check():
+    """No boss level in the week schedule. bossrush_cycle_data.bossLv is a per-class constant the meter's PmData misreads
+    (3, 60 or 1 by week; 1 for weeks 3000-4005 in build 3857679) where the game's own bdd reader gives 60 for every week,
+    the "Lv. 60" the bar shows (game-map README, "Class-constant misreads"). The meter takes a boss's level from its bar,
+    so the schedule drops the field: read from the game, from a cache an older aLogs wrote with it, and shipped."""
+    import json, gamedata
+    with open(os.path.join(R.HERE, 'boss_rush_cycles.json'), encoding='utf-8') as f: shipped = json.load(f)
+    check('shipped boss_rush_cycles.json: weeks with a bossLv', [c['cycle'] for c in shipped if 'bossLv' in c], [])
+    game = gamedata.find_game_data()
+    if not game:
+        print('no game install found: bossLv in the schedule read from the game is not checked'); return
+    cycles = gamedata.read_cycles(game)
+    check('read_cycles: weeks with a bossLv', [c['cycle'] for c in cycles if 'bossLv' in c], [])
+    cache = os.path.join(TMP, 'level_cycles.json')
+    first, changed = gamedata.cached_cycles(cache)
+    check('cached_cycles: decoded once', (changed, first == cycles), (True, True))
+    with open(cache, encoding='utf-8') as f: old = json.load(f)
+    for c in old['cycles']: c['bossLv'] = 1                     # a cache written by an aLogs that kept the field
+    with open(cache, 'w', encoding='utf-8') as f: json.dump(old, f)
+    again, changed = gamedata.cached_cycles(cache)
+    check("cached_cycles: an older cache's bossLv dropped, no new decode", (changed, again == json.loads(json.dumps(cycles))), (False, True))
 
 def main():
     import gamedata
@@ -133,6 +159,7 @@ def main():
     check('stage_of None', R.stage_of(None), (None, None, None))
     check('clear_stars None', live.clear_stars(None), SIDE)
     refresh_check()
+    level_check()
     print(f'{n} bosses in weeks {min(WEEKS)}-{max(WEEKS)}: ' + ('all right' if not fails else f'{len(fails)} failures'))
     for f in fails: print('  FAIL', f)
     return 1 if fails else 0

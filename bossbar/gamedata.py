@@ -174,10 +174,12 @@ def covers_now(cycles, now=None):
 
 
 def read_cycles(path):
-    """[{'cycle', 'season', 'split', 'start', 'end', 'bossLv', 'bossIds': [left, middle, right], 'bossIds2'}] from the
-    game data. 'split' is the week's ranking period (isRank: 174 for weeks 3000-3005, 91 for 4000-4005; seasonId alone
-    doesn't tell the season's parts apart); 'bossIds2' is a slot's second boss (two-boss middle fights from week 4003),
-    None where the slot has one."""
+    """[{'cycle', 'season', 'split', 'start', 'end', 'bossIds': [left, middle, right], 'bossIds2'}] from the game data.
+    'split' is the week's ranking period (isRank: 174 for weeks 3000-3005, 91 for 4000-4005; seasonId alone doesn't
+    tell the season's parts apart); 'bossIds2' is a slot's second boss (two-boss middle fights from week 4003), None
+    where the slot has one. No boss level: bossrush_cycle_data.bossLv is one of the per-class constants PmData misreads
+    (1 for weeks 3000-4005 in build 3857679, where the game's own bdd reader and the "Lv. 60" on the bar say 60), and
+    the meter takes a boss's level from its bar, never from here (CYCLE_DROP)."""
     pm = PmData(path)
     cycles = pm.table('bossrush_cycle_data') or {}
     stages = pm.table('bossrush_guanka_data') or {}
@@ -192,10 +194,13 @@ def read_cycles(path):
         beg, end = c.get('begDayTime') or {}, c.get('endDayTime') or {}
         ids = [boss_id(c.get(side)) for side in ('bossLeft', 'bossMid', 'bossRight')]
         if not all(ids): continue
-        out.append({'cycle': str(int(key)), 'season': c.get('seasonId'), 'split': c.get('isRank'), 'bossLv': c.get('bossLv'),
+        out.append({'cycle': str(int(key)), 'season': c.get('seasonId'), 'split': c.get('isRank'),
                     'start': beg.get(1, beg.get('1')), 'end': end.get(3, end.get('3')), 'bossIds': ids,
                     'bossIds2': [boss_id(c.get(side), 'bossId_2') for side in ('bossLeft', 'bossMid', 'bossRight')]})
     return out
+
+
+CYCLE_DROP = ('bossLv',)       # fields a schedule cached by an older aLogs still has: dropped as it is read (cached_cycles)
 
 
 BOSS_TABLES = ('puppet_data', 'puppet_data1', 'puppet_data2', 'puppet_data3')
@@ -268,8 +273,10 @@ def cached_cycles(cache_path, player_log=None):
     stamp = f'v3:{os.path.getsize(path)}:{int(os.path.getmtime(path))}'
     try:
         with open(cache_path, encoding='utf-8') as f: cached = json.load(f)
-        if cached.get('stamp') == stamp: return cached['cycles'], False
-    except (OSError, ValueError, KeyError):
+        if cached.get('stamp') == stamp:
+            # a cache from an aLogs that still kept bossLv: the same schedule without it (no new decode, no upload)
+            return [{k: v for k, v in c.items() if k not in CYCLE_DROP} for c in cached['cycles']], False
+    except (OSError, ValueError, KeyError, AttributeError):
         pass
     cycles = read_cycles(path)
     if not cycles: return None, False
