@@ -234,7 +234,7 @@ def clear_stars(puppet_id):
     side, center = star_caps()
     return center if puppet_id is not None and R.cycle_slot(R.active_cycle_id(), puppet_id)[0] == 'middle' else side
 
-def interlink_score(score, stars, cap=None):
+def interlink_score(score, stars, cap=None, two_boss=False):
     """An Interlink score checked against its stars. It is not stars x 1,000: each grade a boss passes is worth its
     startScore + hpScore (bossrush_grade_data: 500 + 500 a star grade, 2,500 + 2,500 the kill, "Eliminate"), the
     center boss's stars count double (sys_config_data.BossRushStarMultiplierMidBoss, BossRushInfoUIComponent's star
@@ -244,10 +244,15 @@ def interlink_score(score, stars, cap=None):
     clock runs out and a kill adds more (21,519 on a 20-star boss is 20). A score whose thousands don't match had a 1
     read as a 7 (OCR: 17164 as 77764, 13419 as 73419): each 7 is tried as a 1, and the one reading that matches is
     used. When more than one does, the score is left unread (None) rather than sent wrong. The stars are never changed
-    from the score."""
+    from the score. two_boss: a two-boss middle fight's run (R.stage_of gives its boss an order; weeks 4003-4005). How
+    the server builds its one score from two bosses is unknown until a live run shows it (no client Lua reads those
+    score columns, and kills add bonus score), so a score that doesn't fit its stars is kept as read: the reading
+    may well be right, and only the font-sure read is trusted there."""
     if score is None or stars is None: return score
     fits = lambda s: s // 1000 == stars or (cap is not None and stars == cap and s // 1000 > stars)
     if fits(score): return score
+    if two_boss:
+        log.info(f"score {score} kept as read: {stars} stars, a two-boss fight (how its score is built isn't known)"); return score
     digits = str(score); sevens = [i for i, c in enumerate(digits) if c == '7']
     found = set()
     for mask in range(1, 1 << len(sevens)):
@@ -2578,7 +2583,8 @@ class Meter:
         row = slot_row or next((r for r in self.catalog if r['table'] == 'puppet_data' and r['bossTitle_en'] == boss
                                 and int(r['puppetId']) in R.active_cycle_bosses()), None)
         if row: self.prep_boss = (now, row)
-        score = interlink_score(score, stars, clear_stars(row['puppetId']) if row else None)
+        score = interlink_score(score, stars, clear_stars(row['puppetId']) if row else None,
+                                two_boss=bool(row and R.stage_of(row['puppetId'])[1]))      # a two-boss stage's best: as read
         log.info(f'battle prep screen: OCR pill {pill!r}, name {name!r} -> {boss}: best score {score}, stars {stars}')
         # the score can read before the stars ('14026', then '14026 | 14' two seconds later sent a best without its
         # stars, 30 Oct): only the same score and stars on two reads in a row count
@@ -2903,8 +2909,8 @@ class Meter:
         f = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         full = clear_stars(f[0].row['puppetId'] if f else None)
         # the stars are a number only: the screen prints the run's grade (BossRushBattleResultCtrl.initUI), and no client
-        # Lua shows bossrush_grade_data's grade names ("Eliminate")
-        score = interlink_score(score, rating, full)
+        # Lua shows bossrush_grade_data's grade names ("Eliminate"). A two-boss fight's score is left as read
+        score = interlink_score(score, rating, full, two_boss=bool(f and R.stage_of(f[0].row['puppetId'])[1]))
         players = []
         for i in range(4):
             dx = i * 0.1765
