@@ -66,6 +66,38 @@ def catalogs():
         R.GAME_BOSSES[0] = None
     else: print('no game install found: the boss list read from the game is not checked')
 
+def refresh_check():
+    """live.refresh_cycles, one pass, on a data folder holding a week schedule written by an older aLogs (no bossIds2):
+    it must be rewritten from the game data, and a file that already matches must be left alone. Needs the game
+    installed; nothing is sent (upload_cycles is switched off here)."""
+    import json, types, gamedata
+    game = gamedata.find_game_data()
+    if not game:
+        print('no game install found: the week schedule rewrite (refresh_cycles) is not checked'); return
+    path = os.path.join(live.HERE, 'boss_rush_cycles.json')
+    with open(R.CYCLES_FILE[0], encoding='utf-8') as f: shipped = json.load(f)
+    with open(path, 'w', encoding='utf-8') as f: json.dump([{k: v for k, v in c.items() if k != 'bossIds2'} for c in shipped], f)
+    class Once:                                     # meter.stop: False for the pass, then True (no 6-hour wait)
+        reads = 0
+        @property
+        def stop(self): Once.reads += 1; return Once.reads > 1
+    meter = Once(); meter.args = types.SimpleNamespace(player_log=None); meter.catalog = R.load_catalog()
+    real = (R.CYCLES_FILE[0], R.GAME_BOSSES[0], live.upload_cycles)
+    live.upload_cycles = lambda *a, **k: None
+    try:
+        with At(inside('4003')): live.refresh_cycles(meter)
+        with open(path, encoding='utf-8') as f: written = json.load(f)
+        want = json.loads(json.dumps(gamedata.read_cycles(game)))
+        check('refresh_cycles: an old data-folder schedule is rewritten from the game data (weeks that differ)',
+              [c.get('cycle') for c, w in zip(written, want) if c != w] + ['count'] * (len(written) != len(want)), [])
+        check('refresh_cycles: the meter reads it', R.CYCLES_FILE[0], path)
+        check('refresh_cycles: 4003 Omega Tucking after the rewrite', R.stage_of('80000119', '4003'), ('middle', 2, '80000120'))
+        before = os.stat(path).st_mtime_ns
+        Once.reads = 0
+        with At(inside('4003')): live.refresh_cycles(meter)
+        check('refresh_cycles: a schedule that matches is left alone', os.stat(path).st_mtime_ns, before)
+    finally: R.CYCLES_FILE[0], R.GAME_BOSSES[0], live.upload_cycles = real
+
 def main():
     import gamedata
     n = 0
@@ -98,6 +130,7 @@ def main():
         check('stage_of 80000119 during 4004 (latest week with it)', R.stage_of('80000119'), ('middle', 2, '80000120'))
     check('stage_of None', R.stage_of(None), (None, None, None))
     check('clear_stars None', live.clear_stars(None), SIDE)
+    refresh_check()
     print(f'{n} bosses in weeks {min(WEEKS)}-{max(WEEKS)}: ' + ('all right' if not fails else f'{len(fails)} failures'))
     for f in fails: print('  FAIL', f)
     return 1 if fails else 0

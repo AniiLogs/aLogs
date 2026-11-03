@@ -789,7 +789,13 @@ def refresh_cycles(meter):
         try:
             cycles, changed = gamedata.cached_cycles(os.path.join(HERE, 'game_cycles.json'), meter.args.player_log)
             if cycles:
-                if changed or not os.path.exists(path):
+                # Written whenever it isn't what the game data says now, not only when the cache changed: the stale
+                # check above already took that `changed`, and a file from an aLogs before 91d115c (no bossIds2) was
+                # then never rewritten, so a two-boss fight's second boss had no slot (and an old week's id and HP)
+                try:
+                    with open(path, encoding='utf-8') as f: on_disk = json.load(f)
+                except (OSError, ValueError): on_disk = None
+                if on_disk != json.loads(json.dumps(cycles)):
                     S.write_json(path, cycles)
                     log.info(f'boss rush weeks read from the game data: {len(cycles)} (latest {cycles[-1]["cycle"]})')
                 R.CYCLES_FILE[0] = path
