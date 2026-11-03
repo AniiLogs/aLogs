@@ -5,8 +5,9 @@
 Nobody has seen this fight live yet, so there are no captures to replay. Each scenario is a timeline of what the game
 would show: the boss bar (its boss, xN counter and fill), the name above it, the clock, and the result screen. The
 meter runs its real Meter.step() on it: the bar lock and grace, identify, start_fight, Fight.update, end_fight, the
-screen reads, result_screen and fight_summary. Only the reads of the screen itself are stubbed: the bar finder,
-fill and break readers, the xN digit matcher and OCR (the readers answer from the timeline). The bar's text reads
+screen reads, result_screen, battle_data (one card with the run's team DPS, after each result screen) and
+fight_summary; then submit.run_payload on the run it kept. Only the reads of the screen itself are stubbed: the bar
+finder, fill and break readers, the xN digit matcher and OCR (the readers answer from the timeline). The bar's text reads
 come back ~0.13 s later and the result screen's name read ~0.4 s later, as the background readers deliver them live.
 
 How the fight goes comes from the game files (build 3857679): the first boss (bossrush_guanka_data bossId) on
@@ -26,18 +27,33 @@ fight and in a one-boss fight: it ends the fight as before; h) the meter joining
 then shows what is left of the run's, which is no time limit; i) the second boss's bar first seen past its top bars,
 so its name hands over.
 
+Each run is checked as it is kept and would be sent: one CSV (a two-boss stage's with the boss on the bar as its last
+column), the summary's, results.csv's and the payload's boss (the stage's bossId), damage and DPS (the run's), the
+payload's playedAt, cleared, time limit and extra.bosses (each boss's max HP, damage, defeated and seconds), extra under
+the API's 8,192 bytes (also for the largest extra a two-boss run can send), and no max HP measured from a two-boss
+fight's Battle Data while a one-boss fight's still is.
+
 Nothing is sent and nothing lands in your logs: the meter's data folder is a temporary one. --trace writes what the
 meter put out per scenario (statuses, fight CSV rows, summaries) to compare two checkouts (ALOGS_BOSSBAR picks the
 meter's folder; --no-checks for one without the two-boss code). Exit code 1 on any failure.
 """
-import argparse, json, logging, os, shutil, sys, tempfile, threading, time, types
+import argparse, csv, json, logging, os, shutil, sys, tempfile, threading, time, types
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 TMP = tempfile.mkdtemp(prefix='alogs_twoboss_')
 os.environ['ALOGS_DATA'] = TMP                  # before settings is imported: a fresh data folder
 REAL_TIME = time.time
 from PIL import Image
-import live, reader as R, xn_digits as X, settings as C
+import live, reader as R, xn_digits as X, settings as C, submit
+
+class LogList(logging.Handler):
+    """The meter's log lines, kept per scenario (the checks read some)."""
+    def __init__(self): super().__init__(); self.lines = []
+    def emit(self, record): self.lines.append(record.getMessage())
+    def clear(self): self.lines = []
+    def __iter__(self): return iter(self.lines)
+LOG = LogList()
+logging.getLogger('meter').addHandler(LOG); logging.getLogger('meter').setLevel(logging.INFO)
 
 ap = argparse.ArgumentParser()
 ap.add_argument('-v', action='store_true', help="print the meter's log")
@@ -90,7 +106,15 @@ class Script:
     def hidden(self, t0, t1, pid=None, dps=0):
         self.parts.append(('hidden', pid, t0, t1, dps)); return self             # (a boss can take hits meanwhile)
     def show_result(self, t0, t1, stars, score, secs):
-        self.parts.append(('result', None, t0, t1, 0)); self.result = {'stars': stars, 'score': score, 'time': secs}; return self
+        self.parts.append(('result', None, t0, t1, 0)); self.result = {'stars': stars, 'score': score, 'time': secs}
+        return self.show_battle(t1, t1 + 6)
+    def show_battle(self, t0, t1):
+        """Battle Data after the result screen: one card, the run's whole team DPS (all its bosses' HP lost, over the
+        result screen's time), as a solo run shows it."""
+        self.parts.append(('battle', None, t0, t1, 0)); return self
+    def battle_dps(self):
+        pids = {p[1] for p in self.parts if p[1]}
+        return round(sum(self.lost(pid, self.end) for pid in pids) / self.result['time'])
     def title(self, t0, t1, text): self.titles.append((t0, t1, text)); return self
     @property
     def end(self): return self.parts[-1][3]
@@ -141,6 +165,9 @@ class FakeOcr(R.NoOcr):
             elif res and k == 'rating': v = ' '.join([str(res['stars'])] * 3)
             elif res and k == 'score': v = str(res['score'])
             elif res and k == 'time': v = ' '.join([f"{res['time']}s"] * 3)
+            elif s['kind'] == 'battle' and k == 'h': v = 'Battle Data'
+            elif s['kind'] == 'battle' and k == 'd':
+                v = f'Average DPS / BREAK Value / Damage Taken / Heal Amount / {GAME.script.battle_dps()} / 1200 / 5000 / 0'
             out[k] = v
         GAME.reads.append((round(GAME.t, 2), threading.current_thread().name, {k: v for k, v in out.items() if k in ('title', 'xn', 'rating', 'score', 'time') and v}))
         return out
@@ -187,6 +214,9 @@ def run(name, script, uid='uid-test'):
     """The script through Meter.step(), one look every DT. Returns what the meter did."""
     global GAME
     shutil.rmtree(os.path.join(TMP, 'logs'), ignore_errors=True)
+    try: os.remove(R.CALIB)                                   # each scenario measures from the prediction
+    except OSError: pass
+    LOG.clear()
     t_start = week_start(script.week) + 3 * 86400 + 3600        # inside the week (the schedule's region-1 start + 3 days)
     GAME = Game(script, t_start)
     clock = Clock(); clock.t = t_start - 1.0; time.time = clock
@@ -258,8 +288,15 @@ def play(name, script, uid, t_start, clock):
     try:
         with open(os.path.join(TMP, 'logs', 'bests.json'), encoding='utf-8') as fh: bests = json.load(fh)
     except OSError: bests = {}
+    try:
+        with open(os.path.join(TMP, 'logs', 'results.csv'), encoding='utf-8') as fh: results = list(csv.DictReader(fh))
+    except OSError: results = []
+    try:
+        with open(R.CALIB, encoding='utf-8') as fh: calibration = json.load(fh)
+    except OSError: calibration = {}
     return types.SimpleNamespace(name=name, script=script, meter=m, outs=outs, fights=fights, frames=frames, calls=calls,
-                                 summaries=summaries, csvs=csvs, bests=bests, reads=GAME.reads)
+                                 summaries=summaries, csvs=csvs, bests=bests, reads=GAME.reads, results=results,
+                                 calibration=calibration, log=list(LOG), t_start=t_start)
 
 # ---------------------------------------------------------------- the scenarios
 BLAZEN, TUCKING = '80000120', '80000119'           # week 4003's middle: bossId, bossId_2 (bossrush_guanka_data 2000001)
@@ -337,8 +374,9 @@ def common(r, phases, limit, cleared, secs):
     n = r.name; s = r.script
     starts, overs, ends = statuses(r, 'fight started'), statuses(r, 'fight over'), [x for x in r.outs if x[1] == 'fight_end']
     nexts = statuses(r, 'next boss')
+    res_at = next(p[2] for p in s.parts if p[0] == 'result')
     check(n, 'one fight started', len(starts) == 1, starts)
-    check(n, "one 'fight over', at the run's end", len(overs) == 1 and overs[0][0] >= s.parts[-1][2] - 5, overs)
+    check(n, "one 'fight over', at the run's end", len(overs) == 1 and overs[0][0] >= res_at - 5, overs)
     check(n, 'the overlay got its final numbers at most once', len(ends) <= 1, ends)
     check(n, 'one Fight object for the run', len(r.fights) == 1, len(r.fights))
     f = r.fights[0]
@@ -384,6 +422,113 @@ def damage_checks(r, f, defeated):
     check(n, 'run damage = the bosses down + the current one', f.damage == total, (f.damage, total))
     check(n, "run max HP = the bosses' so far", f.max_hp == sum(p['max_hp'] for p in f.phases), f.max_hp)
 
+EXTRA_MAX = 8192        # the API keeps a run's extra as JSON up to 8,192 bytes (UTF-8), or rejects the run
+
+def run_checks(r, f, summ, stage, cleared, limit):
+    """The run as it is kept and sent: one CSV, the summary's and results.csv's run totals, the payload
+    (submit.run_payload), and no max HP measured from a two-boss fight's Battle Data."""
+    n = r.name; s = r.script
+    m = summ.get('meter') or {}
+    first_order = R.stage_of(f.phases[0]['row']['puppetId'], s.week)[1]
+    two = first_order is not None
+    seen = [p['row']['puppetId'] for p in f.phases]
+    want = ([stage] if first_order == 2 else []) + seen          # a run first seen at its second boss: the first one too
+    # the run's totals: a two-boss fight's both bosses (the first one at its max HP), over the run's time
+    dmg = sum(p['damage'] for p in f.phases) + (hp(stage) if first_order == 2 else 0)
+    check(n, "the summary's boss is the stage's bossId", (summ.get('puppetId'), summ.get('boss')) == (stage, ROW[stage]['bossTitle_en']),
+          (summ.get('puppetId'), summ.get('boss')))
+    check(n, "the summary's damage is the run's", m.get('damage') == dmg, (m.get('damage'), dmg))
+    check(n, "the summary's DPS is the run's damage over the run's time", m.get('dps') == round(dmg / f.elapsed), (m.get('dps'), m.get('seconds')))
+    check(n, "the summary's time is the run's", m.get('seconds') == round(f.elapsed, 1) and (not cleared or f.elapsed == summ['result']['time_s']),
+          (m.get('seconds'), f.elapsed))
+    # one CSV per run: the summary's, the results row's; a two-boss stage's rows say which boss was on the bar
+    fight_csvs = [k for k in r.csvs if k[:8].isdigit()]
+    check(n, 'one fight CSV for the run', fight_csvs == [m.get('csv')], (fight_csvs, m.get('csv')))
+    rows = list(csv.reader(r.csvs.get(m.get('csv')) or []))
+    head, body = (rows[0], rows[1:]) if rows else ([], [])
+    if two:
+        orders = [int(x[-1]) for x in body]
+        check(n, "the CSV's last column is the boss on the bar", head == live.FIGHT_CSV + ['boss'] and all(len(x) == len(head) for x in body),
+              (head, {len(x) for x in body}))
+        check(n, "the CSV's bosses in order", orders == sorted(orders) and sorted(set(orders)) == list(range(first_order, first_order + len(f.phases))),
+              sorted(set(orders)))
+        hand = [x for x in body if 'boss 2 of 2' in x[11]]
+        check(n, "the hand-off row is boss 2's", len(hand) == len(f.phases) - 1 and all(x[-1] == '2' for x in hand), hand)
+    else:
+        check(n, "a one-boss fight's CSV has its old columns", head == live.FIGHT_CSV and all(len(x) <= len(head) for x in body), head)
+    res = r.results[-1] if r.results else {}
+    check(n, 'one results.csv row', len(r.results) == 1, len(r.results))
+    check(n, "results.csv: the run's boss, damage, time, DPS and CSV",
+          (res.get('boss'), res.get('meter_damage'), res.get('meter_seconds'), res.get('meter_dps'), res.get('meter_csv'))
+          == (ROW[stage]['bossTitle_en'], str(dmg), str(round(f.elapsed)), str(round(dmg / f.elapsed)), m.get('csv')), res)
+    # what it would send
+    pl = submit.run_payload(summ, 'uid-test'); ex = pl.get('extra') or {}
+    check(n, "payload boss: the stage's bossId", pl['boss'] == {'id': stage, 'name': ROW[stage]['bossTitle_en'], 'level': LEVEL}, pl['boss'])
+    check(n, "payload meterDamage / meterDps: the run's", (pl['meterDamage'], pl['meterDps']) == (dmg, round(dmg / f.elapsed)),
+          (pl['meterDamage'], pl['meterDps']))
+    # the run's start: when the meter first saw it (a second before the clock started, from the start)
+    start = r.t_start + next(p[2] for p in s.parts if p[0] == 'boss')
+    check(n, 'payload playedAt: the run start', abs(pl['playedAt'] - start) <= 2, (pl['playedAt'] - r.t_start))
+    check(n, 'payload cleared: the result screen\'s call', pl['cleared'] is cleared, pl['cleared'])
+    check(n, 'payload time limit', ex.get('timeLimitS') == (limit or None), ex.get('timeLimitS'))
+    if two:
+        b = ex.get('bosses') or []
+        check(n, 'extra.bosses: the bosses in order', [x.get('id') for x in b] == want, b)
+        check(n, 'extra.bosses: id, name, maxHp, damage, defeated, seconds', all(list(x) == ['id', 'name', 'maxHp', 'damage', 'defeated', 'seconds'] for x in b), b)
+        check(n, "extra.bosses: each boss's max HP and name", all(x['maxHp'] == hp(x['id']) and x['name'] == ROW[x['id']]['bossTitle_en'] for x in b), b)
+        check(n, "extra.bosses' damage adds up to meterDamage", sum(x['damage'] for x in b) == pl['meterDamage'], b)
+        down = [True] * (len(want) - 1)                         # every boss but the last went down (the next one came)
+        check(n, 'extra.bosses: the first boss down, the last as the meter saw it',
+              [x['defeated'] for x in b][:-1] == down and b[-1]['defeated'] == f.phases[-1]['defeated'], b)
+        # each boss's time on the run's clock: the first from the start to its death, the next from its bar showing (the
+        # hand-off: within a second by the bar, 2.5 s by the name) to the run's end; the gap between them is neither's.
+        # The clock reads whole seconds, so the run's time can be up to a second off the timeline's (as in common)
+        shown = {}
+        for p in s.parts:
+            if p[0] == 'boss': shown.setdefault(p[1], p[2])
+        died = {p[1]: p[2] for p in s.parts if p[0] == 'dead'}
+        want_s = []
+        for k, pid in enumerate(want):
+            if first_order == 2 and k == 0: want_s.append((None, 0)); continue
+            t_in = 0.0 if k == 0 else shown[pid]
+            t_out = died[pid] if k < len(want) - 1 else m['seconds']
+            want_s.append((t_out - t_in, 1.0 if k < len(want) - 1 or len(want) == 1 else 1.5 if 'bar came back' in str(r.calls['next_boss']) else 3.0))
+        check(n, "extra.bosses: each boss's seconds on the run's clock (the gap between them neither's)",
+              all((x['seconds'] is None) == (w is None) and (w is None or abs(x['seconds'] - w) <= tol) for x, (w, tol) in zip(b, want_s)),
+              [(x['seconds'], w and round(w, 1)) for x, (w, _) in zip(b, want_s)])
+        check(n, 'extra.bosses: a first boss the meter never saw has no time', (b[0]['seconds'] is None) == (first_order == 2), b[0])
+        check(n, 'extra.starCap 40 and the middle slot', (ex.get('starCap'), ex.get('slot')) == (40, 'middle'), ex)
+        size = len(json.dumps(ex, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+        check(n, f'extra under {EXTRA_MAX} bytes', size < EXTRA_MAX, size)
+        # no max HP from its Battle Data (the run's team DPS), whichever boss; the readings that would have been taken
+        check(n, 'no max HP measured from a two-boss fight', not r.calibration, r.calibration)
+        if f.started_at_top and f.elapsed > 60:
+            check(n, '...though Battle Data was read with the run seen from its start', any('no max HP measured from a two-boss fight' in x for x in r.log),
+                  [x for x in r.log if 'Battle Data' in x][-3:])
+    else:
+        check(n, 'no extra.bosses for a one-boss fight', 'bosses' not in ex and 'bosses' not in m, ex)
+        # a one-boss fight still measures its boss's max HP from Battle Data, as before
+        key = f'{stage}@{LEVEL}'; c = r.calibration.get(key) or {}
+        check(n, "a one-boss fight's max HP still measured from Battle Data", list(r.calibration) == [key] and abs(c['measured'] / hp(stage) - 1) < 0.01,
+              r.calibration)
+    return pl
+
+def worst_extra(summ):
+    """The largest extra a two-boss run can send: four players with 40-character names, lead Aniimo and full teams
+    in 4-byte characters, every new best, ended by the leader, both bosses; then the API's own pairBoss and sharedRun
+    on top, which it adds after its size check."""
+    s = json.loads(json.dumps(summ)); big = '\U0001F600' * 40
+    s['party'] = [{'slot': i, 'name': big, 'ai': False, 'self': i == 0, 'aniimo': big, 'aniimo_level': 100, 'cp': 999999999}
+                  for i in range(4)]
+    s['teams'] = [[big] * 3 for _ in range(4)]; s['team'] = [big] * 3
+    s['new_bests'] = ['score', 'clear', 'dps', 'break', 'taken', 'heal']
+    s['instance'] = '9' * 20; s['result']['ended_by_leader'] = True; s['result']['new_best'] = True
+    for b in s['meter']['bosses']: b['name'] = big
+    ex = submit.run_payload(s, 'uid-test')['extra']
+    sent = len(json.dumps(ex, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+    ex.update(pairBoss={'id': '80000119', 'name': big}, sharedRun='9' * 36)
+    return sent, len(json.dumps(ex, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+
 def two_boss_extra(r, f, summ, first):
     n = r.name
     m = summ.get('meter') or {}
@@ -400,6 +545,10 @@ def checks(R_):
         f, s = common(a, [BLAZEN, TUCKING], 180, True, 150)
         damage_checks(a, f, [True, False])
         two_boss_extra(a, f, s, BLAZEN)
+        run_checks(a, f, s, BLAZEN, True, 180)
+        sent, stored = worst_extra(s)
+        print(f"worst-case two-boss extra: {sent:,} bytes sent, {stored:,} with the API's pairBoss and sharedRun (limit {EXTRA_MAX:,})")
+        check('a', f'the largest two-boss extra under {EXTRA_MAX} bytes', sent < EXTRA_MAX and stored < EXTRA_MAX, (sent, stored))
         t_in = next(p for p in a.script.parts if p[0] == 'boss' and p[1] == TUCKING)[2]
         nb = a.calls['next_boss']
         check('a', 'handed over by the bar within 1 s of the second boss showing', nb and 'bar came back' in nb[0][2] and nb[0][0] - t_in <= 1.0, nb)
@@ -408,6 +557,7 @@ def checks(R_):
         f, s = common(b, [BLAZEN, TUCKING], 180, False, 180)
         damage_checks(b, f, [True, False])
         two_boss_extra(b, f, s, BLAZEN)
+        run_checks(b, f, s, BLAZEN, False, 180)
         check('b', 'the bar never vanished', not any(p[0] == 'hidden' for p in b.script.parts if p[3] <= 180))
         # the title read cut before the hand-off named the first boss and came after it: no switch vote
         late = [c for c in b.identify_after if 'Blazen' in (c[1] or '')]
@@ -419,17 +569,20 @@ def checks(R_):
         f, s = common(c, [BLAZEN, TUCKING], 240, True, 230)
         damage_checks(c, f, [True, False])
         two_boss_extra(c, f, s, BLAZEN)
+        run_checks(c, f, s, BLAZEN, True, 240)
     if d:
         f, s = common(d, [GLAMEEP2], 180, False, 180)
         damage_checks(d, f, [False])
         check('d', 'no hand-off', not d.calls['next_boss'], d.calls['next_boss'])
         check('d', 'the summary lists the one boss the run got to', [x['id'] for x in (s.get('meter') or {}).get('bosses') or []] == [GLAMEEP2],
               s.get('meter'))
+        run_checks(d, f, s, GLAMEEP2, False, 180)
         key = next(iter(d.bests), '')
         check('d', "the best kept under the stage's bossId", key.endswith('|' + GLAMEEP2), list(d.bests))
     if e:
         f, s = common(e, [GRIZBO2, JEBURST2], 180, False, 120)
         damage_checks(e, f, [True, False])
+        run_checks(e, f, s, GRIZBO2, False, 180)
         check('e', 'no Interlink scene from the game log (so not sent)', s.get('interlink_scene') is False, s.get('interlink_scene'))
         gap = next(p for p in e.script.parts if p[0] == 'hidden')
         check('e', 'the bar was gone longer than the 20 s grace', gap[0] == 'hidden' and gap[3] - gap[2] > live.BAR_GONE_GRACE, gap)
@@ -441,6 +594,7 @@ def checks(R_):
         check(r.name, 'no bosses list', 'bosses' not in (s.get('meter') or {}))
         key = next(iter(r.bests), '')
         check(r.name, 'the best under its own id', key.endswith('|' + pid), list(r.bests))
+        run_checks(r, f, s, pid, kill, 180)
     if f2:
         s = next(iter(f2.summaries.values()))
         check('f2', 'one-boss score still repaired (73419 -> 13419)', s['result']['score'] == 13419, s['result'])
@@ -448,12 +602,14 @@ def checks(R_):
         f, s = common(h, [TUCKING], None, True, 170)
         damage_checks(h, f, [False])
         check('h', 'not tracked from the run start', f.started_at_top is False, f.started_at_top)
+        run_checks(h, f, s, BLAZEN, True, None)
         key = next(iter(h.bests), '')
         check('h', "the best kept under the stage's bossId (the first boss)", key.endswith('|' + BLAZEN), list(h.bests))
     if i:
         f, s = common(i, [GLAMEEP2, JABSTER2], 180, False, 120)
         damage_checks(i, f, [True, False])
         two_boss_extra(i, f, s, GLAMEEP2)
+        run_checks(i, f, s, GLAMEEP2, False, 180)
         t_in = next(p for p in i.script.parts if p[0] == 'boss' and p[1] == JABSTER2)[2]
         nb = i.calls['next_boss']
         check('i', 'handed over by the name within 2.5 s of the bar showing', nb and 'name read' in nb[0][2] and nb[0][0] - t_in <= 2.5, nb)
