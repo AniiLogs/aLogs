@@ -3,6 +3,14 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.35
+
+### Fixed
+- **Holo-Battle Sim's Gizmo screen** is read again after a win without a first clear: that Victory screen has no
+  Rewards Earned row, so its coins, gizmo counts and gizmo row sit lower, and aLogs read none of them and gave
+  control back at once. It reads both layouts now, and opens the Gizmo screen at the right spot.
+- **Holo-Battle Sim's gizmos** are recognised when aLogs starts while you're already in a Sim run.
+
 ## 0.1.34
 
 ### Fixed

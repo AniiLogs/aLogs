@@ -1,6 +1,19 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.35",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "Fixed",
+    "items": [
+     "**Holo-Battle Sim's Gizmo screen** is read again after a win without a first clear: that Victory screen has no Rewards Earned row, so its coins, gizmo counts and gizmo row sit lower, and aLogs read none of them and gave control back at once. It reads both layouts now, and opens the Gizmo screen at the right spot.",
+     "**Holo-Battle Sim's gizmos** are recognised when aLogs starts while you're already in a Sim run."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.34",
   "intro": "",
   "sections": [
@@ -77,34 +90,6 @@ window.PATCH_NOTES = [
      "**Text recognition in any English:** on a PC with English OCR other than US English (UK, Australia, India...), the meter starts and reads the game's screens. Before, it didn't start at all.",
      "**Ultrawide screens:** the boss bar is found at 3440×1440.",
      "**Warning titles** are easy to read in the Meadow theme and in a light Custom theme."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.30",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "New",
-    "items": [
-     "**A Leaderboards menu:** everything about the leaderboards, linking your character included, is in one place.",
-     "**Holo-Battle Sim end:** after you press End Holo-Battle Sim at the exit gate, aLogs holds the Victory screen and reads every gizmo, then gives control straight back."
-    ]
-   },
-   {
-    "heading": "Improved",
-    "items": [
-     "**A clearer DPS window:** your average DPS up top, then Last 5s, Team damage and Time, with the numbers lined up.",
-     "**Ctrl+Alt+F12** gives you control back at any moment, as Ctrl+Shift+F12 does.",
-     "**Egg Heist's settings** sit on the Sanctum Helper page."
-    ]
-   },
-   {
-    "heading": "Fixed",
-    "items": [
-     "**HP labels** show on the boss bar again every fight.",
-     "**Battle Data:** a downed teammate's card no longer drops the run's numbers."
     ]
    }
   ]
