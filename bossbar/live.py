@@ -311,8 +311,12 @@ SIM_SHARES = (0.352, 0.30, 0.40, 0.40)
 SIM_COINS = (0.795, 0.285, 0.84, 0.325)
 SIM_GIZMO_X, SIM_GIZMO_PITCH, SIM_GIZMO_Y = 0.464, 0.0588, (0.5795, 0.5985)
 SIM_GIZMOS = 7
+# Without a "Rewards Earned" row (no first clear: 3 Nov, Lightning Training - Trial) the right side's contents sit this
+# much lower (fractions of H): the coins, the Data Collection pictures, the gizmo row and its counts. The team and
+# shares on the left don't move. Both heights are read; the one that reads is kept (parse_sim_team 'low').
+SIM_LOW = 0.0417
 
-def sim_badges(im, u, ux, H):
+def sim_badges(im, u, ux, H, dy=0.0):
     """The digits on the Holo-gizmo badges (dark on light grey, too small for Windows OCR on their own), pasted in
     one line after a drawn label: 'n: / 6 / 6 / 2 / 2 / 4 / 5'. Empty slots (an X) give nothing."""
     from PIL import ImageDraw, ImageFont
@@ -322,7 +326,7 @@ def sim_badges(im, u, ux, H):
     out = Image.new('L', (140 + SIM_GIZMOS * 110, 120), 255); ImageDraw.Draw(out).text((10, 25), 'n:', fill=0, font=font)
     for i in range(SIM_GIZMOS):
         cx = SIM_GIZMO_X + SIM_GIZMO_PITCH * i
-        c = im.crop((int(ux + u * (cx - 0.0075)), int(H * SIM_GIZMO_Y[0]), int(ux + u * (cx + 0.0075)), int(H * SIM_GIZMO_Y[1]))).convert('L')
+        c = im.crop((int(ux + u * (cx - 0.0075)), int(H * (SIM_GIZMO_Y[0] + dy)), int(ux + u * (cx + 0.0075)), int(H * (SIM_GIZMO_Y[1] + dy)))).convert('L')
         c = c.resize((max(1, int(c.width * 4 / k)), max(1, int(c.height * 4 / k))), Image.LANCZOS).point(lambda v: 0 if v < 120 else 255)
         c.thumbnail((90, 90)); out.paste(c, (120 + i * 110, 15))
     return out
@@ -336,6 +340,9 @@ def sim_team_crops(im, u, ux, H):
     crops['share'] = R.prep_white(im, b(*SIM_SHARES), k)
     crops['coins'] = R.prep_bright(im, b(*SIM_COINS), k)
     crops['gizmos'] = sim_badges(im, u, ux, H)
+    x0, y0, x1, y1 = SIM_COINS                                    # ...and lower, when there's no Rewards Earned row
+    crops['coinsL'] = R.prep_bright(im, b(x0, y0 + SIM_LOW, x1, y1 + SIM_LOW), k)
+    crops['gizmosL'] = sim_badges(im, u, ux, H, SIM_LOW)
     return crops
 
 def parse_sim_team(t, names=()):
@@ -364,11 +371,16 @@ def parse_sim_team(t, names=()):
         part = re.sub(r'\s*(%|[0oO]\s*/\s*[0oO]|[0oO]/[0oO])\s*$', '', part.strip())   # '%' reads as '0/0'
         n = re.findall(r'\d{1,3}', part)
         if n and int(n[-1]) <= 100: shares.append(int(n[-1]))
-    coins = re.sub(r'[^\d]', '', t.get('coins') or '')
+    def right(sfx):                                       # the coins and gizmo counts at one height
+        coins = re.sub(r'[^\d]', '', t.get('coins' + sfx) or '')
+        return ([int(n) for n in re.findall(r'\d{1,2}', (t.get('gizmos' + sfx) or '').split(':', 1)[-1])][:SIM_GIZMOS],
+                int(coins) if coins and len(coins) <= 7 else None)
+    (counts, coins), (countsL, coinsL) = right(''), right('L')
+    low = (len(countsL), coinsL is not None) > (len(counts), coins is not None)
+    if low: counts, coins = countsL, coinsL
     return {'team': team,
             'mvpShares': dict(zip(('damage', 'taken', 'healing'), shares)) if len(shares) == 3 else None,
-            'gizmoCounts': [int(n) for n in re.findall(r'\d{1,2}', (t.get('gizmos') or '').split(':', 1)[-1])][:SIM_GIZMOS],
-            'coins': int(coins) if coins and len(coins) <= 7 else None}
+            'gizmoCounts': counts, 'coins': coins, 'low': low}
 
 def last_uid(path):
     """Your player id from the end of the game log (last 32 MB), the newest of: a personal-space id
@@ -2206,7 +2218,7 @@ class Meter:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
         # The screen slides in: title and team first, the shares, coins and gizmo row a moment later (1 Nov: read
         # 0.3 s in, those were blank and the Gizmo screen never opened). Give them up to 3 s.
-        if won and not (t.get('share') or t.get('coins') or t.get('gizmos')):
+        if won and not (t.get('share') or t.get('coins') or t.get('coinsL')):
             first = getattr(self, 'sim_first', None)
             if first is None or now - first > 30: self.sim_first = first = now
             if now - first < 3: return
@@ -2219,7 +2231,13 @@ class Meter:
         key = (self.space, sim['trial'], sim['difficulty'], sim['time_s'])
         if key == getattr(self, 'sim_last', None): return
         self.sim_last = key
-        sim['setup'] = {**team, **self.sim_pictures(im, u, ux, H), **self.sim_prep_for(sim)}
+        low = team.pop('low', False)
+        pictures = self.sim_pictures(im, u, ux, H, SIM_LOW if low else 0.0)
+        if 'gizmos' not in pictures:
+            other = self.sim_pictures(im, u, ux, H, 0.0 if low else SIM_LOW)
+            if 'gizmos' in other: pictures, low = other, not low
+        self.sim_low = low                                        # the tour clicks the gizmo row at that height
+        sim['setup'] = {**team, **pictures, **self.sim_prep_for(sim)}
         counts = sim['setup'].pop('gizmoCounts')
         if sim['setup'].get('gizmos') and len(sim['setup']['gizmos']) == len(counts):
             sim['setup']['gizmos'] = [{**g, 'count': n} for g, n in zip(sim['setup']['gizmos'], counts)]
@@ -2439,8 +2457,9 @@ class Meter:
         if stage == 'open':                                     # the first icon of the Victory screen's gizmo row
             tour['tries'] += 1
             if tour['tries'] > 3: self.sim_tour_end(f"the Gizmo screen did not open (title read {tour.get('title', '')!r})"); return False
-            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in at(SIM_GIZMO_X, 0.545))} (try {tour['tries']})")
-            wc.click_at(*at(SIM_GIZMO_X, 0.545)); tour.update(stage='wait', next=now + 0.3, waited=0)
+            spot = at(SIM_GIZMO_X, 0.545 + (SIM_LOW if getattr(self, 'sim_low', False) else 0.0))
+            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']})")
+            wc.click_at(*spot); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
         title = self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0], H * self.GIZMO_TITLE[1],
                                                      ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or ''
@@ -2508,14 +2527,15 @@ class Meter:
         return self.picture(im, 'screens', f"sim_gizmo_{time.strftime('%Y%m%d_%H%M%S')}_{len(tour['shots']):02d}_{re.sub(r'[^A-Za-z0-9]', '', what)}",
                             proof=True, fresh=False)
 
-    def sim_pictures(self, im, u, ux, H):
+    def sim_pictures(self, im, u, ux, H, dy=0.0):
         """The Victory screen's pictures, matched to the game's own (icons.py): the Training Style, from the Core
         gizmo the run started with (Valor's Fervor Mask); the Alpha Transformation (Scorchhowl); and which series
         each icon of the Holo-gizmo row is, left to right (the game lists them in series order, skipping empty ones).
         Only clear matches are kept; {} without the game's icons."""
         ic = self.icons
-        if not ic or not ic.sim_art: return {}
-        b = lambda cx, cy, r: (ux + u * (cx - r), H * cy - u * r, ux + u * (cx + r), H * cy + u * r)
+        if not ic or not ic.sim_art:
+            log.info(f"Holo-Battle Sim pictures: not read (the game's icons {self.icons_state or 'not loaded'})"); return {}
+        b = lambda cx, cy, r: (ux + u * (cx - r), H * (cy + dy) - u * r, ux + u * (cx + r), H * (cy + dy) + u * r)
         out = {}
         core = ic.sim_picture(im, b(0.571, 0.41, 0.04), 'core')
         if core and core[1] >= 0.3 and core[2] >= 0.1:
@@ -2525,12 +2545,12 @@ class Meter:
         row = []
         for i in range(SIM_GIZMOS):
             cx = SIM_GIZMO_X + SIM_GIZMO_PITCH * i
-            g = ic.sim_glyph(im, (ux + u * (cx - 0.02), H * 0.512, ux + u * (cx + 0.02), H * 0.578))
+            g = ic.sim_glyph(im, (ux + u * (cx - 0.02), H * (0.512 + dy), ux + u * (cx + 0.02), H * (0.578 + dy)))
             if g is None: break
             if g[1] < 0.45 or g[2] < 0.05 or (row and int(g[0]) <= int(row[-1])): row = None; break   # unsure / out of order
             row.append(g[0])
         if row: out['gizmos'] = [{'series': ic.sim[s].get('name'), 'sid': s} for s in row]
-        log.info(f'Holo-Battle Sim pictures: core {core}, transform {tf}, series row {row}')
+        log.info(f'Holo-Battle Sim pictures{" (lower)" if dy else ""}: core {core}, transform {tf}, series row {row}')
         return out
 
     def sim_prep_for(self, sim):
@@ -2931,19 +2951,24 @@ class Meter:
     SEASON_LEVEL = (0.0153, 0.900, 0.0273, 0.923)   # x from the square's left
     OFFERING = (0.4338, 0.865, 0.4575, 0.909)       # the Special Offering circle ('+' or '...' when none)
 
+    def load_icons(self):
+        """The game's own pictures (icons.py), loaded once in the background: the Party screen's portraits and buffs,
+        and the Holo-Battle Sim's Victory screen (the gizmo row, which the Gizmo screen's read needs)."""
+        if self.icons_state is not None: return
+        self.icons_state = 'loading'
+        def load():
+            import icons
+            self.icons = icons.Icons.load(os.path.join(HERE, 'icons'), getattr(self.args, 'player_log', None))
+            self.icons_state = 'ready' if self.icons else 'failed'
+            log.info('game icons: ' + (f'{len(self.icons.heads)} Aniimo, {len(self.icons.buffs)} buffs (game build {self.icons.build})'
+                                       if self.icons else f'not readable ({icons.Icons.error})'))
+        threading.Thread(target=load, daemon=True).start()
+
     def read_party_icons(self, im, cards, u, ux, H, now):
         """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
         the background (a few seconds a read). Each tile keeps its last three answers; the most common one stands, so a
         team changed before the fight follows within a read or two. Nothing is read until the icons are loaded."""
-        if self.icons_state is None:
-            self.icons_state = 'loading'
-            def load():
-                import icons
-                self.icons = icons.Icons.load(os.path.join(HERE, 'icons'), getattr(self.args, 'player_log', None))
-                self.icons_state = 'ready' if self.icons else 'failed'
-                log.info('game icons: ' + (f'{len(self.icons.heads)} Aniimo, {len(self.icons.buffs)} buffs (game build {self.icons.build})'
-                                           if self.icons else f'not readable ({icons.Icons.error})'))
-            threading.Thread(target=load, daemon=True).start()
+        self.load_icons()
         if self.icons_state != 'ready' or (self.icon_read and self.icon_read.is_alive()): return
         votes = self.party['votes']                          # this party (it's rebuilt each read, its votes carry on)
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
@@ -3423,6 +3448,7 @@ class Meter:
                 sid = sid or self.space
                 if sid: self.sim_spaces.add(sid)
                 if sid == self.space: self.holosim_space = True
+                self.load_icons()     # the Victory screen's gizmo row needs them (3 Nov: started mid-Sim, no Party screen)
             elif kind == 'uid': self.set_uid(sid)
             elif kind == 'leave': self.egg_space_at = time.time()   # the fade that follows is a load, not a match's end (egg_fade)
 
