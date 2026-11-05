@@ -2,7 +2,7 @@
 (quiet), both off rest, the meter on reads and shows. Usage: python tests/plugin_switches.py"""
 import ast, os, sys
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-src = open(os.path.join(HERE, 'live.py'), encoding='utf-8').read()
+src = open(os.path.join(HERE, 'dps_overlay.py'), encoding='utf-8').read()
 core_src = open(os.path.join(HERE, 'core.py'), encoding='utf-8').read()
 fn = next(n for n in ast.parse(core_src).body if isinstance(n, ast.FunctionDef) and n.name == 'meter_mode')
 ns = {}; exec(compile(ast.Module([fn], []), 'core.py', 'exec'), ns); meter_mode = ns['meter_mode']

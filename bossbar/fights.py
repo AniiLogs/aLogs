@@ -1,9 +1,6 @@
-"""The DPS meter plug-in: following a boss fight on its HP bar (the fight, the boss, its damage and DPS, the
-kill). Its overlay is in live.py (run_overlay)."""
+"""Following a boss fight on its HP bar (core, shared by the plug-ins): the fight, the boss, its damage and DPS, the
+kill. The DPS meter shows it (dps_overlay.py); the leaderboards send the run it becomes (leaderboards.py)."""
 from core import *
-import logging
-
-log = logging.getLogger('meter.dps')   # its lines in meter.log are tagged [dps]
 
 KILL_SOUND_WINDOW = (2.5, 6.0)  # the boss kill sound counts when it started this many seconds before the countdown
 KILL_TO_COUNTDOWN = 3.0 # seconds from the killing blow to the game's Catch Countdown (the kill-cam: no HUD, slow
@@ -360,8 +357,8 @@ class Fight:
         except Exception: pass
 
 
-class DpsMixin:
-    """The dps plug-in's part of the Meter (live.py): its methods, sharing the Meter's state."""
+class FightsMixin:
+    """Following fights: the Meter's (live.py) methods for it, sharing its state."""
 
     def end_fight(self, why):
         if self.numbers: self.numbers.fight_ended()
@@ -756,3 +753,5 @@ class DpsMixin:
         row = self.prep_boss[1]
         self.start_fight(row, self.rush_level, row['bossTitle_en'], True, f'from the prep screen, xN {xn}')
         self.prep_boss = None
+
+__all__ = ['BreakTracker', 'DAMAGE_NUMBERS', 'FIGHT_CSV', 'FIGHT_INTERVAL', 'Fight', 'HANDOFF_XN', 'HP_BAR', 'HP_TEXT', 'KILL_SOUND_WINDOW', 'KILL_TO_COUNTDOWN', 'LEVEL_CONFIRM', 'MAX_CLOCK', 'OVERTIME_S', 'Timer', 'XN_STALE', 'hp_number', 'FightsMixin']
