@@ -222,6 +222,8 @@
             <div><strong>Attach the screenshots as proof</strong><small>Pictures of the screens a run was read from (result, Battle Data, Holo-Battle Sim's Victory and Gizmo screens). Anyone can open them from the picture icon next to your entry on the leaderboards. Your PC keeps no copy once they're sent.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.link_character"><span></span>
             <div><strong>Link my character to my account</strong><small>Your records show under your in-game name. Each UID can be linked to only one AniiLogs account.</small></div></label>
+          <label class="toggle"><input type="checkbox" data-k="leaderboard.notify_sent"><span></span>
+            <div><strong>Tell me when a record is sent to the leaderboards</strong><small>A small notice over the game each time a record reaches the leaderboards, with what it was and where it went (an Interlink run, a Holo-Battle Sim run, your Egg Heist rank...). Shown while the game is in front.</small></div></label>
           <p class="hint">Leaderboards: <strong data-s="lb">Off</strong> <span data-s="lb-detail"></span></p>
         </div>
       </div>
@@ -410,28 +412,26 @@
 
       <!-- Themes: the AniiLogs site's themes, for this window only -->
       <div class="dps-panel" data-panel="notifications">
-        <p class="lead">Small notices over the game, in the spot you pick. They show while the game is in front, one at a time. Each plug-in has its own: Sanctum Helper's ("Chaos Mode found") are turned on or off on the Sanctum Helper page, the leaderboards' below. They show while their plug-in is on, whether or not the DPS meter is.</p>
+        <p class="lead">Small notices over the game, one at a time, while the game is in front. Every plug-in's show here the same way. Each plug-in turns its own on or off on its page: the leaderboards' on Leaderboards › Sending, Sanctum Helper's on its page.</p>
+        <div class="group">
+          <h2>Where they show</h2>
+          <div class="row notify-options">
+            <label class="field"><span>Where it shows</span>
+              <select data-k="notifications.place">
+                <option value="top-right">Top right, under the game's buttons (default)</option><option value="top-center">Top middle</option><option value="right">Middle right</option><option value="left">Middle left</option><option value="custom">Custom: drag it where you want</option>
+              </select></label>
+            <label class="field"><span>How it comes in</span>
+              <select data-k="notifications.motion">
+                <option value="fade">Fades in (default)</option><option value="slide">Slides in from the edge</option><option value="drop">Drops down from the top</option>
+              </select></label>
+          </div>
+          <label class="toggle notify-lock"><input type="checkbox" data-k="notifications.locked"><span></span>
+            <div><strong>Lock the notice's spot</strong><small>Unlocked, a sample notice stays on the game while it's in front. Drag it where you want the notices, then lock it again. Double-click the sample to put it back top right.</small></div></label>
+        </div>
         <div class="group">
           <h2>The button over the game</h2>
           <label class="toggle"><input type="checkbox" data-k="notifications.button"><span></span>
             <div><strong>Tell me when the button turns aLogs off or on</strong><small>"aLogs off" with the plug-ins it turned off, "aLogs on" with the ones it turned back on.</small></div></label>
-        </div>
-        <div class="group">
-          <h2>Leaderboards</h2>
-          <label class="toggle"><input type="checkbox" data-k="leaderboard.notify_sent"><span></span>
-            <div><strong>Tell me when a record is sent to the leaderboards</strong><small>A small notice over the game each time a record reaches the leaderboards, with what it was and where it went (an Interlink run, a Holo-Battle Sim run, your Egg Heist rank...). Shown while the game is in front.</small></div></label>
-          <div class="row notify-options">
-            <label class="field"><span>Where it shows</span>
-              <select data-k="leaderboard.notify_place">
-                <option value="top-right">Top right, under the game's buttons (default)</option><option value="top-center">Top middle</option><option value="right">Middle right</option><option value="left">Middle left</option><option value="custom">Custom: drag it where you want</option>
-              </select></label>
-            <label class="field"><span>How it comes in</span>
-              <select data-k="leaderboard.notify_motion">
-                <option value="fade">Fades in (default)</option><option value="slide">Slides in from the edge</option><option value="drop">Drops down from the top</option>
-              </select></label>
-          </div>
-          <label class="toggle notify-lock"><input type="checkbox" data-k="leaderboard.notify_locked"><span></span>
-            <div><strong>Lock the notice's spot</strong><small>Unlocked, a sample notice stays on the game while it's in front. Drag it where you want the notices, then lock it again. Double-click the sample to put it back top right.</small></div></label>
         </div>
       </div>
       <div class="dps-panel" data-panel="themes">

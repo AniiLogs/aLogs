@@ -85,12 +85,13 @@ DEFAULTS = {
         'link_character': True,              # link the detected character (UID + name) to the account
         'include_screenshots': True,         # attach the result screenshot as evidence
         'notify_sent': True,                 # a toast over the game when a record reaches the leaderboards
-        'notify_place': 'top-right',         # where: 'top-right' (under the game's buttons), 'top-center', 'right', 'left',
-                                             # 'custom' (dragged there: positions.json 'notice')
-        'notify_motion': 'fade',             # how it comes in: 'fade', 'slide' (from the nearest edge), 'drop' (from the top)
-        'notify_locked': True,               # 'custom' place: off shows a sample notice to drag where they should show
     },
+    # every plug-in's notices over the game (notice_window.py); each plug-in's own on/off is on its page
     'notifications': {
+        'place': 'top-right',                # where: 'top-right' (under the game's buttons), 'top-center', 'right', 'left',
+                                             # 'custom' (dragged there: positions.json 'notice')
+        'motion': 'fade',                    # how it comes in: 'fade', 'slide' (from the nearest edge), 'drop' (from the top)
+        'locked': True,                      # 'custom' place: off shows a sample notice to drag where they should show
         'button': True,                      # the button over the game's notice when it turns aLogs off or on
     },
     # the settings the player changed themselves ('capture.keep_hours', ...), kept by the app: a default that changes in
@@ -120,7 +121,19 @@ def load():
     if 'in_recordings' not in overlay and 'hide_from_capture' in overlay:      # settings from before 0.1.28
         overlay['in_recordings'] = not overlay['hide_from_capture']
     if overlay.get('world_position') == 'quests': overlay['world_position'] = 'right'   # B9: under the quests is gone
+    migrate_notices(stored)
     return _merge(DEFAULTS, stored)
+
+NOTICE_KEYS = ('place', 'motion', 'locked')
+def migrate_notices(stored):
+    """Where notices show was the leaderboards' (leaderboard.notify_place, notify_motion, notify_locked) until the notices
+    became every plug-in's: now notifications.place, motion, locked. A choice made there is carried over."""
+    lb = stored.get('leaderboard') if isinstance(stored.get('leaderboard'), dict) else {}
+    if not any('notify_' + k in lb for k in NOTICE_KEYS): return stored
+    if not isinstance(stored.get('notifications'), dict): stored['notifications'] = {}
+    for k in NOTICE_KEYS:
+        if 'notify_' + k in lb: stored['notifications'].setdefault(k, lb.pop('notify_' + k))
+    return stored
 
 def save(settings):
     tmp = SETTINGS_FILE + '.tmp'

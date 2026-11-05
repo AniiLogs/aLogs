@@ -348,4 +348,4 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 
 /* the notice's lock only matters for its Custom spot (General Settings > Notifications) */
 .notify-lock { display: none; }
-.group:has(select[data-k="leaderboard.notify_place"] option[value="custom"]:checked) .notify-lock { display: grid; }
+.group:has(select[data-k="notifications.place"] option[value="custom"]:checked) .notify-lock { display: grid; }

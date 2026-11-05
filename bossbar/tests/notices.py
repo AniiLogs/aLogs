@@ -1,10 +1,10 @@
-"""The record notices over the game (live.py, Sarg's suggestion): the overlay's real notice code (tw ... toast_tick)
+"""The notices over the game (notice_window.py, Sarg's suggestion): the overlay's real notice code (tw ... toast_tick)
 with its window calls stubbed, on a fake clock: timing, waiting while tabbed out, a backlog's one notice, each place
 and motion, and the Custom spot (sample, drag, lock, 1440p, reset). Usage: python tests/notices.py"""
 import json, os, re, sys, tempfile, types
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, HERE)
 from PIL import Image, ImageDraw, ImageFont
-src = open(os.path.join(HERE, 'live.py'), encoding='utf-8').read()
+src = open(os.path.join(HERE, 'notice_window.py'), encoding='utf-8').read()
 start = src.index("    tw = tk.Toplevel(root)")
 end = src.index("        if a != toast['alpha'] and not AWAY['on']: layered.set_alpha(layered.top_hwnd(tw), a); toast['alpha'] = a\n")
 block = '\n'.join(l[4:] for l in src[start:end].splitlines()) + \
@@ -31,6 +31,7 @@ rgb = lambda c: tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
 log = types.SimpleNamespace(info=lambda m: calls.append(('log', m)))
 time = types.SimpleNamespace(time=lambda: clock[0])
 NOTICES = tempfile.mkdtemp(prefix='notices-')
+from notice_window import notice_settings   # General Settings > Notifications, read by the block
 exec(block)
 
 def run(seconds, step=0.015):
@@ -71,34 +72,34 @@ logs = [c[1] for c in calls if c[0] == 'log']
 check('two waiting show one after the other', len(logs) == 2 and logs[0].startswith('notice: A') and logs[1].startswith('notice: B'))
 
 # 5. slide from the right: starts off to the right, ends at its spot
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_motion': 'slide', 'notify_place': 'top-right'}
+meter.args.cfg['notifications'] = {'motion': 'slide', 'place': 'top-right'}
 toast['queue'].append(('Slide sent', 'x', '#7fb2ff')); calls.clear(); run(1.0)
 xs = [c[1] for c in calls if c[0] == 'show']
 check('slide comes in from the right edge', xs[0] > 1700 and xs[-1] == 1920 - 360 - 18 and xs == sorted(xs, reverse=True))
 run(4)
 
 # 6. drop at top middle: starts above, ends at its spot
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_motion': 'drop', 'notify_place': 'top-center'}
+meter.args.cfg['notifications'] = {'motion': 'drop', 'place': 'top-center'}
 toast['queue'].append(('Drop sent', 'x', '#7fb2ff')); calls.clear(); run(1.0)
 ys = [c[2] for c in calls if c[0] == 'show']
 check('drop comes down from the top to 150', ys[0] < 0 and ys[-1] == 150 and ys == sorted(ys))
 run(4)
 
 # 7. slide at middle left: from the left edge
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_motion': 'slide', 'notify_place': 'left'}
+meter.args.cfg['notifications'] = {'motion': 'slide', 'place': 'left'}
 toast['queue'].append(('Left sent', 'x', '#7fb2ff')); calls.clear(); run(1.0)
 xs = [c[1] for c in calls if c[0] == 'show']
 check('middle left slides in from the left', xs[0] < 0 and xs[-1] == 18)
 run(4)
 
 # 8. fade keeps still: one position only
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_motion': 'fade', 'notify_place': 'right'}
+meter.args.cfg['notifications'] = {'motion': 'fade', 'place': 'right'}
 toast['queue'].append(('Fade sent', 'x', '#7fb2ff')); calls.clear(); run(4.2)
 check('fade stays in one spot (middle right)', len({(c[1], c[2]) for c in calls if c[0] == 'show'}) == 1)
 
 run(1)
 # 9. custom, unlocked: the sample shows and stays; a notice waits
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_place': 'custom', 'notify_locked': False, 'notify_motion': 'fade'}
+meter.args.cfg['notifications'] = {'place': 'custom', 'locked': False, 'motion': 'fade'}
 toast['queue'].append(('Waiting sent', 'x', '#7fb2ff')); calls.clear(); run(6)
 shows = [c for c in calls if c[0] == 'show']
 check('unlocked custom shows the sample at the top right, once', len(shows) == 1 and shows[0][1] == 1920 - 360 - 18 and toast['sample'])
@@ -112,26 +113,26 @@ calls.clear(); run(0.1)
 shows = [c for c in calls if c[0] == 'show']
 check('the sample shows again where it was dropped', shows and shows[-1][1:] == (400, 700))
 # lock it: the sample goes, the waiting notice shows at the custom spot and slides from the left (nearer edge)
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_place': 'custom', 'notify_locked': True, 'notify_motion': 'slide'}
+meter.args.cfg['notifications'] = {'place': 'custom', 'locked': True, 'motion': 'slide'}
 calls.clear(); run(1.0)
 shows = [c for c in calls if c[0] == 'show']
 check('locked: the notice shows at the custom spot, sliding in from the left', ('hide',) in calls and shows[0][1] < 400 and shows[-1][1:] == (400, 700))
 run(4)
 # a different screen size: the spot keeps its share (1440p: 400/1080*1440)
 meter.last_screen = (0, 0, 2560, 1440); toast['queue'].append(('Big sent', 'x', '#7fb2ff'))
-meter.args.cfg['leaderboard']['notify_motion'] = 'fade'; calls.clear(); run(1)
+meter.args.cfg['notifications']['motion'] = 'fade'; calls.clear(); run(1)
 shows = [c for c in calls if c[0] == 'show']
 check('the custom spot scales with the game (1440p)', shows and shows[-1][1:] == (round(400 / 1080 * 1440), round(700 / 1080 * 1440)))
 run(4); meter.last_screen = (0, 0, 1920, 1080)
 # double-click the sample: back to the top right
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_place': 'custom', 'notify_locked': False}
+meter.args.cfg['notifications'] = {'place': 'custom', 'locked': False}
 run(0.1); handlers['<Double-Button-1>'](E(0, 0)); calls.clear(); run(0.1)
 shows = [c for c in calls if c[0] == 'show']
 check('double-click puts it back top right', 'notice' not in pos and shows and shows[-1][1] == 1920 - 360 - 18)
 
 
 # 10. Sanctum Helper's notice file: shown in the same system, then deleted
-meter.args.cfg['leaderboard'] = {'submit': True, 'notify_place': 'top-right', 'notify_motion': 'fade'}
+meter.args.cfg['notifications'] = {'place': 'top-right', 'motion': 'fade'}
 run(5)
 with open(os.path.join(NOTICES, '0001.json'), 'w', encoding='utf-8') as f:
     json.dump({'head': 'Chaos Mode found.', 'detail': 'Sanctum Helper', 'accent': '#e05a5a', 'screen': [0, 0, 1920, 1080], 'from': 'sanctum'}, f)

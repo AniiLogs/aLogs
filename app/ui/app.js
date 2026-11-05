@@ -11,9 +11,9 @@
       rush_position: "corner", result_seconds: 10 },
     capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
-    leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true,
-      notify_place: "top-right", notify_motion: "fade", notify_locked: true },
-    notifications: { button: true },   // the button over the game's own notice ("aLogs off" / "aLogs on")
+    leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true },
+    // every plug-in's notices over the game: where and how (each plug-in's own on/off is on its page), and the button's
+    notifications: { place: "top-right", motion: "fade", locked: true, button: true },
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
     // only moves the ones not listed, so a choice is never overwritten
     user_set: [],
@@ -1866,6 +1866,14 @@
     setInterval(() => loadReleases(version), 6 * 3600 * 1000);
     try {
       const stored = await invoke("get_settings");
+      // where notices show was the leaderboards' (leaderboard.notify_*) until they became every plug-in's: carried over
+      const oldNotices = stored?.leaderboard || {};
+      for (const key of ["place", "motion", "locked"]) {
+        if (oldNotices[`notify_${key}`] === undefined) continue;
+        stored.notifications = stored.notifications || {};
+        if (stored.notifications[key] === undefined) stored.notifications[key] = oldNotices[`notify_${key}`];
+        delete oldNotices[`notify_${key}`];
+      }
       const overlay = stored?.overlay;                    // settings from before 0.1.28: hide_from_capture, the opposite
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
       settings = merge(DEFAULTS, stored);
