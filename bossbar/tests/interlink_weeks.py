@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 TMP = tempfile.mkdtemp(prefix='alogs_weeks_')
 os.environ['ALOGS_DATA'] = TMP                  # before settings is imported: no star_caps.json, no game_cycles.json
-import live, reader as R
+import live, core, reader as R
 
 # week: (left, middle, right); a two-boss middle is (first boss, second boss). Each boss is (puppetId, its bar title).
 WEEKS = {
@@ -87,8 +87,8 @@ def refresh_check():
         @property
         def stop(self): Once.reads += 1; return Once.reads > 1
     meter = Once(); meter.args = types.SimpleNamespace(player_log=None); meter.catalog = R.load_catalog()
-    real = (R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], live.upload_cycles)
-    live.upload_cycles = lambda *a, **k: None
+    real = (R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], core.upload_cycles)
+    core.upload_cycles = lambda *a, **k: None
     try:
         with At(inside('4003')): live.refresh_cycles(meter)
         with open(path, encoding='utf-8') as f: written = json.load(f)
@@ -103,7 +103,7 @@ def refresh_check():
         Once.reads = 0
         with At(inside('4003')): live.refresh_cycles(meter)
         check('refresh_cycles: a schedule that matches is left alone', os.stat(path).st_mtime_ns, before)
-    finally: R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], live.upload_cycles = real
+    finally: R.CYCLES_FILE[0], R.GAME_BOSSES[0], R.GAME_GRADES[0], core.upload_cycles = real
 
 def level_check():
     """No boss level in the week schedule. bossrush_cycle_data.bossLv is a per-class constant the meter's PmData misreads

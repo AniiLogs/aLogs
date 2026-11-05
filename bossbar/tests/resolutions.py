@@ -11,12 +11,13 @@ import atexit, glob, logging, os, re, shutil, sys, tempfile, time, types
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from PIL import Image
-import live, reader as R
+import live, core, dps, records, reader as R
 
 SIZES = {'720p': (1280, 720), '900p': (1600, 900), '1080p': (1920, 1080), '1440p': (2560, 1440), '4K': (3840, 2160)}
 TMP = tempfile.mkdtemp(prefix='alogs_res_')
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)   # 41 of these were left in %TEMP%
-live.HERE = TMP; os.makedirs(os.path.join(TMP, 'logs'), exist_ok=True)
+for _m in (live, core, dps, records): _m.HERE = TMP   # the meter's data folder, in every part of it
+os.makedirs(os.path.join(TMP, 'logs'), exist_ok=True)
 
 class Capture(logging.Handler):
     def __init__(self): super().__init__(); self.lines = []

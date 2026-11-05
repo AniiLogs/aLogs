@@ -3,8 +3,9 @@
 import ast, os, sys
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = open(os.path.join(HERE, 'live.py'), encoding='utf-8').read()
-fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == 'meter_mode')
-ns = {}; exec(compile(ast.Module([fn], []), 'live.py', 'exec'), ns); meter_mode = ns['meter_mode']
+core_src = open(os.path.join(HERE, 'core.py'), encoding='utf-8').read()
+fn = next(n for n in ast.parse(core_src).body if isinstance(n, ast.FunctionDef) and n.name == 'meter_mode')
+ns = {}; exec(compile(ast.Module([fn], []), 'core.py', 'exec'), ns); meter_mode = ns['meter_mode']
 
 failed = False
 def check(name, ok):
