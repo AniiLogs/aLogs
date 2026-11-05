@@ -3,6 +3,27 @@
 Each `## x.y.z` section becomes that version's GitHub Release notes (`npm run release`). Write for players: what
 changed for them, not how it was done. Group under the headings that apply: **New**, **Improved**, **Fixed**.
 
+## 0.1.36
+
+### New
+- **Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn
+  on and off independently, and none needs another. With the DPS meter off, your records are still read and sent
+  (nothing of the meter shows over the game), and Sanctum Helper keeps running.
+- **The button over the game turns everything off, and back on:** one press turns off every part it controls; the
+  next turns back on the ones that were on (sending to the leaderboards only if it was on before). Pick which parts
+  it controls in General Settings › The button over the game. A notice says "aLogs off" or "aLogs on" with what it
+  switched; turn it off in General Settings › Notifications.
+- **A status line in the sidebar** under a part that needs a look: not signed in to the leaderboards, Sanctum Helper
+  needing .NET 9, or a part stopped after errors.
+
+### Improved
+- **Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the
+  DPS meter off. "Tell me when a record is sent" moved to Leaderboards › Sending; where notices show stays in General
+  Settings › Notifications, and your spot is kept.
+- **A problem in one part no longer stops the others:** if sending to the leaderboards or the DPS window keeps
+  failing, only that part stops and the sidebar says so; turn it off and on to try again.
+- **Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed.
+
 ## 0.1.35
 
 ### Fixed
