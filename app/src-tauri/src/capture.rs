@@ -917,14 +917,15 @@ pub fn start() {
             loop {
                 let now = now_ms();
                 shared.put_u64(HEARTBEAT, now); // alive (readers notice when the app is gone)
-                // switched off by the player (the overlay button or the app): nothing is captured at all
+                // the DPS meter switched off (the overlay button or the app): the flag tells the meter
                 let off = !crate::overlay_button::capture_on();
                 if shared.get_u32(60) != off as u32 {
                     shared.write(8, || shared.put_u32(60, off as u32));
                 }
-                // Switched off is the DPS meter's switch: the meter sees the flag and stops asking (it rests), and
-                // Sanctum Helper has its own switch (it isn't running when off), so the readers left (Sanctum Helper
-                // when on, the button's look at its icon row) keep their pictures. Nobody asking: nothing is captured.
+                // Switched off is the DPS meter's switch: the meter sees the flag and rests, unless it still reads
+                // results for the leaderboards (their own switch). Sanctum Helper has its own switch too, so the
+                // readers left (the meter reading results, Sanctum Helper, the button's look at its icon row) keep
+                // their pictures. Nobody asking: nothing is captured.
                 let only: Option<usize> = None;
                 // the next reader due (each at its own pace), or nobody: sleep
                 let due = (0..SLOTS)

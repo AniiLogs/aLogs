@@ -13,6 +13,7 @@
     results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true,
       notify_place: "top-right", notify_motion: "fade", notify_locked: true },
+    notifications: { button: true },   // the button over the game's own notice ("aLogs off" / "aLogs on")
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
     // only moves the ones not listed, so a choice is never overwritten
     user_set: [],
@@ -264,7 +265,17 @@
   async function captureSwitch() {
     // listening first, each on its own: a failed first read no longer leaves the page deaf to the button's changes
     try { await window.__TAURI__.event.listen("capture-switch", (event) => showCaptureSwitch(event.payload)); } catch { /* none */ }
-    // the button over the game is the master switch: it turns Sanctum Helper off and back on too
+    // the button over the game switches every plug-in: all off, or back on as they were. The meter's own switch comes
+    // with "capture-switch"; Sanctum Helper's and the leaderboards' follow here
+    try {
+      await window.__TAURI__.event.listen("plugins-switch", (event) => {
+        const on = event.payload || {};
+        if (typeof on.leaderboards === "boolean") {
+          settings.leaderboard = { ...(settings.leaderboard || {}), submit: on.leaderboards };
+          fill();
+        }
+      });
+    } catch { /* none */ }
     try {
       await window.__TAURI__.event.listen("sanctum-switch", (event) => {
         settings.sanctum = { ...(settings.sanctum || {}), enabled: Boolean(event.payload) };

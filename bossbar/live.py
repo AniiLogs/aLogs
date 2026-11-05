@@ -3994,19 +3994,26 @@ class Meter:
         hold = getattr(self, 'egg_hold', None)
         if hold and time.time() > hold[0]: self.egg_hold_end('time limit')
         self.auto_active()
-        # screen capture switched off (the overlay button or the app): end what's open and rest until it's back on
-        off = self.args.replay is None and wc.shared.switched_off()
-        if off != getattr(self, 'capture_off', False):
-            self.capture_off = off
-            log.info('screen capture switched ' + ('off' if off else 'on'))
-            if off:
-                self.end_auto('screen capture switched off')
-                if getattr(self, 'egg_hold', None): self.egg_hold_end('screen capture switched off')
+        # Each plug-in has its own switch. The DPS meter off (its switch in the app, or the button over the game) hides
+        # everything of the meter; the game is still read while the leaderboards are on (their own switch), since that's
+        # where the records come from: runs, end screens, Battle Data and proofs, with nothing of the meter over the
+        # game (quiet). Both off: end what's open and rest until one is back on.
+        mode = meter_mode(self.args.replay is None and wc.shared.switched_off(), self.args.cfg)
+        rest, quiet = mode == 'rest', mode == 'quiet'
+        if quiet != getattr(self, 'quiet', False):
+            self.quiet = quiet
+            log.info('the DPS meter is off: reading results for the leaderboards only' if quiet else 'the DPS meter shows again')
+        if rest != getattr(self, 'capture_off', False):
+            self.capture_off = rest
+            log.info('the DPS meter and the leaderboards are off: resting' if rest else 'reading the game again')
+            if rest:
+                self.end_auto('the DPS meter and the leaderboards were switched off')
+                if getattr(self, 'egg_hold', None): self.egg_hold_end('the DPS meter and the leaderboards were switched off')
                 self.hold.stop()
                 if CT.hidden: CT.hide_controllers(False)
                 if self.fight: self.end_fight('the DPS meter was switched off')
                 self.bar = None
-        if off:
+        if rest:
             self.out('status', 'The DPS meter is off'); return
         # out in the world, keep the app listening for the boss kill sound while a fight is on
         if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
@@ -4581,6 +4588,13 @@ def load_positions():
 SETTLE_S = 0.25         # s between looks while waiting for a proof screen to stop moving
 OVERLAY_REDRAW = 0.25   # s between redraws of the overlay's numbers (4 a second)
 BAR_HIDDEN = 0.5   # s without the game's boss bar before the labels around it are hidden too
+
+def meter_mode(meter_off, cfg):
+    """What the meter process does, from the DPS meter's switch and the leaderboards' (each plug-in its own): 'on' (the
+    meter reads and shows), 'quiet' (the DPS meter is off but records are still sent: the game is read, nothing of the
+    meter shows) or 'rest' (both off: nothing is read; the notices of the other plug-ins still show)."""
+    if not meter_off: return 'on'
+    return 'quiet' if (cfg.get('leaderboard') or {}).get('submit') else 'rest'
 
 def run_overlay(meter, hide):
     """The DPS window (drag to move, right-click to close the meter) and three HP labels attached to the boss bar.
@@ -5216,6 +5230,14 @@ def run_overlay(meter, hide):
         # (records come as (head, detail, accent) from submit.sent_notice)
         toast['queue'] = [n if isinstance(n, dict) else {'head': n[0], 'detail': n[1], 'accent': n[2], 'screen': None, 'kind': 'record'}
                           for n in toast['queue']]
+        # each plug-in owns its notices: one switched off since they came drops them (records: the leaderboards;
+        # 'sanctum': Sanctum Helper); this window shows them for every plug-in
+        cfg = meter.args.cfg
+        lb = cfg.get('leaderboard') or {}
+        owner_on = {'record': bool(lb.get('submit')) and lb.get('notify_sent', True) is not False,
+                    'sanctum': (cfg.get('sanctum') or {}).get('enabled', True) is not False,
+                    'button': (cfg.get('notifications') or {}).get('button', True) is not False}
+        toast['queue'] = [n for n in toast['queue'] if owner_on.get(n['kind'], True)]
         toast_sample()
         if toast['sample'] or toast['drag']: return                             # placing it: no notices until locked
         if toast['since'] is None:
@@ -5305,6 +5327,20 @@ def run_overlay(meter, hide):
                 if AWAY['on']: w.geometry(OFF)                         # tabbed out: out of the way
                 elif kind == 'img': layered.show(layered.top_hwnd(w), *where)
                 else: w.geometry(f'+{int(where[0])}+{int(where[1])}')
+        if getattr(meter, 'quiet', False):
+            # the DPS meter is off, the leaderboards still read the game: none of the meter's windows, its messages
+            # dropped; the notices (every plug-in's) go on
+            if not dps_at.get('quiet'):
+                dps_at['quiet'] = True
+                hide_alert(); hide_hp(); hide_dps(); dps_at['hide_at'] = None; dps_at['end'] = False
+                drawn['pending'] = None
+            try:
+                while True:
+                    k, d = q.get_nowait()
+                    if k == 'toast': toast['queue'].append(d)
+            except queue.Empty: pass
+            toast_tick(); return
+        dps_at['quiet'] = False
         f = meter.fight
         if AWAY['on'] and time.time() - getattr(meter, 'hit_at', 0) < 5:
             show_alert(f)                                               # tabbed out and your HP just dropped

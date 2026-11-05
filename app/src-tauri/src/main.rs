@@ -385,6 +385,7 @@ fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Re
     ensure_meter(&app)?;
     sanctum::share_settings(&settings);
     sanctum::ensure(&app, &settings);
+    overlay_button::refresh();   // the button is lit while any plug-in is on
     apply_priority(&app, &settings);
     Ok(true)
 }
@@ -892,6 +893,7 @@ fn main() {
                 }
                 let _ = ensure_meter(&handle);
                 sanctum::ensure(&handle, &read_settings());
+                overlay_button::refresh();
             });
             if minimized {
                 if let Some(window) = app.get_webview_window("main") {

@@ -90,6 +90,9 @@ DEFAULTS = {
         'notify_motion': 'fade',             # how it comes in: 'fade', 'slide' (from the nearest edge), 'drop' (from the top)
         'notify_locked': True,               # 'custom' place: off shows a sample notice to drag where they should show
     },
+    'notifications': {
+        'button': True,                      # the button over the game's notice when it turns aLogs off or on
+    },
     # the settings the player changed themselves ('capture.keep_hours', ...), kept by the app: a default that changes in
     # a later version only moves the ones not listed, so a choice is never overwritten
     'user_set': [],

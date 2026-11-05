@@ -81,7 +81,10 @@ const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 /// The default picture: the app's own icon.
 const APP_ICON: &[u8] = include_bytes!("../icons/128x128@2x.png");
 
+/// The DPS meter's switch (Run the DPS meter; kept as "capture_on" in overlay_button.json).
 static CAPTURE_ON: AtomicBool = AtomicBool::new(true);
+/// Any plug-in on (the DPS meter, Sanctum Helper, sending to the leaderboards): the button is lit; all off: grey.
+static ANY_ON: AtomicBool = AtomicBool::new(true);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 // Clicks the game takes: while the game holds the mouse (in combat, turning the camera) Windows gives it every click,
 // even one on this button over it, so the window never hears it. A low-level mouse hook sees them anyway: a left press
@@ -161,6 +164,8 @@ struct State {
     pad_label: String,
     /// How long the game's icon row must be gone before the button goes too (ms; General › The button over the game)
     hide_ms: u64,
+    /// The plug-ins the button turned off ([DPS meter, Sanctum Helper, leaderboards]), turned back on by its next press.
+    resume: Option<[bool; 3]>,
 }
 
 fn state_path() -> PathBuf {
@@ -183,6 +188,7 @@ fn load() -> State {
         pad_buttons: v["pad_buttons"].as_u64().unwrap_or(0) as u32,
         pad_label: v["pad_label"].as_str().unwrap_or("").to_string(),
         hide_ms: v["hide_ms"].as_u64().map_or(ROW_GONE_MS, |n| n.min(2000)),
+        resume: v["resume"].as_array().filter(|a| a.len() == 3).map(|a| [0, 1, 2].map(|i| a[i].as_bool().unwrap_or(false))),
     }
 }
 
@@ -191,7 +197,7 @@ fn save(s: &State) {
         "capture_on": CAPTURE_ON.load(Ordering::SeqCst), "show": s.show, "x": s.x, "y": s.y, "locked": s.locked, "always": s.always,
         "icon": s.icon.as_ref().map(|p| p.to_string_lossy().to_string()),
         "hotkey_vk": s.hotkey_vk, "hotkey_mods": s.hotkey_mods, "hotkey_label": s.hotkey_label,
-        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label, "hide_ms": s.hide_ms,
+        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label, "hide_ms": s.hide_ms, "resume": s.resume,
     });
     let path = state_path();
     let tmp = path.with_extension("json.tmp");
@@ -208,7 +214,7 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
     out
 }
 
-/// Screen capture is on (the capture thread and Sanctum Helper follow this).
+/// The DPS meter is on (the capture thread tells the meter; Sanctum Helper and the leaderboards have their own switches).
 pub fn capture_on() -> bool {
     STATE.lock().unwrap().get_or_insert_with(load);
     CAPTURE_ON.load(Ordering::SeqCst)
@@ -234,26 +240,93 @@ fn changed() {
     }
 }
 
-/// The button over the game (a click, its key, the controller combo) is the master switch: off turns off the DPS meter
-/// and Sanctum Helper; on brings the meter back and Sanctum Helper as it was. The sidebar and settings switches each
-/// control only their own part (set_capture alone for the meter).
-static SANCTUM_WAS_ON: AtomicBool = AtomicBool::new(true);
+/// The button over the game (a click, its key, the controller combo) is the switch for every plug-in: with any of them
+/// on (the DPS meter, Sanctum Helper, sending to the leaderboards) it turns them all off and remembers which were on;
+/// with all off it turns those back on. The sidebar and settings switches each control only their own plug-in.
+fn plugin_on(settings: &Value, pointer: &str, default: bool) -> bool {
+    settings.pointer(pointer).and_then(Value::as_bool).unwrap_or(default)
+}
+
 pub fn master_toggle() {
-    let on = !CAPTURE_ON.load(Ordering::SeqCst);
     let settings = crate::read_settings();
-    let sanctum_on = settings.pointer("/sanctum/enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
-    if !on {
-        SANCTUM_WAS_ON.store(sanctum_on, Ordering::SeqCst);
-        if sanctum_on { crate::write_setting("/sanctum/enabled", serde_json::Value::Bool(false)); }
-    } else if SANCTUM_WAS_ON.load(Ordering::SeqCst) && !sanctum_on {
-        crate::write_setting("/sanctum/enabled", serde_json::Value::Bool(true));
-    }
-    let sanctum_now = if on { SANCTUM_WAS_ON.load(Ordering::SeqCst) || sanctum_on } else { false };
+    let now = [CAPTURE_ON.load(Ordering::SeqCst), plugin_on(&settings, "/sanctum/enabled", true), plugin_on(&settings, "/leaderboard/submit", false)];
+    let to = with_state(|s| {
+        let (to, resume) = next_plugins(now, s.resume);
+        s.resume = resume;
+        to
+    });
+    if to[1] != now[1] { crate::write_setting("/sanctum/enabled", Value::Bool(to[1])); }
+    if to[2] != now[2] { crate::write_setting("/leaderboard/submit", Value::Bool(to[2])); }
     if let Some(app) = APP.get() {
-        let _ = app.emit("sanctum-switch", sanctum_now);   // the sidebar's Sanctum Helper switch follows
+        // the app's switches follow (the sidebar's, each plug-in's page)
+        let _ = app.emit("sanctum-switch", to[1]);
+        let _ = app.emit("plugins-switch", json!({ "meter": to[0], "sanctum": to[1], "leaderboards": to[2] }));
+        crate::sanctum::ensure(app, &crate::read_settings());
     }
-    crate::app_log(&format!("button: everything switched {}", if on { "on" } else { "off" }));
-    set_capture(on);
+    crate::app_log(&format!("button: plug-ins switched {} (meter {}, Sanctum Helper {}, leaderboards {})",
+        if to.iter().any(|&on| on) { "on" } else { "off" }, to[0], to[1], to[2]));
+    set_capture(to[0]);
+    if plugin_on(&settings, "/notifications/button", true) {
+        // which ones it switched: off, the ones that were on; on, the ones turned back on
+        let which = if to.iter().any(|&on| on) { to } else { now };
+        button_notice(to.iter().any(|&on| on), which);
+    }
+}
+
+/// The button's own notice ("aLogs off" / "aLogs on", General Settings › Notifications › The button over the game):
+/// dropped in the meter's notices folder like Sanctum Helper's, and shown in the same style and spot. The meter's
+/// process shows every plug-in's notices, even with them all off.
+const DOTNET_UNIX_TICKS: u128 = 621_355_968_000_000_000; // 1970-01-01 in .NET ticks
+
+fn button_notice(on: bool, which: [bool; 3]) {
+    let names: Vec<&str> = ["DPS meter", "Sanctum Helper", "leaderboards"].iter().zip(which).filter(|(_, w)| *w).map(|(n, _)| *n).collect();
+    let list = match names.len() {
+        0 => String::new(),
+        1 => names[0].to_string(),
+        n => format!("{} and {}", names[..n - 1].join(", "), names[n - 1]),
+    };
+    let detail = if list.is_empty() { String::new() } else if on { format!("Back on: {list}") } else { format!("Turned off: {list}") };
+    // the game window's client area, so the notice sits on the game even where the resting meter doesn't know it
+    let game = HWND(crate::capture::find_game() as _);
+    let mut rect = RECT::default();
+    let mut corner = POINT::default();
+    let screen = (!game.is_invalid() && unsafe { GetClientRect(game, &mut rect) }.is_ok() && rect.bottom >= 100
+        && unsafe { ClientToScreen(game, &mut corner) }.as_bool())
+        .then(|| json!([corner.x, corner.y, rect.right, rect.bottom]));
+    let notice = json!({
+        "head": if on { "aLogs on" } else { "aLogs off" }, "detail": detail,
+        "accent": if on { "#5cd18b" } else { "#8a94a6" }, "screen": screen, "from": "button",
+    });
+    let dir = crate::data_dir().join("notices");
+    let _ = std::fs::create_dir_all(&dir);
+    // written whole, then renamed (the meter never reads half a file); named like Sanctum Helper's (.NET ticks: 100 ns
+    // since the year 1, 20 digits) so the meter shows them all in the order they came
+    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() / 100);
+    let name = format!("{:020}-button", unix + DOTNET_UNIX_TICKS);
+    let tmp = dir.join(format!("{name}.tmp"));
+    if std::fs::write(&tmp, notice.to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join(format!("{name}.json")));
+    }
+}
+
+/// What a press of the button turns on: with any plug-in on ([DPS meter, Sanctum Helper, leaderboards]), all off,
+/// remembering which were on; with all off, the remembered ones back on. Nothing remembered (they were turned off one by
+/// one): the DPS meter and Sanctum Helper, not the leaderboards (sending is opt-in). Returns (switched to, remembered).
+fn next_plugins(now: [bool; 3], resume: Option<[bool; 3]>) -> ([bool; 3], Option<[bool; 3]>) {
+    if now.iter().any(|&on| on) {
+        ([false; 3], Some(now))
+    } else {
+        (resume.filter(|r| r.iter().any(|&on| on)).unwrap_or([true, true, false]), None)
+    }
+}
+
+/// Re-checks whether any plug-in is on, for the button's look (after the app's switches or settings change).
+pub fn refresh() {
+    let settings = crate::read_settings();
+    let any = capture_on() || plugin_on(&settings, "/sanctum/enabled", true) || plugin_on(&settings, "/leaderboard/submit", false);
+    if ANY_ON.swap(any, Ordering::SeqCst) != any {
+        changed();
+    }
 }
 
 pub fn set_capture(on: bool) {
@@ -261,6 +334,7 @@ pub fn set_capture(on: bool) {
     with_state(|_| CAPTURE_ON.store(on, Ordering::SeqCst));
     eprintln!("screen capture switched {}", if on { "on" } else { "off" });
     changed();
+    refresh();
 }
 
 pub fn set_shown(show: bool) {
@@ -374,7 +448,7 @@ fn picture(size: u32) -> Vec<u8> {
         // the aLogs icon in its own colours (the player preferred it to a white one like the game's icons)
         None => decode(APP_ICON, size).unwrap_or_else(|| vec![0u8; (size * size * 4) as usize]),
     };
-    if !CAPTURE_ON.load(Ordering::SeqCst) {
+    if !ANY_ON.load(Ordering::SeqCst) {
         for p in px.chunks_exact_mut(4) {
             // premultiplied: grey from the colours, then everything at 40%
             let grey = (p[0] as u32 * 29 + p[1] as u32 * 150 + p[2] as u32 * 77) >> 8;
@@ -543,7 +617,7 @@ unsafe fn paint(hwnd: HWND, l: &Layout) {
         let old = SelectObject(dc, bitmap.into());
         if let Some(text) = label() {
             draw_pill(dc, out, w, l, &text);
-            if !CAPTURE_ON.load(Ordering::SeqCst) {
+            if !ANY_ON.load(Ordering::SeqCst) {
                 if let Some((px, py, pw, ph)) = l.pill {
                     for y in py..py + ph {
                         for x in px..px + pw {
@@ -741,7 +815,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             let _ = GetWindowRect(hwnd, &mut rect);
             set_press(Some(Press { start: at, window: POINT { x: rect.left, y: rect.top }, dragging: false }));
             SetCapture(hwnd);
-            crate::app_log(&format!("button: pressed, capture {}", if CAPTURE_ON.load(Ordering::SeqCst) { "on" } else { "off" }));
+            crate::app_log(&format!("button: pressed, plug-ins {}", if ANY_ON.load(Ordering::SeqCst) { "on" } else { "off" }));
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
@@ -799,6 +873,7 @@ unsafe fn run() {
         let mut guard = STATE.lock().unwrap();
         guard.get_or_insert_with(load);
     }
+    refresh();
     let Ok(module) = GetModuleHandleW(None) else { return };
     let class = w!("aLogsCaptureButton");
     let wc = WNDCLASSW { lpfnWndProc: Some(proc), hInstance: module.into(), lpszClassName: class, ..Default::default() };
@@ -940,7 +1015,7 @@ unsafe fn run() {
             let wanted = s.show && in_front && row;
             if wanted {
                 if let Some(l) = layout(hwnd, game) {
-                    let look = (l, CAPTURE_ON.load(Ordering::SeqCst), label(), s.icon.clone());
+                    let look = (l, ANY_ON.load(Ordering::SeqCst), label(), s.icon.clone());
                     if drawn.as_ref() != Some(&look) && press().map_or(true, |p| !p.dragging) {
                         paint(hwnd, &l);
                         drawn = Some(look);
@@ -978,6 +1053,17 @@ unsafe fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn button_switches_every_plugin() {
+        // [DPS meter, Sanctum Helper, leaderboards]
+        assert_eq!(next_plugins([true, true, true], None), ([false; 3], Some([true, true, true])), "all on: all off, remembered");
+        assert_eq!(next_plugins([false, true, false], None), ([false; 3], Some([false, true, false])), "any one on: all off");
+        assert_eq!(next_plugins([false; 3], Some([false, true, true])), ([false, true, true], None), "back on: just those");
+        assert_eq!(next_plugins([false; 3], None), ([true, true, false], None), "nothing remembered: not the opt-in leaderboards");
+        assert_eq!(next_plugins([false; 3], Some([false; 3])), ([true, true, false], None), "remembered none: the same");
+        // a plug-in turned on by its own switch meanwhile: the press turns it off and remembers the new set
+        assert_eq!(next_plugins([false, false, true], Some([true, true, false])), ([false; 3], Some([false, false, true])));
+    }
     use super::*;
 
     /// The icon row found in pictures of the game's bottom left (x 0-1400, y 1985-2120 at 4K, scaled to a screen size),
@@ -1019,9 +1105,9 @@ mod tests {
             decode(APP_ICON, 20).unwrap()
         };
         assert_eq!(wide.len(), 20 * 20 * 4);
-        CAPTURE_ON.store(false, Ordering::SeqCst);
+        ANY_ON.store(false, Ordering::SeqCst);
         let dim = picture(44);
-        CAPTURE_ON.store(true, Ordering::SeqCst);
+        ANY_ON.store(true, Ordering::SeqCst);
         let bright = picture(44);
         let sum = |v: &[u8]| v.chunks_exact(4).map(|p| p[3] as u64).sum::<u64>();
         assert!(sum(&dim) * 2 < sum(&bright), "off is much fainter");
@@ -1041,7 +1127,7 @@ mod look {
     fn render_row_button() {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, always: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new(), hide_ms: ROW_GONE_MS });
+            *STATE.lock().unwrap() = Some(State { show: true, x: None, y: None, locked: false, always: false, icon: None, hotkey_vk: VK_INSERT, hotkey_mods: 0, hotkey_label: "Ins".into(), pad_buttons: 0, pad_label: String::new(), hide_ms: ROW_GONE_MS, resume: None });
             let k = 1.0;
             let icon = (ROW_ICON * k).round() as i32;
             let font = (ROW_FONT * k).round() as i32;
@@ -1051,7 +1137,7 @@ mod look {
             let gap = ((ROW_ICON_UP - ROW_PILL_UP) * k - (ROW_ICON + ROW_PILL_H) * k / 2.0).round() as i32;
             let l = Layout { x: 0, y: 0, w, h: icon + gap + pill_h, icon, pill: Some(((w - pw) / 2, icon + gap, pw, pill_h)), font };
             for on in [true, false] {
-                CAPTURE_ON.store(on, Ordering::SeqCst);
+                ANY_ON.store(on, Ordering::SeqCst);
                 let pixels = picture(l.icon as u32);
                 let dc = CreateCompatibleDC(None);
                 let info = BITMAPINFO {

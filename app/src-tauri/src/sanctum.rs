@@ -58,8 +58,10 @@ fn exe(app: &AppHandle) -> Option<PathBuf> {
     dev.exists().then_some(dev)
 }
 
+/// Sanctum Helper's own switch alone: it doesn't depend on the DPS meter or the leaderboards (the button over the game
+/// turns it off and back on through this same setting).
 pub fn enabled(settings: &Value) -> bool {
-    settings.pointer("/sanctum/enabled").and_then(Value::as_bool).unwrap_or(true) && crate::overlay_button::capture_on()
+    settings.pointer("/sanctum/enabled").and_then(Value::as_bool).unwrap_or(true)
 }
 
 /// Sanctum Helper runs on the PC's .NET Desktop Runtime, version 9 or newer (Program Files\dotnet\shared).

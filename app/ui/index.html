@@ -101,7 +101,7 @@
       <div class="dps-panel is-active" data-panel="meter">
         <div class="group">
           <label class="toggle"><input type="checkbox" data-capture-meter><span></span>
-            <div><strong>Run the DPS meter</strong><small>Also in the sidebar. When off, the meter doesn't look at the game: no overlay, no saved results or Battle Data, nothing sent to the leaderboards. The button over the game turns off the meter and Sanctum Helper together.</small></div></label>
+            <div><strong>Run the DPS meter</strong><small>Also in the sidebar. When off, nothing of the meter shows over the game. Sanctum Helper and the leaderboards have their own switches and keep working either way.</small></div></label>
         </div>
         <div class="group">
           <label class="field"><span>How often the meter looks for a boss bar in Interlink and around a fight</span>
@@ -214,7 +214,7 @@
           <button type="button" role="tab" data-tab="account" aria-selected="false">Account</button>
         </div>
       <div class="dps-panel is-active" data-panel="sending">
-        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink, Holo-Battle Sim and Operation: Egg Heist). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on. The DPS meter reads the records, so it has to be running too.</p>
+        <p class="lead">Optional. Send your records to the AniiLogs leaderboards (Holo-Battle Interlink, Holo-Battle Sim and Operation: Egg Heist). They show under your in-game name, linked to your AniiLogs account (you sign in with Discord). Nothing is sent unless you turn this on. It works on its own: the DPS meter can be on or off.</p>
         <div class="group">
           <label class="toggle"><input type="checkbox" data-k="leaderboard.submit"><span></span>
             <div><strong>Send my records to the leaderboards</strong><small>Also in the sidebar. Each run's result (score, stars, time, team DPS), every player's Battle Data, your Holo-Battle Sim setup, your Egg Heist matches and rank, and your weekly and per-boss best scores. Off: nothing is sent, and the automation doesn't run.</small></div></label>
@@ -368,7 +368,7 @@
         <div class="group">
           <h2>The button over the game</h2>
           <label class="toggle"><input type="checkbox" data-capture-button><span></span>
-            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while the meter is on, dim while it's off. It shows only when the game shows its icons. Click it, or press its hotkey, to turn the DPS meter and Sanctum Helper off or on together. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
+            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while any plug-in is on, dim while all are off. It shows only when the game shows its icons. Click it, or press its hotkey, to turn every plug-in off (the DPS meter, Sanctum Helper and sending to the leaderboards); click it again to turn back on the ones that were on. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-lock><span></span>
             <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still turn the DPS meter and Sanctum Helper off or on.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-always><span></span>
@@ -410,7 +410,12 @@
 
       <!-- Themes: the AniiLogs site's themes, for this window only -->
       <div class="dps-panel" data-panel="notifications">
-        <p class="lead">Small notices over the game, in the spot you pick. They show while the game is in front, one at a time. Sanctum Helper's notices ("Chaos Mode found") show here the same way while the DPS meter is on; turn them on or off on the Sanctum Helper page.</p>
+        <p class="lead">Small notices over the game, in the spot you pick. They show while the game is in front, one at a time. Each plug-in has its own: Sanctum Helper's ("Chaos Mode found") are turned on or off on the Sanctum Helper page, the leaderboards' below. They show while their plug-in is on, whether or not the DPS meter is.</p>
+        <div class="group">
+          <h2>The button over the game</h2>
+          <label class="toggle"><input type="checkbox" data-k="notifications.button"><span></span>
+            <div><strong>Tell me when the button turns aLogs off or on</strong><small>"aLogs off" with the plug-ins it turned off, "aLogs on" with the ones it turned back on.</small></div></label>
+        </div>
         <div class="group">
           <h2>Leaderboards</h2>
           <label class="toggle"><input type="checkbox" data-k="leaderboard.notify_sent"><span></span>
