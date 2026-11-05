@@ -557,7 +557,11 @@ def run_overlay(meter, hide):
         # everything frozen as it was ("You're being attacked" stuck over other windows for minutes)
         try: poll_tick()
         except Exception:
-            if time.time() - poll_error['at'] > 60: poll_error['at'] = time.time(); log.exception('overlay: error (it keeps going)')
+            # the DPS meter's (logged [dps], counted): three in a minute stop it, and its windows go (the notices stay).
+            # Stopped, what still fails is logged once a minute
+            if not HEALTH.failed('dps'): HEALTH.error('dps', sys.exc_info()[1], 'overlay')
+            elif time.time() - poll_error['at'] > 60:
+                poll_error['at'] = time.time(); log.exception('overlay: error with the DPS meter stopped (it keeps going)')
         root.after(15, poll)    # tabbing in/out and new readings show within a frame or two
     drawn = {'at': 0.0, 'pending': None}     # the overlay's last redraw, and the newest reading waiting for its turn
     def poll_tick():
@@ -586,9 +590,9 @@ def run_overlay(meter, hide):
                 if AWAY['on']: w.geometry(OFF)                         # tabbed out: out of the way
                 elif kind == 'img': layered.show(layered.top_hwnd(w), *where)
                 else: w.geometry(f'+{int(where[0])}+{int(where[1])}')
-        if getattr(meter, 'quiet', False):
-            # the DPS meter is off, the leaderboards still read the game: none of the meter's windows, its messages
-            # dropped; the notices (every plug-in's) go on
+        if getattr(meter, 'quiet', False) or getattr(meter, 'capture_off', False) or HEALTH.failed('dps'):
+            # the DPS meter is off (or stopped for errors), whether or not the leaderboards still read the game: none of
+            # its windows, its messages dropped; the notices (every plug-in's) go on
             if not dps_at.get('quiet'):
                 dps_at['quiet'] = True
                 hide_alert(); hide_hp(); hide_dps(); dps_at['hide_at'] = None; dps_at['end'] = False

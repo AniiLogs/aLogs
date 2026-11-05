@@ -32,6 +32,7 @@ log = types.SimpleNamespace(info=lambda m: calls.append(('log', m)))
 time = types.SimpleNamespace(time=lambda: clock[0])
 NOTICES = tempfile.mkdtemp(prefix='notices-')
 from notice_window import notice_settings   # General Settings > Notifications, read by the block
+from plugins import notice_owners             # who owns which notice (plugins.json)
 exec(block)
 
 def run(seconds, step=0.015):

@@ -48,8 +48,22 @@
     }
     return out;
   }
+  // Settings kept under an older name, moved to where they are now - on load and on every save (a save starts from the
+  // file, so a choice only moved in memory would be lost). Where notices show was the leaderboards'
+  // (leaderboard.notify_place, notify_motion, notify_locked) until they became every plug-in's (notifications.*).
+  function migrateStored(stored) {
+    const old = stored?.leaderboard;
+    if (!old) return stored;
+    for (const key of ["place", "motion", "locked"]) {
+      if (old[`notify_${key}`] === undefined) continue;
+      stored.notifications = stored.notifications || {};
+      if (stored.notifications[key] === undefined) stored.notifications[key] = old[`notify_${key}`];
+      delete old[`notify_${key}`];
+    }
+    return stored;
+  }
   async function saveChanges() {
-    const fresh = merge(DEFAULTS, await invoke("get_settings"));
+    const fresh = merge(DEFAULTS, migrateStored(await invoke("get_settings")));
     for (const path of changed) {
       const keys = path.split(".");
       const last = keys.pop();
@@ -270,10 +284,11 @@
     try {
       await window.__TAURI__.event.listen("plugins-switch", (event) => {
         const on = event.payload || {};
-        if (typeof on.leaderboards === "boolean") {
-          settings.leaderboard = { ...(settings.leaderboard || {}), submit: on.leaderboards };
-          fill();
+        for (const p of pluginList) {
+          if (typeof on[p.id] !== "boolean" || !String(p.switch).startsWith("/")) continue;   // the meter's: capture-switch
+          set(p.switch.slice(1).split("/").join("."), on[p.id]);
         }
+        fill();
       });
     } catch { /* none */ }
     try {
@@ -408,6 +423,74 @@
     }
   });
   $("[data-capture-pad-clear]").addEventListener("click", () => setSwitch({ pad: { buttons: 0, label: "" } }));
+
+  // ---------------------------------------------------------------- plug-ins
+  // The one list of plug-ins (bossbar/plugins.json, the meter reads it too): which the button over the game switches
+  // (General Settings, made from the list) and each one's status under its name in the sidebar.
+  let pluginList = [];
+  async function loadPlugins() {
+    try { pluginList = (await invoke("plugins")).plugins || []; } catch { pluginList = []; }
+    const anchor = $("[data-button-controls]");
+    if (anchor) {
+      anchor.replaceChildren();
+      // every plug-in by default: in DEFAULTS too, which each save starts from (with the file)
+      DEFAULTS.button = { controls: Object.fromEntries(pluginList.map((p) => [p.id, true])) };
+      settings = merge(DEFAULTS, settings);
+      for (const p of pluginList) {
+        const label = document.createElement("label");
+        label.className = "toggle";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.dataset.k = `button.controls.${p.id}`;
+        const strong = document.createElement("strong");
+        strong.textContent = p.name;
+        const small = document.createElement("small");
+        small.textContent = p.about || "";
+        const text = document.createElement("div");
+        text.append(strong, small);
+        label.append(input, document.createElement("span"), text);
+        anchor.append(label);
+        bindSetting(input);
+      }
+    }
+    for (const p of pluginList) {
+      const nav = $(`.nav [data-page="${p.page}"] > span:first-child`);
+      if (nav && !nav.querySelector("[data-plugin-status]")) {
+        const line = document.createElement("small");
+        line.className = "nav-status";
+        line.dataset.pluginStatus = p.id;
+        nav.append(line);
+      }
+    }
+    fill();
+  }
+  // Each plug-in's state, from the meter (status.json: the DPS meter, the leaderboards) and Sanctum Helper (its own):
+  // nothing shown while it's simply on or off, a short line when it needs a look ("Not signed in", "Stopped: errors").
+  let sanctumLook = { at: 0, state: null };
+  async function pluginStatuses() {
+    if (Date.now() - sanctumLook.at > 3000) {
+      sanctumLook.at = Date.now();
+      try { sanctumLook.state = await invoke("sanctum_state"); } catch { sanctumLook.state = null; }
+    }
+    const meter = (status && status.plugins) || {};
+    const sanctumOn = settings.sanctum?.enabled !== false;
+    const s = sanctumLook.state;
+    const sanctum = !sanctumOn ? { state: "off" }
+      : !s ? { state: "on" }
+      : !s.installed ? { state: "attention", why: "Not in this build" }
+      : s.runtimeMissing ? { state: "attention", why: "Needs .NET 9 (its page)" }
+      : s.standaloneRunning ? { state: "attention", why: "Another copy is running" }
+      : s.starting ? { state: "waiting", why: "Starting" }
+      : { state: "on" };
+    const shown = { dps: meter.dps, leaderboards: meter.leaderboards, sanctum };
+    for (const line of $$("[data-plugin-status]")) {
+      const st = shown[line.dataset.pluginStatus] || {};
+      const why = st.state === "failed" ? "Stopped after errors" : st.state === "on" || st.state === "off" ? "" : (st.why || "");
+      line.textContent = why ? why.charAt(0).toUpperCase() + why.slice(1).split(":")[0] : "";
+      line.title = st.why || "";
+      line.dataset.state = st.state || "";
+    }
+  }
 
   // ---------------------------------------------------------------- settings form
   function fill() {
@@ -806,7 +889,7 @@
     await uploadNewPhotos();
   }, 3000);
 
-  for (const input of $$("[data-k]")) {
+  function bindSetting(input) {
     input.addEventListener("change", () => {
       let value = input.type === "checkbox" ? input.checked : input.value.trim();
       if (input.dataset.type === "number") value = Number(value);
@@ -822,6 +905,7 @@
       scheduleSave();
     });
   }
+  for (const input of $$("[data-k]")) bindSetting(input);
   $("[data-reveal]").addEventListener("click", (event) => {
     const field = $('[data-k="leaderboard.token"]');
     field.type = field.type === "password" ? "text" : "password";
@@ -1629,6 +1713,7 @@
       status = {};
     }
     render();
+    void pluginStatuses();
   }
 
   // ---------------------------------------------------------------- first run
@@ -1866,14 +1951,7 @@
     setInterval(() => loadReleases(version), 6 * 3600 * 1000);
     try {
       const stored = await invoke("get_settings");
-      // where notices show was the leaderboards' (leaderboard.notify_*) until they became every plug-in's: carried over
-      const oldNotices = stored?.leaderboard || {};
-      for (const key of ["place", "motion", "locked"]) {
-        if (oldNotices[`notify_${key}`] === undefined) continue;
-        stored.notifications = stored.notifications || {};
-        if (stored.notifications[key] === undefined) stored.notifications[key] = oldNotices[`notify_${key}`];
-        delete oldNotices[`notify_${key}`];
-      }
+      migrateStored(stored);
       const overlay = stored?.overlay;                    // settings from before 0.1.28: hide_from_capture, the opposite
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
       settings = merge(DEFAULTS, stored);
@@ -1886,6 +1964,7 @@
       settings = structuredClone(DEFAULTS);
     }
     fill();
+    await loadPlugins();
     await refresh();
     void syncAccountPrefs();
     try {

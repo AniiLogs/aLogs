@@ -596,4 +596,14 @@ class LeaderboardsMixin:
         self.presence_sent = (self.uid, state, now)
         self.submitter.presence(self.uid, state)
 
+# The leaderboards' methods the core calls: an error in one is the plug-in's (logged as [leaderboards], counted; three
+# in a minute stop the plug-in until its switch is turned off and on), not the reading loop's.
+ENTRY = {'auto_active': False, 'check_pending_run': None, 'egg_fade': None, 'egg_hold_end': None, 'end_auto': None,
+         'link_poll': None, 'link_read': None, 'open_battle_data': None, 'presence_tick': None, 'proof_crop': None,
+         'prove_name': None, 'sent_notice': None, 'sim_check': None, 'sim_gate': None, 'sim_tour_step': False,
+         'start_auto': None, 'proof_with_overlay': None, 'run_to_send': False, 'sim_release': None, 'sim_send': None,
+         'sim_tour_start': False}
+for _name, _fallback in ENTRY.items():
+    setattr(LeaderboardsMixin, _name, guarded('leaderboards', _fallback)(getattr(LeaderboardsMixin, _name)))
+
 __all__ = ['EGG_BLACK', 'GIZMO_LIST_BOX', 'HOLD_MIN', 'PROOF_BYTES', 'RESULT_PAUSE', 'SIM_GATE_GONE', 'SIM_PRESS_EARLY', 'SIM_VICTORY_WAIT', 'gizmo_list_same', 'gizmo_list_sig', 'save_proof', 'sim_gate_pill', 'LeaderboardsMixin']

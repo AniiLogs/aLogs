@@ -22,6 +22,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     # results.py, the leaderboards plug-in in leaderboards.py
     def __init__(self, args, out):
         self.args, self.out = args, out
+        self.switches = SwitchWatch()                    # each plug-in's switch, to give a stopped one another go
         self.catalog, self.grades = R.load_catalog(), R.load_grades(); self.xn_tpl = X.load_templates()   # grades: refresh_cycles
         # the OCR helper not starting (an older one stopped when Windows had no en-US OCR; now it starts and says it has
         # no language): the meter then runs on what it reads from pixels (the boss bar, xN, the game font's numbers)
@@ -1125,7 +1126,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # everything of the meter; the game is still read while the leaderboards are on (their own switch), since that's
         # where the records come from: runs, end screens, Battle Data and proofs, with nothing of the meter over the
         # game (quiet). Both off: end what's open and rest until one is back on.
-        mode = meter_mode(self.args.replay is None and wc.shared.switched_off(), self.args.cfg)
+        meter_off = self.args.replay is None and wc.shared.switched_off()
+        self.switches.tick(self.args.cfg, not meter_off)     # a stopped plug-in switched off and on: another go
+        mode = meter_mode(meter_off, self.args.cfg)
         rest, quiet = mode == 'rest', mode == 'quiet'
         if quiet != getattr(self, 'quiet', False):
             self.quiet = quiet
@@ -1171,7 +1174,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         top_only = not partial and self.fight is None and self.bar is None and self.args.replay is None and not due
         im = self.grab(partial, top_only, self.screen_parts(time.time()) if due == 'screen' else None)
         self.away_note(im)
-        self.hit_watch(time.time())
+        if not getattr(self, 'quiet', False): self.hit_watch(time.time())   # "You're being attacked": the DPS meter's
         if im is None:
             self.out('status', 'waiting for the game window' if not self.hwnd else "can't see the game window"); return
         now = time.time()
@@ -1195,6 +1198,11 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 found = R.as_bossrush_bar(found)                    # Interlink at x1: the xN box can be gone
             elif found and not self.bossrush_space and scene_of(self.space) is not None and self.args.replay is None:
                 found = R.as_world_bar(found)                       # the open world: a hit flash is no xN box
+            # the DPS meter off, only the leaderboards reading (quiet): a boss out in the world is the meter's alone (no
+            # record comes of it), so it isn't followed - Interlink, Holo-Battle Sim and an open fight still are
+            if (found and getattr(self, 'quiet', False) and found.get('world') and not self.fight
+                    and not (self.bossrush_space or self.holosim_space)):
+                found = None
             if found:
                 self.end_auto('boss bar is back')
                 old = self.bar
@@ -1336,6 +1344,25 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 self.stop = True; return True
         return False
 
+    def plugin_status(self):
+        """Each plug-in this process runs (plugins.json, those that need the game read), for the app's sidebar: its
+        switch, its state ('on', 'off', 'resting', 'waiting', 'attention', 'failed') and why, and its last error."""
+        cfg = self.args.cfg
+        meter_on = not (self.args.replay is None and wc.shared.switched_off())
+        out = {}
+        for pid, p in PLUGINS.items():
+            if 'reader' not in p['needs']: continue
+            health = HEALTH.status(pid); on = switched_on(cfg, pid, meter_on)
+            if health['failed']: state, why = 'failed', 'stopped after repeated errors: turn it off and on to try again'
+            elif not on: state, why = 'off', ''
+            elif getattr(self, 'homeland_rest', False): state, why = 'resting', 'in a homeland: nothing is read there'
+            elif not self.hwnd: state, why = 'waiting', 'waiting for the game'
+            elif pid == 'leaderboards' and not str((cfg.get('leaderboard') or {}).get('token', '')).startswith('alb_'):
+                state, why = 'attention', 'not signed in: sign in on its Account tab'
+            else: state, why = 'on', ''
+            out[pid] = {'on': on, 'state': state, 'why': why, 'last_error': health['last_error']}
+        return out
+
     def write_status(self, now):
         """status.json for the desktop app's dashboard, about once a second."""
         if now - self.last_status < 1.0: return
@@ -1348,6 +1375,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             'game_window': bool(self.hwnd), 'capture': wc.shared.source or None,
             'homeland': bool(getattr(self, 'homeland_rest', False)),   # nothing captured there (the app's button too)
             'notices': bool(getattr(self, 'takes_notices', False)),     # Sanctum Helper hands its notices over (NOTICES)
+            'plugins': self.plugin_status(),                            # each plug-in this process runs (the sidebar)
             'frame': list(self.last_size) if self.last_size else None, 'boss_bar': self.bar is not None,
             # boss_of: a two-boss middle fight's boss on the bar, [1, 2] or [2, 2] (None on one-boss fights); damage and
             # max_hp are the run's, both bosses' so far (Fight)

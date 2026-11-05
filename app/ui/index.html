@@ -370,9 +370,13 @@
         <div class="group">
           <h2>The button over the game</h2>
           <label class="toggle"><input type="checkbox" data-capture-button><span></span>
-            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while any plug-in is on, dim while all are off. It shows only when the game shows its icons. Click it, or press its hotkey, to turn every plug-in off (the DPS meter, Sanctum Helper and sending to the leaderboards); click it again to turn back on the ones that were on. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
+            <div><strong>On/off button in the game's icon row</strong><small>The aLogs icon just left of the game's Chat icon (it follows Chat when the row moves), drawn like the game's icons, with its hotkey under it (your controller's while you play with one), bright while any plug-in is on, dim while all are off. It shows only when the game shows its icons. Click it, or press its hotkey, to turn off the plug-ins it controls (picked below); click it again to turn back on the ones that were on. Hold Alt to drag it somewhere else; lock it and pick its picture below.</small></div></label>
+          <div class="button-controls">
+            <p class="hint">The plug-ins the button turns off and back on:</p>
+            <div data-button-controls></div>
+          </div>
           <label class="toggle"><input type="checkbox" data-capture-lock><span></span>
-            <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still turn the DPS meter and Sanctum Helper off or on.</small></div></label>
+            <div><strong>Lock the button in place</strong><small>It can't be dragged by accident; clicks still turn the plug-ins off or on.</small></div></label>
           <label class="toggle"><input type="checkbox" data-capture-always><span></span>
             <div><strong>Always show the button</strong><small>Shown whenever the game is in front, even while the game hides its icons (menus, the map, loading screens), so it never disappears with a controller or an unusual layout.</small></div></label>
           <label class="field"><span>When the game hides its icons, the button goes</span>

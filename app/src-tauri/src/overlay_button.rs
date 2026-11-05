@@ -164,8 +164,8 @@ struct State {
     pad_label: String,
     /// How long the game's icon row must be gone before the button goes too (ms; General › The button over the game)
     hide_ms: u64,
-    /// The plug-ins the button turned off ([DPS meter, Sanctum Helper, leaderboards]), turned back on by its next press.
-    resume: Option<[bool; 3]>,
+    /// The plug-ins the button turned off ({id: was on}), turned back on by its next press.
+    resume: Option<serde_json::Map<String, Value>>,
 }
 
 fn state_path() -> PathBuf {
@@ -188,7 +188,7 @@ fn load() -> State {
         pad_buttons: v["pad_buttons"].as_u64().unwrap_or(0) as u32,
         pad_label: v["pad_label"].as_str().unwrap_or("").to_string(),
         hide_ms: v["hide_ms"].as_u64().map_or(ROW_GONE_MS, |n| n.min(2000)),
-        resume: v["resume"].as_array().filter(|a| a.len() == 3).map(|a| [0, 1, 2].map(|i| a[i].as_bool().unwrap_or(false))),
+        resume: v["resume"].as_object().cloned(),
     }
 }
 
@@ -240,36 +240,54 @@ fn changed() {
     }
 }
 
-/// The button over the game (a click, its key, the controller combo) is the switch for every plug-in: with any of them
-/// on (the DPS meter, Sanctum Helper, sending to the leaderboards) it turns them all off and remembers which were on;
-/// with all off it turns those back on. The sidebar and settings switches each control only their own plug-in.
+/// The button over the game (a click, its key, the controller combo) switches every plug-in it controls (plugins.json;
+/// General Settings › The button over the game picks which): with any of them on it turns them all off and remembers
+/// which were on; with all off it turns those back on. The sidebar and settings switches each control only their own.
 fn plugin_on(settings: &Value, pointer: &str, default: bool) -> bool {
     settings.pointer(pointer).and_then(Value::as_bool).unwrap_or(default)
 }
 
 pub fn master_toggle() {
     let settings = crate::read_settings();
-    let now = [CAPTURE_ON.load(Ordering::SeqCst), plugin_on(&settings, "/sanctum/enabled", true), plugin_on(&settings, "/leaderboard/submit", false)];
+    let ours: Vec<crate::plugins::Plugin> = crate::plugins::list().into_iter().filter(|p| crate::plugins::controlled(p, &settings)).collect();
+    if ours.is_empty() {
+        crate::app_log("button: pressed, but it controls no plug-in (General Settings › The button over the game)");
+        return;
+    }
+    let now: Vec<bool> = ours.iter().map(|p| crate::plugins::is_on(p, &settings)).collect();
+    let fresh: Vec<bool> = ours.iter().map(|p| !p.opt_in).collect();
     let to = with_state(|s| {
-        let (to, resume) = next_plugins(now, s.resume);
-        s.resume = resume;
+        let remembered = s.resume.as_ref().map(|r| ours.iter().map(|p| r.get(&p.id).and_then(Value::as_bool).unwrap_or(false)).collect());
+        let (to, resume) = next_plugins(&now, remembered, &fresh);
+        s.resume = resume.map(|r| ours.iter().zip(r).map(|(p, on)| (p.id.clone(), Value::Bool(on))).collect());
         to
     });
-    if to[1] != now[1] { crate::write_setting("/sanctum/enabled", Value::Bool(to[1])); }
-    if to[2] != now[2] { crate::write_setting("/leaderboard/submit", Value::Bool(to[2])); }
+    // the settings first, the meter's own switch last (it refreshes the button's look)
+    let mut meter = None;
+    for (p, (&was, &on)) in ours.iter().zip(now.iter().zip(&to)) {
+        if p.switch == "meter" { meter = Some(on); } else if was != on { crate::plugins::set_on(p, on); }
+    }
+    match meter {
+        Some(on) => set_capture(on),
+        None => refresh(),
+    }
     if let Some(app) = APP.get() {
         // the app's switches follow (the sidebar's, each plug-in's page)
-        let _ = app.emit("sanctum-switch", to[1]);
-        let _ = app.emit("plugins-switch", json!({ "meter": to[0], "sanctum": to[1], "leaderboards": to[2] }));
-        crate::sanctum::ensure(app, &crate::read_settings());
+        let all = crate::read_settings();
+        let state: serde_json::Map<String, Value> =
+            crate::plugins::list().iter().map(|p| (p.id.clone(), Value::Bool(crate::plugins::is_on(p, &all)))).collect();
+        if let Some(on) = state.get("sanctum") { let _ = app.emit("sanctum-switch", on.clone()); }
+        let _ = app.emit("plugins-switch", Value::Object(state));
+        crate::sanctum::ensure(app, &all);
     }
-    crate::app_log(&format!("button: plug-ins switched {} (meter {}, Sanctum Helper {}, leaderboards {})",
-        if to.iter().any(|&on| on) { "on" } else { "off" }, to[0], to[1], to[2]));
-    set_capture(to[0]);
+    let any = to.iter().any(|&on| on);
+    let said: Vec<String> = ours.iter().zip(&to).map(|(p, on)| format!("{} {}", p.id, on)).collect();
+    crate::app_log(&format!("button: plug-ins switched {} ({})", if any { "on" } else { "off" }, said.join(", ")));
     if plugin_on(&settings, "/notifications/button", true) {
         // which ones it switched: off, the ones that were on; on, the ones turned back on
-        let which = if to.iter().any(|&on| on) { to } else { now };
-        button_notice(to.iter().any(|&on| on), which);
+        let which = if any { &to } else { &now };
+        let names: Vec<String> = ours.iter().zip(which).filter(|(_, &w)| w).map(|(p, _)| p.name.clone()).collect();
+        button_notice(any, &names);
     }
 }
 
@@ -278,8 +296,7 @@ pub fn master_toggle() {
 /// process shows every plug-in's notices, even with them all off.
 const DOTNET_UNIX_TICKS: u128 = 621_355_968_000_000_000; // 1970-01-01 in .NET ticks
 
-fn button_notice(on: bool, which: [bool; 3]) {
-    let names: Vec<&str> = ["DPS meter", "Sanctum Helper", "leaderboards"].iter().zip(which).filter(|(_, w)| *w).map(|(n, _)| *n).collect();
+fn button_notice(on: bool, names: &[String]) {
     let list = match names.len() {
         0 => String::new(),
         1 => names[0].to_string(),
@@ -309,21 +326,22 @@ fn button_notice(on: bool, which: [bool; 3]) {
     }
 }
 
-/// What a press of the button turns on: with any plug-in on ([DPS meter, Sanctum Helper, leaderboards]), all off,
-/// remembering which were on; with all off, the remembered ones back on. Nothing remembered (they were turned off one by
-/// one): the DPS meter and Sanctum Helper, not the leaderboards (sending is opt-in). Returns (switched to, remembered).
-fn next_plugins(now: [bool; 3], resume: Option<[bool; 3]>) -> ([bool; 3], Option<[bool; 3]>) {
+/// What a press of the button turns on, for the plug-ins it controls: with any of them on, all off, remembering which
+/// were on; with all off, the remembered ones back on. Nothing remembered (they were turned off one by one): `fresh`,
+/// the ones that aren't opt-in (sending to the leaderboards is). Returns (switched to, remembered).
+fn next_plugins(now: &[bool], resume: Option<Vec<bool>>, fresh: &[bool]) -> (Vec<bool>, Option<Vec<bool>>) {
     if now.iter().any(|&on| on) {
-        ([false; 3], Some(now))
+        (vec![false; now.len()], Some(now.to_vec()))
     } else {
-        (resume.filter(|r| r.iter().any(|&on| on)).unwrap_or([true, true, false]), None)
+        (resume.filter(|r| r.len() == now.len() && r.iter().any(|&on| on)).unwrap_or_else(|| fresh.to_vec()), None)
     }
 }
 
-/// Re-checks whether any plug-in is on, for the button's look (after the app's switches or settings change).
+/// Re-checks whether any plug-in the button controls is on, for its look (after the app's switches or settings change).
 pub fn refresh() {
     let settings = crate::read_settings();
-    let any = capture_on() || plugin_on(&settings, "/sanctum/enabled", true) || plugin_on(&settings, "/leaderboard/submit", false);
+    let ours: Vec<crate::plugins::Plugin> = crate::plugins::list().into_iter().filter(|p| crate::plugins::controlled(p, &settings)).collect();
+    let any = ours.iter().any(|p| crate::plugins::is_on(p, &settings));
     if ANY_ON.swap(any, Ordering::SeqCst) != any {
         changed();
     }
@@ -1055,14 +1073,19 @@ unsafe fn run() {
 mod tests {
     #[test]
     fn button_switches_every_plugin() {
-        // [DPS meter, Sanctum Helper, leaderboards]
-        assert_eq!(next_plugins([true, true, true], None), ([false; 3], Some([true, true, true])), "all on: all off, remembered");
-        assert_eq!(next_plugins([false, true, false], None), ([false; 3], Some([false, true, false])), "any one on: all off");
-        assert_eq!(next_plugins([false; 3], Some([false, true, true])), ([false, true, true], None), "back on: just those");
-        assert_eq!(next_plugins([false; 3], None), ([true, true, false], None), "nothing remembered: not the opt-in leaderboards");
-        assert_eq!(next_plugins([false; 3], Some([false; 3])), ([true, true, false], None), "remembered none: the same");
+        // [DPS meter, Sanctum Helper, leaderboards]; fresh: the ones that aren't opt-in
+        let fresh = [true, true, false];
+        let v = |a: &[bool]| a.to_vec();
+        assert_eq!(next_plugins(&[true, true, true], None, &fresh), (v(&[false; 3]), Some(v(&[true, true, true]))), "all on: all off, remembered");
+        assert_eq!(next_plugins(&[false, true, false], None, &fresh), (v(&[false; 3]), Some(v(&[false, true, false]))), "any one on: all off");
+        assert_eq!(next_plugins(&[false; 3], Some(v(&[false, true, true])), &fresh), (v(&[false, true, true]), None), "back on: just those");
+        assert_eq!(next_plugins(&[false; 3], None, &fresh), (v(&fresh), None), "nothing remembered: not the opt-in leaderboards");
+        assert_eq!(next_plugins(&[false; 3], Some(v(&[false; 3])), &fresh), (v(&fresh), None), "remembered none: the same");
         // a plug-in turned on by its own switch meanwhile: the press turns it off and remembers the new set
-        assert_eq!(next_plugins([false, false, true], Some([true, true, false])), ([false; 3], Some([false, false, true])));
+        assert_eq!(next_plugins(&[false, false, true], Some(v(&[true, true, false])), &fresh), (v(&[false; 3]), Some(v(&[false, false, true]))));
+        // the button controlling only two: just those
+        assert_eq!(next_plugins(&[false, true], None, &[true, true]), (v(&[false, false]), Some(v(&[false, true]))));
+        assert_eq!(next_plugins(&[false, false], None, &[true, true]), (v(&[true, true]), None));
     }
     use super::*;
 

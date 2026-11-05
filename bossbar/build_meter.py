@@ -11,7 +11,7 @@ import os, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_RES = os.path.normpath(os.path.join(HERE, '..', 'app', 'src-tauri', 'resources'))
-DATA_FILES = ['boss_catalog.csv', 'boss_rush_grades.csv', 'boss_rush_cycles.json', 'xn_templates.json', 'boss_break.json', 'ocr_win.ps1',
+DATA_FILES = ['plugins.json', 'boss_catalog.csv', 'boss_rush_grades.csv', 'boss_rush_cycles.json', 'xn_templates.json', 'boss_break.json', 'ocr_win.ps1',
               'ocr-helper.exe']   # built by the app's `npm run ocr:build`
 
 def check_data():

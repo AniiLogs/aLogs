@@ -349,3 +349,10 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 /* the notice's lock only matters for its Custom spot (General Settings > Notifications) */
 .notify-lock { display: none; }
 .group:has(select[data-k="notifications.place"] option[value="custom"]:checked) .notify-lock { display: grid; }
+
+/* each plug-in's status under its name in the sidebar (a short line when it needs a look) */
+.nav-status { display: block; font-size: 11px; line-height: 1.2; color: var(--muted); font-weight: 400; }
+.nav-status:empty { display: none; }
+.nav-status[data-state="attention"], .nav-status[data-state="failed"] { color: var(--coral-text); }
+.button-controls { margin: 4px 0 8px; }
+.button-controls .toggle { margin-left: 4px; }

@@ -15,6 +15,8 @@ import submit as S
 from presence import Presence
 
 import settings as C
+# the plug-ins' list, switches and health (plugins.json)
+from plugins import PLUGINS, HEALTH, SwitchWatch, guarded, meter_mode, notice_owners, switched_on
 
 HERE = C.DATA                     # everything the meter writes (logs, records, positions)
 NOTICES = C.NOTICES
@@ -715,12 +717,5 @@ def load_positions():
 OVERLAY_REDRAW = 0.25   # s between redraws of the overlay's numbers (4 a second)
 BAR_HIDDEN = 0.5   # s without the game's boss bar before the labels around it are hidden too
 
-def meter_mode(meter_off, cfg):
-    """What the meter process does, from the DPS meter's switch and the leaderboards' (each plug-in its own): 'on' (the
-    meter reads and shows), 'quiet' (the DPS meter is off but records are still sent: the game is read, nothing of the
-    meter shows) or 'rest' (both off: nothing is read; the notices of the other plug-ins still show)."""
-    if not meter_off: return 'on'
-    return 'quiet' if (cfg.get('leaderboard') or {}).get('submit') else 'rest'
-
 # everything above, for the plug-ins (from core import *), underscored names and the imported modules too
-__all__ = ['AWAY_INTERVAL', 'BAR_GONE_GRACE', 'BAR_GONE_S', 'BAR_HIDDEN', 'BAR_SPOT', 'BATTLE_DATA_PAUSE', 'C', 'CENTER_STARS', 'CHARACTERS', 'CLEAR_STARS', 'CONFIRM_GAP', 'CT', 'CpuLoad', 'E', 'FIGHT_LOG_DAYS', 'HERE', 'HOMELAND_SCENE', 'HP_GRADIENT', 'IDLE_INTERVAL', 'IMAGE_TYPES', 'INK_MIN', 'Image', 'ImageChops', 'ImageDraw', 'ImageFont', 'ImageOps', 'ImageStat', 'InputBlock', 'K', 'KEEP_FOLDERS', 'LEFTOVER_HOURS', 'LogWatcher', 'METER_LOG', 'NOTICES', 'NO_ENGLISH_READS', 'OCR_RECHECK', 'OCR_SAY_AGAIN', 'PluginFormatter', 'OVERLAY_REDRAW', 'OcrWorker', 'PLAYER_LOG', 'Presence', 'R', 'RX_SPACE_UID', 'RX_UID', 'S', 'SAMPLES_KEPT', 'SAMPLE_GAP', 'SETTINGS', 'STAR_CAPS', 'STEADY_ALIKE', 'STEADY_SEEN', 'TEAM', 'TEAMMATES', 'TEST_FRAME_BYTES', 'TEST_FRAME_DAYS', 'TEXT_DIAGNOSTICS', 'TOP_PART', 'Teammates', 'X', '_characters_file', '_last_status', '_meter', '_sample_at', '_status_logged', 'argparse', 'boss_row', 'character_verified', 'clean_old_fight_logs', 'clean_old_screenshots', 'clean_test_frames', 'clear_stars', 'collections', 'console_out', 'csv', 'ctypes', 'difflib', 'fmt', 'hp_colour', 'interlink_score', 'json', 'keep_sample', 'known_characters', 'last_rush_level', 'last_uid', 'load_korean_names', 'load_positions', 'log', 'logging', 'math', 'meter_mode', 'ocr_language_note', 'os', 'party_pill', 'pcstats', 'platform', 'queue', 're', 'refresh_cycles', 'same_name', 'save_picture', 'scene_of', 'screen_changed', 'screen_sig', 'screenshot_cleanup', 'setup_log', 'star_caps', 'stop_handles', 'sys', 'threading', 'time', 'uid_in', 'upload_cycles', 'wc']
+__all__ = ['AWAY_INTERVAL', 'BAR_GONE_GRACE', 'BAR_GONE_S', 'BAR_HIDDEN', 'BAR_SPOT', 'BATTLE_DATA_PAUSE', 'C', 'CENTER_STARS', 'CHARACTERS', 'CLEAR_STARS', 'CONFIRM_GAP', 'CT', 'CpuLoad', 'E', 'FIGHT_LOG_DAYS', 'HERE', 'HOMELAND_SCENE', 'HP_GRADIENT', 'IDLE_INTERVAL', 'IMAGE_TYPES', 'INK_MIN', 'Image', 'ImageChops', 'ImageDraw', 'ImageFont', 'ImageOps', 'ImageStat', 'InputBlock', 'K', 'KEEP_FOLDERS', 'LEFTOVER_HOURS', 'LogWatcher', 'METER_LOG', 'NOTICES', 'NO_ENGLISH_READS', 'OCR_RECHECK', 'OCR_SAY_AGAIN', 'PluginFormatter', 'OVERLAY_REDRAW', 'OcrWorker', 'PLAYER_LOG', 'Presence', 'R', 'RX_SPACE_UID', 'RX_UID', 'S', 'SAMPLES_KEPT', 'SAMPLE_GAP', 'SETTINGS', 'STAR_CAPS', 'STEADY_ALIKE', 'STEADY_SEEN', 'TEAM', 'TEAMMATES', 'TEST_FRAME_BYTES', 'TEST_FRAME_DAYS', 'TEXT_DIAGNOSTICS', 'TOP_PART', 'Teammates', 'X', '_characters_file', '_last_status', '_meter', '_sample_at', '_status_logged', 'argparse', 'boss_row', 'character_verified', 'clean_old_fight_logs', 'clean_old_screenshots', 'clean_test_frames', 'clear_stars', 'collections', 'console_out', 'csv', 'ctypes', 'difflib', 'fmt', 'hp_colour', 'interlink_score', 'json', 'keep_sample', 'known_characters', 'last_rush_level', 'last_uid', 'load_korean_names', 'load_positions', 'log', 'logging', 'math', 'meter_mode', 'PLUGINS', 'HEALTH', 'SwitchWatch', 'guarded', 'notice_owners', 'switched_on', 'ocr_language_note', 'os', 'party_pill', 'pcstats', 'platform', 'queue', 're', 'refresh_cycles', 'same_name', 'save_picture', 'scene_of', 'screen_changed', 'screen_sig', 'screenshot_cleanup', 'setup_log', 'star_caps', 'stop_handles', 'sys', 'threading', 'time', 'uid_in', 'upload_cycles', 'wc']

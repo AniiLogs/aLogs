@@ -123,11 +123,7 @@ def notice_window(tk, root, meter, hide, AWAY, present, park, pos, save_position
                           for n in toast['queue']]
         # each plug-in owns its notices: one switched off since they came drops them (records: the leaderboards;
         # 'sanctum': Sanctum Helper); this window shows them for every plug-in
-        cfg = meter.args.cfg
-        lb = cfg.get('leaderboard') or {}
-        owner_on = {'record': bool(lb.get('submit')) and lb.get('notify_sent', True) is not False,
-                    'sanctum': (cfg.get('sanctum') or {}).get('enabled', True) is not False,
-                    'button': (cfg.get('notifications') or {}).get('button', True) is not False}
+        owner_on = notice_owners(meter.args.cfg)                             # plugins.json: who owns which kind
         toast['queue'] = [n for n in toast['queue'] if owner_on.get(n['kind'], True)]
         toast_sample()
         if toast['sample'] or toast['drag']: return                             # placing it: no notices until locked

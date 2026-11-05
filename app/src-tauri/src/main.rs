@@ -22,6 +22,7 @@ mod gpu_capture;
 mod photos;
 mod hidhide;
 mod overlay_button;
+mod plugins;
 mod sanctum;
 mod site;
 mod update;
@@ -849,6 +850,7 @@ fn main() {
             auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, auth::auth_window_open, auth::auth_window_close, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, photos::photos_stamp, site::site_view,
             install_english_ocr,
             sanctum::install_dotnet_desktop,
+            plugins::plugins,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
             update::update_state, update::check_update, update::install_update, update::install_update_later,
