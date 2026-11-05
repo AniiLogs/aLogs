@@ -1,6 +1,8 @@
 # Notes for AI agents working on aLogs
 
 - Layout, building and testing: see README.md.
+- Plug-ins (DPS meter, Sanctum Helper, leaderboards) and what each owns, and what aLogs and Sanctum Helper agree on:
+  see docs/plugins.md.
 - **Fixing a problem a player reported:** follow docs/log-reports.md. In short: download the report with
   `node tools/log-reports.mjs get <id>`, fix the cause in a branch and open a PR, then **always** leave a note on the
   report with `node tools/log-reports.mjs note <id> "Found: … Changed: … PR: … Verified: …"`. Don't clear reports;

@@ -9,7 +9,8 @@
         "A hit now has to hold for three readings in a row, and a small drop only counts when another follows within 10 seconds, so a misread HP number in town can't set it off.",
         "Stand still in a town for 10 minutes tabbed out: no alert. Get hit by a wild Aniimo while tabbed out: the alert shows.",
         "If it still shows falsely, send a report right after: it now includes a picture of the HP bar as read."
-      ]
+      ],
+      "plugin": "dps"
     },
     {
       "id": "interlink-3846247",
@@ -19,7 +20,8 @@
         "The update raised the bosses' HP by about 60% and added Glameep, Sugartini, Jabster, Magmarex, Turbo, Jeburst and Infergon.",
         "Compare the meter's total with Battle Data at the end of the run.",
         "The run should reach the leaderboard with its screenshot."
-      ]
+      ],
+      "plugin": "dps"
     },
     {
       "id": "interlink-20-stars",
@@ -29,7 +31,8 @@
         "Since the Whisperwake update: 20 on the left and right bosses, 40 on the center boss (80 a week).",
         "If you kill the boss, say what the result screen's rating shows (20, 40 or \"Eliminate\").",
         "From November 18 the middle fight has two bosses: say whether the DPS window follows both."
-      ]
+      ],
+      "plugin": "leaderboards"
     },
     {
       "id": "interlink-party-screen",
@@ -39,7 +42,8 @@
         "There's no lobby since the Whisperwake update: the Party screen comes right before the fight.",
         "With \"No team available. Cannot chat.\" every other slot should be AI; in a real team, say whether the names and AI marks are right.",
         "On the result screen, the names should match the Party screen's (no misread names on the leaderboard)."
-      ]
+      ],
+      "plugin": "core"
     },
     {
       "id": "holo-sim-leaderboard",
@@ -48,27 +52,32 @@
       "details": [
         "aLogs reads the line under \"Victory\" (\"Battle time 00:08:22 Training of Water - Hard\") and sends the time, the stage and the difficulty, with the screen as proof.",
         "Say if a win didn't show up, or showed on the wrong board (check meter.log for \"Holo-Battle Sim\")."
-      ]
+      ],
+      "plugin": "leaderboards"
     },
     {
       "id": "alpha-56-60",
       "title": "Level 56-60 Alpha totals",
-      "how": "Fight a level 56-60 Alpha in the world (e.g. Sugartini, Glameep): the fight total matches the HP the game shows."
+      "how": "Fight a level 56-60 Alpha in the world (e.g. Sugartini, Glameep): the fight total matches the HP the game shows.",
+      "plugin": "dps"
     },
     {
       "id": "world-boss-clock",
       "title": "World boss clock and result",
-      "how": "Fight a world boss: the clock starts at the first hit, ends at the kill sound, and the final numbers stay on screen."
+      "how": "Fight a world boss: the clock starts at the first hit, ends at the kill sound, and the final numbers stay on screen.",
+      "plugin": "dps"
     },
     {
       "id": "glyph-readers",
       "title": "Screen readers after the patch",
-      "how": "Check the Interlink xN counter, the short names on the game menu and Egg Heist Rank Info still read right."
+      "how": "Check the Interlink xN counter, the short names on the game menu and Egg Heist Rank Info still read right.",
+      "plugin": "core"
     },
     {
       "id": "egg-heist-leaderboard",
       "title": "Egg Heist to the leaderboard",
-      "how": "Play an Egg Heist match: it reaches the leaderboard and the rank screen updates your season standing."
+      "how": "Play an Egg Heist match: it reaches the leaderboard and the rank screen updates your season standing.",
+      "plugin": "leaderboards"
     },
     {
       "id": "signin-window",
@@ -77,32 +86,70 @@
       "details": [
         "Also try it from the setup guide (General Settings › Open the setup guide).",
         "Closing the window should bring the Sign in button back straight away."
-      ]
+      ],
+      "plugin": "core"
     },
     {
       "id": "capture-button-row",
       "title": "The button over the game follows the game's icons",
-      "how": "It sits left of Chat at the icons' size, and hides in menus, loading screens and the map, even when dragged."
+      "how": "It sits left of Chat at the icons' size, and hides in menus, loading screens and the map, even when dragged.",
+      "plugin": "core"
     },
     {
       "id": "sanctum-3846247",
       "title": "Sanctum Helper on the new layouts",
-      "how": "Run Egg Heist on any layout (ideally 31, 33, 38, 61 or 62): the map shows. A run with the new boss room doesn't break it."
+      "how": "Run Egg Heist on any layout (ideally 31, 33, 38, 61 or 62): the map shows. A run with the new boss room doesn't break it.",
+      "plugin": "sanctum"
     },
     {
       "id": "profile-link-4k",
       "title": "Profile link at 4K",
-      "how": "Link your character from the Profile screen at 4K: it's accepted, and your online status shows."
+      "how": "Link your character from the Profile screen at 4K: it's accepted, and your online status shows.",
+      "plugin": "leaderboards"
     },
     {
       "id": "photos-auto",
       "title": "New photos upload by themselves",
-      "how": "With \"Upload new photos automatically\" on, take a photo in game: it's on your profile within a few seconds."
+      "how": "With \"Upload new photos automatically\" on, take a photo in game: it's on your profile within a few seconds.",
+      "plugin": "core"
     },
     {
       "id": "patch-notes-beta",
       "title": "Patch notes on the beta",
-      "how": "About, Patch notes: shows \"0.1.28 beta (installed; these notes grow until it's released)\" with its notes on top."
+      "how": "About, Patch notes: shows \"0.1.28 beta (installed; these notes grow until it's released)\" with its notes on top.",
+      "plugin": "core"
+    },
+    {
+      "id": "plugins-on-their-own",
+      "plugin": "core",
+      "title": "Each plug-in on its own switch",
+      "how": "Turn the DPS meter off in the sidebar: Sanctum Helper keeps running and leaderboard sending keeps working.",
+      "details": [
+        "With the DPS meter off and sending on, run Interlink: nothing of the meter shows, the run still reaches the leaderboard.",
+        "Turn Sanctum Helper off and on alone: the DPS meter is untouched.",
+        "Under each plug-in in the sidebar, a short line shows only when it needs a look (e.g. Not signed in)."
+      ]
+    },
+    {
+      "id": "button-plugins",
+      "plugin": "core",
+      "title": "The button turns the plug-ins off and back on",
+      "how": "Press the button over the game: \"aLogs off\" shows and every plug-in it controls goes off. Press again: the same ones come back.",
+      "details": [
+        "General Settings › The button over the game: untick one plug-in, press the button: that one is left alone.",
+        "Turn the notice off in General Settings › Notifications: the button no longer shows it.",
+        "Leaderboard sending never comes on from the button unless it was on before."
+      ]
+    },
+    {
+      "id": "notices-owned",
+      "plugin": "core",
+      "title": "Notices with the DPS meter off",
+      "how": "DPS meter off, sending on: a run sent still shows its notice; Sanctum Helper's notices still show.",
+      "details": [
+        "Your notice spot and motion from before this build are kept (General Settings › Notifications).",
+        "Turn off \"Tell me when a record is sent\" (Leaderboards › Sending): only those stop."
+      ]
     }
   ]
 }

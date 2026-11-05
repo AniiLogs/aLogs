@@ -356,3 +356,6 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .nav-status[data-state="attention"], .nav-status[data-state="failed"] { color: var(--coral-text); }
 .button-controls { margin: 4px 0 8px; }
 .button-controls .toggle { margin-left: 4px; }
+/* Beta Menu: the tests grouped by the plug-in they test */
+.beta-section { margin: 10px 0 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.beta-section:first-child { margin-top: 0; }

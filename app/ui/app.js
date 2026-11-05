@@ -1215,10 +1215,19 @@
   const activeTests = () => betaTests.items.filter((item) => !item.retired);
   // hidden by the filter: what this tester last sent as Working and hasn't ticked again since
   const hiddenByFilter = (item) => hideWorking && beta.tests[item.id]?.sent === "working" && !beta.tests[item.id]?.tested;
+  // Each test under the plug-in it tests (its "plugin": the list's id, or "core" for aLogs itself), in the list's order
+  function pluginOfTest(item) {
+    return item.plugin || bundledTests.items.find((own) => own.id === item.id)?.plugin || "core";
+  }
   function renderTests() {
     const shown = activeTests().filter((item) => !hiddenByFilter(item));
     const hidden = activeTests().length - shown.length;
-    $("[data-beta-tests]").replaceChildren(...shown.map(testCard));
+    const sections = [{ id: "core", name: "aLogs itself" }, ...pluginList.map((p) => ({ id: p.id, name: p.name }))];
+    const known = new Set(sections.map((s) => s.id));
+    $("[data-beta-tests]").replaceChildren(...sections.flatMap((section) => {
+      const mine = shown.filter((item) => (known.has(pluginOfTest(item)) ? pluginOfTest(item) : "core") === section.id);
+      return mine.length ? [el("h3", "beta-section", { textContent: section.name }), ...mine.map(testCard)] : [];
+    }));
     $("[data-beta-hidden]").textContent = hidden ? `(${hidden} hidden)` : "";
     const retired = betaOwner ? betaTests.items.filter((item) => item.retired) : [];
     $("[data-beta-retired]").hidden = !retired.length;
