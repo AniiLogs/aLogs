@@ -64,6 +64,10 @@ Which parts of aLogs belong to which plug-in: [plugins.md](plugins.md).
 
 ## For AI agents: keep it cheap
 
+- **First thing in every session:** `gh pr list --author @me`. A PR that is red or has a conflict is fixed before any
+  new work: rebase its branch on `main` (`git pull --rebase origin main`), fix, push to the same branch. The PR updates
+  and auto-merge carries on; don't open a new one.
+
 - Start each task with `gh issue list --assignee @me` (or the issue the developer names), not by reading the repo.
 - Catch up with `git log --oneline -20` and `git diff --stat <old>..HEAD`. Open a full diff only for the files you
   are about to touch.
