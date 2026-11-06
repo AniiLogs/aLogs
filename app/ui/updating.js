@@ -4,6 +4,8 @@
   const to = new URLSearchParams(location.search).get("to");
   if (to) document.querySelector("[data-to]").textContent = `Updating to aLogs ${to}`;
   const step = document.querySelector("[data-step]");
+  // the installer gives no progress, so the bars cycle until it's done, then fill
+  const loader = window.AlogsLoader?.create(document.querySelector("[data-loader]")).loop();
   const steps = {
     installing: "Installing the update…",
     starting: "Starting aLogs…",
@@ -13,5 +15,7 @@
     step.textContent = steps[event.payload] || steps.installing;
     document.body.classList.toggle("failed", event.payload === "failed");
     document.body.classList.toggle("done", event.payload === "starting");
+    if (event.payload === "starting") loader?.set({ done: 1 });
+    else if (event.payload === "failed") loader?.set({ section: 0, total: 0, active: false });
   });
 })();

@@ -35,6 +35,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   not always 5), and moving your mouse meanwhile no longer pulls the click off the button.
 - **"Run sent" notices come sooner:** a run goes to the leaderboards a few seconds after its Battle Data is read,
   not only once you leave the screens.
+- **The updating window** shows the aLogs icon as its own loader (its HP and break bars fill while the update installs)
+  and says which beta it's installing (0.1.36 B4, not just 0.1.36).
 
 ## 0.1.35
 

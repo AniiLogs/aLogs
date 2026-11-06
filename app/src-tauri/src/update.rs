@@ -148,7 +148,9 @@ async fn download(app: &AppHandle) -> Result<(), String> {
     let part = update_dir().join("aLogs-update.exe.part");
     std::fs::write(&part, &bytes).map_err(|e| e.to_string())?;
     std::fs::rename(&part, update_dir().join("aLogs-update.exe")).map_err(|e| e.to_string())?;
-    save_info(&json!({ "version": update.version, "signature": update.signature, "next_start": false }));
+    // the beta number (B4) goes with it: the updating window says which beta it's installing, not just "0.1.36"
+    save_info(&json!({ "version": update.version, "signature": update.signature, "beta": update.raw_json["beta"],
+                       "next_start": false }));
     Ok(())
 }
 

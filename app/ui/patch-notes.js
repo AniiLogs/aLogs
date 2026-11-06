@@ -27,7 +27,8 @@ window.PATCH_NOTES = [
      "**The Special Offering** the leader picked is read again (it was often missed).",
      "**The DPS meter no longer starts on the Party screen:** a player's title banner there could pass for a boss bar and open a fight before the run began.",
      "**Opening Battle Data automatically is faster and sure:** aLogs clicks as soon as the result screen is read (1-4 s, not always 5), and moving your mouse meanwhile no longer pulls the click off the button.",
-     "**\"Run sent\" notices come sooner:** a run goes to the leaderboards a few seconds after its Battle Data is read, not only once you leave the screens."
+     "**\"Run sent\" notices come sooner:** a run goes to the leaderboards a few seconds after its Battle Data is read, not only once you leave the screens.",
+     "**The updating window** shows the aLogs icon as its own loader (its HP and break bars fill while the update installs) and says which beta it's installing (0.1.36 B4, not just 0.1.36)."
     ]
    }
   ]
