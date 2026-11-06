@@ -1,0 +1,28 @@
+name: Auto-merge
+
+# Turns on auto-merge (squash) for every pull request a team member opens, so it merges by itself once the required
+# checks pass, without anyone having to remember the button (docs/working-together.md in AniiLogs/aLogs).
+# Only for branches in this repository (pushing one takes write access): a PR from a stranger's fork is never set to
+# merge itself. Draft PRs wait until they're marked ready. Nothing from the PR is checked out or run.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR" || echo "Auto-merge could not be turned on; use the PR's button."
