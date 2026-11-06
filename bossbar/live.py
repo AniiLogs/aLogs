@@ -180,6 +180,21 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                      + (f", {st['none']} without a picture" if st['none'] else ''))
             self.cap_stats = {**st, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
             self.load_line(now)
+            self.overlay_check()
+
+    def overlay_check(self):
+        """Discord's in-game overlay draws inside the game's own picture (DiscordHook64.dll), so no capture can leave
+        it out: its voice widget (names, avatars) went into proof pictures sent to the site (6 Nov). Once a minute
+        while capturing; said once per start (log and a notice), so the player can turn it off for Aniimo."""
+        if getattr(self, 'discord_said', False) or not self.hwnd: return
+        try: mods = wc.window_modules(self.hwnd)
+        except Exception: return
+        if 'discordhook64.dll' not in mods and 'discordhook.dll' not in mods: return
+        self.discord_said = True
+        log.info("Discord's in-game overlay is loaded in the game: it shows in every capture, proof pictures included")
+        self.out('toast', {'head': "Discord's overlay shows in proof pictures", 'detail':
+                           'Discord › Settings › Game Overlay: turn it off for Aniimo', 'accent': '#ffc861',
+                           'screen': None, 'kind': 'notice'})        # (a dict: never folded into "N records sent")
 
     def peak(self, kind, ms):
         """The longest of `kind` this minute ('look': one whole step, 'prep': preparing a screen read's crops), for the

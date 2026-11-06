@@ -11,6 +11,28 @@ user32 = ctypes.windll.user32; gdi32 = ctypes.windll.gdi32
 try: ctypes.windll.shcore.SetProcessDpiAwareness(2)   # real pixels on scaled displays
 except Exception: pass
 
+class _MODULEENTRY32W(ctypes.Structure):
+    _fields_ = [('dwSize', W.DWORD), ('th32ModuleID', W.DWORD), ('th32ProcessID', W.DWORD), ('GlblcntUsage', W.DWORD),
+                ('ProccntUsage', W.DWORD), ('modBaseAddr', ctypes.c_void_p), ('modBaseSize', W.DWORD), ('hModule', W.HMODULE),
+                ('szModule', ctypes.c_wchar * 256), ('szExePath', ctypes.c_wchar * 260)]
+
+def window_modules(hwnd):
+    """The file names (lower case) of the DLLs loaded in the process that owns hwnd; an empty set when they can't be
+    listed. Read-only (a ToolHelp snapshot), for overlays drawn inside the game: those are in every capture."""
+    pid = W.DWORD(); user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.restype = W.HANDLE
+    snap = k32.CreateToolhelp32Snapshot(0x8 | 0x10, pid.value)          # TH32CS_SNAPMODULE | SNAPMODULE32
+    if not snap or snap == W.HANDLE(-1).value: return set()
+    out = set()
+    try:
+        e = _MODULEENTRY32W(); e.dwSize = ctypes.sizeof(e)
+        ok = k32.Module32FirstW(snap, ctypes.byref(e))
+        while ok:
+            out.add(e.szModule.lower()); ok = k32.Module32NextW(snap, ctypes.byref(e))
+    finally: k32.CloseHandle(snap)
+    return out
+
 def find_window(title='Aniimo'):
     """The game's window: visible, exactly this title, and a Unity player window (so a File Explorer folder or a
     browser tab called "Aniimo" is never taken for the game, like the app's own capture). Largest if several."""
