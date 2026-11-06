@@ -1329,7 +1329,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         xn_box = R.box_at(bar, R.XN_BOX)
         top = R.xn_top(self.grades)                            # the counter at full HP (x21)
         xn = xn_digits = X.read_counter(im.crop(tuple(int(v) for v in xn_box)), self.xn_tpl, top=top)   # digit shapes, every frame
-        if not self.fight: self.instant_start(xn, now)
+        if not self.fight: self.instant_start(xn, now, low=bar['yc'] > TOP_BAR * self.frame_size[1])
         if self.dud_check(bar, fill, xn, now):
             self.bar = None; self.out('status', 'waiting for a boss bar'); self.snapshot(now); return
         # Text (timer, title, xN fallback) is read about once a second. Live, a background OCR thread does it so a

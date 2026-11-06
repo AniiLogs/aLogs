@@ -24,7 +24,8 @@ window.PATCH_NOTES = [
     "heading": "Fixed",
     "items": [
      "**Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their skill icons and compared the way the game draws them, so a card sitting a little off (or higher, once everyone is ready) no longer hides them. On recent Party screens, 119 of 144 were read, up from 65.",
-     "**The Special Offering** the leader picked is read again (it was often missed)."
+     "**The Special Offering** the leader picked is read again (it was often missed).",
+     "**The DPS meter no longer starts on the Party screen:** a player's title banner there could pass for a boss bar and open a fight before the run began."
     ]
    }
   ]

@@ -40,6 +40,11 @@ class Timer:
 HP_BAR = (0.400, 0.915, 0.604, 0.9519)    # your HP bar at the bottom middle with its number on it, in the 16:9 UI area
 HP_TEXT = re.compile(r'(\d[\d ]*)\s*/\s*(\d[\d ]*)')
 
+# How far down the screen an Interlink boss bar's centre goes (share of its height): 186-197 px of 2160 in 14,000
+# readings (5-6 Nov). The Party screen's title banner that passed as a bar sat at 454-505.
+TOP_BAR = 0.15
+
+
 def hp_number(ocr, strip, u):
     """Your HP as the game writes it on the bar ("12643/12694") in a picture of HP_BAR: (current, max), or None."""
     w, h = strip.size
@@ -745,13 +750,19 @@ class FightsMixin:
                  + (f', HP bars {self.fight.column}' if self.fight.column != R.GRADE_BASE else '')
                  + (f", two-boss fight: {partner['bossTitle_en']} ({partner_id}) comes next" if partner else ''))
 
-    def instant_start(self, xn, now):
+    def instant_start(self, xn, now, low=False):
         """Interlink: the prep screen just named the boss and every Interlink boss has the same level as the last one,
         so its fight starts on the very first frame of its bar - no waiting for the name above the bar to be read.
-        That reading still runs and corrects the boss if it disagrees (identify's three-reads rule)."""
+        That reading still runs and corrects the boss if it disagrees (identify's three-reads rule).
+        low: the bar sits lower than an Interlink boss bar does (TOP_BAR). The Party screen's orange title banner over
+        a player passes as a bar there, and its counter spot can read a digit ('1'), which opened a fight before the
+        run (6 Nov, 3 times). So a low bar starts a fight only on a full counter (x21, or one down if the first
+        frames were missed: a fight starts at full HP); a bar up top starts it on any counter read (x21 can read '2'
+        with its '1' cut off, 1 Nov). Anything else waits for the name over the bar."""
         if self.fight or xn is None or not self.rush_level or not self.prep_boss or now - self.prep_boss[0] > 180: return
+        if low and xn < R.xn_top(self.grades) - 1: return
         row = self.prep_boss[1]
         self.start_fight(row, self.rush_level, row['bossTitle_en'], True, f'from the prep screen, xN {xn}')
         self.prep_boss = None
 
-__all__ = ['BreakTracker', 'DAMAGE_NUMBERS', 'FIGHT_CSV', 'FIGHT_INTERVAL', 'Fight', 'HANDOFF_XN', 'HP_BAR', 'HP_TEXT', 'KILL_SOUND_WINDOW', 'KILL_TO_COUNTDOWN', 'LEVEL_CONFIRM', 'MAX_CLOCK', 'OVERTIME_S', 'Timer', 'XN_STALE', 'hp_number', 'FightsMixin']
+__all__ = ['TOP_BAR', 'BreakTracker', 'DAMAGE_NUMBERS', 'FIGHT_CSV', 'FIGHT_INTERVAL', 'Fight', 'HANDOFF_XN', 'HP_BAR', 'HP_TEXT', 'KILL_SOUND_WINDOW', 'KILL_TO_COUNTDOWN', 'LEVEL_CONFIRM', 'MAX_CLOCK', 'OVERTIME_S', 'Timer', 'XN_STALE', 'hp_number', 'FightsMixin']
