@@ -27,9 +27,12 @@ jobs:
       - name: Meter tests (made-up data only)
         shell: bash
         working-directory: bossbar
+        # These need what stays out of git (the game's fonts, test_shots, the built ocr-helper.exe): run them locally
         run: |
+          local_only=" sim_victory_open_fight.py red_level.py one_char_names.py ocr_language.py "
           failed=0
           for t in tests/*.py; do
+            case "$local_only" in *" $(basename "$t") "*) echo "skipped (local only): $t"; continue;; esac
             echo "::group::$t"
             if python "$t"; then echo "ok: $t"; else echo "::error::$t failed"; failed=1; fi
             echo "::endgroup::"

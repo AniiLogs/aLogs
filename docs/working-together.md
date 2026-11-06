@@ -53,5 +53,7 @@ Which parts of aLogs belong to which plug-in: [plugins.md](plugins.md).
 - Resolve a conflict by reading only the conflicted parts (`git diff --name-only --diff-filter=U`). Ask the developer
   when both sides changed the same logic; don't guess.
 - Run the tests for the part you changed, not the whole suite (`bossbar/tests/two_boss.py` is slow). GitHub runs
-  everything.
+  the rest, except four that need files kept out of git (the game's fonts, `test_shots`, the built OCR helper):
+  `red_level`, `one_char_names`, `ocr_language` and `sim_victory_open_fight` run only on a PC with the game and a
+  build. Run those yourself when you touch OCR or the result screens.
 - Answer briefly: what changed, the commit, and whether the tests pass.
