@@ -795,8 +795,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
                 for i in range(3):
                     r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift)
-                    # accepted only when clearly ahead (checked on 48 tiles: no wrong answer passes); an Aniimo whose
-                    # portrait isn't in the install (Leafy, 30 Oct) scores low against everything and stays unread
+                    # accepted only when clearly ahead (checked on 312 tiles: no wrong answer passes); an Aniimo whose
+                    # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
+                    # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
                     team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
             for sq in self.SEASON_BUFFS:
                 r = ic.buff(im, box(*sq), 'season')

@@ -13,14 +13,19 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 5          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
-                           # 4: portraits back in their whole square (the atlas trims them); 5: the team tiles' fade
+CACHE_VERSION = 6          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
+                           # 4: portraits back in their whole square (the atlas trims them); 5: the team tiles' fade;
+                           # 6: heads from the patch sets, form portraits no row names (by species), Male and Female
+                           # heads each kept
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
 BUFF_PREFIXES = ('mres_xgui_texture_expng_', 'mres_xgui_panel_expng_', 'mres_xgui_common_expng_', 'ar_xgui_icon_skilli_',
                  'ar_xgui_icon_item_i_')
 HEAD_PREFIXES = ('ar_xgui_image_pet_he_', 'ar_xgui_image_petman_')
+# ...and the game's patch sets of exported pictures (xpt24_mres_expng_2_*.uab): the heads added in a patch live there
+# (Leafy, Sparkelf, Helion, Grizbo... none of them in the head bundles above)
+PATCH_PNG = re.compile(r'xpt\d+_m(res|exp)_expng_')
 # The Party screen's team tiles fade each portrait into the card with this soft mask (UI_Node_TeamRoom_CenterItem >
 # PetMinorN > Mask: 208 units square over the 204 portrait, centred on it): bright left of centre, gone at the badge
 TEAM_FADE, FADE_PREFIXES = 'ui_img_grabeggs_centeritem_mask2', ('mres_xgui_rpanel_expng_',)
@@ -55,6 +60,20 @@ def whole(sprite):
         return img
 
 
+def head_name(key, by_icon):
+    """The Aniimo a head portrait shows, from its sprite name after UI_PetHead_ (lower case): '10161', '1038101',
+    '10161_female'. by_icon: icon -> [(pet id, name)] from the tables' iconName. Each gendered portrait is its own
+    picture (one Aniimo's Male and Female heads differ), named as the Aniimo. A form's portrait (7 digits: species +
+    form) that no row names is its species' (the first 5 digits): the Party screen draws it for that form's
+    Aniimo (a Blazen form, Eko's and Eklue's forms...). None when nothing names it (an Aniimo not out yet)."""
+    icon = key.split('_')[0]
+    for k in ((icon, icon[:5]) if len(icon) == 7 and icon.isdigit() else (icon,)):
+        own = [n for p, n in by_icon.get(k, []) if p in (k, k + '00')]
+        names = [n for _, n in by_icon.get(k, [])]
+        if own or names: return own[0] if own else max(set(names), key=names.count)
+    return None
+
+
 def extract(cache_dir, player_log=None):
     """Writes <cache_dir>/heads/*.png, buffs/*.png and icons.json from the game install. True on success."""
     import UnityPy, gamedata
@@ -83,7 +102,8 @@ def extract(cache_dir, player_log=None):
         if name and r.get('buffSeries') is not None:
             sim_gizmos.setdefault(name, [str(r['buffSeries']), rarity.get(r.get('buffRarity'), 'Special')])
     shipped = sorted(f for f in glob.glob(os.path.join(_bundle_dir(game), '*.uab'))
-                     if os.path.basename(f).startswith(BUFF_PREFIXES + HEAD_PREFIXES + FADE_PREFIXES))
+                     if os.path.basename(f).startswith(BUFF_PREFIXES + HEAD_PREFIXES + FADE_PREFIXES)
+                     or PATCH_PNG.match(os.path.basename(f)))
     patches = glob.glob(os.path.join(game, 'Aniimo_Data', 'cvs', 'res', 'uab', 'win', 'DefaultPackage', 'CacheBundleFiles', '*', '*', 'cdata.uab'))
     art = {}                                                   # lower name -> (image, file time); the newest file wins
     for f in shipped + patches:
@@ -109,15 +129,13 @@ def extract(cache_dir, player_log=None):
     heads = {}
     for low, (img, _) in art.items():
         if not low.startswith('ui_pethead_'): continue
-        icon = low[len('ui_pethead_'):].split('_')[0]
-        own = [n for p, n in by_icon.get(icon, []) if p in (icon, icon + '00')]
-        names = [n for _, n in by_icon.get(icon, [])]
-        name = own[0] if own else (max(set(names), key=names.count) if names else None)
+        key = low[len('ui_pethead_'):]
+        name = head_name(key, by_icon)
         if not name: continue
         sq = Image.new('RGBA', (max(img.size),) * 2)               # the portrait square (a few are trimmed)
         sq.paste(img, ((sq.width - img.width) // 2, sq.height - img.height))
-        sq.resize((HEAD_SIZE, HEAD_SIZE), Image.LANCZOS).save(os.path.join(cache_dir, 'heads', icon + '.png'))
-        heads[icon] = name
+        sq.resize((HEAD_SIZE, HEAD_SIZE), Image.LANCZOS).save(os.path.join(cache_dir, 'heads', key + '.png'))
+        heads[key] = name
     buffs = {}
     for k, r in buff_rows.items():
         low = icon_of(r).lower()
