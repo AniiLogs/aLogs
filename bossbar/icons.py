@@ -13,7 +13,8 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 3          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names
+CACHE_VERSION = 4          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
+                           # 4: portraits back in their whole square (the atlas trims them)
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
@@ -35,6 +36,21 @@ def _game(player_log=None):
     import gamedata
     pm = gamedata.find_game_data(player_log)
     return (pm, pm[:pm.lower().rindex('aniimo_data')].rstrip('\\/')) if pm else (None, None)
+
+def whole(sprite):
+    """A sprite as the game draws it: the atlas keeps only its drawn part (a portrait 200x256 of its 256x256), and
+    textureRectOffset says where that part sits in the whole (from the bottom left); an Image stretches the whole."""
+    img = sprite.image.convert('RGBA')
+    try:
+        w, h = round(sprite.m_Rect.width), round(sprite.m_Rect.height)
+        off = sprite.m_RD.textureRectOffset
+        if (w, h) == img.size or w < img.width or h < img.height: return img
+        out = Image.new('RGBA', (w, h))
+        out.paste(img, (round(off.x), h - round(off.y) - img.height))
+        return out
+    except (AttributeError, TypeError, ValueError):
+        return img
+
 
 def extract(cache_dir, player_log=None):
     """Writes <cache_dir>/heads/*.png, buffs/*.png and icons.json from the game install. True on success."""
@@ -75,7 +91,7 @@ def extract(cache_dir, player_log=None):
             name = o.peek_name() or ''
             low = name.lower()
             if (low in wanted or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
-                try: art[low] = (o.read().image.convert('RGBA'), stamp)
+                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') else o.read().image.convert('RGBA')), stamp)
                 except Exception: pass
     for sub in ('heads', 'buffs'): os.makedirs(os.path.join(cache_dir, sub), exist_ok=True)
     # heads: named by the game's own tables only (a portrait the tables don't name is left out)
@@ -134,6 +150,19 @@ def ncc(a, b, mask):
         cov = cross[k] * 255 - sa.mean[k] * sb.mean[k]
         out += cov / ((sa.var[k] * sb.var[k]) ** 0.5 + 1e-6)
     return out / 3
+
+
+def ncc_pooled(a, b, mask):
+    """Masked normalized correlation of two same-size RGB images over all three channels together (-1..1): unlike
+    ncc, a colour that's off counts (a red portrait against a blue one), not only each channel's own pattern."""
+    sa, sb = ImageStat.Stat(a, mask), ImageStat.Stat(b, mask)
+    if not sa.count[0]: return -1
+    cross = ImageStat.Stat(ImageChops.multiply(a, b), mask).mean
+    ma, mb = sum(sa.mean) / 3, sum(sb.mean) / 3
+    cov = sum(cross[k] * 255 for k in range(3)) / 3 - ma * mb
+    va = sum(sa.var[k] + sa.mean[k] ** 2 for k in range(3)) / 3 - ma * ma
+    vb = sum(sb.var[k] + sb.mean[k] ** 2 for k in range(3)) / 3 - mb * mb
+    return cov / ((va * vb) ** 0.5 + 1e-6)
 
 
 class Icons:
@@ -199,7 +228,7 @@ class Icons:
             part = self._head(key, side).crop((-ox, -oy, -ox + n, -oy + h))
             mask = part.getchannel('A').point(lambda v: 255 if v > 200 else 0)
             if ImageStat.Stat(mask).mean[0] < 0.3 * 255: return -1
-            return ncc(crop, part.convert('RGB'), mask)
+            return ncc_pooled(crop, part.convert('RGB'), mask)
         first = sorted(((score(key, 1.0, 0, 0), key) for key in self.heads), reverse=True)[:12]
         best = {}
         for _, key in first:
@@ -210,6 +239,40 @@ class Icons:
         if not ranked: return None
         (name, (s, key)) = ranked[0]
         return name, s, s - (ranked[1][1][0] if len(ranked) > 1 else -1), key
+
+    # -- the Party screen's skill badges ------------------------------------------------------------------------------
+    _badge_cache = {}
+
+    @classmethod
+    def _badge(cls, r):
+        """A skill badge's look at radius r px (its dark round, 84 units): the dark ring between the glyph and the
+        edge, and the light rim round it. The glyph inside differs per Aniimo, so it's left out."""
+        k = round(r * 2) / 2
+        if k not in cls._badge_cache:
+            n = int(k * 1.2) * 2 + 1; c = n // 2
+            img = Image.new('RGB', (n, n), (128, 128, 128)); mask = Image.new('L', (n, n), 0)
+            di, dm = ImageDraw.Draw(img), ImageDraw.Draw(mask)
+            ring = lambda f, t, col: (di.ellipse((c - k * t, c - k * t, c + k * t, c + k * t), fill=col),
+                                      dm.ellipse((c - k * t, c - k * t, c + k * t, c + k * t), fill=255))
+            ring(None, 1.07, (220, 220, 220)); ring(None, 0.97, (60, 60, 75))
+            di.ellipse((c - k * 0.7, c - k * 0.7, c + k * 0.7, c + k * 0.7), fill=(128, 128, 128))
+            dm.ellipse((c - k * 0.7, c - k * 0.7, c + k * 0.7, c + k * 0.7), fill=0)
+            cls._badge_cache[k] = (img, mask, c)
+        return cls._badge_cache[k]
+
+    def badge(self, im, x, y, r, reach, reach_y=None, step=2):
+        """The centre of the skill badge nearest (x, y) (screen px, its round r px across half), searched `reach`
+        px around (`reach_y` up and down, when given): (score, x, y). Every `step` px, then the best to 1 px."""
+        img, mask, c = self._badge(r)
+        n = img.width
+        ry = reach if reach_y is None else reach_y
+        def at(px, py):
+            x0, y0 = int(round(px)) - c, int(round(py)) - c
+            return ncc(im.crop((x0, y0, x0 + n, y0 + n)).convert('RGB'), img, mask)
+        best = max((at(x + dx, y + dy), x + dx, y + dy) for dx in range(-reach, reach + 1, step) for dy in range(-ry, ry + 1, step))
+        for _ in range(2 if step > 2 else 1):
+            best = max((at(best[1] + dx, best[2] + dy), best[1] + dx, best[2] + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+        return best
 
     # -- Holo-Battle Sim ---------------------------------------------------------------------------------------------
     def sim_glyph(self, im, box):

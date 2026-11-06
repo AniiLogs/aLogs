@@ -702,6 +702,13 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     TEAM_PITCH = 0.0503
     TEAM_WINDOW = (-0.030, 0.064, -0.012, 0.100)    # x0, y0, x1, y1 (x from the card's left + pitch * i)
     TEAM_SQUARE = (-0.0345, 0.0472, 0.0405)         # left, top, side (side in UI width)
+    # ...as the game lays the row out (UI_Node_TeamRoom_CenterItem > PetMinor1-3), in its units (TEAM_PITCH is 240 of
+    # them): the portrait, 204 square, is centred 74 left of its skill badge (a round 84 across), at the same height.
+    # Each tile is found by its badge (the cards don't all sit where measured), then compared over the part left of
+    # the badge (x -75..11, y -52..45 around the portrait's centre), where the card's fade still shows it clearly.
+    TEAM_BADGE = (74, 42)                           # the badge's centre right of the portrait's; its round's radius
+    TEAM_PORTRAIT = 204
+    TEAM_COMPARE = (-75, -52, 11, 45)
     # The Season Buffs (bottom center): each icon's blue square, and the N of the "Lv. N" under it
     SEASON_BUFFS = ((0.525, 0.867, 0.550, 0.911), (0.5595, 0.867, 0.5845, 0.911))
     SEASON_LEVEL = (0.0153, 0.900, 0.0273, 0.923)   # x from the square's left
@@ -720,6 +727,37 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                                        if self.icons else f'not readable ({icons.Icons.error})'))
         threading.Thread(target=load, daemon=True).start()
 
+    def tile_centre(self, t, b, u, ux, H):
+        """Where the measured layout puts a team tile's portrait centre (screen px): t is the tile's x as TEAM_WINDOW
+        measures it, b the card's top."""
+        sx, sy, side = self.TEAM_SQUARE
+        return ux + u * (t + sx + side / 2), H * (b + sy) + u * side / 2
+
+    def card_shift(self, ic, im, a, b, u, ux, H):
+        """How far a card's team row sits from where it's measured (px), by its clearest skill badge looked for widely:
+        the game sometimes draws the cards higher (5 Nov: ~40 px at 4K). (0, 0) when no badge stands out."""
+        unit = self.TEAM_PITCH * u / 240; dx, r = self.TEAM_BADGE
+        best = (0, 0, 0)
+        for i in (1, 0, 2):                             # the middle badge, the others only when it doesn't stand out
+            px, py = self.tile_centre(a + self.TEAM_PITCH * i, b, u, ux, H)
+            s, x, y = ic.badge(im, px + dx * unit, py, r * unit, round(30 * unit), round(90 * unit), step=max(2, round(5 * unit)))
+            if s > best[0]: best = (s, x - px - dx * unit, y - py)
+            if best[0] >= 0.6: break
+        return best[1:] if best[0] >= 0.4 else (0, 0)
+
+    def team_tile(self, ic, im, t, b, u, ux, H, shift=(0, 0)):
+        """One team tile's Aniimo (icons.head's answer, or None): t is the tile's x as TEAM_WINDOW measures it, b the
+        card's top, shift the card's (card_shift). Its badge is looked for a few px around; with none found (a badge
+        reads 0.4 or more), the tile is compared where the card's shift puts it."""
+        unit = self.TEAM_PITCH * u / 240
+        px, py = self.tile_centre(t, b, u, ux, H)
+        px, py = px + shift[0], py + shift[1]
+        dx, r = self.TEAM_BADGE
+        found = ic.badge(im, px + dx * unit, py, r * unit, max(4, round(8 * unit)))
+        if found[0] >= 0.4: px, py = found[1] - dx * unit, found[2]
+        x0, y0, x1, y1 = self.TEAM_COMPARE; half = self.TEAM_PORTRAIT * unit / 2
+        return ic.head(im, (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit), (px - half, py - half, 2 * half))
+
     def read_party_icons(self, im, cards, u, ux, H, now):
         """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
         the background (a few seconds a read). Each tile keeps its last three answers; the most common one stands, so a
@@ -732,9 +770,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             ic, teams, buffs = self.icons, {}, []
             for slot, card in cards:                        # every player's card has the same team row
                 a, b = self.PARTY_CARDS[card][:2]; team = teams[slot] = []
+                shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
                 for i in range(3):
-                    t = a + self.TEAM_PITCH * i; wx0, wy0, wx1, wy1 = self.TEAM_WINDOW; sx, sy, side = self.TEAM_SQUARE
-                    r = ic.head(im, box(t + wx0, b + wy0, t + wx1, b + wy1), (ux + u * (t + sx), H * (b + sy), u * side))
+                    r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift)
                     # accepted only when clearly ahead (checked on 48 tiles: no wrong answer passes); an Aniimo whose
                     # portrait isn't in the install (Leafy, 30 Oct) scores low against everything and stays unread
                     team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
@@ -749,7 +787,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 buffs.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
                              {'name': max(set(names), key=names.count)})
             r = ic.buff(im, box(*self.OFFERING), 'offering', text_below=False)
-            if r and r[1] >= 0.8 and r[2] >= 0.15:          # none chosen shows '+' or '...' (up to 0.61 against the icons)
+            # none chosen shows '+' or '...' (up to 0.61 against the icons); one chosen read 0.78 (5 Nov, Elemental Concerto)
+            if r and r[1] >= 0.7 and r[2] >= 0.15:
                 ids = ic.buffs_named(r[0], 'offering')        # a few offerings share an icon: then only their names go
                 names = sorted({ic.buffs[k]['name'] for k in ids})
                 buffs.append({'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)})

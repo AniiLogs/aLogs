@@ -19,6 +19,13 @@ window.PATCH_NOTES = [
      "**A problem in one part no longer stops the others:** if sending to the leaderboards or the DPS window keeps failing, only that part stops and the sidebar says so; turn it off and on to try again.",
      "**Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed."
     ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "**Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their skill icons and compared the way the game draws them, so a card sitting a little off (or higher, once everyone is ready) no longer hides them. On recent Party screens, 119 of 144 were read, up from 65.",
+     "**The Special Offering** the leader picked is read again (it was often missed)."
+    ]
    }
   ]
  },
