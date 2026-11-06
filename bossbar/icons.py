@@ -13,14 +13,17 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 4          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
-                           # 4: portraits back in their whole square (the atlas trims them)
+CACHE_VERSION = 5          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
+                           # 4: portraits back in their whole square (the atlas trims them); 5: the team tiles' fade
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
 BUFF_PREFIXES = ('mres_xgui_texture_expng_', 'mres_xgui_panel_expng_', 'mres_xgui_common_expng_', 'ar_xgui_icon_skilli_',
                  'ar_xgui_icon_item_i_')
 HEAD_PREFIXES = ('ar_xgui_image_pet_he_', 'ar_xgui_image_petman_')
+# The Party screen's team tiles fade each portrait into the card with this soft mask (UI_Node_TeamRoom_CenterItem >
+# PetMinorN > Mask: 208 units square over the 204 portrait, centred on it): bright left of centre, gone at the badge
+TEAM_FADE, FADE_PREFIXES = 'ui_img_grabeggs_centeritem_mask2', ('mres_xgui_rpanel_expng_',)
 KIND = {'General': 'season', 'Special': 'offering'}
 
 
@@ -80,7 +83,7 @@ def extract(cache_dir, player_log=None):
         if name and r.get('buffSeries') is not None:
             sim_gizmos.setdefault(name, [str(r['buffSeries']), rarity.get(r.get('buffRarity'), 'Special')])
     shipped = sorted(f for f in glob.glob(os.path.join(_bundle_dir(game), '*.uab'))
-                     if os.path.basename(f).startswith(BUFF_PREFIXES + HEAD_PREFIXES))
+                     if os.path.basename(f).startswith(BUFF_PREFIXES + HEAD_PREFIXES + FADE_PREFIXES))
     patches = glob.glob(os.path.join(game, 'Aniimo_Data', 'cvs', 'res', 'uab', 'win', 'DefaultPackage', 'CacheBundleFiles', '*', '*', 'cdata.uab'))
     art = {}                                                   # lower name -> (image, file time); the newest file wins
     for f in shipped + patches:
@@ -90,8 +93,8 @@ def extract(cache_dir, player_log=None):
             if o.type.name != 'Sprite': continue
             name = o.peek_name() or ''
             low = name.lower()
-            if (low in wanted or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
-                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') else o.read().image.convert('RGBA')), stamp)
+            if (low in wanted or low == TEAM_FADE or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
+                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or low == TEAM_FADE else o.read().image.convert('RGBA')), stamp)
                 except Exception: pass
     for sub in ('heads', 'buffs'): os.makedirs(os.path.join(cache_dir, sub), exist_ok=True)
     # heads: named by the game's own tables only (a portrait the tables don't name is left out)
@@ -122,6 +125,7 @@ def extract(cache_dir, player_log=None):
         art[low][0].resize((BUFF_SIZE, BUFF_SIZE), Image.LANCZOS).save(os.path.join(cache_dir, 'buffs', low + '.png'))
         buffs[str(k)] = {'name': en(r.get('buffName')), 'kind': KIND[r['buffType']], 'icon': low,
                          **({'level': int(r['Bufflevel'])} if r.get('Bufflevel') else {})}
+    if TEAM_FADE in art: art[TEAM_FADE][0].getchannel('A').save(os.path.join(cache_dir, 'team_fade.png'))
     os.makedirs(os.path.join(cache_dir, 'sim'), exist_ok=True)
     sim_out = {}
     for sid, s in sim.items():
@@ -136,6 +140,7 @@ def extract(cache_dir, player_log=None):
         sim_out[sid] = entry
     with open(os.path.join(cache_dir, 'icons.json'), 'w', encoding='utf-8') as f:
         json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs, 'sim': sim_out,
+                   'team_fade': TEAM_FADE in art,
                    'sim_gizmos': sim_gizmos}, f, ensure_ascii=False)
     return bool(heads and buffs)
 
@@ -184,7 +189,10 @@ class Icons:
             for part in ('series', 'core', 'transform'):
                 if s.get(part + '_art'):
                     self.sim_art[(part, sid)] = Image.open(os.path.join(cache_dir, 'sim', f'{part}_{sid}.png')).convert('RGBA')
+        # the team tiles' fade (a square 'L' picture), when the install has it: head(fade=True) draws it in
+        self.fade = Image.open(os.path.join(cache_dir, 'team_fade.png')).convert('L') if meta.get('team_fade') else None
         self._sized = {}
+        self._faded = {}
         self._digits = None
 
     @classmethod
@@ -213,19 +221,37 @@ class Icons:
         if k not in self._sized: self._sized[k] = self.heads[key][1].resize((side, side), Image.BILINEAR)
         return self._sized[k]
 
-    def head(self, im, window, square, n=40):
+    def _fade(self, side):
+        """The team tiles' fade over a portrait square of `side` px (the mask is 208/204 of it, on the same centre)."""
+        if side not in self._faded:
+            big = round(side * 208 / 204); o = (big - side) // 2
+            self._faded[side] = self.fade.resize((big, big), Image.BILINEAR).crop((o, o, o + side, o + side))
+        return self._faded[side]
+
+    def head(self, im, window, square, n=40, fade=False):
         """The Aniimo whose portrait shows through `window` (a screen box), the portrait's whole square being about
         `square` (x, y, side in screen px; it's cut by the window). (name, score, margin over the next name, icon), or None.
-        A first pass with the square as placed picks a dozen candidates, a second fits each a few px and % around."""
+        A first pass with the square as placed picks a dozen candidates, a second fits each a few px and % around.
+        `fade`: drawn as the Party screen's team tiles draw it (when the cache has the fade): faded by the tile's mask
+        into the card (the tile's own mean colour stands in for the card art showing through), and compared where the
+        portrait shows at a quarter or more. Without it, where the portrait is solid."""
         X0, Y0, X1, Y1 = window
         h = max(4, round(n * (Y1 - Y0) / (X1 - X0))); k = n / (X1 - X0)
         crop = im.crop(tuple(int(v) for v in window)).convert('RGB').resize((n, h), Image.BILINEAR)
+        fade = fade and self.fade is not None
+        if fade: card = Image.new('RGB', (n, h), tuple(int(v) for v in ImageStat.Stat(crop).mean))
         side0 = square[2] * k; ox0 = (square[0] - X0) * k; oy0 = (square[1] - Y0) * k
         def score(key, scale, dx, dy):
             side = int(side0 * scale)
             ox = int(round(ox0 + (side0 - side) / 2)) + dx; oy = int(round(oy0 + (side0 - side) / 2)) + dy
             if ox > 0 or oy > 0 or ox + side < n or oy + side < h: return -1
-            part = self._head(key, side).crop((-ox, -oy, -ox + n, -oy + h))
+            box = (-ox, -oy, -ox + n, -oy + h)
+            part = self._head(key, side).crop(box)
+            if fade:
+                shown = ImageChops.multiply(part.getchannel('A'), self._fade(side).crop(box))
+                mask = shown.point(lambda v: 255 if v > 64 else 0)
+                if ImageStat.Stat(mask).mean[0] < 0.15 * 255: return -1
+                return ncc_pooled(crop, Image.composite(part.convert('RGB'), card, shown), mask)
             mask = part.getchannel('A').point(lambda v: 255 if v > 200 else 0)
             if ImageStat.Stat(mask).mean[0] < 0.3 * 255: return -1
             return ncc_pooled(crop, part.convert('RGB'), mask)

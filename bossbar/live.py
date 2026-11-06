@@ -726,6 +726,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     TEAM_BADGE = (74, 42)                           # the badge's centre right of the portrait's; its round's radius
     TEAM_PORTRAIT = 204
     TEAM_COMPARE = (-75, -52, 11, 45)
+    # ...or, with the tile's own fade drawn in (icons.TEAM_FADE, read from the install), the whole tile left of the
+    # badge: on 26 saved Party screens 299 of 312 tiles read, up from 264, and 7 wrong answers gone (6 Nov)
+    TEAM_COMPARE_FADED = (-72, -56, 28, 56)
     # The Season Buffs (bottom center): each icon's blue square, and the N of the "Lv. N" under it
     SEASON_BUFFS = ((0.525, 0.867, 0.550, 0.911), (0.5595, 0.867, 0.5845, 0.911))
     SEASON_LEVEL = (0.0153, 0.900, 0.0273, 0.923)   # x from the square's left
@@ -772,8 +775,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         dx, r = self.TEAM_BADGE
         found = ic.badge(im, px + dx * unit, py, r * unit, max(4, round(8 * unit)))
         if found[0] >= 0.4: px, py = found[1] - dx * unit, found[2]
-        x0, y0, x1, y1 = self.TEAM_COMPARE; half = self.TEAM_PORTRAIT * unit / 2
-        return ic.head(im, (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit), (px - half, py - half, 2 * half))
+        fade = getattr(ic, 'fade', None) is not None
+        x0, y0, x1, y1 = self.TEAM_COMPARE_FADED if fade else self.TEAM_COMPARE; half = self.TEAM_PORTRAIT * unit / 2
+        return ic.head(im, (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit), (px - half, py - half, 2 * half),
+                       fade=fade)
 
     def read_party_icons(self, im, cards, u, ux, H, now):
         """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in

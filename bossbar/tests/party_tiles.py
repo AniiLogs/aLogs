@@ -7,14 +7,15 @@
 - Icons.badge finds a drawn skill badge (a dark round with a light rim, any glyph inside) from a guess
   12 px off (within 2 px: the tile's fit refines a few px either way).
 - Meter.team_tile finds a tile whose card sits 9 px left and 4 px up of where it's measured, and reads the portrait
-  drawn there as the game lays it out (204 units, 74 left of the badge), over a decoy portrait that differs.
+  drawn there as the game lays it out (204 units, 74 left of the badge), over a decoy portrait that differs; and the
+  same tile faded into a red card by a tile mask (the cache's team fade), read with the fade drawn in.
 Made-up pictures only (no game files, no screenshots). Exit code 1 on any failure.
 """
 import os, sys, tempfile, types
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 os.environ['ALOGS_DATA'] = tempfile.mkdtemp(prefix='alogs_tiles_')
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 import icons, live
 
 fails = []
@@ -84,6 +85,28 @@ M = live.Meter.__new__(live.Meter)
 r = M.team_tile(ic, screen, t, b, u, ux, H, M.card_shift(ic, screen, a, b, u, ux, H))
 check('tile read', r and r[0], 'Mine')
 check('tile sure', bool(r and r[1] >= 0.68 and r[2] >= 0.10), True)
+
+# -- the same tile drawn the game's way: the portrait faded into a red card by the tile's mask --------------------------
+fade = Image.new('L', (104, 104)); ImageDraw.Draw(fade).ellipse((4, 20, 80, 86), fill=240)     # bright left of centre
+fade = fade.filter(ImageFilter.GaussianBlur(10))
+cache2 = tempfile.mkdtemp(prefix='alogs_icons_'); os.makedirs(os.path.join(cache2, 'heads'))
+for key, img in (('10001', mine), ('10002', decoy)):
+    img.resize((icons.HEAD_SIZE, icons.HEAD_SIZE), Image.LANCZOS).save(os.path.join(cache2, 'heads', key + '.png'))
+fade.save(os.path.join(cache2, 'team_fade.png'))
+json.dump({'version': icons.CACHE_VERSION, 'build': 'test', 'heads': {'10001': 'Mine', '10002': 'Decoy'}, 'buffs': {},
+           'sim': {}, 'sim_gizmos': {}, 'team_fade': True}, open(os.path.join(cache2, 'icons.json'), 'w'))
+ic2 = icons.Icons(cache2)
+check('fade loaded', ic2.fade is not None and ic2.fade.size, (104, 104))
+screen2 = Image.new('RGB', (W, H), (190, 60, 60))                                     # a red card showing through
+art = mine.resize((s, s), Image.BILINEAR)
+big = round(s * 208 / 204); o = (big - s) // 2
+shown = ImageChops.multiply(art.getchannel('A'), fade.resize((big, big), Image.BILINEAR).crop((o, o, o + s, o + s)))
+screen2.paste(art.convert('RGB'), (round(px - s / 2), round(py - s / 2)), shown)
+draw_badge(screen2, bx, by)
+r = M.team_tile(ic2, screen2, t, b, u, ux, H, M.card_shift(ic2, screen2, a, b, u, ux, H))
+check('faded tile read', r and r[0], 'Mine')
+check('faded tile sure', bool(r and r[1] >= 0.68 and r[2] >= 0.10), True)
+check('no fade in the cache: as before', ic.fade, None)
 
 if fails:
     print('\n'.join(fails)); sys.exit(1)
