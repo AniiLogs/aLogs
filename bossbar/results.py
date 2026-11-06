@@ -884,6 +884,9 @@ class ResultsMixin:
         # the run's boss: a two-boss fight's first, the one its result screen names (BossRushBattleResultCtrl.initUI)
         boss = run['title'] if f else '(unknown - meter saw no fight)'
         log.info(f'result screen read {self.result_reads}: banner {banner!r}, OCR {t!r} -> {boss}: rating {rating}, score {score}, time {secs}, players {players}')
+        # everything on it read (the proof was taken on the first read): the Battle Data click needn't wait any longer
+        if rating is not None and score is not None and secs is not None and players and                 all(p.get('value') is not None for p in players) and not getattr(self, 'result_ready', 0) >= self.result_seen:
+            self.result_ready = now
         if again:                                                  # a later read: only the agreed numbers change
             mark_you(players, self.party_for_result(now), self.character_name)
             if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
@@ -984,8 +987,16 @@ class ResultsMixin:
             s['submit'] = False
             S.write_json(path, s, indent=1, ensure_ascii=False)
         if self.submitter and s.get('result') and f.bossrush and 'submit' not in s:
-            # Battle Data in: decided a few seconds later, after more reads of both screens have voted (vote_reads)
-            self.pending_run = (path, time.time() + (BATTLE_DATA_SETTLE if s.get('battle_data') else BATTLE_DATA_WAIT))
+            self.schedule_run(path, bool(s.get('battle_data')), time.time())
+
+    def schedule_run(self, path, battle_data, now):
+        """When a finished run is decided and sent (check_pending_run): BATTLE_DATA_SETTLE after its Battle Data is in
+        (more reads of both screens vote meanwhile), else BATTLE_DATA_WAIT after its result. Each read of either screen
+        comes back here: the deadline only moves earlier (Battle Data arriving), never later - or the run waited until
+        the player left the screens (20-30 s after the result, 5-6 Nov), and its "sent" notice with it."""
+        due = now + (BATTLE_DATA_SETTLE if battle_data else BATTLE_DATA_WAIT)
+        if self.pending_run and self.pending_run[0] == path: due = min(due, self.pending_run[1])
+        self.pending_run = (path, due)
 
     def record_score(self, im, screen, boss, score, stars):
         """One row in logs/scores.csv per new value (plus a screenshot in logs/screens/), for the leaderboard."""

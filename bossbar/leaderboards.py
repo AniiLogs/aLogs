@@ -436,6 +436,7 @@ class LeaderboardsMixin:
         x = self.origin[0] + ux + u * 0.6; y = self.origin[1] + H * 0.9
         self.clicks += 1; log.info(f'auto-click {self.clicks}: View Battle Data at screen ({x:.0f}, {y:.0f})')
         self.hide_end_note()
+        if self.hold.active: self.hold.freeze_moves(0.4)          # the player's mouse can't pull the click away
         wc.click_at(x, y)
 
     def run_to_send(self, f):

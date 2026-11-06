@@ -1,7 +1,8 @@
 """Briefly holds back keyboard keys and mouse buttons (built-in Windows low-level hooks, no admin, nothing installed).
 
 Used on the boss rush result screen so button-mashing can't leave it before 'View Battle Data' is opened.
-- Mouse movement still works; only keys, mouse buttons and the wheel are swallowed.
+- Mouse movement still works; only keys, mouse buttons and the wheel are swallowed - except for a moment around one
+  of our clicks (freeze_moves), when the player's movement is held back too so the click lands where it's aimed.
 - Our own clicks (marked by Windows as injected) pass through.
 - Hard limit: the hook removes itself after `seconds` no matter what (its own thread watches the clock).
 - Ctrl+Shift+F12 releases it at once, and so does Ctrl+Alt+F12 (what players try first: 1 Nov, it was swallowed and
@@ -34,7 +35,7 @@ user32.PeekMessageW.argtypes = [ctypes.POINTER(W.MSG), W.HWND, W.UINT, W.UINT, W
 
 class InputBlock:
     def __init__(self, log=None):
-        self.log = log or (lambda m: None); self.thread = None; self.stop_at = 0.0; self.swallowed = 0
+        self.log = log or (lambda m: None); self.thread = None; self.stop_at = 0.0; self.swallowed = 0; self.moves_until = 0.0
 
     @property
     def active(self): return self.thread is not None and self.thread.is_alive()
@@ -45,6 +46,10 @@ class InputBlock:
         self.thread = threading.Thread(target=self._run, daemon=True); self.thread.start()
 
     def stop(self): self.stop_at = 0.0
+
+    def freeze_moves(self, seconds):
+        """Hold back the player's mouse movement too for `seconds` (while the hold is on): around our own click."""
+        self.moves_until = time.time() + seconds
 
     # releases always go through: a key or button held when the hold began would otherwise stay down in the game
     KEY_UPS = (0x101, 0x105)                       # WM_KEYUP, WM_SYSKEYUP
@@ -62,9 +67,11 @@ class InputBlock:
                     self.swallowed += 1; return 1
             return user32.CallNextHookEx(None, code, wp, lp)
         def ms(code, wp, lp):
-            if code == 0 and wp != WM_MOUSEMOVE and wp not in self.BUTTON_UPS:
+            if code == 0 and wp not in self.BUTTON_UPS and (wp != WM_MOUSEMOVE or time.time() < self.moves_until):
                 m = ctypes.cast(lp, ctypes.POINTER(MSE)).contents
-                if not m.flags & LLMHF_INJECTED: self.swallowed += 1; return 1
+                if not m.flags & LLMHF_INJECTED:
+                    if wp != WM_MOUSEMOVE: self.swallowed += 1
+                    return 1
             return user32.CallNextHookEx(None, code, wp, lp)
         kb_proc, ms_proc = HOOKPROC(kb), HOOKPROC(ms)                     # keep references alive
         mod = kernel32.GetModuleHandleW(None)

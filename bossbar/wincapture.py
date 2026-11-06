@@ -418,12 +418,15 @@ def is_foreground(hwnd):
 
 MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x2, 0x4
 def click_at(x, y):
-    """One left click at a screen point, then put the cursor back where it was (built-in SetCursorPos/mouse_event)."""
+    """One left click at a screen point, then put the cursor back where it was (built-in SetCursorPos/mouse_event).
+    mouse_event presses wherever the cursor is, so the cursor is put on the point again right before the press and the
+    release: a player moving the mouse meanwhile can't pull the click off the button (6 Nov, it missed that way)."""
     import time
     p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
-    user32.SetCursorPos(int(x), int(y)); time.sleep(0.12)   # the game sees the cursor arrive before the press
-    user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
-    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
+    x, y = int(x), int(y)
+    user32.SetCursorPos(x, y); time.sleep(0.12)              # the game sees the cursor arrive before the press
+    user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
+    user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
     user32.SetCursorPos(p.x, p.y)
 
 KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B

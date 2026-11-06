@@ -499,7 +499,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 self.start_auto(now)                                   # a new result screen: before anything slow
             # click first (the screen's numbers are read from this frame either way); the button may not take the
             # first click while the screen is still sliding in, so retry every second
-            if self.auto_active() and now - self.last_click > 1.0:
+            # the first click once the screen is wholly read (result_ready), else RESULT_PAUSE in
+            ready = self.clicks == 0 and getattr(self, 'result_ready', 0) >= self.hold_started
+            if self.auto_active() and (now - self.last_click > 1.0 or ready):
                 if self.clicks < 6: self.open_battle_data(im, u, ux, H)                 # first click or a retry
                 else: self.end_auto('Battle Data did not open after 6 clicks')
             self.test_frame(im, 'result', now)
