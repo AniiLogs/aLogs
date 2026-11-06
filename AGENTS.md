@@ -3,9 +3,9 @@
 - Layout, building and testing: see README.md.
 - Plug-ins (DPS meter, Sanctum Helper, leaderboards) and what each owns, and what aLogs and Sanctum Helper agree on:
   see docs/plugins.md.
-- **Two developers share these repositories:** follow docs/working-together.md (claim an area first, `git pull`
-  before starting and before pushing, small commits, never force-push `main`), and its "keep it cheap" rules for
-  agents.
+- **Two developers share these repositories:** follow docs/working-together.md: claim a GitHub issue first, work on
+  a `<github-name>/<topic>` branch, land it by PR with auto-merge (`main` is protected), and its "keep it cheap" rules
+  for agents.
 - **Fixing a problem a player reported:** follow docs/log-reports.md. In short: download the report with
   `node tools/log-reports.mjs get <id>`, fix the cause in a branch and open a PR, then **always** leave a note on the
   report with `node tools/log-reports.mjs note <id> "Found: … Changed: … PR: … Verified: …"`. Don't clear reports;

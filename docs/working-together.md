@@ -5,9 +5,8 @@ other's work, and without spending many tokens on syncing.
 
 ## The rules
 
-1. **Claim before you start.** Before working on something, say which files or area you're taking (in our chat, or
-   by assigning yourself the GitHub issue). One person per area at a time. If you need to touch the other person's
-   area, ask first.
+1. **Claim before you start.** Every piece of work is a GitHub issue; assign yourself before you begin (open one if
+   there isn't one). One person per area at a time. If you need to touch the other person's area, ask first.
 2. **Start from the latest.** `git pull` before you start and again before you push. Set this once per clone, so a
    pull replays your commits on top instead of making merge commits:
 
@@ -16,18 +15,28 @@ other's work, and without spending many tokens on syncing.
    git config rebase.autoStash true
    ```
 
-3. **Small commits, pushed often.** A day's work in one push makes conflicts likely; a few small pushes don't.
-4. **Never rewrite shared history.** No `git push --force` to `main`, and no rebasing commits that are already pushed.
-5. **The tests run on GitHub.** Every push to `main` and every pull request runs the repository's tests
-   (`.github/workflows/tests.yml`). If your push turns them red, fixing it is your next job.
+3. **Everything lands by pull request, on every repository.** Branch from the latest `main` as `<github-name>/<topic>`
+   (`sargeeva/sanctum-minimap`), push it, open a PR that says `Closes #<issue>`, and turn on **auto-merge**. It merges
+   itself once the tests pass and the branch is deleted. Nobody has to review it unless a test fails.
+4. **Small, short branches.** Merge within a day or two. The longer a branch lives, the more `main` moves under it.
+   If `main` moved while you worked, `git pull --rebase origin main` on your branch before pushing again.
+5. **Never rewrite shared history.** No force-push to `main` (it's blocked), and don't rebase someone else's branch.
+6. **The tests run on GitHub** for every PR (`.github/workflows/tests.yml`). A red check blocks the merge; fixing it is
+   the PR author's job.
 
 ## Per repository
 
-| Repository | How changes land |
-| --- | --- |
-| `aLogs` | Straight to `main` after `git pull`. Nothing reaches players until the maintainer builds and publishes a beta. |
-| `SanctumHelper` | Straight to `main`. Its author owns it. |
-| `aniilogs.github.io` | **Pull requests only** (`main` is protected), because a push to `main` deploys the live site and API. Branch as `<your-name>/<topic>`, open a PR, and merge once the tests pass. The maintainer can push directly. |
+All three have `main` protected the same way: pull requests only, no approval needed, force-pushes blocked. The
+maintainer (organization owner) can bypass it, and does only for release bookkeeping (`app/betas.json` after
+publishing a beta) and emergencies. Everything else, the maintainer's work included, goes through a PR.
+
+| Repository | Check a PR must pass | What a merge does |
+| --- | --- | --- |
+| `aLogs` | `meter` (meter tests) | Nothing reaches players until the maintainer builds and publishes a beta. |
+| `aniilogs.github.io` | `site` (syntax, tests, repository boundary) | Deploys the public site right away. |
+| `SanctumHelper` | none yet | Its author owns it. |
+
+`.github/CODEOWNERS` says who is asked to look at a PR touching their area.
 
 ## Who owns what
 
@@ -46,10 +55,12 @@ Which parts of aLogs belong to which plug-in: [plugins.md](plugins.md).
 
 ## For AI agents: keep it cheap
 
+- Start each task with `gh issue list --assignee @me` (or the issue the developer names), not by reading the repo.
 - Catch up with `git log --oneline -20` and `git diff --stat <old>..HEAD`. Open a full diff only for the files you
   are about to touch.
 - Search with grep and read the lines you need, not whole files. Most files here are long.
-- Don't review the other developer's commits unless asked. The tests on GitHub do that.
+- Don't review the other developer's commits or PRs unless asked. The tests on GitHub do that.
+- Open the PR with `gh pr create --fill` and `gh pr merge --auto --squash`, then stop: don't watch the checks.
 - Resolve a conflict by reading only the conflicted parts (`git diff --name-only --diff-filter=U`). Ask the developer
   when both sides changed the same logic; don't guess.
 - Run the tests for the part you changed, not the whole suite (`bossbar/tests/two_boss.py` is slow). GitHub runs

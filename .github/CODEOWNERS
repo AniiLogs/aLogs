@@ -1,0 +1,6 @@
+# Who is asked to look at a pull request that changes these files (docs/working-together.md).
+# The last matching line wins.
+*                           @donneeee
+/app/build-sanctum.ps1      @sargeeva @donneeee
+/app/src-tauri/src/sanctum.rs @sargeeva @donneeee
+/app/ui/sanctum.js          @sargeeva @donneeee
