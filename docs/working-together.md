@@ -38,6 +38,15 @@ publishing a beta) and emergencies. Everything else, the maintainer's work inclu
 
 `.github/CODEOWNERS` says who is asked to look at a PR touching their area.
 
+`AniiLogs/SanctumHelper` is a fork, so `gh pr create` aims at the original repository unless told otherwise: use
+`gh pr create --repo AniiLogs/SanctumHelper --base main`.
+
+## Betas first, releases by the maintainer
+
+Merged work goes into the next **beta** of the current version (built and published by the maintainer), never straight
+into a release. Testers and both of you run the beta; only the maintainer turns a tested beta into a release. So a
+merged change that turns out broken is fixed by another PR before the release, not after.
+
 ## Who owns what
 
 - **Maintainer:** releases and betas (`app/betas.json`, `share.mjs`, `release.mjs`), the updater signing key, clearing
