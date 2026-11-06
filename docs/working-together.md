@@ -33,7 +33,7 @@ publishing a beta) and emergencies. Everything else, the maintainer's work inclu
 | Repository | Check a PR must pass | What a merge does |
 | --- | --- | --- |
 | `aLogs` | `meter` (meter tests) | Nothing reaches players until the maintainer builds and publishes a beta. |
-| `aniilogs.github.io` | `site` (syntax, tests, repository boundary) | Deploys the public site right away. |
+| `aniilogs.github.io` | `site` (syntax, tests, repository boundary, release pin) | Deploys the public pages right away. The API is **not** deployed by merging: whoever merged a change to `src/`, `migrations/` or `wrangler.jsonc` deploys it (see the site's AGENTS.md). A change to `public/` re-pins `release-review.json` in the same PR. |
 | `SanctumHelper` | none yet | Its author owns it. |
 
 `.github/CODEOWNERS` says who is asked to look at a PR touching their area.
