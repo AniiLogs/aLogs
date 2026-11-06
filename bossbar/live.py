@@ -816,12 +816,28 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.screen_settled('party', now)
         """This run's party (from the old prep screen or the Party screen), each slot's name voted over a few reads."""
         if not members: return
+        # a read that missed a player (the screen fading into the fight, an effect over a name) keeps them: a player
+        # is dropped only when two reads in a row miss them (6 Nov: the last read before the fight had 3 of 4 names,
+        # and the run went with 3)
+        self.missed_now = {}
+        if self.party and now - self.party['at'] < 60:
+            have = {m['slot']: m for m in self.party['members']}
+            got = {m['slot'] for m in members}
+            missed = self.party.get('missed', {})
+            keep = [dict(m) for s, m in have.items() if s not in got and not missed.get(s)]
+            if keep: members = sorted(members + keep, key=lambda m: m['slot'])
+            self.missed_now = {s: 1 for s in have if s not in got}
         # the same party is read every few seconds: keep each slot's most common reading (OCR slips now and then)
         same = self.party and now - self.party['at'] < 900 and \
             [m['slot'] for m in self.party['members']] == [m['slot'] for m in members]
         votes = self.party['votes'] if same else {}
         for m in members: votes.setdefault(m['slot'], collections.Counter())[m['name']] += 1
         for m in members: m['name'] = votes[m['slot']].most_common(1)[0][0]
+        if same:                                        # your name misread once ('IMInaX') is still you
+            was = {m['slot']: m for m in self.party['members']}
+            for m in members:
+                if not m['self'] and was.get(m['slot'], {}).get('self') and was[m['slot']]['name'] == m['name']:
+                    m['self'] = True; m['ai'] = False
         counted = self.party.get('counted', set()) if same else set()
         for m in members:
             if m['self'] or m['ai']: continue
@@ -831,7 +847,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         changed = not same or [(m['name'], m['ai'], m['self']) for m in members] != \
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
         kept = {k: self.party[k] for k in ('team_reads', 'teams', 'team', 'buffs') if k in self.party} if same else {}
-        self.party = {'at': now, 'members': members, 'votes': votes, 'counted': counted, **kept}   # the icon reads carry on too
+        self.party = {'at': now, 'members': members, 'votes': votes, 'counted': counted, **kept,   # the icon reads carry on too
+                      'missed': getattr(self, 'missed_now', {})}
         if changed:
             log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
                                            + (f" [{m['aniimo']} Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]" if m.get('aniimo') else '')
@@ -1517,6 +1534,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if self.args.replay is None:                     # this week's bosses from the game data, after each patch
             threading.Thread(target=refresh_cycles, args=(self,), daemon=True, name='game-cycles').start()
             threading.Thread(target=screenshot_cleanup, args=(self,), daemon=True, name='screenshot-cleanup').start()
+            # the game's icons from the start: rebuilt after a game patch or an aLogs update they take ~40 s, and
+            # loaded only at the Party screen they were ready after it was gone (6 Nov: a run sent without teams)
+            self.load_icons()
         while not self.stop:
             t = time.time()
             if self.asked_to_stop(): break
