@@ -25,7 +25,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed.
 - **Battle Data opens sooner after an Interlink result:** View Battle Data is clicked as soon as the result screen
   has been read (often within a second), instead of about 4 seconds in, and no longer waits on a fresh picture of
-  the game (when that stalled, the click came late or not at all).
+  the game (when that stalled, the click came late or not at all). The game picture no longer drops out for several
+  seconds right after the result screen shows, which held the click up by 7 to 27 s.
 
 ### Fixed
 - **Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their

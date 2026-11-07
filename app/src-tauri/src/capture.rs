@@ -594,6 +594,31 @@ fn place(readers: &[Reader; SLOTS], active: &[bool; SLOTS], slot: usize, bytes: 
     (at + bytes <= POOL).then_some(at)
 }
 
+/// `place`, and when no gap is big enough (the other readers' pictures sit spread over the pool, so a whole 4K frame
+/// - the meter reading the result screen - never fits): the others give up their room and this reader starts at the
+/// pool's start. Each is first marked not served, under its own sequence number, so its reader waits for its next
+/// picture instead of reading one being overwritten; they're placed again on their next turn. Without this the
+/// reader was skipped every round ("no room this time") until another reader stopped asking, and the meter had no
+/// picture for up to 27 s right after an Interlink result (meter.log 2026-11-06).
+fn place_or_make_room(shared: &Shared, readers: &mut [Reader; SLOTS], active: &[bool; SLOTS], slot: usize, bytes: usize) -> Option<usize> {
+    if let Some(offset) = place(readers, active, slot, bytes) {
+        return Some(offset);
+    }
+    if bytes > POOL {
+        return None;
+    }
+    for i in 0..SLOTS {
+        if i == slot || readers[i].room == 0 {
+            continue;
+        }
+        let at = PICTURE_BASE + i * PICTURE_SIZE;
+        shared.write(at + 16, || shared.put_u32(at + 12, 0));
+        (readers[i].room, readers[i].request) = (0, 0);
+    }
+    crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved", bytes / 1024));
+    Some(0)
+}
+
 /// Writes the readers that are due: each gets the area it asked for, in its own picture. A reader whose area
 /// and image are unchanged only gets its picture time moved on (nothing leaves the graphics card).
 /// Returns whether any picture written had something on it (None: nothing was written).
@@ -685,9 +710,9 @@ fn serve(
         let (pw, ph) = (w / shrink, h / shrink); // the picture's own size
         let (stride, bytes) = (pw as usize * 4, pw as usize * 4 * ph as usize);
         if readers[slot].room < bytes || r.request != request {
-            match place(readers, &active, slot, bytes) {
+            match place_or_make_room(shared, readers, &active, slot, bytes) {
                 Some(offset) => (readers[slot].offset, readers[slot].room) = (offset, bytes),
-                None => continue, // no room this time
+                None => continue, // bigger than the whole pool
             }
         }
         let started = Instant::now();
@@ -750,7 +775,7 @@ fn serve_parts(
         return Some(None);
     }
     if readers[slot].room < bytes || readers[slot].request != request {
-        match place(readers, active, slot, bytes) {
+        match place_or_make_room(shared, readers, active, slot, bytes) {
             Some(offset) => (readers[slot].offset, readers[slot].room) = (offset, bytes),
             None => return Some(None),
         }
@@ -1106,6 +1131,25 @@ pub fn start() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two small readers spread over the pool leave no gap for a whole 4K frame (the meter on the result screen):
+    /// `place` alone finds none, and once the others give up their room it starts at the pool's start.
+    #[test]
+    fn full_frame_finds_room() {
+        const MB: usize = 1 << 20;
+        let full = MAX_W * MAX_H * 4;
+        let mut readers = [Reader::default(); SLOTS];
+        let mut active = [false; SLOTS];
+        for (slot, offset) in [(1, 20 * MB), (2, 45 * MB)] {
+            (readers[slot].offset, readers[slot].room, active[slot]) = (offset, MB, true);
+        }
+        active[0] = true;
+        assert_eq!(place(&readers, &active, 0, full), None);
+        for i in 1..SLOTS {
+            readers[i].room = 0;
+        }
+        assert_eq!(place(&readers, &active, 0, full), Some(0));
+    }
 
     /// The meter's reader (bossbar/wincapture.py) against pictures served here from Desktop Duplication of the
     /// window in front, alongside a fast small-area reader like Sanctum Helper's:
