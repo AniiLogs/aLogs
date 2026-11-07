@@ -799,56 +799,74 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
 
     def read_party_icons(self, im, cards, u, ux, H, now):
         """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
-        the background (a few seconds a read). Each tile keeps its last three answers; the most common one stands, so a
-        team changed before the fight follows within a read or two. Nothing is read until the icons are loaded."""
+        the background (a few seconds a read). The newest read of a tile stands (a tile it couldn't read keeps the last
+        one), so a team changed before the fight shows from the next read; a player whose name or lead Aniimo changed
+        starts over (7 Nov: a 2-of-3 vote kept the last run's teams for runs read only once or twice, 13 tiles in 141
+        sent wrong). A frame that comes while a read runs is read right after it (the last one before the fight
+        counts most). Nothing is read until the icons are loaded."""
         self.load_icons()
-        if self.icons_state != 'ready' or (self.icon_read and self.icon_read.is_alive()): return
-        votes = self.party['votes']                          # this party (it's rebuilt each read, its votes carry on)
+        if self.icons_state != 'ready' or not self.party: return
+        job = (im, cards, u, ux, H, {m['slot']: self.who(m) for m in self.party['members']})
+        if self.icon_read and self.icon_read.is_alive():
+            self.icon_next = job; return
+        def run(job):
+            while job:
+                self.icon_next = None
+                try: self.read_party_job(*job)
+                except Exception: log.exception('Party screen icons: read failed')
+                job = self.icon_next
+        self.icon_read = threading.Thread(target=run, args=(job,), daemon=True); self.icon_read.start()
+
+    icon_next = None
+
+    @staticmethod
+    def who(m):
+        """Who a Party screen card is, as far as its team goes: the player's name and lead Aniimo (casefolded)."""
+        return tuple(re.sub(r'\W', '', str(m.get(k) or '')).casefold() for k in ('name', 'aniimo'))
+
+    def read_party_job(self, im, cards, u, ux, H, who):
+        """read_party_icons' read of one frame; who: each slot's who() when the frame came."""
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
-        def read():
-            ic, teams, buffs = self.icons, {}, []
-            for slot, card in cards:                        # every player's card has the same team row
-                a, b = self.PARTY_CARDS[card][:2]; team = teams[slot] = []
-                shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
-                for i in range(3):
-                    r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift)
-                    # accepted only when clearly ahead (checked on 312 tiles: no wrong answer passes); an Aniimo whose
-                    # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
-                    # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
-                    team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
-            for sq in self.SEASON_BUFFS:
-                r = ic.buff(im, box(*sq), 'season')
-                if not r or r[1] < 0.8 or r[2] < 0.2: continue
-                x0, y0, x1, y1 = self.SEASON_LEVEL
-                d = ic.digit(im, box(sq[0] + x0, y0, sq[0] + x1, y1))
-                level = int(d[0]) if d and d[2] >= 0.08 else None
-                ids = ic.buffs_named(r[0], 'season', level) if level else []
-                names = [ic.buffs[k]['name'] for k in ic.buffs_named(r[0], 'season')]
-                buffs.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
-                             {'name': max(set(names), key=names.count)})
-            r = ic.buff(im, box(*self.OFFERING), 'offering', text_below=False)
-            # none chosen shows '+' or '...' (up to 0.61 against the icons); one chosen read 0.78 (5 Nov, Elemental Concerto)
-            if r and r[1] >= 0.7 and r[2] >= 0.15:
-                ids = ic.buffs_named(r[0], 'offering')        # a few offerings share an icon: then only their names go
-                names = sorted({ic.buffs[k]['name'] for k in ids})
-                buffs.append({'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)})
-            party = self.party
-            if not party or party['votes'] is not votes: return          # a new party came in meanwhile
-            reads = party.setdefault('team_reads', {})
-            def pick(h):                                    # agreed by two of the last three reads (or the only read)
-                names = [n for n in h if n]
-                n = max(set(names), key=names.count) if names else None
-                return n if n and (names.count(n) >= 2 or len(h) == 1) else None
-            out = party.setdefault('teams', [None] * 4)    # by slot, 1P..4P
-            for slot, team in teams.items():
-                hist = reads.setdefault(slot, [collections.deque(maxlen=3) for _ in range(3)])
-                for i, name in enumerate(team): hist[i].append(name)
-                out[slot] = [pick(h) for h in hist]
-            mine = next((m['slot'] for m in party['members'] if m['self']), None)
-            if mine is not None: party['team'] = out[mine]
-            if buffs or 'buffs' not in party: party['buffs'] = buffs
-            log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
-        self.icon_read = threading.Thread(target=read, daemon=True); self.icon_read.start()
+        ic, teams, buffs = self.icons, {}, []
+        for slot, card in cards:                        # every player's card has the same team row
+            a, b = self.PARTY_CARDS[card][:2]; team = teams[slot] = []
+            shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
+            for i in range(3):
+                r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift)
+                # accepted only when clearly ahead (checked on 312 tiles: no wrong answer passes); an Aniimo whose
+                # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
+                # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
+                team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
+        for sq in self.SEASON_BUFFS:
+            r = ic.buff(im, box(*sq), 'season')
+            if not r or r[1] < 0.8 or r[2] < 0.2: continue
+            x0, y0, x1, y1 = self.SEASON_LEVEL
+            d = ic.digit(im, box(sq[0] + x0, y0, sq[0] + x1, y1))
+            level = int(d[0]) if d and d[2] >= 0.08 else None
+            ids = ic.buffs_named(r[0], 'season', level) if level else []
+            names = [ic.buffs[k]['name'] for k in ic.buffs_named(r[0], 'season')]
+            buffs.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
+                         {'name': max(set(names), key=names.count)})
+        r = ic.buff(im, box(*self.OFFERING), 'offering', text_below=False)
+        # none chosen shows '+' or '...' (up to 0.61 against the icons); one chosen read 0.78 (5 Nov, Elemental Concerto)
+        if r and r[1] >= 0.7 and r[2] >= 0.15:
+            ids = ic.buffs_named(r[0], 'offering')        # a few offerings share an icon: then only their names go
+            names = sorted({ic.buffs[k]['name'] for k in ids})
+            buffs.append({'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)})
+        party = self.party
+        if not party: return
+        now_who = {m['slot']: self.who(m) for m in party['members']}
+        out = party.setdefault('teams', [None] * 4)    # by slot, 1P..4P
+        had = party.setdefault('team_who', {})          # whose team each slot's reads are
+        for slot, team in teams.items():
+            if now_who.get(slot) != who.get(slot): continue        # the card changed hands while it was read
+            last = out[slot] if had.get(slot) == who[slot] and out[slot] else [None] * 3
+            out[slot] = [n or o for n, o in zip(team, last)]
+            had[slot] = who[slot]
+        mine = next((m['slot'] for m in party['members'] if m['self']), None)
+        if mine is not None: party['team'] = out[mine]
+        if buffs or 'buffs' not in party: party['buffs'] = buffs
+        log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
 
     def set_party(self, members, now):
         self.screen_settled('party', now)
@@ -884,7 +902,17 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             if clear and m['slot'] not in counted: TEAM.saw(m['name']); counted.add(m['slot'])
         changed = not same or [(m['name'], m['ai'], m['self']) for m in members] != \
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
-        kept = {k: self.party[k] for k in ('team_reads', 'teams', 'team', 'buffs') if k in self.party} if same else {}
+        kept = {k: self.party[k] for k in ('buffs',) if k in self.party} if same else {}
+        # each card's team reads carry on while it's the same player with the same lead Aniimo (even when another
+        # slot's pill misread for a moment); a card that changed hands or lead starts over (no last run's team)
+        if self.party and now - self.party['at'] < 900:
+            who = {m['slot']: self.who(m) for m in members}
+            had = {s: w for s, w in self.party.get('team_who', {}).items() if who.get(s) == w}
+            old = self.party.get('teams') or [None] * 4
+            kept['teams'] = [old[s] if s in had and s < len(old) else None for s in range(4)]
+            kept['team_who'] = had
+            mine = next((m['slot'] for m in members if m['self']), None)
+            if mine is not None and kept['teams'][mine]: kept['team'] = kept['teams'][mine]
         self.party = {'at': now, 'members': members, 'votes': votes, 'counted': counted, **kept,   # the icon reads carry on too
                       'missed': getattr(self, 'missed_now', {})}
         if changed:
