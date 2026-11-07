@@ -16,6 +16,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
+     "**A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep screen, aLogs checks the site's board; if your row there already has that score (from a run you or a teammate sent), nothing goes up.",
      "**Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the DPS meter off. \"Tell me when a record is sent\" moved to Leaderboards › Sending; where notices show stays in General Settings › Notifications, and your spot is kept.",
      "**A problem in one part no longer stops the others:** if sending to the leaderboards or the DPS window keeps failing, only that part stops and the sidebar says so; turn it off and on to try again.",
      "**Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed.",

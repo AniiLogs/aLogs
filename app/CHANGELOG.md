@@ -20,6 +20,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   draws a yellow border round the game, only while aLogs is capturing. About explains both ways.
 
 ### Improved
+- **A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep
+  screen, aLogs checks the site's board; if your row there already has that score (from a run you or a teammate
+  sent), nothing goes up.
 - **Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the
   DPS meter off. "Tell me when a record is sent" moved to Leaderboards › Sending; where notices show stays in General
   Settings › Notifications, and your spot is kept.
