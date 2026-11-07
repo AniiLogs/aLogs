@@ -827,32 +827,53 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     def read_party_job(self, im, cards, u, ux, H, who):
         """read_party_icons' read of one frame; who: each slot's who() when the frame came."""
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
-        ic, teams, buffs = self.icons, {}, []
+        ic, teams, shifts = self.icons, {}, []
         for slot, card in cards:                        # every player's card has the same team row
             a, b = self.PARTY_CARDS[card][:2]; team = teams[slot] = []
             shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
+            shifts.append(shift)
             for i in range(3):
                 r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift)
                 # accepted only when clearly ahead (checked on 312 tiles: no wrong answer passes); an Aniimo whose
                 # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
                 # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
                 team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
+        # the buffs panel moves when the whole screen is drawn higher (at times ~40 px at 4K: 6 of 39 saved screens,
+        # none of them read with its Special Offering): about 1.9 times the cards' shift, as it sits lower; the panel's
+        # offset is picked by the first Season Buff's fit (always there). Only a clear shift of every card counts: the
+        # few px each card's fit wanders don't (the buff squares mind even 3 px)
+        # A panel that doesn't fit where expected is looked for a little around it (3 saved screens had it 0.5-1% of
+        # the height lower, the cards where measured).
+        dys = sorted(s[1] for s in shifts); dy = dys[len(dys) // 2] if dys else 0
+        at = lambda off: (lambda x0, y0, x1, y1: (ux + u * x0, H * y0 + off, ux + u * x1, H * y1 + off))
+        fits = {}
+        def fit(off):
+            if off not in fits: fits[off] = (ic.buff(im, at(off)(*self.SEASON_BUFFS[0]), 'season') or (None, -1))[1]
+            return fits[off]
+        sy = 0
+        if abs(dy) > 10 * H / 2160 and all(abs(d - dy) < 6 * H / 2160 for d in dys):
+            sy = max((round(dy * f) for f in (1.7, 1.8, 1.9, 2.0, 2.1)), key=fit)
+        if fit(sy) < 0.8:
+            sy = max([sy] + [sy + round(H * k * 0.005) for k in (1, 2, 3, -1, -2, -3)], key=fit)
+        box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0 + sy, ux + u * x1, H * y1 + sy)
+        season = []
         for sq in self.SEASON_BUFFS:
             r = ic.buff(im, box(*sq), 'season')
-            if not r or r[1] < 0.8 or r[2] < 0.2: continue
+            if not r or r[1] < 0.8 or r[2] < 0.2: season.append(None); continue
             x0, y0, x1, y1 = self.SEASON_LEVEL
             d = ic.digit(im, box(sq[0] + x0, y0, sq[0] + x1, y1))
             level = int(d[0]) if d and d[2] >= 0.08 else None
             ids = ic.buffs_named(r[0], 'season', level) if level else []
             names = [ic.buffs[k]['name'] for k in ic.buffs_named(r[0], 'season')]
-            buffs.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
-                         {'name': max(set(names), key=names.count)})
+            season.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
+                          {'name': max(set(names), key=names.count)})
+        offering = None
         r = ic.buff(im, box(*self.OFFERING), 'offering', text_below=False)
         # none chosen shows '+' or '...' (up to 0.61 against the icons); one chosen read 0.78 (5 Nov, Elemental Concerto)
         if r and r[1] >= 0.7 and r[2] >= 0.15:
             ids = ic.buffs_named(r[0], 'offering')        # a few offerings share an icon: then only their names go
             names = sorted({ic.buffs[k]['name'] for k in ids})
-            buffs.append({'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)})
+            offering = {'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)}
         party = self.party
         if not party: return
         now_who = {m['slot']: self.who(m) for m in party['members']}
@@ -865,7 +886,12 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             had[slot] = who[slot]
         mine = next((m['slot'] for m in party['members'] if m['self']), None)
         if mine is not None: party['team'] = out[mine]
-        if buffs or 'buffs' not in party: party['buffs'] = buffs
+        # each buff square keeps its last read when this one couldn't make it out (a read that caught the Season Buffs
+        # but not the Special Offering used to drop the offering)
+        last = party.get('buff_reads') or {'season': [None] * len(season), 'offering': None}
+        got = {'season': [n or o for n, o in zip(season, last['season'])], 'offering': offering or last['offering']}
+        party['buff_reads'] = got
+        party['buffs'] = [b for b in got['season'] if b] + ([got['offering']] if got['offering'] else [])
         log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
 
     def set_party(self, members, now):
@@ -902,7 +928,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             if clear and m['slot'] not in counted: TEAM.saw(m['name']); counted.add(m['slot'])
         changed = not same or [(m['name'], m['ai'], m['self']) for m in members] != \
             [(m['name'], m['ai'], m['self']) for m in self.party['members']]
-        kept = {k: self.party[k] for k in ('buffs',) if k in self.party} if same else {}
+        # the buffs are the leader's (1P): they carry on while 1P is the same player, even when another pill misread
+        lead = lambda ms: next((self.who(m)[0] for m in ms if m['slot'] == 0), None)
+        keep_buffs = self.party and now - self.party['at'] < 900 and lead(members) and lead(members) == lead(self.party['members'])
+        kept = {k: self.party[k] for k in ('buffs', 'buff_reads') if k in self.party} if same or keep_buffs else {}
         # each card's team reads carry on while it's the same player with the same lead Aniimo (even when another
         # slot's pill misread for a moment); a card that changed hands or lead starts over (no last run's team)
         if self.party and now - self.party['at'] < 900:
