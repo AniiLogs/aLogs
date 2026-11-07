@@ -38,7 +38,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   longer waits for it while holding the picture back: the meter always has the newest finished picture to read.
 - **A run is sent as soon as both pictures are taken:** the result screen, then Battle Data; once every card is read,
   the run goes at once and aLogs lets go of your inputs, instead of holding on for 5 more seconds. The Battle Data
-  picture is always the screen that was read (one run's was a loading screen when the game moved on first).
+  picture is always the screen that was read (one run's was a loading screen when the game moved on first). The
+  numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
 - **The updating window shows the animated aLogs icon,** not a still picture (the app's security settings kept the
