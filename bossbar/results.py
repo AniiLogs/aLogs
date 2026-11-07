@@ -782,6 +782,14 @@ class ResultsMixin:
             crops[f'name{i}'] = R.prep_text(im, box, u / 2000, thr=130); grey[f'name{i}'] = R.grey_crop(im, box)
         return crops, grey
 
+    def click_when_ready(self, im, u, ux, H):
+        """The result screen is wholly read: the automatic Battle Data click is made with this frame, at once. Waiting
+        for the next read needs a new picture, and on 6 Nov the app's capture stalled 18 and 28 s right after the first
+        read (the screen was complete on it), so the click came 22 s late, then not at all."""
+        auto = getattr(self, 'auto_active', None)
+        if auto and auto() and getattr(self, 'clicks', 1) == 0 and self.args.replay is None:
+            self.open_battle_data(im, u, ux, H)
+
     def result_screen(self, im, now, u, ux, H, banner, names=None):
         """Fight result right after a boss: Challenge Rating (stars), Challenge Score, Completion Time and one
         highlight stat per player. It doesn't name the boss, so it is tied to the fight the meter just tracked.
@@ -887,6 +895,7 @@ class ResultsMixin:
         # everything on it read (the proof was taken on the first read): the Battle Data click needn't wait any longer
         if rating is not None and score is not None and secs is not None and players and                 all(p.get('value') is not None for p in players) and not getattr(self, 'result_ready', 0) >= self.result_seen:
             self.result_ready = now
+            self.click_when_ready(im, u, ux, H)
         if again:                                                  # a later read: only the agreed numbers change
             mark_you(players, self.party_for_result(now), self.character_name)
             if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,

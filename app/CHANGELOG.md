@@ -23,8 +23,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **A problem in one part no longer stops the others:** if sending to the leaderboards or the DPS window keeps
   failing, only that part stops and the sidebar says so; turn it off and on to try again.
 - **Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed.
-- **Battle Data opens sooner after an Interlink result:** the result screen is read 4 times a second until it's
-  ready, so View Battle Data is clicked about 2 seconds after the screen instead of about 4.
+- **Battle Data opens sooner after an Interlink result:** View Battle Data is clicked as soon as the result screen
+  has been read (often within a second), instead of about 4 seconds in, and no longer waits on a fresh picture of
+  the game (when that stalled, the click came late or not at all).
 
 ### Fixed
 - **Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their

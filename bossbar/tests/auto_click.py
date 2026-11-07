@@ -10,6 +10,8 @@
   screens, 20-30 s after the result, and its "sent" notice with it).
 - screen_read_due: while the automatic session waits for its first click, the result screen is read 4 times a
   second, not every 1.5 s (the click came ~4 s after the screen); once it has clicked, the usual pace.
+- click_when_ready: once the result screen is wholly read, the first click is made with that very frame (no new
+  picture needed: the capture stalled right after it twice on 6 Nov); never a second time, and not without a session.
 - picture_gap: pictures stopping for 2 s or more is logged with the capture's reason, and so is their return.
 Stand-ins only (no game, no real clicks: user32 is replaced). Exit code 1 on any failure.
 """
