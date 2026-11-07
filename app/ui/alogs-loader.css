@@ -1,0 +1,24 @@
+/* Generated from img/alogs-loader.svg by loader-art.mjs - edit the SVG, then run it. */
+.alogs-loader{--beat:2.2s}
+.alogs-loader .hp,.alogs-loader .brk{stroke-dasharray:100 100;stroke-dashoffset:100;transition:stroke-dashoffset .35s cubic-bezier(.3,0,.2,1)}
+.alogs-loader .face,.alogs-loader .buff{transform-box:fill-box;transform-origin:center}
+.alogs-loader .lit{opacity:0}
+.alogs-loader.beat .face{animation:alogs-grow var(--beat) cubic-bezier(.25,.6,.35,1)}
+.alogs-loader.beat .face .lit{animation:alogs-face var(--beat) cubic-bezier(.25,.6,.35,1)}
+.alogs-loader.beat .buff{animation:alogs-grow-s calc(var(--beat) * .23) cubic-bezier(.2,.7,.3,1) both;animation-delay:calc(var(--beat) * (.2 + var(--n) * .055))}
+.alogs-loader.beat .buff .lit{animation:alogs-buff calc(var(--beat) * .23) cubic-bezier(.2,.7,.3,1) both;animation-delay:calc(var(--beat) * (.2 + var(--n) * .055))}
+.alogs-loader.loop .hp{animation:alogs-hp 2.4s cubic-bezier(.6,0,.3,1) infinite}
+.alogs-loader.loop .brk{animation:alogs-brk .8s cubic-bezier(.6,0,.3,1) infinite}
+@keyframes alogs-face{0%{opacity:0}6%{opacity:1}100%{opacity:0}}
+@keyframes alogs-grow{0%{transform:scale(1)}6%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes alogs-buff{0%{opacity:0}16%{opacity:1}100%{opacity:0}}
+@keyframes alogs-grow-s{0%{transform:scale(1)}16%{transform:scale(1.18)}100%{transform:scale(1)}}
+@keyframes alogs-hp{0%{stroke-dashoffset:100}55%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:-100}}
+@keyframes alogs-brk{0%{stroke-dashoffset:100}85%,100%{stroke-dashoffset:0}}
+@media (prefers-reduced-motion:reduce){.alogs-loader *{animation:none!important;transition:none!important}.alogs-loader.loop .hp,.alogs-loader.loop .brk{stroke-dashoffset:0}}
+.alogs-loader .n-0{--n:0}
+.alogs-loader .n-1{--n:1}
+.alogs-loader .n-2{--n:2}
+.alogs-loader .n-3{--n:3}
+.alogs-loader .n-4{--n:4}
+.alogs-loader .n-5{--n:5}

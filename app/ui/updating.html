@@ -5,19 +5,18 @@
   <title>Updating aLogs</title>
   <!-- the small window shown while an update installs (main.rs --update-splash): the installer runs silently behind it -->
   <link rel="stylesheet" href="updating.css">
+  <link rel="stylesheet" href="alogs-loader.css">
 </head>
 <body>
   <main class="splash" data-tauri-drag-region>
     <!-- the aLogs icon as its own loader (alogs-loader.js): the HP and break bars cycle while the installer runs -->
-    <div class="mark-wrap" data-loader data-tauri-drag-region>
-      <!-- the plain icon until the loader is in (it replaces it), and if the loader can't load -->
-      <img class="mark" src="img/alogs-mark.png" alt="" data-tauri-drag-region>
-    </div>
+    <div class="mark-wrap" data-loader data-tauri-drag-region></div>
     <h1 data-title>Updating aLogs</h1>
     <p class="step" data-step>Installing the update…</p>
     <div class="bar"><span></span></div>
     <p class="to" data-to></p>
   </main>
+  <script src="alogs-loader-art.js"></script>
   <script src="alogs-loader.js"></script>
   <script src="updating.js"></script>
 </body>

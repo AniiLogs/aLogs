@@ -28,6 +28,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
+     "**The updating window shows the animated aLogs icon,** not a still picture (the app's security settings kept the animation from loading).",
      "**Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their skill icons and compared the way the game draws them, faded into the card, so a card sitting a little off (or higher, once everyone is ready) no longer hides them, and look-alikes (Luminelle and Iris) aren't mixed up. On 26 recent Party screens, 299 of 312 were read, up from about half.",
      "**The Special Offering** the leader picked is read again (it was often missed).",
      "**The DPS meter no longer starts on the Party screen:** a player's title banner there could pass for a boss bar and open a fight before the run began.",
