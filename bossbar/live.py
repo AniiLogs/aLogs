@@ -124,6 +124,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             return None
         im = wc.grab_parts(self.hwnd, parts) if parts else wc.grab_window(self.hwnd, part)
         self.capture_stats(t0, im, 'shared ' + (wc.shared.source or 'capture'))
+        self.picture_gap(im is None, time.time())
         if im is None: return None
         if parts: im.info['parts'] = True
         self.use_screen = wc.shared.screen_copy        # our overlays can be in the picture: hide them from capture
@@ -181,6 +182,19 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             self.cap_stats = {**st, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
             self.load_line(now)
             self.overlay_check()
+
+    def picture_gap(self, missing, now):
+        """Pictures stopping for 2 s or more is logged with the reader's reason (wincapture SharedCapture.why), again
+        every 5 s while it lasts, and when they come back: on 6 Nov the meter had no picture for 18 s on a result
+        screen, so the automatic Battle Data click came 22 s late, and the log only said "can't see the game window"."""
+        since = getattr(self, 'no_picture_since', 0.0)
+        if not missing:
+            if since and now - since >= 2: log.info(f'game picture back after {now - since:.1f} s')
+            self.no_picture_since = 0.0; return
+        if not since: self.no_picture_since = since = now
+        if now - since >= 2 and now - getattr(self, 'no_picture_said', 0.0) >= 5:
+            self.no_picture_said = now
+            log.info(f'no game picture for {now - since:.1f} s: {wc.shared.why or "no reason given"} (source {wc.shared.source or "none"})')
 
     def overlay_check(self):
         """Discord's in-game overlay draws inside the game's own picture (DiscordHook64.dll), so no capture can leave
@@ -435,6 +449,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # a fight's bar hidden: 4 reads a second for the Catch Countdown and end screens, not back to back (B5: 9-13 a
         # second at 4K); the automatic Battle Data click still reads at once
         if quick and not self.auto_active(): gap = 0.25
+        # the automatic Battle Data session waits for the result screen to be wholly read before its first click: read it
+        # 4 times a second until then, not every 1.5 s (6 Nov: the click came ~4 s after the screen, 1.5 s of it this wait)
+        if self.auto_active() and getattr(self, 'clicks', 1) == 0: gap = min(gap, 0.25)
         if not quick and self.idle(): gap = max(gap, 1.0)
         return now - self.last_results >= gap
 

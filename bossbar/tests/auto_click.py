@@ -8,6 +8,9 @@
 - ResultsMixin.schedule_run: a run is decided BATTLE_DATA_SETTLE after its Battle Data is in, BATTLE_DATA_WAIT after
   its result without one; later reads of either screen never push that back (it waited until the player left the
   screens, 20-30 s after the result, and its "sent" notice with it).
+- screen_read_due: while the automatic session waits for its first click, the result screen is read 4 times a
+  second, not every 1.5 s (the click came ~4 s after the screen); once it has clicked, the usual pace.
+- picture_gap: pictures stopping for 2 s or more is logged with the capture's reason, and so is their return.
 Stand-ins only (no game, no real clicks: user32 is replaced). Exit code 1 on any failure.
 """
 import os, sys, tempfile, time

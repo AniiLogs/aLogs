@@ -78,6 +78,7 @@ class SharedCapture:
         self.owner = os.getpid() | (tag << 28)
         self.base = None; self.slot = None; self.next_open = 0.0; self.last_call = 0.0; self.interval = 250.0
         self.screen_copy = False; self.copy_us = 0     # the last picture: our overlays may be in it (flags bit 1), copy time
+        self.why = ''                                  # why the last read gave no picture (_none)
         self.source = ''                               # where the last picture came from (flags bits 4-7)
         self.areas = []; self.box = None; self.request = 0
         self.boxes = {}                                # request id -> box, for our last few requests (read)
@@ -107,6 +108,11 @@ class SharedCapture:
             self.k.CloseHandle(h); return None
         self.base, self.handle = base, h
         return base
+
+    def _none(self, why):
+        """read()'s None, with why (self.why): the meter logs it when pictures stop coming for a while."""
+        self.why = why
+        return None
 
     @staticmethod
     def _u16(base, at): return ctypes.c_uint16.from_address(base + at).value
@@ -151,36 +157,36 @@ class SharedCapture:
             self.interval = min(1000.0, max(25.0, 0.7 * self.interval + 0.3 * (now - self.last_call) * 1000))
         self.last_call = now
         base = self._open(now)
-        if not base: return None
+        if not base: return self._none('the app shares no picture (not running, or its capture is off)')
         now_ms = int(now * 1000)
-        if not self._request(base, now_ms): return None
+        if not self._request(base, now_ms): return self._none('no free reader slot')
         top = 65535 if not top_fraction else min(65535, int(65535 * top_fraction) + 1)
         self._ask_area(base, now, (0, 0, 65535, top))
-        if self._u64(base, 40) != (hwnd or 0): return None
+        if self._u64(base, 40) != (hwnd or 0): return self._none('the app is capturing another window')
         at = self.PICTURE_BASE + self.slot * self.PICTURE
         # tabbed out on Windows 10 the window copy comes 4 times a second: a new area isn't worth waiting for there
         until = now + self.WAIT; area_until = now if self.source == self.SOURCES[1] else until
         while True:
             seq = self._u64(base, at + 16)
             if seq & 1:                                                           # being written: it's nearly done
-                if time.time() >= until: return None
+                if time.time() >= until: return self._none('the picture was being written')
                 time.sleep(0.001); continue
             # the picture of an earlier request whose box holds all we want does too: a box shrinking after a whole
             # frame (AREA_KEEP) lost a frame each time, and between fights that flip-flopped every few seconds
             box = self.boxes.get(self._u32(base, at + 12))
             if box is None or box[:3] != (0, 0, 65535) or box[3] < top:          # our area isn't in yet
-                if time.time() >= area_until: return None
+                if time.time() >= area_until: return self._none('our area is not in the picture yet')
                 time.sleep(0.002); continue
             flags = self._u32(base, at + 48)
             # tabbed out on Windows 10 the app copies the window only 4 times a second (source 1): older is fine then
             fresh = 600 if flags >> 4 & 15 == 1 else max(150, 2 * self.interval)
-            if not flags & 1 or now_ms - self._u64(base, at + 24) > fresh: return None
-            if ctypes.c_uint8.from_address(base + at + 61).value > 1: return None  # shrunk: not what we asked for
+            if not flags & 1 or now_ms - self._u64(base, at + 24) > fresh: return self._none('no fresh picture from the app (no valid frame, or an old one)')
+            if ctypes.c_uint8.from_address(base + at + 61).value > 1: return self._none('the picture came shrunk')  # shrunk: not what we asked for
             offset, stride = self._u32(base, at + 32), self._u32(base, at + 36)
             x, y, w, h = (self._u16(base, at + 40 + 2 * k) for k in range(4))
             cw, ch = self._u16(base, at + 56), self._u16(base, at + 58)
             rows = ch if not top_fraction else min(ch, int(ch * top_fraction))
-            if x + w > cw or y + h > ch or not w or not h: return None
+            if x + w > cw or y + h > ch or not w or not h: return self._none('the picture does not fit the window')
             # converted straight out of the shared memory into the image's own pixels; a picture written
             # meanwhile shows in the sequence number and is read again
             got = min(h, max(0, rows - y))
@@ -198,7 +204,7 @@ class SharedCapture:
                 self.source = self.SOURCES.get(flags >> 4 & 15, '?')
                 self._times(base, at)
                 return im
-            if time.time() >= until: return None                                 # rewritten while we read it
+            if time.time() >= until: return self._none('the picture was rewritten while it was read')                                 # rewritten while we read it
 
     def _times(self, base, at):
         self.picture_time = self._u64(base, at + 24) / 1000      # when the app took it (to tell frames apart)
@@ -228,7 +234,7 @@ class SharedCapture:
         if self.last_call: self.interval = min(1000.0, max(25.0, 0.7 * self.interval + 0.3 * (now - self.last_call) * 1000))
         self.last_call = now
         base = self._open(now)
-        if not base or not self._request(base, int(now * 1000)): return None
+        if not base or not self._request(base, int(now * 1000)): return self._none('the app shares no picture (not running, or no free reader slot)')
         want = tuple(sorted(self.merge_rects([tuple(min(65535, max(0, int(v * 65535) + (k >= 2))) for k, v in enumerate(r))
                                               for r in rects])))
         at = self.PICTURE_BASE + self.slot * self.PICTURE; ra = self.RECT_BASE + self.slot * self.RECT_SIZE
@@ -242,20 +248,20 @@ class SharedCapture:
             for k, v in enumerate(whole): ctypes.c_uint16.from_address(base + at + 2 * k).value = v
             ctypes.c_uint32.from_address(base + at + 8).value = self.request
             self.boxes = {r: b for r, b in list(self.boxes.items())[-3:]}; self.boxes[self.request] = want
-        if self._u64(base, 40) != (hwnd or 0): return None
+        if self._u64(base, 40) != (hwnd or 0): return self._none('the app is capturing another window')
         until = now + self.WAIT
         while True:
             seq = self._u64(base, at + 16)
             if seq & 1 or self._u32(base, at + 12) != self.request:      # being written, or our parts aren't in yet
-                if time.time() >= until: return None
+                if time.time() >= until: return self._none('the picture was being written')
                 time.sleep(0.002 if not seq & 1 else 0.001); continue
             flags = self._u32(base, at + 48)
             fresh = 600 if flags >> 4 & 15 == 1 else max(150, 2 * self.interval)
-            if not flags & 1 or int(time.time() * 1000) - self._u64(base, at + 24) > fresh: return None
-            if ctypes.c_uint8.from_address(base + at + 61).value > 1: return None
+            if not flags & 1 or int(time.time() * 1000) - self._u64(base, at + 24) > fresh: return self._none('no fresh picture from the app (no valid frame, or an old one)')
+            if ctypes.c_uint8.from_address(base + at + 61).value > 1: return self._none('the picture came shrunk')
             offset, stride = self._u32(base, at + 32), self._u32(base, at + 36)
             cw, ch = self._u16(base, at + 56), self._u16(base, at + 58)
-            if not cw or not ch: return None
+            if not cw or not ch: return self._none('the picture does not fit the window')
             full = Image.new('RGB', (cw, ch))
             if stride:                                  # an app before B8: one box around them all
                 x, y, w, h = (self._u16(base, at + 40 + 2 * k) for k in range(4))
@@ -267,7 +273,7 @@ class SharedCapture:
                 for k in range(len(want)):
                     x, y, w, h = (self._u16(base, ra + 8 + 16 * k + 8 + 2 * j) for j in range(4))
                     if not w or not h: continue
-                    if x + w > cw or y + h > ch: return None
+                    if x + w > cw or y + h > ch: return self._none('the picture does not fit the window')
                     im = Image.frombuffer('RGB', (w, h), (ctypes.c_char * (w * 4 * h)).from_address(base + self.HEADER + offset),
                                           'raw', 'BGRX', w * 4, 1)
                     full.paste(im, (x, y)); offset += w * 4 * h
@@ -276,7 +282,7 @@ class SharedCapture:
                 self.source = self.SOURCES.get(flags >> 4 & 15, '?')
                 self._times(base, at)
                 return full
-            if time.time() >= until: return None                                 # rewritten while we read it
+            if time.time() >= until: return self._none('the picture was rewritten while it was read')                                 # rewritten while we read it
 
     def read_area(self, hwnd, area, shrink=1):
         """The part `area` (x0, y0, x1, y1 as shares of the client, 0-1) of the newest picture, as a PIL image, or None.
@@ -288,7 +294,7 @@ class SharedCapture:
         if self.last_call: self.interval = min(1000.0, max(16.0, 0.7 * self.interval + 0.3 * (now - self.last_call) * 1000))
         self.last_call = now
         base = self._open(now)
-        if not base or not self._request(base, int(now * 1000)): return None
+        if not base or not self._request(base, int(now * 1000)): return self._none('the app shares no picture (not running, or no free reader slot)')
         want = tuple(min(65535, max(0, int(v * 65535))) for v in area)
         at = self.PICTURE_BASE + self.slot * self.PICTURE
         if ctypes.c_uint8.from_address(base + at + 60).value != shrink:
