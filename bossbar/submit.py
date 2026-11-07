@@ -82,6 +82,33 @@ def _party_bytes(path):
     return data
 
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
+# the last Egg Heist standing the site took, per UID and season: the same one again isn't sent (a restart forgot it)
+STANDINGS = os.path.join(HERE, 'logs', 'sent_standings.json')
+
+def standing_key(payload):
+    """(UID|season, [tier, subtier, rank points, stars]) of an eggheist_season payload."""
+    rank = payload.get('rank') or {}
+    return (f"{payload.get('gameUid')}|{payload.get('cycle')}",
+            [rank.get('tier'), rank.get('subtier'), payload.get('score'), payload.get('stars')])
+
+def standing_sent(payload):
+    """The site already has this Egg Heist standing from this app: same rank, rank points and stars."""
+    key, value = standing_key(payload)
+    try:
+        with open(STANDINGS, encoding='utf-8') as f: return json.load(f).get(key) == value
+    except (OSError, ValueError, AttributeError): return False
+
+def remember_standing(payload):
+    key, value = standing_key(payload)
+    try:
+        with open(STANDINGS, encoding='utf-8') as f: sent = json.load(f)
+        if not isinstance(sent, dict): sent = {}
+    except (OSError, ValueError): sent = {}
+    sent[key] = value
+    try:
+        os.makedirs(os.path.dirname(STANDINGS), exist_ok=True)
+        with open(STANDINGS, 'w', encoding='utf-8') as f: json.dump(sent, f)
+    except OSError: pass
 SET_ASIDE_DAYS = 7      # .rejected / .bad copies (the server turned them down, or unreadable), kept a few days to look
                         # at why. Records still to send wait as long as it takes: signed out for weeks, they still go up.
 
@@ -353,6 +380,9 @@ class Submitter(threading.Thread):
                     if not isinstance(item, dict): os.replace(path, path + '.bad'); continue
                     # run records wait while "Submit my records" is off; your character's link and numbers still go
                     if not self.config and item.get('endpoint') not in ('characters', 'characters/stats', 'disputes'): continue
+                    if (item.get('payload') or {}).get('kind') == 'eggheist_season' and standing_sent(item['payload']):
+                        log.info(f"leaderboard: {name} not sent - the site already has this Egg Heist standing")
+                        os.remove(path); self.drop_proof(item); continue
                     if (item.get('payload') or {}).get('kind') == 'interlink_best' and self.board_has(item['payload']):
                         log.info(f"leaderboard: {name} not sent - the board already has this score for this boss and week")
                         os.remove(path); self.drop_proof(item); continue
@@ -364,6 +394,7 @@ class Submitter(threading.Thread):
                         try: os.remove(DISPUTE)
                         except OSError: pass
                     self.last_result = (time.time(), f'sent {name[:-5]}')
+                    if (item.get('payload') or {}).get('kind') == 'eggheist_season': remember_standing(item['payload'])
                     if self.on_sent and item.get('endpoint') == 'submissions':
                         try: self.on_sent(item.get('payload') or {}, reply)
                         except Exception as e: log.warning(f'leaderboard: notice for {name} failed ({e!r})')
