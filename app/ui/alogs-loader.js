@@ -89,7 +89,7 @@
       render();
     };
     if (svg) mount(svg);
-    else fetchMarkup().then(mount, () => { host.hidden = true; });
+    else fetchMarkup().then(mount, () => { if (!host.childElementCount) host.hidden = true; });   // a fallback picture stays
 
     const api = {
       // total: the HP arc's own value when the source reports one; otherwise it follows the parts.

@@ -46,7 +46,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **A heads-up when Discord's overlay is in the game:** Discord draws its overlay inside the game's own picture, so
   its voice widget (names and avatars) ended up in proof pictures. aLogs now says so once, with where to turn it off.
 - **The updating window** shows the aLogs icon as its own loader (its HP and break bars fill while the update installs)
-  and says which beta it's installing (0.1.36 B4, not just 0.1.36).
+  and says which beta it's installing (0.1.36 B4, not just 0.1.36). Its icon no longer goes missing.
 
 ## 0.1.35
 
