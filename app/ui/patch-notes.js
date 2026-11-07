@@ -18,7 +18,7 @@ window.PATCH_NOTES = [
      "**Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the DPS meter off. \"Tell me when a record is sent\" moved to Leaderboards › Sending; where notices show stays in General Settings › Notifications, and your spot is kept.",
      "**A problem in one part no longer stops the others:** if sending to the leaderboards or the DPS window keeps failing, only that part stops and the sidebar says so; turn it off and on to try again.",
      "**Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed.",
-     "**Battle Data opens sooner after an Interlink result:** View Battle Data is clicked as soon as the result screen has been read (often within a second), instead of about 4 seconds in, and no longer waits on a fresh picture of the game (when that stalled, the click came late or not at all)."
+     "**Battle Data opens sooner after an Interlink result:** View Battle Data is clicked as soon as the result screen has been read (often within a second), instead of about 4 seconds in, and no longer waits on a fresh picture of the game (when that stalled, the click came late or not at all). The game picture no longer drops out for several seconds right after the result screen shows, which held the click up by 7 to 27 s."
     ]
    },
    {
