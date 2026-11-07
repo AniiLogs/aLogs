@@ -99,6 +99,9 @@ const SIZE: usize = HEADER + POOL;
 const BLACK_MS: u64 = 5_000;
 /// A way that keeps failing to start or breaking is given up after this many tries.
 const GPU_TRIES: u32 = 3;
+/// A picture the graphics card hasn't finished copying off is looked at again this many ms later (Gpu::ready).
+const NOT_READY_MS: u64 = 4;
+
 /// While on Desktop Duplication, how often window capture is tried again.
 const RETRY_BETTER_MS: u64 = 60_000;
 /// Tabbed out on Windows 10: at most one copy of the game window this often.
@@ -413,6 +416,8 @@ trait Picture {
     fn size(&self) -> (u32, u32);
     fn generation(&self) -> u64;
     fn read(&mut self, x: u32, y: u32, w: u32, h: u32, out: *mut u8, stride: usize, shrink: u32) -> bool;
+    /// Whether read() of this area can go without waiting for the graphics card (Gpu::ready); the others always can.
+    fn ready(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) -> bool { true }
     /// Starts an area's copy ahead of read() (the graphics card: all of a round's copies, then one wait).
     fn queue(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) {}
     /// The round is over: copies queued but not read are dropped.
@@ -436,6 +441,9 @@ impl Picture for Gpu {
     }
     fn queue(&mut self, x: u32, y: u32, w: u32, h: u32, shrink: u32) {
         let _ = Gpu::queue(self, x, y, w, h, shrink);
+    }
+    fn ready(&mut self, x: u32, y: u32, w: u32, h: u32, shrink: u32) -> bool {
+        Gpu::ready(self, x, y, w, h, shrink).unwrap_or(true) // an error: read() says so
     }
     fn end_round(&mut self) {
         Gpu::end_round(self);
@@ -732,6 +740,12 @@ fn serve(
                 None => continue, // bigger than the whole pool
             }
         }
+        // the card hasn't finished copying it off (busy with the game): the reader keeps the picture it has, readable,
+        // and this one is looked at again in a few ms - never waited for with the picture marked "being written"
+        if !gpu.ready(x0 as u32, y0 as u32, w, h, shrink) {
+            readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
+            continue;
+        }
         let started = Instant::now();
         let out = unsafe { shared.pool().add(readers[slot].offset) };
         let ok = shared.write(at + 16, || {
@@ -796,6 +810,11 @@ fn serve_parts(
             Some(offset) => (readers[slot].offset, readers[slot].room) = (offset, bytes),
             None => return Some(None),
         }
+    }
+    // as in serve: parts the card hasn't finished copying off are looked at again shortly, never waited for
+    if on.iter().flatten().any(|p| !gpu.ready(p.x, p.y, p.w, p.h, 1)) {
+        readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
+        return Some(None);
     }
     let at = PICTURE_BASE + slot * PICTURE_SIZE;
     let rects = RECT_BASE + slot * RECT_SIZE;

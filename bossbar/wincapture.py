@@ -57,6 +57,10 @@ def client_rect(hwnd):
     p = W.POINT(0, 0); user32.ClientToScreen(hwnd, ctypes.byref(p))
     return p.x, p.y, r.right, r.bottom
 
+# how old a whole frame from the app may be (ms): the app keeps the newest finished one readable while the graphics card
+# copies the next off, up to ~0.85 s on a busy result screen; the meter's fight reads (its top part) stay strict
+WHOLE_FRESH_MS = 1500
+
 class SharedCapture:
     r"""Reader for the aLogs app's shared game picture (`Local\aLogs.Capture.v2`, layout in capture.rs).
     It asks for pictures at the rate it is called and for the area it needs (the box around everything it read in
@@ -180,6 +184,9 @@ class SharedCapture:
             flags = self._u32(base, at + 48)
             # tabbed out on Windows 10 the app copies the window only 4 times a second (source 1): older is fine then
             fresh = 600 if flags >> 4 & 15 == 1 else max(150, 2 * self.interval)
+            # a whole frame (screens: menus, results, Battle Data): the app hands it over only once the graphics card has
+            # copied it off, which with the game keeping the card busy took 500-850 ms on an Interlink result (7 Nov)
+            if not top_fraction: fresh = max(fresh, WHOLE_FRESH_MS)
             if not flags & 1 or now_ms - self._u64(base, at + 24) > fresh: return self._none('no fresh picture from the app (no valid frame, or an old one)')
             if ctypes.c_uint8.from_address(base + at + 61).value > 1: return self._none('the picture came shrunk')  # shrunk: not what we asked for
             offset, stride = self._u32(base, at + 32), self._u32(base, at + 36)

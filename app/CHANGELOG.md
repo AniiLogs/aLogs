@@ -34,7 +34,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Battle Data opens sooner after an Interlink result:** View Battle Data is clicked as soon as the result screen
   has been read (often within a second), instead of about 4 seconds in, and no longer waits on a fresh picture of
   the game (when that stalled, the click came late or not at all). The game picture no longer drops out for several
-  seconds right after the result screen shows, which held the click up by 7 to 27 s.
+  seconds right after the result screen shows, which held the click up by 7 to 27 s. On a busy graphics card, aLogs no
+  longer waits for it while holding the picture back: the meter always has the newest finished picture to read.
 - **A run is sent as soon as both pictures are taken:** the result screen, then Battle Data; once every card is read,
   the run goes at once and aLogs lets go of your inputs, instead of holding on for 5 more seconds. The Battle Data
   picture is always the screen that was read (one run's was a loading screen when the game moved on first).

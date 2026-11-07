@@ -24,18 +24,21 @@ use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TY
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11ShaderResourceView, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
     D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_RESOURCE_MISC_GENERATE_MIPS,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIAdapter, IDXGIDevice, IDXGIFactory1, IDXGIOutput1, IDXGIOutputDuplication, IDXGIResource,
-    DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
+    DXGI_ERROR_WAIT_TIMEOUT, DXGI_ERROR_WAS_STILL_DRAWING, DXGI_OUTDUPL_FRAME_INFO,
 };
 use windows::Win32::Graphics::Gdi::{MonitorFromWindow, HMONITOR, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
+
+/// How long a copy the card hasn't finished stays queued for its reader (Gpu::ready) before it's started again.
+const KEEP_QUEUED: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Staging textures kept between frames (one per area size the readers ask for), the least recently used going first.
 const STAGING_KEPT: usize = 24;
@@ -99,9 +102,10 @@ pub struct Gpu {
     shrinkers: Vec<(u32, u32, u32, ID3D11Texture2D, ID3D11ShaderResourceView)>,
     /// Counts new images, so the caller can tell an unchanged one from a new one.
     pub generation: u64,
-    /// Areas whose copy off the card is already on its way this round (queue): (x, y, w, h, shrink), its staging
-    /// texture and the picture's size. read() then only waits once for all of them.
-    queued: Vec<((u32, u32, u32, u32, u32), ID3D11Texture2D, u32, u32)>,
+    /// Areas whose copy off the card is on its way (queue): (x, y, w, h, shrink), its staging texture, the picture's
+    /// size and when it was queued. A copy the card hasn't finished (ready) stays queued into later rounds, so it
+    /// isn't started again over and over; one not read within KEEP_QUEUED is dropped.
+    queued: Vec<((u32, u32, u32, u32, u32), ID3D11Texture2D, u32, u32, std::time::Instant)>,
     /// When Windows captured the newest image (window capture's own frame time), if known.
     pub captured_at: Option<std::time::Instant>,
 }
@@ -150,7 +154,7 @@ impl Gpu {
             self.queue(x, y, width, height, shrink)?;
         }
         let Some(i) = self.queued.iter().position(|q| q.0 == key) else { return Ok(()) };   // an empty area
-        let (_, staging, width, height) = self.queued.remove(i);
+        let (_, staging, width, height, _) = self.queued.remove(i);
         unsafe {
             // the first map of a round waits for the card once; the copies queued with it are done by then
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
@@ -175,9 +179,31 @@ impl Gpu {
         Ok(())
     }
 
-    /// Forgets copies queued but never read (the round is over).
+    /// Whether the card has finished copying this area off (queued now if it isn't yet), without waiting. With the
+    /// game keeping the card busy, a whole 4K picture took it 500-850 ms on an Interlink result screen (7 Nov); waited
+    /// for, that left the reader's picture "being written" the whole time and the meter without one for 5-13 s. The
+    /// caller asks again next round and keeps the finished picture it has readable meanwhile.
+    pub fn ready(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<bool> {
+        let key = (x, y, width, height, shrink);
+        if !self.queued.iter().any(|q| q.0 == key) {
+            self.queue(x, y, width, height, shrink)?;
+        }
+        let Some(q) = self.queued.iter().find(|q| q.0 == key) else { return Ok(true) };   // an empty area
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        match unsafe { self.context.Map(&q.1, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
+            Ok(()) => {
+                unsafe { self.context.Unmap(&q.1, 0) };
+                Ok(true)
+            }
+            Err(e) if e.code() == DXGI_ERROR_WAS_STILL_DRAWING => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The round is over: copies read are gone; one still on its way stays for the next rounds (ready), up to
+    /// KEEP_QUEUED, then it's dropped and started again.
     pub fn end_round(&mut self) {
-        self.queued.clear();
+        self.queued.retain(|q| q.4.elapsed() < KEEP_QUEUED);
     }
 
     /// Starts copying the area `x, y, width, height` (shrunk by `shrink`) off the card into a staging texture of its
@@ -185,6 +211,9 @@ impl Gpu {
     /// round waits for the card once instead of once per reader (each wait was a small stall; B8).
     pub fn queue(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<()> {
         let key = (x, y, width, height, shrink);
+        if self.queued.iter().any(|q| q.0 == key) {
+            return Ok(()); // already on its way (from an earlier round, not finished yet)
+        }
         let Some((cache, cw, ch)) = self.cache.as_ref() else { return Err(E_FAIL.into()) };
         let (width, height) = (width.min(cw.saturating_sub(x)), height.min(ch.saturating_sub(y)));
         if width == 0 || height == 0 {
@@ -256,7 +285,7 @@ impl Gpu {
                 self.context.CopySubresourceRegion(&staging, 0, 0, 0, 0, &source, sub, None);
             }
         }
-        self.queued.push((key, staging, width, height));
+        self.queued.push((key, staging, width, height, std::time::Instant::now()));
         Ok(())
     }
 }
