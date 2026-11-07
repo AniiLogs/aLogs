@@ -9,7 +9,8 @@ window.PATCH_NOTES = [
     "items": [
      "**Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn on and off independently, and none needs another. With the DPS meter off, your records are still read and sent (nothing of the meter shows over the game), and Sanctum Helper keeps running.",
      "**The button over the game turns everything off, and back on:** one press turns off every part it controls; the next turns back on the ones that were on (sending to the leaderboards only if it was on before). Pick which parts it controls in General Settings › The button over the game. A notice says \"aLogs off\" or \"aLogs on\" with what it switched; turn it off in General Settings › Notifications.",
-     "**A status line in the sidebar** under a part that needs a look: not signed in to the leaderboards, Sanctum Helper needing .NET 9, or a part stopped after errors."
+     "**A status line in the sidebar** under a part that needs a look: not signed in to the leaderboards, Sanctum Helper needing .NET 9, or a part stopped after errors.",
+     "**Windows 10: capture only the game window:** a new switch in General Settings keeps other programs' overlays (Discord, Steam, notifications, windows on top) out of what aLogs reads and out of your proof pictures. Windows then draws a yellow border round the game, only while aLogs is capturing. About explains both ways."
     ]
    },
    {

@@ -56,6 +56,7 @@ DEFAULTS = {
         'result_seconds': 10,                # out in the world: how long the fight's result stays up (0 = hide at once)
     },
     'capture': {
+        'game_window_only': False,           # Windows 10: capture only the game window (yellow border) - the app's capture reads it
         'look_interval': 0.05,               # seconds between looks between fights
         'damage_numbers': False,             # experimental: read your own damage numbers (now: record fights)
         'test_frames': False,                # full-size pictures for the accuracy tests (Captures & logs)

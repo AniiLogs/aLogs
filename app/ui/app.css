@@ -139,6 +139,10 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .layout-frame { display: grid; min-height: 300px; place-items: center; border: 1px solid var(--line); border-radius: 14px; background: #071014; overflow: hidden; }
 .layout-image { max-width: 100%; }
 .notice { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--gold); border-radius: 12px; color: var(--gold-text); }
+.notice > p, .notice > ul { margin: 0 0 8px; }
+.notice > :last-child { margin-bottom: 0; }
+.notice ul { padding-left: 18px; }
+.notice li + li { margin-top: 6px; }
 .hint.warn { color: var(--gold-text); }
 .hint.faint { opacity: 0.7; }
 /* Controller: what controller blocking sees */

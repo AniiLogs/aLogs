@@ -6,6 +6,9 @@
 //! 2. Desktop Duplication: the screen the game is on, only while the game is in front. Our overlays can be in
 //!    the picture (flag bit 1), so readers hide their overlays from capture then.
 //! Window capture is tried again once a minute while on Desktop Duplication.
+//! On Windows 10, General Settings › "Capture only the game window" uses window capture anyway, with Windows'
+//! yellow border round the game: only the game, never other programs' overlays. The border shows only while
+//! something reads pictures; nobody asking closes the capture (and the border with it).
 //!
 //! Tabbed out on Windows 10 (Desktop Duplication sees the other window then), so the meter can still warn that
 //! you're being attacked: the game window is copied with PrintWindow, at most 4 times a second (~50 ms each at 4K,
@@ -301,6 +304,19 @@ pub(crate) fn borderless_capture() -> bool {
     *KNOWN.get_or_init(WindowCapture::borderless_supported)
 }
 
+static GAME_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// General Settings › Capture only the game window, on Windows 10 (Windows 11 always does): window capture with
+/// Windows' yellow border instead of Desktop Duplication. Read from settings.json every 2 s by the capture thread.
+fn game_window_only() -> bool {
+    !borderless_capture() && GAME_ONLY.load(Ordering::Relaxed)
+}
+
+/// The best way to take pictures here: window capture where it can be borderless or the player chose it.
+fn best_kind() -> Kind {
+    if borderless_capture() || game_window_only() { Kind::Window } else { Kind::Duplication }
+}
+
 fn find_game_titled() -> HWND {
     let mut search = Search { title: crate::game_title().to_lowercase(), found: null_mut(), area: 0 };
     unsafe { EnumWindows(Some(each_window), &mut search as *mut Search as LPARAM) };
@@ -352,7 +368,8 @@ impl Source {
     fn open(kind: Kind, hwnd: HWND) -> windows::core::Result<Source> {
         let window = windows::Win32::Foundation::HWND(hwnd as _);
         Ok(match kind {
-            Kind::Window => Source::Window(WindowCapture::new(window, false)?),
+            // with the border only where it can't be turned off and the player chose the game window only
+            Kind::Window => Source::Window(WindowCapture::new(window, game_window_only())?),
             Kind::Duplication => Source::Duplication(Duplication::new(window)?),
         })
     }
@@ -922,8 +939,10 @@ pub fn start() {
                 eprintln!("shared capture: could not create {NAME}");
                 return;
             };
-            let best = if WindowCapture::borderless_supported() { Kind::Window } else { Kind::Duplication };
+            GAME_ONLY.store(crate::read_settings().pointer("/capture/game_window_only").and_then(serde_json::Value::as_bool).unwrap_or(false), Ordering::Relaxed);
+            let mut best = best_kind();
             let mut kind = best;
+            let mut settings_read = 0u64;
             let mut source: Option<Source> = None;
             let mut tries = 0u32; // failed starts or breaks of the current way
             let mut black_since = 0u64; // when the pictures went black (0: they aren't)
@@ -942,6 +961,15 @@ pub fn start() {
             loop {
                 let now = now_ms();
                 shared.put_u64(HEARTBEAT, now); // alive (readers notice when the app is gone)
+                // the player switched "Capture only the game window": start again the chosen way
+                if now >= settings_read + 2000 {
+                    settings_read = now;
+                    let on = crate::read_settings().pointer("/capture/game_window_only").and_then(serde_json::Value::as_bool).unwrap_or(false);
+                    if GAME_ONLY.swap(on, Ordering::Relaxed) != on && best_kind() != best {
+                        best = best_kind();
+                        (kind, source, tries, black_since) = (best, None, 0, 0);
+                    }
+                }
                 // the DPS meter switched off (the overlay button or the app): the flag tells the meter
                 let off = !crate::overlay_button::capture_on();
                 if shared.get_u32(60) != off as u32 {

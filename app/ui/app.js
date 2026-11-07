@@ -9,7 +9,7 @@
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", dps_locked: true, dps_reset: 0,
       rush_position: "corner", result_seconds: 10 },
-    capture: { look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
+    capture: { game_window_only: false, look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
     leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true },
     // every plug-in's notices over the game: where and how (each plug-in's own on/off is on its page), and the button's
@@ -1596,7 +1596,7 @@
       : "Setting it up installs a small driver (Windows asks for admin approval once). Without it, only the keyboard and mouse can be blocked.";
     $('[data-k="results.hold_controller"]').disabled = !status.hidhide_installed || !get("leaderboard.submit") || !get("leaderboard.automation");
     // Windows 10 can't capture the game window without a yellow border: About explains what that means for streams
-    $("[data-win10-capture]").hidden = status.borderless_capture !== false;
+    document.querySelectorAll("[data-win10-capture]").forEach((el) => { el.hidden = status.borderless_capture !== false; });
     renderOcr();
   }
   // Windows' OCR in English: the meter reads the game's text with it (boss names and levels, result screens, Battle
