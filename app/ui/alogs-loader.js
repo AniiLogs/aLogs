@@ -13,18 +13,14 @@
 //   loader.set({ ..., active: false });  // numbers changed but nothing really moved (a timed estimate)
 //   loader.loop();                // no numbers to show: the bars cycle on their own, with no beat
 //
-// The same loader as the site's (aniilogs.github.io public/icons/alogs-loader.*); in aLogs the art is img/alogs-loader.svg.
+// The same loader as the site's (aniilogs.github.io public/icons/alogs-loader.*). In aLogs its art is built in
+// (alogs-loader-art.js and alogs-loader.css, made from img/alogs-loader.svg by loader-art.mjs): the app's security
+// policy blocks fetching the SVG and its own <style>. Always the animated icon: no still fallback (the owner, 7 Nov).
 (() => {
-  const SVG_URL = "img/alogs-loader.svg";
   // One beat: Eklue flashes and fades over the whole beat; the buffs run inside its first 70 %,
   // so a new beat starts as the last one settles. 2.2 s at about 12 % a second (an 8 s load),
   // shorter when faster and longer when slower, within these limits.
   const BEAT_MS = 2200, FASTEST_MS = 1000, SLOWEST_MS = 3400, BASE_RATE = 0.12, RATE_WINDOW_MS = 3000;
-  let markup = null;
-  const fetchMarkup = () => (markup ??= fetch(SVG_URL).then((response) => {
-    if (!response.ok) throw new Error(`aLogs loader art returned ${response.status}`);
-    return response.text();
-  }));
 
   const clamp = (value) => Math.min(1, Math.max(0, Number(value) || 0));
 
@@ -88,8 +84,7 @@
       parts = { root, hp: root.querySelector(".hp"), brk: root.querySelector(".brk") };
       render();
     };
-    if (svg) mount(svg);
-    else fetchMarkup().then(mount, () => { if (!host.childElementCount) host.hidden = true; });   // a fallback picture stays
+    mount(svg ?? window.ALOGS_LOADER_SVG);
 
     const api = {
       // total: the HP arc's own value when the source reports one; otherwise it follows the parts.
