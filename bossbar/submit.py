@@ -7,7 +7,7 @@ Every record goes to logs/submit_queue/ first and is sent from there by a backgr
 while offline; a record that comes back with more data (e.g. Battle Data after the result screen) replaces the
 queued one and updates the same leaderboard entry (same run id).
 """
-import io, json, logging, os, re, threading, time, urllib.error, urllib.request, uuid
+import io, json, logging, os, re, threading, time, urllib.error, urllib.parse, urllib.request, uuid
 from PIL import Image, ImageOps
 
 import settings as C
@@ -314,6 +314,26 @@ class Submitter(threading.Thread):
                     os.remove(path); log.info(f'leaderboard: removed {name} (set aside over {SET_ASIDE_DAYS} days ago)')
             except OSError: pass
 
+    def board_has(self, payload):
+        """The site's Interlink board already shows this player (by UID) at the menu best's stars and score or better
+        for its boss and week - a run sent from here or by a teammate's app, or an earlier menu best. Sending it would
+        change nothing (a tie goes onto the run anyway), so it isn't sent and its picture doesn't go up. False when
+        the board can't be read: it's sent as before. The owner, 7 Nov."""
+        try:
+            cycle = payload.get('cycle'); boss = str((payload.get('boss') or {}).get('id') or ''); uid = str(payload.get('gameUid') or '')
+            if not (cycle and boss and uid): return False
+            req = urllib.request.Request(f"{self.account['api_url']}/leaderboard/interlink?cycle={urllib.parse.quote(str(cycle))}&unlinked=1",
+                                         headers={'authorization': f"Bearer {self.account['token']}", 'user-agent': CLIENT_VERSION})
+            with urllib.request.urlopen(req, timeout=10) as r: board = json.loads(r.read() or b'{}')
+            mine = (payload.get('stars') or 0, payload.get('score') or 0)
+            for b in board.get('bosses') or []:
+                if str(b.get('id')) != boss: continue
+                for e in b.get('entries') or []:
+                    if str(e.get('uid') or '') == uid: return (e.get('stars') or 0, e.get('score') or 0) >= mine
+        except Exception as e:
+            log.info(f'leaderboard: board not read before a menu best ({e!r}); sending it')
+        return False
+
     def run(self):
         delay = 5
         while not self.stop:
@@ -333,6 +353,9 @@ class Submitter(threading.Thread):
                     if not isinstance(item, dict): os.replace(path, path + '.bad'); continue
                     # run records wait while "Submit my records" is off; your character's link and numbers still go
                     if not self.config and item.get('endpoint') not in ('characters', 'characters/stats', 'disputes'): continue
+                    if (item.get('payload') or {}).get('kind') == 'interlink_best' and self.board_has(item['payload']):
+                        log.info(f"leaderboard: {name} not sent - the board already has this score for this boss and week")
+                        os.remove(path); self.drop_proof(item); continue
                     status, reply = self.send(item)
                     log.info(f"leaderboard: sent {name} -> {status} {reply.get('submissionId') or reply.get('gameUid') or reply.get('disputeId')}"
                              + (' (updated)' if reply.get('updated') else ''))
