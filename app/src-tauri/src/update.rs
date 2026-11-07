@@ -221,9 +221,11 @@ fn run_installer(app: &AppHandle) -> Result<(), String> {
     }
     super::signal_meter_stop(true);
     let installer = update_dir().join("aLogs-update.exe");
+    // "0.1.36 B8", not the feed's "0.1.36+rc.8 B8" (the window dropped the "+": "0.1.36rc.8 B8")
+    let version = info["version"].as_str().unwrap_or("").split('+').next().unwrap_or("");
     let label = match info["beta"].as_u64() {
-        Some(b) => format!("{} B{b}", info["version"].as_str().unwrap_or("")),
-        None => info["version"].as_str().unwrap_or("").split('+').next().unwrap_or("").to_string(),
+        Some(b) => format!("{version} B{b}"),
+        None => version.to_string(),
     };
     let splash = splash_copy();
     let started = match &splash {
