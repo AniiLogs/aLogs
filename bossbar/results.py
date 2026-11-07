@@ -132,6 +132,12 @@ def parse_sim_team(t, names=()):
             'mvpShares': dict(zip(('damage', 'taken', 'healing'), shares)) if len(shares) == 3 else None,
             'gizmoCounts': counts, 'coins': coins, 'low': low}
 
+def bd_complete(cards, party):
+    """Battle Data read whole on its first look: a card for every player the Party screen had (when it was read), and
+    each card's average DPS and BREAK. Damage taken and healing can be blank on the game's own card (none taken)."""
+    return bool(cards) and len(cards) >= len(party or []) and all(
+        c.get('avg_dps') is not None and c.get('break') is not None for c in cards)
+
 def parse_battle_data(text):
     """Battle Data cards: OCR gives each card's 4 labels, then its 4 values in the same order
     (Average DPS, BREAK Value, Damage Taken, Heal Amount). A lone 'o'/'O' is a 0. Each card is read on its own,
@@ -432,6 +438,9 @@ class ResultsMixin:
         if again:                                                  # a later read: only the agreed numbers change
             if lf: self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
                                                           'screenshot': self.bd_shot, 'reads': self.bd_reads})
+            if bd_complete(cards, party):                          # the missing numbers came in: send, stop (below)
+                if self.pending_run: self.pending_run = (self.pending_run[0], now)
+                if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
             return
         stamp = time.strftime('%Y%m%d_%H%M%S'); out_dir = os.path.join(HERE, 'logs', 'battle_data'); os.makedirs(out_dir, exist_ok=True)
         shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0]))); self.bd_shot = os.path.relpath(shot, HERE) if shot else None
@@ -466,6 +475,12 @@ class ResultsMixin:
         if lf:
             self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
                                                    'screenshot': os.path.relpath(shot, HERE) if shot else None})
+        # Both pictures are in (the result screen, then this): when every card read whole, the run goes now and the
+        # automatic session stops looking (the inputs are let go). A card missing a number keeps reading and voting
+        # as before (BATTLE_DATA_SETTLE). The owner, 7 Nov: result picture, Battle Data picture, send, stop.
+        if bd_complete(cards, party):
+            if self.pending_run: self.pending_run = (self.pending_run[0], now)
+            if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
         with open(os.path.join(out_dir, stamp + '.txt'), 'w', encoding='utf-8') as fh:
             fh.write(msg + '\n\n')
             for i, c in enumerate(cards, 1):
@@ -1097,16 +1112,19 @@ class ResultsMixin:
             except Exception: pass
 
     def _settled(self, im):
-        last = im; sig = screen_sig(im) if im is not None else None
+        last = im; sig = first = screen_sig(im) if im is not None and not im.info.get('parts') else None
         for _ in range(3):
             time.sleep(SETTLE_S)
             try: fresh = self.grab(False, False)
             except Exception: fresh = None
             if fresh is None: break
             fsig = screen_sig(fresh)
+            # the screen that was read is gone (the game moved on): keep the last picture of it, never the next screen
+            # (a Battle Data proof was a loading screen, 6 Nov: the session's time ran out while it settled)
+            if first is not None and screen_changed(fsig, first): break
             last = fresh
             if sig is not None and not screen_changed(fsig, sig, limit=4): break      # two in a row match: settled
             sig = fsig
         return last
 
-__all__ = ['BATTLE_DATA_SETTLE', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']
+__all__ = ['BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']

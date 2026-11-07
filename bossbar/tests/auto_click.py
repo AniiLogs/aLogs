@@ -12,6 +12,8 @@
   second, not every 1.5 s (the click came ~4 s after the screen); once it has clicked, the usual pace.
 - click_when_ready: once the result screen is wholly read, the first click is made with that very frame (no new
   picture needed: the capture stalled right after it twice on 6 Nov); never a second time, and not without a session.
+- _settled: a proof whose screen changed while settling keeps the frame that was read (a Battle Data proof was a
+  loading screen, 6 Nov). bd_complete: the run is sent and the session ends once every card is read whole.
 - picture_gap: pictures stopping for 2 s or more is logged with the capture's reason, and so is their return.
 Stand-ins only (no game, no real clicks: user32 is replaced). Exit code 1 on any failure.
 """
@@ -59,6 +61,24 @@ for t in (1012, 1014, 1020, 1030):                               # more reads of
 check('later reads keep the deadline', m.pending_run, ('run.json', 1010 + results.BATTLE_DATA_SETTLE))
 m.schedule_run('next.json', False, 1200)
 check('a new run gets its own', m.pending_run, ('next.json', 1200 + results.BATTLE_DATA_WAIT))
+
+# -- _settled: a proof is the screen that was read, never the next one ----------------------------------------------
+from PIL import Image
+battle = Image.new('RGB', (480, 270), (230, 230, 230)); loading = Image.new('RGB', (480, 270), (40, 90, 160))
+m = live.Meter.__new__(live.Meter); frames = [loading, loading]
+m.grab = lambda *a: frames.pop(0) if frames else None
+check('the game moved on: the read frame is kept', m._settled(battle) is battle, True)
+same = battle.copy(); frames = [same, same]
+check('same screen: the fresh frame', m._settled(battle) is same, True)
+parts = battle.copy(); parts.info['parts'] = True; frames = [loading, loading]
+check('a parts-only frame is never the proof', m._settled(parts) is loading, True)
+
+# -- bd_complete: send and stop once every card is whole ------------------------------------------------------------
+card = {'avg_dps': 100, 'break': 5, 'taken': None, 'heal': None}
+check('all cards whole', results.bd_complete([card] * 4, [{}] * 4), True)
+check('a card short of the party', results.bd_complete([card] * 3, [{}] * 4), False)
+check('a number missing', results.bd_complete([card, {**card, 'break': None}], []), False)
+check('no cards', results.bd_complete([], []), False)
 
 if fails:
     print('\n'.join(fails)); sys.exit(1)
