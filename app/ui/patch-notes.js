@@ -32,7 +32,7 @@ window.PATCH_NOTES = [
      "**Every player stays in the run's party:** one Party screen read that missed a name (as the screen fades into the fight) no longer drops that player from the run.",
      "**Teams are read on the first run after an update:** the game's icons load when aLogs starts, not at the Party screen, where rebuilding them could take until the fight had begun.",
      "**A heads-up when Discord's overlay is in the game:** Discord draws its overlay inside the game's own picture, so its voice widget (names and avatars) ended up in proof pictures. aLogs now says so once, with where to turn it off.",
-     "**The updating window** shows the aLogs icon as its own loader (its HP and break bars fill while the update installs) and says which beta it's installing (0.1.36 B4, not just 0.1.36)."
+     "**The updating window** shows the aLogs icon as its own loader (its HP and break bars fill while the update installs) and says which beta it's installing (0.1.36 B4, not just 0.1.36). Its icon no longer goes missing."
     ]
    }
   ]
