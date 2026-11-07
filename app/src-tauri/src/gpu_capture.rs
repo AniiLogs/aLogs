@@ -154,7 +154,14 @@ impl Gpu {
         unsafe {
             // the first map of a round waits for the card once; the copies queued with it are done by then
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            let waited = std::time::Instant::now();
             self.context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+            // a wait this long leaves every reader without a picture (its slot stays "being written"): on 6 Nov the
+            // meter had none for 18 and 28 s right after an Interlink result screen. Said in app.log, to find out why.
+            let ms = waited.elapsed().as_millis();
+            if ms >= 1000 {
+                crate::app_log(&format!("capture: the graphics card took {ms} ms to hand over a picture ({width}x{height})"));
+            }
             let source = mapped.pData as *const u8;
             for row in 0..height as usize {
                 std::ptr::copy_nonoverlapping(
