@@ -397,6 +397,7 @@ class ResultsMixin:
         self.bd_last = now
         if not again:
             self.battle_saved = now; self.bd_reads = 0; self.bd_votes = {}; self.bd_shot = None; self.bd_cards = 0
+            self.bd_prev_sig = None
             log.info(f'Battle Data screen detected (header OCR {head!r})')
         self.bd_reads += 1
         # the four stat rows of all cards (dark text on light cards)
@@ -424,6 +425,15 @@ class ResultsMixin:
             log.info(f'Battle Data cards: {said} -> {n} cards {[{k: c.get(k) for k, _ in self.BD_ROWS} for c in read]}')
         cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}
                  for i in range(n)]
+        # Two reads in a row the same, number for number: the screen has settled and those are its numbers. A read
+        # while Battle Data still fades in can miss a card's top row and slide the rest up (7 Nov: BREAK 511,876 went
+        # out as average DPS); sent on one read, that went to the boards. The agreed read's numbers are the ones kept
+        # (a 1-1 vote keeps the first read's, which was the wrong one).
+        sig = tuple(tuple(c.get(k) for k in ('avg_dps', 'break', 'taken', 'heal')) for c in read)
+        agreed = bool(read) and sig == getattr(self, "bd_prev_sig", None)
+        self.bd_prev_sig = sig
+        if agreed:
+            for i, c in enumerate(cards): c.update({k: read[i].get(k) for k in ('avg_dps', 'break', 'taken', 'heal')})
         # each card's player: the name tab under the portrait (cards sit side by side, centred, in slot order 1P-4P),
         # then the Party screen's player of that slot (party_slots), so a card is tied to its player, not its position.
         # The Latin model reads the tab as it is on screen (grey_crop), Windows OCR and the Korean model prep_white's
@@ -438,7 +448,7 @@ class ResultsMixin:
         if again:                                                  # a later read: only the agreed numbers change
             if lf: self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
                                                           'screenshot': self.bd_shot, 'reads': self.bd_reads})
-            if bd_complete(cards, party):                          # the missing numbers came in: send, stop (below)
+            if agreed and bd_complete(cards, party):               # read twice the same: send, stop (below)
                 if self.pending_run: self.pending_run = (self.pending_run[0], now)
                 if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
             return
@@ -475,10 +485,10 @@ class ResultsMixin:
         if lf:
             self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
                                                    'screenshot': os.path.relpath(shot, HERE) if shot else None})
-        # Both pictures are in (the result screen, then this): when every card read whole, the run goes now and the
+        # Both pictures are in (the result screen, then this): once two reads agree (above), the run goes now and the
         # automatic session stops looking (the inputs are let go). A card missing a number keeps reading and voting
         # as before (BATTLE_DATA_SETTLE). The owner, 7 Nov: result picture, Battle Data picture, send, stop.
-        if bd_complete(cards, party):
+        if agreed and bd_complete(cards, party):
             if self.pending_run: self.pending_run = (self.pending_run[0], now)
             if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
         with open(os.path.join(out_dir, stamp + '.txt'), 'w', encoding='utf-8') as fh:
