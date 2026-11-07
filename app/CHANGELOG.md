@@ -15,6 +15,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   switched; turn it off in General Settings › Notifications.
 - **A status line in the sidebar** under a part that needs a look: not signed in to the leaderboards, Sanctum Helper
   needing .NET 9, or a part stopped after errors.
+- **Windows 10: capture only the game window:** a new switch in General Settings keeps other programs' overlays
+  (Discord, Steam, notifications, windows on top) out of what aLogs reads and out of your proof pictures. Windows then
+  draws a yellow border round the game, only while aLogs is capturing. About explains both ways.
 
 ### Improved
 - **Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the
