@@ -51,6 +51,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   of each card counts, so a run no longer goes out with the previous run's teams or with only one or two of them.
 - **The Special Offering and Season Buffs** are read wherever the game draws the panel (it sits a little higher or
   lower on some screens), and a later read that misses one no longer drops it.
+- **Sanctum Helper's map no longer shows in a Pathfinder challenge:** the game loads a challenge like an Egg Heist
+  island, so the island map came up over it. A challenge's "Victory Conditions" panel now tells them apart.
 - **The DPS meter no longer starts on the Party screen:** a player's title banner there could pass for a boss bar
   and open a fight before the run began.
 - **Opening Battle Data automatically is faster and sure:** aLogs clicks as soon as the result screen is read (1-4 s,
