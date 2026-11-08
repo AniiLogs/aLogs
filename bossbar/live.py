@@ -782,7 +782,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             if best[0] >= 0.6: break
         return best[1:] if best[0] >= 0.4 else (0, 0)
 
-    def team_tile(self, ic, im, t, b, u, ux, H, shift=(0, 0)):
+    def team_tile(self, ic, im, t, b, u, ux, H, shift=(0, 0), memo=None):
         """One team tile's Aniimo (icons.head's answer, or None): t is the tile's x as TEAM_WINDOW measures it, b the
         card's top, shift the card's (card_shift). Its badge is looked for a few px around; with none found (a badge
         reads 0.4 or more), the tile is compared where the card's shift puts it."""
@@ -794,8 +794,18 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if found[0] >= 0.4: px, py = found[1] - dx * unit, found[2]
         fade = getattr(ic, 'fade', None) is not None
         x0, y0, x1, y1 = self.TEAM_COMPARE_FADED if fade else self.TEAM_COMPARE; half = self.TEAM_PORTRAIT * unit / 2
-        return ic.head(im, (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit), (px - half, py - half, 2 * half),
-                       fade=fade)
+        window = (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit)
+        # a tile that looks as it did at the last read (same place, the picture within a few levels) keeps that read's
+        # answer: between reads of one Party screen nothing moves, and matching a tile costs about half a second
+        thumb = im.crop(tuple(int(v) for v in window)).convert('RGB').resize((self.TILE_THUMB, self.TILE_THUMB), Image.BILINEAR)
+        store = self.__dict__.setdefault('tile_memo', {})
+        last = store.get(memo) if memo is not None else None
+        if last and last[0] == tuple(int(v) for v in window) and \
+                max(ImageStat.Stat(ImageChops.difference(thumb, last[1])).mean) <= self.TILE_SAME:
+            return last[2]
+        r = ic.head(im, window, (px - half, py - half, 2 * half), fade=fade)
+        if memo is not None: store[memo] = (tuple(int(v) for v in window), thumb, r)
+        return r
 
     def read_party_icons(self, im, cards, u, ux, H, now):
         """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
@@ -818,6 +828,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.icon_read = threading.Thread(target=run, args=(job,), daemon=True); self.icon_read.start()
 
     icon_next = None
+    TILE_THUMB = 24       # a tile's picture shrunk to this many px a side, to tell whether it changed
+    TILE_SAME = 2.0       # ...and each colour's mean difference at most this many levels: the same picture
 
     @staticmethod
     def who(m):
@@ -828,16 +840,19 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         """read_party_icons' read of one frame; who: each slot's who() when the frame came."""
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
         ic, teams, shifts = self.icons, {}, []
-        for slot, card in cards:                        # every player's card has the same team row
-            a, b = self.PARTY_CARDS[card][:2]; team = teams[slot] = []
+        def read_card(slot, card):                      # every player's card has the same team row
+            a, b = self.PARTY_CARDS[card][:2]; team = []
             shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
-            shifts.append(shift)
             for i in range(3):
-                r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift)
+                r = self.team_tile(ic, im, a + self.TEAM_PITCH * i, b, u, ux, H, shift, memo=(card, i))
                 # accepted only when clearly ahead (checked on 312 tiles: no wrong answer passes); an Aniimo whose
                 # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
                 # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
                 team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
+            return team, shift
+        # (one card after another: reading them on threads side by side was no faster, the matching being Python, 8 Nov)
+        for slot, card in cards:
+            teams[slot], shift = read_card(slot, card); shifts.append(shift)
         # the buffs panel moves when the whole screen is drawn higher (at times ~40 px at 4K: 6 of 39 saved screens,
         # none of them read with its Special Offering): about 1.9 times the cards' shift, as it sits lower; the panel's
         # offset is picked by the first Season Buff's fit (always there). Only a clear shift of every card counts: the

@@ -163,11 +163,38 @@ def extract(cache_dir, player_log=None):
     return bool(heads and buffs)
 
 
+import operator
+_LEVELS = range(256)
+_SQUARES = [j * j for j in _LEVELS]
+
+
+_ABOVE_64 = [255 if v > 64 else 0 for v in range(256)]     # point() tables: a list, not a call per level
+_ABOVE_200 = [255 if v > 200 else 0 for v in range(256)]
+
+
+class Stat:
+    """ImageStat.Stat's count, mean and var, the same numbers (whole-number sums, exact in a float), summed with map
+    instead of its per-level Python loop: the Party screen's portrait match takes ~1,200 of these per tile, and
+    ImageStat's loops were most of a read's 14 s (8 Nov)."""
+    __slots__ = ('count', 'mean', 'var')
+
+    def __init__(self, img, mask=None):
+        h = img.histogram(mask)
+        self.count, self.mean, self.var = [], [], []
+        for b in range(0, len(h), 256):
+            band = h[b:b + 256]
+            n = sum(band)
+            s, s2 = float(sum(map(operator.mul, _LEVELS, band))), float(sum(map(operator.mul, _SQUARES, band)))
+            self.count.append(n)
+            self.mean.append(s / n if n else 0)
+            self.var.append((s2 - (s ** 2.0) / n) / n if n else 0)
+
+
 def ncc(a, b, mask):
     """Masked normalized correlation of two same-size RGB images, averaged over the channels (-1..1)."""
-    sa, sb = ImageStat.Stat(a, mask), ImageStat.Stat(b, mask)
+    sa, sb = Stat(a, mask), Stat(b, mask)
     if not sa.count[0]: return -1
-    cross = ImageStat.Stat(ImageChops.multiply(a, b), mask).mean
+    cross = Stat(ImageChops.multiply(a, b), mask).mean
     out = 0
     for k in range(3):
         cov = cross[k] * 255 - sa.mean[k] * sb.mean[k]
@@ -178,9 +205,9 @@ def ncc(a, b, mask):
 def ncc_pooled(a, b, mask):
     """Masked normalized correlation of two same-size RGB images over all three channels together (-1..1): unlike
     ncc, a colour that's off counts (a red portrait against a blue one), not only each channel's own pattern."""
-    sa, sb = ImageStat.Stat(a, mask), ImageStat.Stat(b, mask)
+    sa, sb = Stat(a, mask), Stat(b, mask)
     if not sa.count[0]: return -1
-    cross = ImageStat.Stat(ImageChops.multiply(a, b), mask).mean
+    cross = Stat(ImageChops.multiply(a, b), mask).mean
     ma, mb = sum(sa.mean) / 3, sum(sb.mean) / 3
     cov = sum(cross[k] * 255 for k in range(3)) / 3 - ma * mb
     va = sum(sa.var[k] + sa.mean[k] ** 2 for k in range(3)) / 3 - ma * ma
@@ -211,6 +238,7 @@ class Icons:
         self.fade = Image.open(os.path.join(cache_dir, 'team_fade.png')).convert('L') if meta.get('team_fade') else None
         self._sized = {}
         self._faded = {}
+        self._cuts = {}
         self._digits = None
 
     @classmethod
@@ -246,6 +274,26 @@ class Icons:
             self._faded[side] = self.fade.resize((big, big), Image.BILINEAR).crop((o, o, o + side, o + side))
         return self._faded[side]
 
+    _CUTS = 6000          # cut portraits kept (~5 KB each): the same few dozen offsets recur on every tile and read
+
+    def _cut(self, key, side, box, fade):
+        """A portrait at `side` px cut to `box`, as head's score compares it: (RGB, what shows, mask), or None when too
+        little of it shows. Kept: they depend on nothing but these four."""
+        k = (key, side, box, fade)
+        if k in self._cuts: return self._cuts[k]
+        part = self._head(key, side).crop(box)
+        if fade:
+            shown = ImageChops.multiply(part.getchannel('A'), self._fade(side).crop(box))
+            mask = shown.point(_ABOVE_64)
+            least = 0.15
+        else:
+            shown, mask, least = None, part.getchannel('A').point(_ABOVE_200), 0.3
+        # the mask's mean, as ImageStat has it (0 or 255 a pixel)
+        cut = None if 255 * mask.histogram()[255] / (mask.width * mask.height) < least * 255 else (part.convert('RGB'), shown, mask)
+        if len(self._cuts) >= self._CUTS: self._cuts.clear()
+        self._cuts[k] = cut
+        return cut
+
     def head(self, im, window, square, n=40, fade=False):
         """The Aniimo whose portrait shows through `window` (a screen box), the portrait's whole square being about
         `square` (x, y, side in screen px; it's cut by the window). (name, score, margin over the next name, icon), or None.
@@ -264,15 +312,10 @@ class Icons:
             ox = int(round(ox0 + (side0 - side) / 2)) + dx; oy = int(round(oy0 + (side0 - side) / 2)) + dy
             if ox > 0 or oy > 0 or ox + side < n or oy + side < h: return -1
             box = (-ox, -oy, -ox + n, -oy + h)
-            part = self._head(key, side).crop(box)
-            if fade:
-                shown = ImageChops.multiply(part.getchannel('A'), self._fade(side).crop(box))
-                mask = shown.point(lambda v: 255 if v > 64 else 0)
-                if ImageStat.Stat(mask).mean[0] < 0.15 * 255: return -1
-                return ncc_pooled(crop, Image.composite(part.convert('RGB'), card, shown), mask)
-            mask = part.getchannel('A').point(lambda v: 255 if v > 200 else 0)
-            if ImageStat.Stat(mask).mean[0] < 0.3 * 255: return -1
-            return ncc_pooled(crop, part.convert('RGB'), mask)
+            cut = self._cut(key, side, box, fade)
+            if cut is None: return -1
+            rgb, shown, mask = cut
+            return ncc_pooled(crop, Image.composite(rgb, card, shown) if fade else rgb, mask)
         first = sorted(((score(key, 1.0, 0, 0), key) for key in self.heads), reverse=True)[:12]
         best = {}
         for _, key in first:

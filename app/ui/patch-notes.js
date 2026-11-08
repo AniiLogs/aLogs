@@ -16,6 +16,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
+     "**Teams and buffs on the Party screen read faster:** a read takes under half the time it did, and much less when the screen hasn't changed, with the same answers.",
      "**A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep screen, aLogs checks the site's board; if your row there already has that score (from a run you or a teammate sent), nothing goes up.",
      "**An unchanged Egg Heist rank isn't sent again:** opening Rank Info with the same rank, rank points and stars the site already has sends nothing, even after aLogs restarts.",
      "**Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the DPS meter off. \"Tell me when a record is sent\" moved to Leaderboards › Sending; where notices show stays in General Settings › Notifications, and your spot is kept.",
