@@ -344,23 +344,39 @@ class ResultsMixin:
             return 0
         return n
 
+    @staticmethod
+    def cell_value(text):
+        """The number OCR read in one Battle Data box, or None: the digits at its end (a label can come with them), and a
+        lone O as 0 (the game's 0, which OCR reads as a letter or skips)."""
+        text = (text or '').split('/')[-1].strip()
+        if re.fullmatch(r'[oO]', text): return 0
+        m = re.search(r'(\d[\d,.]*)$', text)
+        return int(re.sub(r'\D', '', m.group(1))) if m else None
+
     def battle_data_font(self, im, u, ux, H, read):
-        """Each card's values read digit by digit against the game's own digits, over OCR's in `read` (in place).
-        OCR skipped 7-digit BREAK values, which moved the card's later numbers up a row (BREAK got Damage Taken's,
-        and so on: 23 cards on 1 Nov). A card where a sure read disagrees with OCR keeps only the sure reads; its other
-        values are left unread rather than sent from the wrong row."""
+        """Each card's values, each from its own box on its own card (in place): digit by digit against the game's own
+        digits, else OCR of that one box, else blank for a later read. What `read` got from OCR's text of all the cards
+        goes: that text's order said which card a number was, and it isn't reliable (8 Nov: one card's Damage Taken and
+        Heal came last and were given to the next card, whose own were unread; 3 of 8 first reads differed from the last,
+        12 values wrong). On 15 saved 4K screens the font read 236 of 236 right and OCR of the box 220, with 2 wrong. Without
+        the game's font, `read` stands."""
         reader = self.name_reader()
         if not reader: return
-        n = len(read)
+        n = len(read); k = max(1.0, 2 * 2000 / u); crops = {}
         for i, card in enumerate(read):
             c = ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943)
-            sure = {key: reader.number(im, (c + u * 0.015, H * (y - 0.016), c + u * 0.081, H * (y + 0.016)), dark=True, right=True)
-                    for key, y in self.BD_ROWS}
-            sure = {k: v for k, v in sure.items() if v is not None}
-            slid = any(card.get(k) != v for k, v in sure.items())
-            if slid: log.info(f'Battle Data card {i + 1}: OCR {card} disagrees with the game font {sure}: the font kept')
-            for key, _ in self.BD_ROWS:
-                card[key] = sure[key] if key in sure else (None if slid else card.get(key))
+            for key, y in self.BD_ROWS:
+                box = (c + u * 0.015, H * (y - 0.016), c + u * 0.081, H * (y + 0.016))
+                card[key] = reader.number(im, box, dark=True, right=True)
+                if card[key] is None:
+                    cell = im.crop(tuple(int(v) for v in box)).convert('L')
+                    cell = cell.resize((int(cell.width * k), int(cell.height * k)), Image.LANCZOS)
+                    crops[f'{i}{key}'] = ImageOps.expand(cell, border=20, fill=255)
+        if crops:
+            cells = self.ocr.read(crops)
+            for i, card in enumerate(read):
+                for key, _ in self.BD_ROWS:
+                    if f'{i}{key}' in crops: card[key] = self.cell_value(cells.get(f'{i}{key}'))
 
     def check_battle_data(self, im, now):
         """The game's screens with text: Battle Data, result screens, Catch Countdown, prep, Egg Heist, profile cards.
