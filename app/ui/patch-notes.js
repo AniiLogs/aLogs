@@ -30,6 +30,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
+     "**A Party screen is no longer missed when its title reads oddly:** the title could be read with a stray space, and that run then had no teams or buffs. The Profile screen had the same problem.",
      "**The updating window shows the animated aLogs icon,** not a still picture (the app's security settings kept the animation from loading).",
      "**Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their skill icons and compared the way the game draws them, faded into the card, so a card sitting a little off (or higher, once everyone is ready) no longer hides them, and look-alikes (Luminelle and Iris) aren't mixed up. On 26 recent Party screens, 299 of 312 were read, up from about half. Each run now sends its own teams: the newest read of each card counts, so a run no longer goes out with the previous run's teams or with only one or two of them.",
      "**The Special Offering and Season Buffs** are read wherever the game draws the panel (it sits a little higher or lower on some screens), and a later read that misses one no longer drops it.",
