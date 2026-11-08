@@ -16,6 +16,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
+     "**Checking for updates copes with GitHub hiccups:** it tries again when a download server is having trouble, and an update it found still shows if its download fails.",
      "**Teams and buffs on the Party screen read faster:** a read takes under half the time it did, and much less when the screen hasn't changed, with the same answers.",
      "**A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep screen, aLogs checks the site's board; if your row there already has that score (from a run you or a teammate sent), nothing goes up.",
      "**An unchanged Egg Heist rank isn't sent again:** opening Rank Info with the same rank, rank points and stars the site already has sends nothing, even after aLogs restarts.",

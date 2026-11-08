@@ -128,22 +128,29 @@ async fn download(app: &AppHandle) -> Result<(), String> {
     if saved().is_some_and(|d| d["version"].as_str() == Some(update.version.as_str())) {
         return Ok(());
     }
-    let (mut done, mut shown) = (0u64, -1i64);
     let progress = app.clone();
-    let bytes = update
-        .download(
-            |chunk, total| {
-                done += chunk as u64;
-                let pct = total.map_or(-1, |t| (done * 100 / t.max(1)) as i64);
-                if pct != shown {
-                    shown = pct;
-                    let _ = progress.emit("update-progress", json!({ "done": done, "total": total, "percent": pct }));
-                }
-            },
-            || {},
-        )
-        .await
-        .map_err(|e| format!("The download failed: {e}"))?;   // the updater checked its signature here
+    let mut waits = RETRY_WAITS_S.iter();
+    let bytes = loop {
+        let (mut done, mut shown) = (0u64, -1i64);
+        let got = update
+            .download(
+                |chunk, total| {
+                    done += chunk as u64;
+                    let pct = total.map_or(-1, |t| (done * 100 / t.max(1)) as i64);
+                    if pct != shown {
+                        shown = pct;
+                        let _ = progress.emit("update-progress", json!({ "done": done, "total": total, "percent": pct }));
+                    }
+                },
+                || {},
+            )
+            .await;
+        match (got, waits.next()) {
+            (Ok(bytes), _) => break bytes,                    // the updater checked its signature here
+            (Err(_), Some(wait)) => wait_s(*wait).await,
+            (Err(e), None) => return Err(format!("The download failed: {e}")),
+        }
+    };
     std::fs::create_dir_all(update_dir()).map_err(|e| e.to_string())?;
     let part = update_dir().join("aLogs-update.exe.part");
     std::fs::write(&part, &bytes).map_err(|e| e.to_string())?;
@@ -152,6 +159,31 @@ async fn download(app: &AppHandle) -> Result<(), String> {
     save_info(&json!({ "version": update.version, "signature": update.signature, "beta": update.raw_json["beta"],
                        "next_start": false }));
     Ok(())
+}
+
+/// Waits between tries of a feed or a download: a passing server error shouldn't fail the whole check.
+const RETRY_WAITS_S: [u64; 2] = [3, 10];
+
+async fn wait_s(seconds: u64) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_secs(seconds))).await;
+}
+
+/// Whether to read the beta feed. A release build whose release feed failed stays away from it: not knowing the
+/// release is no reason to offer a player a beta they didn't ask for.
+fn use_beta_feed(opted_in: bool, beta_build: bool, release_failed: bool, ahead: bool) -> bool {
+    opted_in || if release_failed { beta_build } else { ahead }
+}
+
+async fn read_feed_retrying(app: &AppHandle, url: &str) -> Result<(Option<tauri_plugin_updater::Update>, Option<(u64, u64, u64, u64)>), String> {
+    let mut result = read_feed(app, url).await;
+    for wait in RETRY_WAITS_S {
+        if result.is_ok() {
+            break;
+        }
+        wait_s(wait).await;
+        result = read_feed(app, url).await;
+    }
+    result
 }
 
 /// One feed: the build it offers if that's newer than this one (None when it isn't, or when the feed isn't published
@@ -186,11 +218,24 @@ async fn read_feed(app: &AppHandle, url: &str) -> Result<(Option<tauri_plugin_up
 /// until the release catches up, then follows releases.
 pub async fn check(app: &AppHandle) -> Result<Option<Value>, String> {
     let opted_in = super::read_settings().pointer("/app/beta_updates").and_then(Value::as_bool).unwrap_or(false);
-    let (from_release, release) = read_feed(app, RELEASE_FEED).await?;
+    // one feed failing doesn't stop the other: on 8 Nov GitHub answered 504 for a while and a failed release feed hid
+    // the beta from testers
+    let (from_release, release, release_failed) = match read_feed_retrying(app, RELEASE_FEED).await {
+        Ok((found, version)) => (found, version, None),
+        Err(e) => (None, None, Some(e)),
+    };
     let ahead = release.map_or(true, |r| this_build(app) > r);
-    let found = if opted_in || ahead {
-        let (from_beta, beta) = read_feed(app, BETA_FEED).await?;
-        if beta.is_some() && beta >= release { from_beta } else { from_release.or(from_beta) }
+    let beta_build = build_beta() > 0 || build_rc() > 0;
+    let found = if use_beta_feed(opted_in, beta_build, release_failed.is_some(), ahead) {
+        match read_feed_retrying(app, BETA_FEED).await {
+            Ok((from_beta, beta)) => {
+                if beta.is_some() && beta >= release { from_beta } else { from_release.or(from_beta) }
+            }
+            Err(e) if from_release.is_none() => return Err(e),   // nothing to offer, and the player should know why
+            Err(_) => from_release,
+        }
+    } else if let Some(e) = release_failed {
+        return Err(e);
     } else {
         from_release
     };
@@ -199,7 +244,10 @@ pub async fn check(app: &AppHandle) -> Result<Option<Value>, String> {
         return Ok(describe(app));                        // a download kept for "next time" still counts
     }
     if auto_download() {
-        download(app).await?;
+        // a failed background download doesn't hide the update: it's still offered, and "Install now" tries again
+        if let Err(e) = download(app).await {
+            eprintln!("update download: {e}");
+        }
     }
     let info = describe(app);
     let _ = app.emit("update-ready", info.clone());
@@ -437,5 +485,24 @@ mod signature_check {
         let exe = std::env::var("SIGCHECK_EXE").unwrap();
         let sig = minisign_verify::Signature::decode(&b64(&std::fs::read_to_string(format!("{exe}.sig")).unwrap())).unwrap();
         key.verify(&std::fs::read(&exe).unwrap(), &sig, true).expect("signature doesn't verify");
+    }
+}
+
+#[cfg(test)]
+mod beta_feed_tests {
+    use super::use_beta_feed;
+
+    #[test]
+    fn a_failed_release_feed_only_sends_testers_to_the_beta_feed() {
+        assert!(use_beta_feed(false, true, true, true));       // a beta build keeps getting betas
+        assert!(use_beta_feed(true, false, true, true));       // so does a player who opted in
+        assert!(!use_beta_feed(false, false, true, true));     // a release build isn't offered one by accident
+    }
+
+    #[test]
+    fn a_working_release_feed_decides_as_before() {
+        assert!(use_beta_feed(false, false, false, true));     // ahead of the release
+        assert!(!use_beta_feed(false, true, false, false));    // the release caught up: follow releases
+        assert!(use_beta_feed(true, false, false, false));     // opted in
     }
 }

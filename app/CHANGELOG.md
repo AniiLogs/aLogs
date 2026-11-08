@@ -20,6 +20,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   draws a yellow border round the game, only while aLogs is capturing. About explains both ways.
 
 ### Improved
+- **Checking for updates copes with GitHub hiccups:** it tries again when a download server is having trouble, and
+  an update it found still shows if its download fails.
 - **Teams and buffs on the Party screen read faster:** a read takes under half the time it did, and much less when
   the screen hasn't changed, with the same answers.
 - **A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep
