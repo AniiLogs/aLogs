@@ -199,11 +199,19 @@ def sure_read(ocr, img):
     hit = getattr(ocr, 'name_cache', {}).get(R.name_signature(img))
     return bool(hit) and hit[1] is None
 
-def party_slots(players, party, sure=(), you=None):
+def agreed_slots(votes, key):
+    """The slots whose name most reads agree on, by at least two of them: `key(slot)` in `votes` (see vote). A lone read
+    can still hold a fading screen's numbers, after a name or instead of one."""
+    return {i for i in range(4) if votes.get(key(i)) and max(votes[key(i)].values()) >= 2}
+
+def party_slots(players, party, sure=(), you=None, agreed=()):
     """Each result-screen (or Battle Data) column takes the Party screen's player of the same slot: both list players
-    by badge, 1P to 4P, left to right (a run as 2P with three real players lined up on all three screens, 30 Oct). The
-    name comes from the Party screen, read clearly there, with its AI flag and you; the column's own read only checks it.
-    A misread like 'Dyn*ht' no longer has to be guessed at. A column that clearly reads as another member's name (the
+    by badge, 1P to 4P, left to right (a run as 2P with three real players lined up on all three screens, 30 Oct). Its AI
+    flag and you come with it, and its name, unless the column's own reads agree on one (`agreed`: those slots): names
+    on these screens sit on clean dark tabs, the Party screen's over a moving scene (8 Nov: 3 of 4 names sent were the
+    Party's misreads of names the result screen read right 5 times; in 17 kept fights it was the better read).
+    A lone read still gives way, so a misread like 'Dyn*ht' needn't be
+    guessed at. A column whose agreed name is nothing like its member's is someone else: it takes no AI flag or you. A column that clearly reads as another member's name (the
     order wasn't what was expected) takes that member instead, and it's logged. No party: names stay as read.
     Each member goes to one column at most: first to a column that clearly reads their name, then to their slot's
     column; a column whose slot's member went to another keeps its own read, with no AI flag or you from the party.
@@ -227,7 +235,15 @@ def party_slots(players, party, sure=(), you=None):
     # so a shuffled read can leave your name unmarked in one slot and the mark on another (1 saved run)
     mine = {x['slot'] for x in party if x.get('self') or (you and same_name(x['name'], you))}
     def give(p, m):                              # a member taken as you takes every Party you: never two rows
-        p.update(name=m['name'], ai=bool(m.get('ai')), self=bool(m.get('self')))
+        own = p.get('name') or ''
+        # (I, l and 1 can't be told apart by any read: going by the Party's spelling keeps a player's name from flipping)
+        twins = lambda n: re.sub(r'[Il1|]', 'l', n)
+        if p['slot'] in agreed and own and twins(own) != twins(m['name']):
+            alike = sim(own, m['name']) >= 0.6
+            if own != m['name']: log.info(f"result: column {p['slot'] + 1} keeps {own!r}, read alike again and again, not the Party screen's {m['name']!r}")
+            p.update(ai=bool(m.get('ai')) and alike, self=bool(m.get('self')) and alike)
+        else:
+            p.update(name=m['name'], ai=bool(m.get('ai')), self=bool(m.get('self')))
         taken.update(mine if m['slot'] in mine else {m['slot']})
     me = max((p for p in players if you and same_name(p.get('name'), you)), key=lambda p: sim(p['name'], you), default=None)
     for p in players:
@@ -442,7 +458,8 @@ class ResultsMixin:
         for i, c in enumerate(cards):
             c.update(slot=i, name=vote(self.bd_votes, (i, 'name'), (names.get(i) or '').strip(' /|') or None) or '')
         party_slots(cards, party, sure={i for i in crops if sure_read(self.ocr, crops[i])},
-                    you=self.character_name if character_verified(self.uid) else None)
+                    you=self.character_name if character_verified(self.uid) else None,
+                    agreed=agreed_slots(self.bd_votes, lambda i: (i, 'name')))
         vals = [c['avg_dps'] for c in cards if c['avg_dps'] is not None]
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         if again:                                                  # a later read: only the agreed numbers change
@@ -879,7 +896,8 @@ class ResultsMixin:
             if name or value is not None or label in RESULT_STATS:
                 players.append({'slot': i, 'name': name, 'stat': label, 'value': value})
         party_slots(players, self.party_for_result(now), sure={i for i in range(4) if sure_read(self.ocr, named[f'name{i}'])},
-                    you=self.character_name if character_verified(self.uid) else None)
+                    you=self.character_name if character_verified(self.uid) else None,
+                    agreed=agreed_slots(self.result_votes, lambda i: f'name{i}'))
         mine = self.character_name if character_verified(self.uid) else \
             own_name(self.character_name, [p['name'] for p in players], self.party_for_result(now))
         if mine and mine != self.character_name:

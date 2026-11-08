@@ -739,8 +739,12 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
             mine = bool(known and same_name(known, name)) or (not known and yellow(i))
-            # a card read that missed (an effect over it) keeps the last read of that slot
-            old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == slot and m['name'] == name), {})
+            if mine and known: name = known                 # your own name is known: no misread of it on your card
+            # a card read that missed (an effect over it) keeps the last read of that slot, for the same lead: by its CP,
+            # which a name that reads differently each time doesn't change (8 Nov: the lead's name came through on 1 read of
+            # 11, and all four cards went without it), and a new CP is a new lead. No CP read: by the player's name
+            old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == slot and
+                        (m.get('cp') == int(cp.group(1)) if cp and m.get('cp') else m['name'] == name)), {})
             members.append({'slot': slot, 'name': name, 'self': mine, 'pill': i,
                             # AI: no CP on the card (a card that didn't read falls back to the NPCs' names)
                             'ai': not mine and (not cp if card.strip() else name.casefold() in self.INTERLINK_NPCS),

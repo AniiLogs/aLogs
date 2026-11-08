@@ -47,6 +47,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Fixed
 - **General Settings no longer has a second scrollbar:** it left empty space at the bottom of the window.
+- **Teammates' names are sent as the result screen reads them:** those are the clearer read, and a name misread on the
+  Party screen could replace a right one and add a wrong player to the leaderboards.
+- **Party cards keep their lead Aniimo and your own name:** a card could go up with no lead Aniimo, and yours with a
+  misread of your name.
 - **The Party screen is read right up to the fight:** teams changed or an offering chosen late could be missed when the
   screen's title was hard to read.
 - **Special Offerings like Resurgence are read:** some were never recognized, so the run went in without its offering.
