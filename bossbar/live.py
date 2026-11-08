@@ -676,8 +676,6 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     PARTY_SLOTS = ((0.30, 0.17, 0.44, 0.21), (0.58, 0.185, 0.70, 0.225), (0.095, 0.222, 0.215, 0.262), (0.815, 0.209, 0.94, 0.249))
     # ...and each slot's lead Aniimo card lower down ('Irisalis / Lv.60 CP:3578'; CP only on your own)
     PARTY_CARDS = ((0.33, 0.548, 0.44, 0.605), (0.598, 0.563, 0.71, 0.62), (0.116, 0.6, 0.228, 0.657), (0.842, 0.587, 0.952, 0.643))
-    # the game's AI teammates (its pills don't mark them any more): names seen filling an Interlink party
-    INTERLINK_NPCS = {'flora', 'mario', 'leonard', 'tammy'}
 
     # The Interlink screen (the week's three bosses): each one's stars as 'earned/cap' over its name, left, center, right
     INTERLINK_STARS = ((0.18, 0.50, 0.28, 0.565), (0.44, 0.375, 0.53, 0.43), (0.71, 0.44, 0.78, 0.485))
@@ -748,7 +746,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                         (m.get('cp') == int(cp.group(1)) if cp and m.get('cp') else m['name'] == name)), {})
             members.append({'slot': slot, 'name': name, 'self': mine, 'pill': i,
                             # AI: no CP on the card (a card that didn't read falls back to the NPCs' names)
-                            'ai': not mine and (not cp if card.strip() else name.casefold() in self.INTERLINK_NPCS),
+                            'ai': not mine and (not cp if card.strip() else name.casefold() in INTERLINK_NPCS),
                             'aniimo': pet.group(1).strip() if pet else old.get('aniimo'),
                             'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
                             'cp': int(cp.group(1)) if cp else old.get('cp')})

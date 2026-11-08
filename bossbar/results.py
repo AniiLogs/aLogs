@@ -248,7 +248,8 @@ def party_slots(players, party, sure=(), you=None, agreed=()):
         if p['slot'] in agreed and own and twins(own) != twins(m['name']):
             alike = sim(own, m['name']) >= 0.6
             if own != m['name']: log.info(f"result: column {p['slot'] + 1} keeps {own!r}, read alike again and again, not the Party screen's {m['name']!r}")
-            p.update(ai=bool(m.get('ai')) and alike, self=bool(m.get('self')) and alike)
+            # (the game can rename an AI teammate after the Party screen: 8 Nov, Flora there was Mario on the result, and went as a real player)
+            p.update(ai=bool(m.get('ai')) and (alike or own.casefold() in INTERLINK_NPCS), self=bool(m.get('self')) and alike)
         else:
             p.update(name=m['name'], ai=bool(m.get('ai')), self=bool(m.get('self')))
         taken.update(mine if m['slot'] in mine else {m['slot']})
@@ -324,6 +325,8 @@ SCREEN_READS = 10                   # reads of each screen per appearance; the v
 
 SETTLE_S = 0.25         # s between looks while waiting for a proof screen to stop moving
 
+
+INTERLINK_NPCS = {'flora', 'mario', 'leonard', 'tammy'}    # the game's AI teammates (its pills don't mark them): names seen filling an Interlink party
 
 class ResultsMixin:
     """Reading end screens into runs: the Meter's (live.py) methods for it, sharing its state."""
