@@ -199,6 +199,13 @@ def sure_read(ocr, img):
     hit = getattr(ocr, 'name_cache', {}).get(R.name_signature(img))
     return bool(hit) and hit[1] is None
 
+def confirmed(votes, key):
+    """The value most reads agree on, by at least two of them (see vote), else None: a number seen once isn't sent."""
+    c = votes.get(key)
+    if not c: return None
+    best = max(c, key=lambda v: (c[v], -list(c).index(v)))
+    return best if c[best] >= 2 else None
+
 def agreed_slots(votes, key):
     """The slots whose name most reads agree on, by at least two of them: `key(slot)` in `votes` (see vote). A lone read
     can still hold a fading screen's numbers, after a name or instead of one."""
@@ -345,38 +352,60 @@ class ResultsMixin:
         return n
 
     @staticmethod
-    def cell_value(text):
-        """The number OCR read in one Battle Data box, or None: the digits at its end (a label can come with them), and a
-        lone O as 0 (the game's 0, which OCR reads as a letter or skips)."""
-        text = (text or '').split('/')[-1].strip()
-        if re.fullmatch(r'[oO]', text): return 0
-        m = re.search(r'(\d[\d,.]*)$', text)
-        return int(re.sub(r'\D', '', m.group(1))) if m else None
+    def bd_cards_in_place(im, u, ux, H, n):
+        """Whether Battle Data's n cards are where they rest, not on their way in. A frame of a sliding screen can cut a
+        number at its box's edge and still read as a clean, shorter number (57619 as 576). At rest on 15 saved 4K screens,
+        each card's centre was within 0.0005 u of its place and its bottom edge at 0.744-0.747 H, also when scaled to 720p;
+        20 px sideways or 8 px down is already out of these limits."""
+        if not n: return False
+        y = int(H * 0.645); N_ = 1600
+        row = im.crop((int(ux), y, int(ux + u), y + 1)).convert('RGB').resize((N_, 1), Image.BOX).tobytes()
+        runs, start = [], None
+        for x in range(N_ + 1):
+            px = row[3 * x:3 * x + 3] if x < N_ else b'\0\0\0'
+            light = min(px) >= 190 and max(px) - min(px) <= 40
+            if light and start is None: start = x
+            elif not light and start is not None:
+                if x - start >= 0.12 * N_: runs.append((start / N_, x / N_))
+                start = None
+        if len(runs) != n: return False
+        y0, y1 = int(H * 0.70), int(H * 0.80)
+        for i, (a, b) in enumerate(runs):
+            if abs((a + b) / 2 - (0.5 + (i - (n - 1) / 2) * 0.1943)) > 0.002: return False
+            x = int(ux + u * (a + 0.01))
+            col = im.crop((x, y0, x + 1, y1)).convert('RGB').tobytes()
+            light = [k for k in range(y1 - y0) if min(col[3 * k:3 * k + 3]) >= 170 and max(col[3 * k:3 * k + 3]) - min(col[3 * k:3 * k + 3]) <= 50]
+            if not light or not 0.742 <= (y0 + light[-1]) / H <= 0.749: return False
+        return True
 
     def battle_data_font(self, im, u, ux, H, read):
-        """Each card's values, each from its own box on its own card (in place): digit by digit against the game's own
-        digits, else OCR of that one box, else blank for a later read. What `read` got from OCR's text of all the cards
-        goes: that text's order said which card a number was, and it isn't reliable (8 Nov: one card's Damage Taken and
-        Heal came last and were given to the next card, whose own were unread; 3 of 8 first reads differed from the last,
-        12 values wrong). On 15 saved 4K screens the font read 236 of 236 right and OCR of the box 220, with 2 wrong. Without
-        the game's font, `read` stands."""
+        """Each card's values from its own box on its own card (in place), by the game's own digits and nothing else; a value
+        they don't read clearly stays blank for a later read. No number comes from OCR while the game's font can be read:
+        its text of all the cards said which card a number was by its order (8 Nov: one card's Damage Taken and Heal went
+        on the next card; 3 of 8 first reads differed from the last, 12 values wrong), and even a box on its own had 1 read
+        as 7 (2 wrong of 236, against 0 for the font). Below 4K a value not read is tried again on the frame enlarged: on 15
+        saved screens scaled to 1080p, 900p, 768p and 720p, that took blanks from up to 29 to at most 1, with no wrong read.
+        A frame whose cards aren't in place gives no values at all. Without the game's font, `read` stands."""
         reader = self.name_reader()
         if not reader: return
-        n = len(read); k = max(1.0, 2 * 2000 / u); crops = {}
+        n = len(read)
+        if not self.bd_cards_in_place(im, u, ux, H, n):
+            log.info('Battle Data: cards not in place yet, no values from this frame')
+            for card in read:
+                for key, _ in self.BD_ROWS: card[key] = None
+            return
+        k = 3840 / u; big = None
+        y0, y1 = H * 0.54, H * 0.74
         for i, card in enumerate(read):
             c = ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943)
             for key, y in self.BD_ROWS:
                 box = (c + u * 0.015, H * (y - 0.016), c + u * 0.081, H * (y + 0.016))
                 card[key] = reader.number(im, box, dark=True, right=True)
-                if card[key] is None:
-                    cell = im.crop(tuple(int(v) for v in box)).convert('L')
-                    cell = cell.resize((int(cell.width * k), int(cell.height * k)), Image.LANCZOS)
-                    crops[f'{i}{key}'] = ImageOps.expand(cell, border=20, fill=255)
-        if crops:
-            cells = self.ocr.read(crops)
-            for i, card in enumerate(read):
-                for key, _ in self.BD_ROWS:
-                    if f'{i}{key}' in crops: card[key] = self.cell_value(cells.get(f'{i}{key}'))
+                if card[key] is None and k > 1.01:
+                    if big is None:
+                        band = im.crop((int(ux), int(y0), int(ux + u), int(y1)))
+                        big = band.resize((round(band.width * k), round(band.height * k)), Image.LANCZOS)
+                    card[key] = reader.number(big, ((box[0] - int(ux)) * k, (box[1] - int(y0)) * k, (box[2] - int(ux)) * k, (box[3] - int(y0)) * k), dark=True, right=True)
 
     def check_battle_data(self, im, now):
         """The game's screens with text: Battle Data, result screens, Catch Countdown, prep, Egg Heist, profile cards.
@@ -413,6 +442,35 @@ class ResultsMixin:
                      ux + u * (0.5 + (i - (n - 1) / 2) * 0.1943 + 0.045), H * 0.547) for i in range(n)}
         return {i: R.prep_white(im, b, u / 2000) for i, b in boxes.items()}, {i: R.grey_crop(im, b) for i, b in boxes.items()}
 
+    def bd_measure(self, msg, vals, now):
+        """The fight waiting for Battle Data, its team DPS checked against the meter's and the boss's max HP measured, once the
+        cards' average DPS are known. (msg + what came of it, that fight)."""
+        f = self.awaiting[0] if self.awaiting and now <= self.awaiting[1] else None
+        if f and vals:
+            game_dps = sum(vals); T = f.elapsed; loss = f.damage / f.max_hp if f.max_hp else 0
+            run = self.run_of(f)                                       # the run's damage: a two-boss fight's both bosses
+            msg += f' vs meter {run["damage"] / T:,.0f} ({run["title"]} Lv {f.level})' if T > 1 else ''
+            self.time_check(f, game_dps, run)
+            calibrate = f.bossrush and f.started_at_top and loss > 0.02 and T > 60
+            if calibrate and run['bosses'] is not None:
+                # Never from a two-boss middle fight, whichever boss it ended on: Battle Data has one team DPS for the
+                # run (BossRushBattleDetailResult; whether it covers both bosses isn't known until a live run shows it),
+                # and no share of it is one boss's. Taken as the boss on the bar's, it put the second boss's max HP
+                # ~1.2x too high, inside the guard below, and kept that for the boss from then on (calibration.json)
+                calibrate = False
+                log.info(f"Battle Data: no max HP measured from a two-boss fight ({', '.join(b['name'] for b in run['bosses'])}): "
+                         "its team DPS is the run's, not one boss's")
+            if calibrate:
+                measured = game_dps * T / loss
+                predicted = R.boss_max_hp(f.row, f.level, use_calibration=False)
+            if calibrate and predicted and 0.5 <= measured / predicted <= 2:
+                # far off the prediction means the wrong boss was matched, not a better HP figure: never save that
+                kept = R.save_calibration(f.row['puppetId'], f.level, measured, predicted,
+                                          f'{time.strftime("%Y-%m-%d %H:%M")} game {game_dps} T {T:.0f}')
+                msg += f' | max HP measured {measured:,.0f} (predicted {predicted:,}); using {kept:,} from now on'
+            self.awaiting = None
+        return msg, f
+
     def battle_data(self, im, now, u, ux, H, head, names=None):
         """Battle Data on screen: each card's four values and its player, voted over the reads of one appearance, saved
         with the fight. `names`: bd_names' boxes, already read (names_first)."""
@@ -429,7 +487,7 @@ class ResultsMixin:
         self.bd_last = now
         if not again:
             self.battle_saved = now; self.bd_reads = 0; self.bd_votes = {}; self.bd_shot = None; self.bd_cards = 0
-            self.bd_prev_sig = None
+            self.bd_prev_sig = None; self.bd_measured = False; self.bd_stamp = None
             log.info(f'Battle Data screen detected (header OCR {head!r})')
         self.bd_reads += 1
         # the four stat rows of all cards (dark text on light cards)
@@ -455,8 +513,10 @@ class ResultsMixin:
                 else "OCR's count (not counted on screen)"
             if party and len(party) != n: said += f', but the Party screen had {len(party)} players'
             log.info(f'Battle Data cards: {said} -> {n} cards {[{k: c.get(k) for k, _ in self.BD_ROWS} for c in read]}')
-        cards = [{k: vote(self.bd_votes, (i, k), read[i].get(k)) for k in ('avg_dps', 'break', 'taken', 'heal')}
-                 for i in range(n)]
+        for i in range(n):
+            for k in ('avg_dps', 'break', 'taken', 'heal'): vote(self.bd_votes, (i, k), read[i].get(k))
+        # a value goes out only once two reads agree on it: until then it's blank, never a number seen once
+        cards = [{k: confirmed(self.bd_votes, (i, k)) for k in ('avg_dps', 'break', 'taken', 'heal')} for i in range(n)]
         # Two reads in a row the same, number for number: the screen has settled and those are its numbers. A read
         # while Battle Data still fades in can miss a card's top row and slide the rest up (7 Nov: BREAK 511,876 went
         # out as average DPS); sent on one read, that went to the boards. The agreed read's numbers are the ones kept
@@ -479,40 +539,28 @@ class ResultsMixin:
         vals = [c['avg_dps'] for c in cards if c['avg_dps'] is not None]
         lf = self.last_fight if self.last_fight and now - self.last_fight[1] < 180 else None
         if again:                                                  # a later read: only the agreed numbers change
+            # the first time every card's numbers are in (two reads agree: the first read has none): what the first read
+            # would have done with them, and this frame, at rest, for the saved picture and note
+            if agreed and vals and len(vals) == len(cards) and not getattr(self, 'bd_measured', False):
+                self.bd_measured = True
+                stamp = getattr(self, 'bd_stamp', None) or time.strftime('%Y%m%d_%H%M%S')
+                shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0])))
+                if shot: self.bd_shot = os.path.relpath(shot, HERE)
+                msg = f'Battle Data screen saved: {self.bd_shot or "numbers only (no picture kept)"} - game team DPS {sum(vals):,} (players {", ".join(f"{v:,}" for v in vals)})'
+                msg, f = self.bd_measure(msg, vals, now)
+                self.out('status', msg)
+                self.bd_note(stamp, msg, cards, text, f)
             if lf: self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
                                                           'screenshot': self.bd_shot, 'reads': self.bd_reads})
             if agreed and bd_complete(cards, party):               # read twice the same: send, stop (below)
                 if self.pending_run: self.pending_run = (self.pending_run[0], now)
                 if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
             return
-        stamp = time.strftime('%Y%m%d_%H%M%S'); out_dir = os.path.join(HERE, 'logs', 'battle_data'); os.makedirs(out_dir, exist_ok=True)
+        stamp = self.bd_stamp = time.strftime('%Y%m%d_%H%M%S'); os.makedirs(os.path.join(HERE, 'logs', 'battle_data'), exist_ok=True)
         shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0]))); self.bd_shot = os.path.relpath(shot, HERE) if shot else None
         msg = f'Battle Data screen saved: {os.path.relpath(shot, HERE) if shot else "numbers only (no picture kept)"}'
         if vals: msg += f' - game team DPS {sum(vals):,} (players {", ".join(f"{v:,}" for v in vals)})'
-        f = self.awaiting[0] if self.awaiting and now <= self.awaiting[1] else None
-        if f and vals:
-            game_dps = sum(vals); T = f.elapsed; loss = f.damage / f.max_hp if f.max_hp else 0
-            run = self.run_of(f)                                       # the run's damage: a two-boss fight's both bosses
-            msg += f' vs meter {run["damage"] / T:,.0f} ({run["title"]} Lv {f.level})' if T > 1 else ''
-            self.time_check(f, game_dps, run)
-            calibrate = f.bossrush and f.started_at_top and loss > 0.02 and T > 60
-            if calibrate and run['bosses'] is not None:
-                # Never from a two-boss middle fight, whichever boss it ended on: Battle Data has one team DPS for the
-                # run (BossRushBattleDetailResult; whether it covers both bosses isn't known until a live run shows it),
-                # and no share of it is one boss's. Taken as the boss on the bar's, it put the second boss's max HP
-                # ~1.2x too high, inside the guard below, and kept that for the boss from then on (calibration.json)
-                calibrate = False
-                log.info(f"Battle Data: no max HP measured from a two-boss fight ({', '.join(b['name'] for b in run['bosses'])}): "
-                         "its team DPS is the run's, not one boss's")
-            if calibrate:
-                measured = game_dps * T / loss
-                predicted = R.boss_max_hp(f.row, f.level, use_calibration=False)
-            if calibrate and predicted and 0.5 <= measured / predicted <= 2:
-                # far off the prediction means the wrong boss was matched, not a better HP figure: never save that
-                kept = R.save_calibration(f.row['puppetId'], f.level, measured, predicted,
-                                          f'{time.strftime("%Y-%m-%d %H:%M")} game {game_dps} T {T:.0f}')
-                msg += f' | max HP measured {measured:,.0f} (predicted {predicted:,}); using {kept:,} from now on'
-            self.awaiting = None
+        msg, f = self.bd_measure(msg, vals, now)
         self.out('status', msg)
         self.end_sig = screen_sig(im)
         if lf:
@@ -524,7 +572,12 @@ class ResultsMixin:
         if agreed and bd_complete(cards, party):
             if self.pending_run: self.pending_run = (self.pending_run[0], now)
             if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
-        with open(os.path.join(out_dir, stamp + '.txt'), 'w', encoding='utf-8') as fh:
+        self.bd_note(stamp, msg, cards, text, f)
+
+    @staticmethod
+    def bd_note(stamp, msg, cards, text, f):
+        """The note beside a saved Battle Data picture: the numbers as they stand (written again when they're confirmed)."""
+        with open(os.path.join(HERE, 'logs', 'battle_data', stamp + '.txt'), 'w', encoding='utf-8') as fh:
             fh.write(msg + '\n\n')
             for i, c in enumerate(cards, 1):
                 fh.write(f"player {i}: average DPS {c['avg_dps']}, BREAK {c['break']}, damage taken {c['taken']}, heal {c['heal']}\n")

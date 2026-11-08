@@ -47,8 +47,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Fixed
 - **General Settings no longer has a second scrollbar:** it left empty space at the bottom of the window.
-- **Battle Data numbers stay with the right player:** each number is now read from its own place on its own card. A first
-  read could put one player's Damage Taken and Heal on another's card until a later read corrected it.
+- **Battle Data numbers are read far more strictly:** each one comes from its own place on its own card, by the game's own
+  digits, once the cards have stopped moving, and only goes out after being read the same way twice. Anything less stays
+  blank. A first read could put one player's Damage Taken and Heal on another's card until a later read corrected it.
 - **Teammates' names are sent as the result screen reads them:** those are the clearer read, and a name misread on the
   Party screen could replace a right one and add a wrong player to the leaderboards.
 - **Party cards keep their lead Aniimo and your own name:** a card could go up with no lead Aniimo, and yours with a
