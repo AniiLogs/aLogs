@@ -507,11 +507,34 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                  ('EXP card', 'level' in g('pl')), ('catch card', bool(re.search(r'view|close', g('pb'))) and '/' in g('pc')))
         return next((name for name, hit in tests if hit), None)
 
+    PARTY_KEEP_S = 30      # a Party screen stays 'up' this long after its last sign, title or Environment info
+
+    def party_up(self, heads, now):
+        """Whether this read is of the Party screen. Its title decides, but on some backgrounds OCR reads it only now and
+        then (8 Nov: once in 26 s, 20 s before the fight, so the offering chosen after that and any late team change were
+        missed). So once the title has been read, 'Environment info' at the top right keeps the screen up until the fight
+        starts, while the title reads as nothing or a garbled Party. A Squad screen shows that text too: it needs its own
+        title gone, and a Party title just before."""
+        head = heads.get('h') or ''
+        if getattr(self, 'fight', None) is not None:
+            self.party_title_at = 0; return False
+        if self.title_is(head, 'party'):
+            self.party_title_at = now; return True
+        if now - getattr(self, 'party_title_at', 0) > self.PARTY_KEEP_S: return False
+        letters = re.sub(r'[^a-z]', '', head.lower())
+        if letters and difflib.SequenceMatcher(None, letters, 'party').ratio() < 0.6: return False     # another screen's title
+        if not re.search(r'en[a-z]{0,3}ron', (heads.get('bs') or '').lower()): return False
+        self.party_title_at = now
+        if now - getattr(self, 'party_kept_said', 0) > 15:
+            self.party_kept_said = now; log.info(f'Party screen: still up by Environment info (title read {head!r})')
+        return True
+
     def read_screen(self, im, now, heads):
         self.screens_gone(now)
         # a screen the meter reads is up: its readers look at more of the frame than the boxes. A frame of only the
         # boxes (screen_parts) is read again whole at once; whole frames go on until FULL_HOLD_S after the last one
-        spotted = self.screen_spotted(heads)
+        party = self.party_up(heads, now)
+        spotted = self.screen_spotted(heads) or ('party' if party else None)
         if spotted and self.args.replay is None:
             self.full_until = now + self.FULL_HOLD_S
             if im.info.get('parts'):
@@ -551,7 +574,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
         if self.title_is(head, 'profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
-        if self.title_is(head, 'party'):
+        if party:
             self.test_frame(im, 'party', now)
             # at party_screen's own pace (2 s): a pill's ready mark or voice icon changes its look, and each change
             # would send all four to the name models at every screen read, where the screen reads them every 2 s
