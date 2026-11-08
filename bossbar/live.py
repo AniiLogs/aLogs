@@ -1009,7 +1009,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         `sure`: the read is trustworthy on its own (a short name only when the game's font matched it)."""
         digits = re.sub(r'\D', '', (uid_text or '').replace('O', '0'))
         name = re.sub(r'\s+', ' ', (name or '').strip(' /|.'))
-        if where == 'menu' and self.uid and self.uid in digits and len(name) <= 2 and im is not None and u:
+        # a Korean name (the Korean model read it and the game's Korean letters fit) stays: the short-name matcher knows
+        # only the game's Latin letters, and turned a player's two-letter Korean name into Latin look-alikes (8 Nov)
+        if where == 'menu' and self.uid and self.uid in digits and len(name) <= 2 and not K.has_hangul(name) \
+                and im is not None and u:
             name, sure = self.short_name(im, u, ux, H)                  # "0", "Ab": too short for a plain read
             name = name or ''
         # the UID under it vouches for the name, so a one-character name counts too ("0" is a real one); just not a
@@ -1092,7 +1095,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         name = re.sub(r'\s+', ' ', r.get('n', '')).strip(' /|.')
         # a long name: OCR; a short one only when the game's font matched it (a Korean name always has: hangulnames)
         sure = len(name) > 3 or K.has_hangul(name)
-        reader = self.name_reader() if mask is not None and len(name) <= 3 else None
+        reader = self.name_reader() if mask is not None and len(name) <= 3 and not K.has_hangul(name) else None
         matched = reader.read(im, name_box, u, px_4k=namereader.PROFILE_PX_4K, mask=mask) if reader else None
         if matched: name, sure = matched, True
         if not name and mask is not None: log.info(f'profile: name not read ({mask.width}x{mask.height} px of text)')
