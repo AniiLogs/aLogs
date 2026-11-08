@@ -32,7 +32,7 @@ m.load_icons = lambda: None
 m.card_shift = lambda ic, im, a, b, u, ux, H: (0, 0)
 screen = {}                                  # card (pill) -> three names the stubbed reader sees (None: unreadable)
 gate = threading.Event(); gate.set()
-def team_tile(ic, im, t, b, u, ux, H, shift):
+def team_tile(ic, im, t, b, u, ux, H, shift, memo=None):
     gate.wait(5)
     card = next(i for i, c in enumerate(live.Meter.PARTY_CARDS) if abs(t - c[0]) < 0.001 or abs(t - c[0] - live.Meter.TEAM_PITCH) < 0.001
                 or abs(t - c[0] - 2 * live.Meter.TEAM_PITCH) < 0.001)

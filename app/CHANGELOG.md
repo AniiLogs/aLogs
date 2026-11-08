@@ -20,6 +20,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   draws a yellow border round the game, only while aLogs is capturing. About explains both ways.
 
 ### Improved
+- **Teams and buffs on the Party screen read faster:** a read takes under half the time it did, and much less when
+  the screen hasn't changed, with the same answers.
 - **A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep
   screen, aLogs checks the site's board; if your row there already has that score (from a run you or a teammate
   sent), nothing goes up.
