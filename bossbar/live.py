@@ -487,14 +487,20 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         return out
 
     @staticmethod
+    def title_is(head, word):
+        """Whether a screen's title starts with this word, by its letters: OCR puts stray spaces in a short title (8 Nov:
+        a Party screen's read 'p arty' for 35 s, so it was spotted once and never read: no teams or buffs that run)."""
+        return re.sub(r'[^a-z]', '', (head or '').lower()).startswith(word)
+
+    @staticmethod
     def screen_spotted(heads):
         """Which screen read_screen would act on (its own tests, roughly), or None: the cue for whole frames (B8)."""
         g = lambda k: (heads.get(k) or '').lower()
         head = g('h'); hl = re.sub(r'[^a-z]', '', head)
         tests = (('result', 'score' in g('lbl') and 'time' in g('lbl')), ('Holo-Battle Sim result', 'battle time' in g('sv')),
                  ('challenge', 'challenge' in g('cs')), ('battle prep', 'score' in g('bs')), ('Catch Countdown', 'catch' in g('cc')),
-                 ('Egg Heist rank', 'rank info' in head), ('profile', head.strip().startswith('profile')),
-                 ('party', head.strip().startswith('party')), ('Holo-Battle', hl.startswith('holobattlei')),
+                 ('Egg Heist rank', 'rank info' in head), ('profile', Meter.title_is(head, 'profile')),
+                 ('party', Meter.title_is(head, 'party')), ('Holo-Battle', hl.startswith('holobattlei')),
                  ('Egg Heist', 'adventure' in g('eh') or re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', g('ep')) is not None
                   or re.fullmatch(r'\s*[x×]\s*\d{1,6}\s*', g('es')) is not None),
                  ('menu', bool(g('me') and g('uid'))), ('Battle Data', 'battle' in hl and 'dat' in hl),
@@ -544,8 +550,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if 'challenge' in heads.get('cs', '').lower(): self.test_frame(im, 'challenge', now); self.challenge_stats(im, now, u, ux, H); return
         if 'score' in heads.get('bs', '').lower(): self.test_frame(im, 'prep', now); self.prep_screen(im, now, u, ux, H, heads['bs']); return
         if 'rank info' in head.lower(): self.test_frame(im, 'egg_rank', now); self.egg_rank_info(im, now, u, ux, H); return
-        if head.strip().lower().startswith('profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
-        if head.strip().lower().startswith('party'):
+        if self.title_is(head, 'profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
+        if self.title_is(head, 'party'):
             self.test_frame(im, 'party', now)
             # at party_screen's own pace (2 s): a pill's ready mark or voice icon changes its look, and each change
             # would send all four to the name models at every screen read, where the screen reads them every 2 s

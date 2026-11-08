@@ -46,6 +46,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **A Party screen is no longer missed when its title reads oddly:** the title could be read with a stray space, and
+  that run then had no teams or buffs. The Profile screen had the same problem.
 - **The updating window shows the animated aLogs icon,** not a still picture (the app's security settings kept the
   animation from loading).
 - **Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their
