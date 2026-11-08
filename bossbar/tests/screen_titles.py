@@ -33,7 +33,7 @@ for title in ('Profile', 'p rofile', 'Pro file'):
 # -- the Party screen stays up while its title is hard to read (Meter.party_up, read_screen) --------------------------
 from PIL import Image
 def meter():
-    m = Meter.__new__(Meter); m.fight = None; return m
+    m = Meter.__new__(Meter); m.fight = None; m.party_circle = lambda *a: None; return m
 ENV = 'Environment info'
 m = meter()
 check('no title yet: the text alone is not a Party screen', m.party_up({'h': '', 'bs': ENV}, 100), False)

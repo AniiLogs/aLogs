@@ -47,6 +47,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Fixed
 - **General Settings no longer has a second scrollbar:** it left empty space at the bottom of the window.
+- **The Special Offering you changed to is the one sent:** its circle on the Party screen is checked twice a second, so a late
+  change no longer sends the old one.
+- **Fewer blank slots in your team:** a team slot the Party screen couldn't read at first is tried again on the next read, and
+  a slot of yours still blank is read from the right side of the screen during the fight.
 - **Battle Data numbers are read far more strictly:** each one comes from its own place on its own card, by the game's own
   digits, once the cards have stopped moving, and only goes out after being read the same way twice. Anything less stays
   blank. A first read could put one player's Damage Taken and Heal on another's card until a later read corrected it.
