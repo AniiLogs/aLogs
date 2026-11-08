@@ -576,6 +576,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if self.title_is(head, 'profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
         if party:
             self.test_frame(im, 'party', now)
+            self.party_circle(im, now, u, ux, H)
             # at party_screen's own pace (2 s): a pill's ready mark or voice icon changes its look, and each change
             # would send all four to the name models at every screen read, where the screen reads them every 2 s
             if now - getattr(self, 'party_seen', 0) >= 2:
@@ -837,8 +838,57 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 max(ImageStat.Stat(ImageChops.difference(thumb, last[1])).mean) <= self.TILE_SAME:
             return last[2]
         r = ic.head(im, window, (px - half, py - half, 2 * half), fade=fade)
-        if memo is not None: store[memo] = (tuple(int(v) for v in window), thumb, r)
+        # only a read that counts is kept: a tile's margin moves from frame to frame around the mark (8 Nov: 0.05 to 0.21 on
+        # one portrait), and a rejected read kept here stood for the same picture, its tile blank for 50 s
+        if memo is not None:
+            if self.tile_sure(r): store[memo] = (tuple(int(v) for v in window), thumb, r)
+            else: store.pop(memo, None)
         return r
+
+    # Your other three Aniimo stand down the fight's right side, so a slot of yours the Party screen left blank can still be
+    # read there, for your own team only. Measured on 8 saved 4K fights: each portrait's whole square 190 px, centred at x 3540,
+    # 217 px apart; only the top is compared (a label like "Damage Boost" lies over the bottom), left of the skill badge, which
+    # dims in cooldown. Effects show through, so one frame isn't enough: HUD_AGREE frames must name the same Aniimo.
+    HUD_TEAM = (0.9219, (0.3278, 0.4282, 0.5287))      # the squares' centres: x (of the UI's width), y of each row (of the height)
+    HUD_SIDE = 0.0495                                  # the square's side (of the UI's width)
+    HUD_WINDOW = (-0.0083, -0.0338, 0.0117, 0.0032)    # what's compared, from the centre: x0, y0, x1 (of the width), y1 (of the height)
+    HUD_EVERY_S = 4.0
+    HUD_AGREE = 2
+    hud_at = 0; hud_job = None
+
+    def fight_team(self, im, now, u, ux, H):
+        """A look at the fight's right side, in the background, while your own team has a blank slot."""
+        party = self.party
+        if not party or self.icons_state != 'ready' or now - self.hud_at < self.HUD_EVERY_S: return
+        if self.hud_job and self.hud_job.is_alive(): return
+        mine = next((m for m in party['members'] if m['self']), None)
+        if not mine: return
+        team = (party.get('teams') or [None] * 4)[mine['slot']]
+        if team and all(team): return
+        self.hud_at = now
+        self.hud_job = threading.Thread(target=self.read_fight_team, args=(im, party, mine, u, ux, H), daemon=True); self.hud_job.start()
+
+    def read_fight_team(self, im, party, mine, u, ux, H):
+        try:
+            teams = party.setdefault('teams', [None] * 4); slot = mine['slot']
+            team = list(teams[slot] or [None] * 3); votes = party.setdefault('hud_votes', {})
+            side = self.HUD_SIDE * u; x = ux + u * self.HUD_TEAM[0]; x0, y0, x1, y1 = self.HUD_WINDOW
+            for i, row in enumerate(self.HUD_TEAM[1]):
+                if team[i]: continue
+                y = H * row
+                r = self.icons.head(im, (x + u * x0, y + H * y0, x + u * x1, y + H * y1), (x - side / 2, y - side / 2, side))
+                # a team has no Aniimo twice, and your lead isn't one of the three
+                if not self.tile_sure(r) or r[0] in team or r[0] == mine.get('aniimo'): continue
+                n = votes[(i, r[0])] = votes.get((i, r[0]), 0) + 1
+                if n < self.HUD_AGREE: continue
+                team[i] = r[0]; teams[slot] = team; party.setdefault('team_who', {})[slot] = self.who(mine); party['team'] = team
+                log.info(f'Your team, slot {i + 1}: {r[0]}, from the fight (blank on the Party screen; fit {r[1]:.2f}, ahead by {r[2]:.2f})')
+        except Exception: log.exception('Reading your team in the fight failed')
+
+    @staticmethod
+    def tile_sure(r):
+        """Whether a portrait match (icons.head's answer) counts: clearly ahead of the next Aniimo."""
+        return bool(r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)))
 
     def read_party_icons(self, im, cards, u, ux, H, now):
         """Each player's team (cards: (slot, pill) per player) and the leader's buffs from the Party screen's pictures, matched to the game's own (icons.py), in
@@ -881,7 +931,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 # accepted only when clearly ahead (checked on 312 tiles: no wrong answer passes); an Aniimo whose
                 # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
                 # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
-                team.append(r[0] if r and ((r[1] >= 0.55 and r[2] >= 0.15) or (r[1] >= 0.68 and r[2] >= 0.10)) else None)
+                team.append(r[0] if self.tile_sure(r) else None)
             return team, shift
         # (one card after another: reading them on threads side by side was no faster, the matching being Python, 8 Nov)
         for slot, card in cards:
@@ -915,13 +965,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             names = [ic.buffs[k]['name'] for k in ic.buffs_named(r[0], 'season')]
             season.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
                           {'name': max(set(names), key=names.count)})
-        offering = None
-        r = ic.buff(im, box(*self.OFFERING), 'offering', text_below=False)
-        # none chosen shows '+' or '...' (up to 0.61 against the icons); one chosen read 0.78 (5 Nov, Elemental Concerto)
-        if r and r[1] >= 0.7 and r[2] >= 0.15:
-            ids = ic.buffs_named(r[0], 'offering')        # a few offerings share an icon: then only their names go
-            names = sorted({ic.buffs[k]['name'] for k in ids})
-            offering = {'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)}
+        self.panel_sy = sy
+        # (the Special Offering: party_circle's, as soon as it changes; this read is older by the time it's done)
+        offering = None if self.circle_on else self.read_offering(ic, im, box(*self.OFFERING))
         party = self.party
         if not party: return
         now_who = {m['slot']: self.who(m) for m in party['members']}
@@ -936,11 +982,63 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if mine is not None: party['team'] = out[mine]
         # each buff square keeps its last read when this one couldn't make it out (a read that caught the Season Buffs
         # but not the Special Offering used to drop the offering)
-        last = party.get('buff_reads') or {'season': [None] * len(season), 'offering': None}
-        got = {'season': [n or o for n, o in zip(season, last['season'])], 'offering': offering or last['offering']}
-        party['buff_reads'] = got
-        party['buffs'] = [b for b in got['season'] if b] + ([got['offering']] if got['offering'] else [])
+        with self.buff_lock:
+            last = party.get('buff_reads') or {'season': [None] * len(season), 'offering': None}
+            self.set_buffs(party, [n or o for n, o in zip(season, last['season'])], offering or last['offering'])
         log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
+
+    @staticmethod
+    def set_buffs(party, season, offering):
+        party['buff_reads'] = {'season': season, 'offering': offering}
+        party['buffs'] = [b for b in season if b] + ([offering] if offering else [])
+
+    @staticmethod
+    def read_offering(ic, im, box):
+        """The Special Offering in its circle, or None. None chosen yet shows '+' or '...' (up to 0.61 against the icons);
+        one chosen read 0.78 (5 Nov, Elemental Concerto)."""
+        r = ic.buff(im, box, 'offering', text_below=False)
+        if not (r and r[1] >= 0.7 and r[2] >= 0.15): return None
+        ids = ic.buffs_named(r[0], 'offering')            # a few offerings share an icon: then only their names go
+        names = sorted({ic.buffs[k]['name'] for k in ids})
+        return {'id': int(ids[0]), 'name': names[0]} if len(names) == 1 else {'name': ' or '.join(names)}
+
+    # The Special Offering can change until the fight starts, and a whole read of the screen takes seconds (8 Nov: the last
+    # one stayed 3 s after the change). So its circle alone is looked at twice a second: the same picture costs nothing, and
+    # a new one is read as soon as it holds still, and what was there before goes. That's only while the panel's at rest: a
+    # frame without its first Season Buff is the screen fading into the fight, whose last read stands.
+    circle_on = False; circle_at = 0; circle_prev = None; circle_read = None; circle_tried = 0; circle_job = None; panel_sy = 0
+    buff_lock = threading.Lock()
+    CIRCLE_EVERY_S = 0.5
+    CIRCLE_RETRY_S = 3.0      # a picture that doesn't read ('+' before one is chosen): not again and again
+
+    def party_circle(self, im, now, u, ux, H):
+        if not self.party or self.icons_state != 'ready' or now - self.circle_at < self.CIRCLE_EVERY_S: return
+        self.circle_on = True; self.circle_at = now
+        x0, y0, x1, y1 = self.OFFERING
+        box = (ux + u * x0, H * y0 + self.panel_sy, ux + u * x1, H * y1 + self.panel_sy)
+        thumb = im.crop(tuple(int(v) for v in box)).convert('RGB').resize((self.TILE_THUMB, self.TILE_THUMB), Image.BILINEAR)
+        same = lambda a: a is not None and a.size == thumb.size and max(ImageStat.Stat(ImageChops.difference(thumb, a)).mean) <= self.TILE_SAME
+        prev, self.circle_prev = self.circle_prev, thumb
+        if not same(prev): return                                  # still moving
+        known = (self.party.get('buff_reads') or {}).get('offering')
+        if same(self.circle_read) and (known or now - self.circle_tried < self.CIRCLE_RETRY_S): return
+        if self.circle_job and self.circle_job.is_alive(): return
+        self.circle_tried = now
+        self.circle_job = threading.Thread(target=self.read_circle, args=(im, box, thumb, u, ux, H), daemon=True); self.circle_job.start()
+
+    def read_circle(self, im, box, thumb, u, ux, H):
+        try:
+            ic = self.icons; x0, y0, x1, y1 = self.SEASON_BUFFS[0]
+            rest = ic.buff(im, (ux + u * x0, H * y0 + self.panel_sy, ux + u * x1, H * y1 + self.panel_sy), 'season')
+            if not rest or rest[1] < 0.8: return
+            offering = self.read_offering(ic, im, box); party = self.party
+            if not party: return
+            with self.buff_lock:
+                last = party.get('buff_reads') or {'season': [None] * len(self.SEASON_BUFFS), 'offering': None}
+                self.set_buffs(party, last['season'], offering)
+            self.circle_read = thumb
+            if offering != last['offering']: log.info(f"Special Offering: {(offering or {}).get('name')} (was {(last['offering'] or {}).get('name')})")
+        except Exception: log.exception('Party screen: reading the Special Offering failed')
 
     def set_party(self, members, now):
         self.screen_settled('party', now)

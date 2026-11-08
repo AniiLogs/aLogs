@@ -657,6 +657,7 @@ class FightsMixin:
             age = time.time() - f.created
             if 3 <= age < 30: keep_sample(im, 'interlink_start')
             elif 60 <= age < 120: keep_sample(im, 'interlink_mid')
+            W, H = im.size; u = min(W, H * 16 / 9); self.fight_team(im, time.time(), u, (W - u) / 2, H)
         self.last_screen = (self.origin[0], self.origin[1], self.frame_size[0], self.frame_size[1])
         # max_hp and damage are the run's (a two-boss fight's both bosses); boss_hp is the max HP of the boss on the bar
         self.out('fight', {'title': f.title, 'level': f.level, 'max_hp': f.max_hp, 'boss_hp': f.boss_hp, 'xn': f.seg, 'fill': f.seg_fill,
