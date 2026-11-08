@@ -46,6 +46,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **General Settings no longer has a second scrollbar:** it left empty space at the bottom of the window.
 - **The Party screen is read right up to the fight:** teams changed or an offering chosen late could be missed when the
   screen's title was hard to read.
 - **Special Offerings like Resurgence are read:** some were never recognized, so the run went in without its offering.
