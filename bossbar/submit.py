@@ -7,6 +7,7 @@ Every record goes to logs/submit_queue/ first and is sent from there by a backgr
 while offline; a record that comes back with more data (e.g. Battle Data after the result screen) replaces the
 queued one and updates the same leaderboard entry (same run id).
 """
+import difflib
 import io, json, logging, os, re, threading, time, urllib.error, urllib.parse, urllib.request, uuid
 from PIL import Image, ImageOps
 
@@ -431,8 +432,14 @@ def _lineup(summary):
     # every player's card: lead Aniimo, level and CP (shown on the site, the user's call 2026-10-31), and the rest of
     # the team from the pictures in the card's team row (icons.py; unread ones left out)
     teams = summary.get('teams') or []
+    # a card goes by the name the run settled on for its slot (party_slots): the Party screen's own read can be off. A
+    # name nothing like the card's is someone else in that slot: the card, read before the fight, stays as it was read
+    settled = {p.get('slot'): p.get('name') for p in (summary.get('result') or {}).get('players') or [] if p.get('name')}
+    def card_name(m):
+        name, got = m.get('name') or '', settled.get(m.get('slot'))
+        return got if got and difflib.SequenceMatcher(None, got.casefold(), name.casefold()).ratio() >= 0.6 else name
     def entry(m):
-        e = {'slot': m.get('slot'), 'name': (m.get('name') or '')[:40] or None, 'ai': m.get('ai'), 'self': True if m.get('self') else None}
+        e = {'slot': m.get('slot'), 'name': card_name(m)[:40] or None, 'ai': m.get('ai'), 'self': True if m.get('self') else None}
         lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
         lead = {k: v for k, v in lead.items() if v is not None}
         slot = m.get('slot')
