@@ -47,6 +47,12 @@ p = [row(0, 'lKar'), row(1, 'Coolit')]; twin = [member(0, 'IKar'), member(1, 'Co
 live.party_slots(p, twin, agreed={0, 1})
 check('I, l and 1 go by the Party; a case slip does not', [q['name'] for q in p], ['IKar', 'Coolit'])
 
+renamed = [member(0, 'Moonpetal', self=True), member(1, 'Flora', ai=True), member(2, 'Quillbx', ai=True), member(3, 'Vaultkeep')]
+p = [row(0, 'Moonpetal'), row(1, 'Mario'), row(2, 'Someone'), row(3, 'Mario')]
+live.party_slots(p, renamed, you='Moonpetal', agreed={0, 1, 2, 3})
+check('an AI renamed by the game stays AI; another name there, or that name on a real card, is not', [(q['name'], q['ai']) for q in p],
+      [('Moonpetal', False), ('Mario', True), ('Someone', False), ('Mario', False)])
+
 votes = {}
 for read in ('Brannoch556', 'Brannoch', 'Brannoch'): results.vote(votes, 'name0', read)
 results.vote(votes, 'name1', 'Once')
