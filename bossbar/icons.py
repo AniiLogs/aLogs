@@ -13,10 +13,10 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 6          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
+CACHE_VERSION = 7          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
                            # 4: portraits back in their whole square (the atlas trims them); 5: the team tiles' fade;
                            # 6: heads from the patch sets, form portraits no row names (by species), Male and Female
-                           # heads each kept
+                           # heads each kept; 7: buff icons at their true shape, not their trimmed part stretched square
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
@@ -83,6 +83,7 @@ def extract(cache_dir, player_log=None):
     buff_rows = {k: r for k, r in (pm.table('bossrush_buff_data') or {}).items() if r.get('buffType') in KIND}
     icon_of = lambda r: (r.get('buffIcon') or '').lstrip('$').rsplit('.', 1)[0]
     wanted = {icon_of(r).lower() for r in buff_rows.values()}
+    buff_icons = set(wanted)
     # Holo-Battle Sim (Victory screen): per series id its name, the series row's icon, its Core gizmo, and the Alpha
     # Transformation it unlocks (random_buff_series_name, rogue_transform_data)
     sim = {}
@@ -114,7 +115,7 @@ def extract(cache_dir, player_log=None):
             name = o.peek_name() or ''
             low = name.lower()
             if (low in wanted or low == TEAM_FADE or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
-                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or low == TEAM_FADE else o.read().image.convert('RGBA')), stamp)
+                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or low == TEAM_FADE or low in buff_icons else o.read().image.convert('RGBA')), stamp)
                 except Exception: pass
     for sub in ('heads', 'buffs'): os.makedirs(os.path.join(cache_dir, sub), exist_ok=True)
     # heads: named by the game's own tables only (a portrait the tables don't name is left out)
@@ -422,22 +423,27 @@ class Icons:
     def buff(self, im, box, kind, text_below=True):
         """The buff of `kind` ('season' / 'offering') whose white glyph shows in `box` (its icon's square), as
         (icon, score, margin), or None. The glyph is compared as a shape: the white in the box against the icon's alpha,
-        drawn about two thirds the box's size (a Season Buff's sits a little high, its "Lv. N" overlapping below)."""
+        its whole picture, padding and all, at the size the game draws it. Measured on real 4K screens (8 Nov): a Season
+        Buff's about 1.03 of the box (its "Lv. N" overlaps below, so only the top is compared), a Special Offering's 0.84
+        to 0.91, in a circle whose white ring and arrow, on a highlighted one, are left out of the comparison."""
         N = BUFF_SIZE
         crop = im.crop(tuple(int(v) for v in box)).convert('RGB').resize((N, N), Image.BILINEAR)
         r, g, b = crop.split()
         white = ImageChops.darker(ImageChops.darker(r, g), b)       # bright in every channel: the glyph, not the blue
         white = Image.merge('RGB', (white,) * 3)
-        mask = Image.new('L', (N, N), 0); ImageDraw.Draw(mask).rectangle((0, 0, N, int(N * (0.62 if text_below else 1))), fill=255)
+        mask = Image.new('L', (N, N), 0)
+        if text_below: ImageDraw.Draw(mask).rectangle((0, 0, N, int(N * 0.62)), fill=255)
+        else: ImageDraw.Draw(mask).ellipse((N * 0.1, N * 0.1, N * 0.9, N * 0.9), fill=255)
+        sides, dxs, dys = ((0.98, 1.08), range(-2, 3, 2), range(-4, 7, 2)) if text_below else ((0.8, 0.96), range(-2, 5, 2), range(-4, 9, 2))
         res = []
         for icon in {b['icon'] for b in self.buffs.values() if b['kind'] == kind}:
             best = -1
-            for side in range(int(N * 0.6), int(N * 0.76), 2):
+            for side in range(int(N * sides[0]), int(N * sides[1]) + 1, 2):
                 g = self.buff_art[icon].resize((side, side), Image.BILINEAR)
                 x0 = (N - side) // 2
-                for ox in range(x0 - 3, x0 + 4, 2):
-                    for oy in range(int(N * 0.12), x0 + 4, 2):
-                        ref = Image.new('L', (N, N), 0); ref.paste(g, (ox, oy))
+                for dx in dxs:
+                    for dy in dys:
+                        ref = Image.new('L', (N, N), 0); ref.paste(g, (x0 + dx, x0 + dy))
                         best = max(best, ncc(white, Image.merge('RGB', (ref,) * 3), mask))
             res.append((best, icon))
         res.sort(reverse=True)
