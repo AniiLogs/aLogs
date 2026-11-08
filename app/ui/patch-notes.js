@@ -30,6 +30,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
+     "**The Party screen is read right up to the fight:** teams changed or an offering chosen late could be missed when the screen's title was hard to read.",
      "**Special Offerings like Resurgence are read:** some were never recognized, so the run went in without its offering. aLogs rebuilds its icons once when it first opens after this update.",
      "**A Party screen is no longer missed when its title reads oddly:** the title could be read with a stray space, and that run then had no teams or buffs. The Profile screen had the same problem.",
      "**The updating window shows the animated aLogs icon,** not a still picture (the app's security settings kept the animation from loading).",
