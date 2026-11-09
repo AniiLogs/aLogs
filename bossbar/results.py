@@ -712,12 +712,19 @@ class ResultsMixin:
     EGG_PARTY_S = 1800       # a Party screen read this long ago can still be this match's (a match's 15 minutes, and the queue)
     EGG_RANK_WAIT_S = 90.0   # how long a match waits for the rank screen after it (a player can stay on the end screen a while)
     EGG_SCREEN_HOLD_S = 10
-    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0
+    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0; egg_end_seen = 0; egg_points = None
+
+    def rank_only_after_match(self, heads, now):
+        """The rank screen comes after a match's end screen and a loading screen, and nowhere else: without an end screen
+        just before, its line and numbers mean nothing (other screens have a line like it, or a number like them)."""
+        if now - max(self.egg_end_seen, self.egg_sent_at) < self.EGG_RANK_WAIT_S: return heads
+        return {k: v for k, v in heads.items() if k not in ('ep', 'es', 'et')}
 
     def egg_result(self, im, now, u, ux, H, title):
         """Egg Heist end screen ("Adventure Successful", or the failed one): difficulty, mode, time, objective, Loot
         This Match, Total Defeats and today's chests. One record per match in logs/egg_matches.csv, with the
         screen kept as proof."""
+        self.egg_end_seen = now
         if now - getattr(self, 'egg_seen', 0) < 1.5 or now - self.egg_sent_at < self.EGG_SENT_S: return
         self.egg_seen = now
         k = u / 2000
@@ -780,7 +787,7 @@ class ResultsMixin:
         """An end screen that left before its reads agreed goes with what did agree: an unsure number is blank, never a guess."""
         if self.egg_read and now - self.egg_read['seen'] > self.EGG_GONE_S: self.egg_send(now)
         # the rank screen comes after a load: no rank screen by now, and the pictures kept for it go
-        if self.egg_pending and now - self.egg_pending['at'] > self.EGG_RANK_WAIT_S: self.egg_update()
+        if self.egg_pending and now - max(self.egg_pending['at'], self.egg_end_seen) > self.EGG_RANK_WAIT_S: self.egg_update()
 
     def egg_update(self, rank_shot=None):
         """The match's record again, now with the rank screen's picture (the sender removes pictures it has sent, so copies wait
@@ -803,7 +810,7 @@ class ResultsMixin:
         if self.hwnd and not wc.is_foreground(self.hwnd): return
         if 'adventure' in (heads.get('eh') or '').lower():
             if now - self.egg_sent_at < self.EGG_SENT_S: return
-        elif not (now - self.egg_sent_at < self.EGG_RANK_WAIT_S and now - self.egg_rank_read_at > self.EGG_RANK_WAIT_S): return
+        elif not (now - max(self.egg_sent_at, self.egg_end_seen) < self.EGG_RANK_WAIT_S and now - self.egg_rank_read_at > self.EGG_RANK_WAIT_S): return
         self.egg_hold = [now + self.EGG_SCREEN_HOLD_S, 0.0, self.space]
         self.hold.start(self.EGG_SCREEN_HOLD_S)
         log.info(f'Egg Heist: holding inputs while this screen is read (at most {self.EGG_SCREEN_HOLD_S} s)')
@@ -909,19 +916,32 @@ class ResultsMixin:
         except OSError: pass
         return dict(mine)
 
-    def egg_rank_gain(self, im, now, u, ux, H, points_text):
+    def egg_rank_gain(self, im, now, u, ux, H):
         """Egg Heist's rank screen after a match: the rank title over the badge, the Rank Points bar "1337/1350" (the
         total and where the next egg fills) and what the match added ("+18"). The total updates the season's ladder
-        entry; the bar and the gain go to the player's profile. The match's grade (B) is left out on purpose."""
+        entry; the bar and the gain go to the player's profile. The match's grade (B) is left out on purpose.
+        It has two layouts, one for a controller and 38 px higher at 4K (9 Nov: not read at all in that one until the
+        layout changed, 14 s on), so both spots are looked at. The numbers go on two reads alike, as it may still be counting up."""
         if now - getattr(self, 'egg_gain_seen', 0) < 5: return
-        self.egg_gain_seen = now
         k = u / 2000
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
-        t = self.ocr.read({'title': R.prep_bright(im, box(0.38, 0.215, 0.62, 0.265), k),
-                           'title2': R.prep_text(im, box(0.37, 0.20, 0.63, 0.275), k, thr=230),
-                           'gain': R.prep_text(im, box(0.85, 0.555, 0.90, 0.605), k)})
+        spots = self.ocr.read({'high': R.prep_text(im, box(0.72, 0.5374, 0.83, 0.5874), k), 'low': R.prep_text(im, box(0.72, 0.555, 0.83, 0.605), k)})
+        points_text = next((v for v in (spots.get('high'), spots.get('low')) if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', v or '')), None)
+        if not points_text:
+            eggs = self.ocr.read({'high': R.prep_text(im, box(0.465, 0.7124, 0.55, 0.7824), k), 'low': R.prep_text(im, box(0.465, 0.73, 0.55, 0.80), k)})
+            count = next((v for v in (eggs.get('high'), eggs.get('low')) if re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', v or '')), None)
+            if count: self.egg_emperor_count(im, now, u, ux, H, count)
+            return
+        if points_text != self.egg_points:
+            self.egg_points = points_text; return
+        self.egg_points = None
+        self.egg_gain_seen = now
+        crops = {'title': R.prep_bright(im, box(0.38, 0.215, 0.62, 0.265), k), 'title2': R.prep_text(im, box(0.37, 0.20, 0.63, 0.275), k, thr=230)}
+        # three characters in a box: OCR reads them at some sizes and not others (never a wrong number, 9 Nov), the first size at all 25
+        sizes = {f'gain{size}': R.prep_pill(im, box(0.86, 0.53, 0.915, 0.605), k, size=size) for size in (4, 3.5, 5, 2)}
+        t = self.ocr.read({**crops, **{name: pill for name, pill in sizes.items() if pill}})
         points, bar_end = E.parse_points(points_text)
-        gain = E.parse_gain(t.get('gain'))
+        gain = next((v for v in map(E.parse_gain, (t.get(name) for name in sizes)) if v is not None), None)
         title = t.get('title') if E.tier_of(t.get('title')) else t.get('title2')
         st = E.standing(title, points)
         season = getattr(self, 'egg_season', None) or E.current_season()
