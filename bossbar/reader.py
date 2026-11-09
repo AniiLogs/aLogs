@@ -363,6 +363,21 @@ def prep_text(img, box, scale, thr=190, size=3, pad=24):
     c = ImageOps.invert(c.point(lambda v: 255 if v > thr else 0))
     return ImageOps.expand(c, border=pad, fill=255)
 
+def prep_pill(img, box, scale, size=3, pad=24):
+    """Dark text on a yellow pill (Egg Heist's "+40"), found inside the box, as black on white; None with no pill there.
+    Only the pill's inside is kept: what's around it is as dark as its text."""
+    c = img.crop(tuple(int(v) for v in box)).convert('RGB')
+    r, g, b = c.split()
+    pill = ImageChops.multiply(ImageChops.multiply(r.point(lambda v: 255 if v > 220 else 0), g.point(lambda v: 255 if v > 190 else 0)),
+                               b.point(lambda v: 255 if v < 150 else 0))
+    at = pill.getbbox()
+    if not at or (at[2] - at[0]) < 20 * scale or (at[3] - at[1]) < 8 * scale: return None
+    x, y = int(12 * scale), int(4 * scale)     # past its round ends, whose corners read as specks
+    c = c.crop((at[0] + x, at[1] + y, at[2] - x, at[3] - y)).convert('L')
+    k = size / scale
+    c = c.resize((max(1, int(c.width * k)), max(1, int(c.height * k))), Image.BICUBIC).point(lambda v: 0 if v < 120 else 255)
+    return ImageOps.expand(c, border=pad, fill=255)
+
 def _red_mask(c):
     """Red text: red channel over 150 and at least 60 over green and blue (the boss's red level is ~(200, 60, 60))."""
     r, g, b = c.split()

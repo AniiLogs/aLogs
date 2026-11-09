@@ -360,6 +360,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                     ('pc', 'bright', (0.055, 0.485, 0.16, 0.555)), ('pb', 'bright', (0.05, 0.555, 0.17, 0.595)),
                     # Egg Heist's rank screen after a match: "1337/1350" right of the badge (then "+18" next to it)
                     ('ep', 'text', (0.72, 0.555, 0.83, 0.605)),
+                    # ...and its line at the bottom, "Tap anywhere to continue", the sign of that screen. With a controller the
+                    # prompt has a button in it and it all sits higher, so this box takes in both (Meter.egg_rank_gain)
+                    ('et', 'text', (0.36, 0.885, 0.64, 0.955)),
                     # ...and at Egg Emperor, which has no points bar: the egg count "x57" under the badge
                     ('es', 'text', (0.465, 0.73, 0.55, 0.80)),
                     # Holo-Battle Sim's Victory screen: "Battle time 00:08:22 Training of Water - Hard" under the title
@@ -373,8 +376,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     #   cs/lbl: Interlink's result screen · bs: Interlink's battle prep (the lobby, out in the world too)
     #   cc: Catch Countdown · pl/pe: the EXP card · pc/pb: the catch card · eh/ep/es: Egg Heist's end and rank screens
     #   sv: Holo-Battle Sim's Victory line
-    PLACE_SKIP = {'interlink': {'ph', 'cc', 'pl', 'pe', 'pc', 'pb', 'eh', 'ep', 'es', 'sv'},
-                  'holo-sim': {'ph', 'cs', 'lbl', 'bs', 'cc', 'pc', 'pb', 'eh', 'ep', 'es'},
+    PLACE_SKIP = {'interlink': {'ph', 'cc', 'pl', 'pe', 'pc', 'pb', 'eh', 'ep', 'es', 'et', 'sv'},
+                  'holo-sim': {'ph', 'cs', 'lbl', 'bs', 'cc', 'pc', 'pb', 'eh', 'ep', 'es', 'et'},
                   'egg heist': {'ph', 'cs', 'lbl', 'bs', 'cc', 'sv', 'pc', 'pb'},
                   'world': {'cs', 'lbl', 'sv'}}
     FULL_READ_S = 5.0
@@ -512,8 +515,14 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     PARTY_KEEP_S = 30      # a Party screen stays 'up' this long after its last sign, title or Environment info
 
     @staticmethod
+    def rank_line(heads):
+        """The line under Egg Heist's rank screen: "Tap anywhere to continue", or a controller's wording of it."""
+        line = (heads.get('et') or '').lower()
+        return 'continue' in line and ('tap' in line or 'press' in line)
+
+    @staticmethod
     def rank_screen(heads):
-        return (re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep') or '') is not None
+        return (Meter.rank_line(heads) or re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep') or '') is not None
                 or re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es') or '') is not None)
 
     def party_up(self, heads, now):
@@ -578,6 +587,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     EGG_AFTER_S = 45.0     # after a match's end screen: whole frames, and pictures of what comes next, to see the rank screen
 
     def read_screen(self, im, now, heads):
+        heads = self.rank_only_after_match(heads, now)
         self.screens_gone(now)
         self.egg_gone(now)
         if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: keep_sample(im, 'egg_after', gap=3, kept=15)
@@ -637,7 +647,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 self.names_first(self.party_screen, (im, now, u, ux, H), self.party_names(im, u, ux, H), 20)
             return
         if re.sub(r'[^a-z]', '', head.lower()).startswith('holobattlei'): self.interlink_screen(im, now, u, ux, H); return
-        if re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H, heads['ep'])
+        if self.rank_line(heads) or re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep', '')): self.egg_rank_gain(im, now, u, ux, H)
         elif re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es', '')): self.egg_emperor_count(im, now, u, ux, H, heads['es'])
         if 'adventure' in heads.get('eh', '').lower(): self.test_frame(im, 'egg_result', now); self.egg_result(im, now, u, ux, H, heads['eh']); return
         if heads.get('me') and heads.get('uid'): self.test_frame(im, 'menu', now)

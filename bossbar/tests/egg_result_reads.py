@@ -136,6 +136,33 @@ rank = {'h': 'Party', 'ph': 'Operation: Egg Heist Team Mode', 'ep': '1464/1530'}
 check('the rank screen over it is the rank screen', Meter.screen_spotted(rank), 'Egg Heist')
 q = Meter.__new__(Meter); q.fight = None
 check('...not the Party screen', q.party_up(rank, 100.0), False)
+# -- the rank screen: its line, both layouts, only after a match's end screen ------------------------------------------------------
+check('its line spots it', Meter.screen_spotted({'et': 'Tap anywhere to continue'}), 'Egg Heist')
+check("a controller's wording too", Meter.rank_line({'et': 'Press A to continue'}), True)
+check('another line does not', Meter.rank_line({'et': 'Continue the story'}), False)
+g = Meter.__new__(Meter)
+up = {'h': 'x', 'et': 'Tap anywhere to continue', 'ep': '1464/1530', 'es': 'x5'}
+check('no end screen before it: not the rank screen', g.rank_only_after_match(up, 5000.0), {'h': 'x'})
+g.egg_end_seen = 4950.0
+check('just after an end screen: it is', g.rank_only_after_match(up, 5000.0), up)
+g.egg_end_seen = 4800.0; g.egg_sent_at = 4800.0
+check('long after: not any more', g.rank_only_after_match(up, 5000.0), {'h': 'x'})
+class Reads:
+    def __init__(s, high, low): s.high, s.low, s.calls = high, low, 0
+    def read(s, crops, names=None):
+        s.calls += 1
+        if 'high' in crops: return {'high': s.high, 'low': s.low}
+        return {'title': 'Pro Egg Snatcher Ill', 'title2': '', **{name: '+40' for name in crops if name.startswith('gain')}}
+for what, high, low in (('the higher layout', '1464/1530', '15111 IOZU'), ('the lower layout', '', '1464/1530')):
+    g = Meter.__new__(Meter); g.ocr = Reads(high, low); g.uid = '302000000001'; g.submitter = None; g.last_scores = {}; g.out = lambda *a: None
+    rank_seen = []; g.egg_rank_seen = lambda im, now: rank_seen.append(now)
+    pill = Image.new('RGB', (U, H), (40, 30, 60))
+    pill.paste((255, 225, 80), (int(U * 0.87), int(H * 0.55), int(U * 0.905), int(H * 0.58)))
+    g.egg_rank_gain(pill, 100.0, U, 0, H); check(f'{what}: nothing on one read', rank_seen, [])
+    g.egg_rank_gain(pill, 100.4, U, 0, H); check(f'{what}: two alike and it is read', rank_seen, [100.4])
+    check(f'{what}: the gain and total', g.last_scores.get('egg_gain', (None, None, None))[1:], (1464, 40))
+g = Meter.__new__(Meter); g.ocr = Reads('1500/1530', ''); g.egg_points = '1464/1530'; rank_seen = []; g.egg_rank_seen = lambda im, now: rank_seen.append(now)
+g.egg_rank_gain(pill, 100.0, U, 0, H); check('still counting up: not read', rank_seen, [])
 check('the Party screen by its top line', q.party_up({'h': '', 'ph': 'Operation: Egg Heist Team Mode'}, 100.0), True)
 
 # -- the match goes at once; the rank screen updates it --------------------------------------------------------------------------
