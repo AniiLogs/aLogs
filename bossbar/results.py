@@ -712,7 +712,34 @@ class ResultsMixin:
     EGG_PARTY_S = 1800       # a Party screen read this long ago can still be this match's (a match's 15 minutes, and the queue)
     EGG_RANK_WAIT_S = 90.0   # how long a match waits for the rank screen after it (a player can stay on the end screen a while)
     EGG_SCREEN_HOLD_S = 10
-    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0; egg_end_seen = 0; egg_points = None
+    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0; egg_end_seen = 0; egg_points = None; egg_click = None
+    EGG_NEXT_TRIES = 4; EGG_NEXT_GAP_S = 1.5; EGG_NEXT_S = 30.0
+    # The end screen's Next button, by its height in each layout: on a controller's the whole button sits 76 px higher at 4K
+    EGG_NEXT_SPOTS = (('controller', 0.858, 0.90, 0.879), ('keyboard', 0.893, 0.935, 0.9144))
+
+    def egg_next(self, im, now, u, ux, H):
+        """The end screen is read: press its Next button, on to the loading screen and the rank screen, whose read and
+        send follow as they do when the player presses it. Only on a button that reads Next, with the game in front."""
+        click = self.egg_click
+        if not click or now - click['last'] < self.EGG_NEXT_GAP_S: return
+        if now - click['at'] > self.EGG_NEXT_S or click['tries'] >= self.EGG_NEXT_TRIES:
+            self.egg_click = None; log.info(f"Egg Heist: Next not pressed through, after {click['tries']} tries; it's left to the player"); return
+        if self.hwnd and not wc.is_foreground(self.hwnd):
+            self.egg_click = None; log.info('Egg Heist: Next not pressed, the game is not the active window'); return
+        click['last'] = now; click['tries'] += 1
+        crops = {}
+        kk = 2 * 2000 / u
+        for name, y0, y1, _ in self.EGG_NEXT_SPOTS:                  # dark text on the white button, as View Battle Data
+            c = im.crop((int(ux + u * 0.84), int(H * y0), int(ux + u * 0.94), int(H * y1))).convert('L')
+            crops[name] = ImageOps.expand(c.resize((max(1, int(c.width * kk)), max(1, int(c.height * kk))), Image.BICUBIC).point(lambda v: 0 if v < 120 else 255), border=20, fill=255)
+        t = self.ocr.read(crops)
+        spot = next((s for s in self.EGG_NEXT_SPOTS if 'next' in (t.get(s[0]) or '').lower()), None)
+        if not spot:
+            log.info(f"Egg Heist: Next not readable yet ({t!r}), trying again"); return
+        x = self.origin[0] + ux + u * 0.88; y = self.origin[1] + H * spot[3]
+        log.info(f"Egg Heist: pressing Next ({spot[0]} layout, try {click['tries']}) at screen ({x:.0f}, {y:.0f})")
+        if self.hold.active: self.hold.freeze_moves(0.4)             # the player's mouse can't pull the click away
+        wc.click_at(x, y)
 
     def rank_only_after_match(self, heads, now):
         """The rank screen comes after a match's end screen and a loading screen, and nowhere else: without an end screen
@@ -725,7 +752,8 @@ class ResultsMixin:
         This Match, Total Defeats and today's chests. One record per match in logs/egg_matches.csv, with the
         screen kept as proof."""
         self.egg_end_seen = now
-        if now - getattr(self, 'egg_seen', 0) < 1.5 or now - self.egg_sent_at < self.EGG_SENT_S: return
+        self.egg_next(im, now, u, ux, H)                             # (still up after a press: the press didn't take)
+        if now - getattr(self, 'egg_seen', 0) < 0.25 or now - self.egg_sent_at < self.EGG_SENT_S: return
         self.egg_seen = now
         k = u / 2000
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
@@ -781,7 +809,11 @@ class ResultsMixin:
         read.update(seen=now, im=im); read['reads'] += 1
         for key, value in match.items(): vote(read['votes'], key, value)
         agreed = all(confirmed(read['votes'], key) is not None for key in ('outcome', 'loot', 'defeats', 'time_s'))
-        if agreed or read['reads'] >= self.EGG_MAX_READS: self.egg_send(now)
+        if agreed or read['reads'] >= self.EGG_MAX_READS:
+            self.egg_send(now)
+            if self.args.replay is None and C.automation(self.args.cfg, 'egg_auto_next'):
+                self.egg_click = {'at': now, 'last': 0.0, 'tries': 0}
+                self.egg_next(im, now, u, ux, H)
 
     def egg_gone(self, now):
         """An end screen that left before its reads agreed goes with what did agree: an unsure number is blank, never a guess."""
@@ -945,20 +977,23 @@ class ResultsMixin:
         title = t.get('title') if E.tier_of(t.get('title')) else t.get('title2')
         st = E.standing(title, points)
         season = getattr(self, 'egg_season', None) or E.current_season()
+        # no pill read (a loss's may not be yellow; none seen yet): the change from the total this season's last rank screen showed
+        before = (self.egg_profile(season).get('bar') or [None])[0]
+        if gain is None and before is not None and points is not None and points != before: gain = points - before
         log.info(f'Egg Heist rank after a match: OCR {t!r}, {points_text!r} -> {st}, +{gain}, bar to {bar_end}, season {season}')
         if not st or points is None: return     # (the gain is often unread: 8 Nov. The total counts without it)
         self.egg_rank_seen(im, now)
         key = (season, points, gain)
         if self.last_scores.get('egg_gain') == key: return
         self.last_scores['egg_gain'] = key
-        self.out('status', f"Egg Heist: {'+' + str(gain) + ' ' if gain is not None else ''}Rank Points ({st['name']}, {points:,})")
+        self.out('status', f"Egg Heist: {f'{gain:+} ' if gain is not None else ''}Rank Points ({st['name']}, {points:,})")
         if self.submitter:
             profile = self.egg_profile(season, **({'lastGain': gain} if gain is not None else {}), bar=[points, bar_end], barAt=int(time.time()))
             self.submitter.enqueue(S.eggheist_payload(st, season, self.uid, profile), None)
 
     def egg_rank_seen(self, im, now):
         """The rank screen after a match is read: its picture goes with the match waiting for it, and inputs are let go."""
-        self.egg_rank_read_at = now
+        self.egg_rank_read_at = now; self.egg_click = None
         if self.egg_pending:
             shot = self.picture(im, 'screens', 'egg_rank_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
             self.egg_hold = None
