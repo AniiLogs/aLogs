@@ -41,7 +41,8 @@ class InputBlock:
     def active(self): return self.thread is not None and self.thread.is_alive()
 
     def start(self, seconds=60):
-        if self.active: return
+        if self.active:                   # already holding: for this long from now
+            self.stop_at = time.time() + seconds; return
         self.stop_at = time.time() + seconds; self.swallowed = 0
         self.thread = threading.Thread(target=self._run, daemon=True); self.thread.start()
 

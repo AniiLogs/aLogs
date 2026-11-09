@@ -74,7 +74,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.submitter = None
         self.stop_handles = [] if args.replay else stop_handles()
         if not args.replay and not args.no_submit:
-            self.submitter = S.Submitter(); self.submitter.on_sent = self.sent_notice; self.submitter.start()
+            self.submitter = S.Submitter(); self.submitter.on_sent = lambda payload, reply: (self.sent_notice(payload, reply), self.result_sent(payload)); self.submitter.start()
         self.uid = None if args.replay else last_uid(args.player_log)
         # your in-game name, only ever from the game: saved for this UID (the Esc menu's is checked against the UID)
         self.character_name = known_characters().get(self.uid) if self.uid else None
@@ -802,10 +802,13 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             # (yellow from (224,192,80) to (240,224,128) by scene; the yellowish 1P badge alone is ~1% of a pill, a name 3.5-5%)
             return sum(1 for r, g, b in px if r >= 0xc8 and g >= 0xa8 and r - b >= 0x50) > 0.025 * len(px)
         for i in range(4):
+            card = t.get(f'a{i}') or ''
+            # Egg Heist's empty spots have no card, and their '+' and sparks read as odd names (9 Nov: 'Jm38' was sent as the party)
+            if self.egg_party and not card.strip(): continue
             got = party_pill(t.get(f'n{i}') or '', i)
+            if not got and self.egg_party and known and i < len(self.PARTY_SLOTS) and yellow(i): got = (i, known)   # your own pill
             if not got: continue
             slot, name = got
-            card = t.get(f'a{i}') or ''
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
             mine = bool(known and same_name(known, name)) or (not known and yellow(i))
@@ -1023,7 +1026,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if abs(dy) > 10 * H / 2160 and all(abs(d - dy) < 6 * H / 2160 for d in dys):
             sy = max((round(dy * f) for f in (1.7, 1.8, 1.9, 2.0, 2.1)), key=fit)
         if fit(sy) < 0.8:
-            sy = max([sy] + [sy + round(H * k * 0.005) for k in (1, 2, 3, -1, -2, -3)], key=fit)
+            sy = max([sy, round(H * self.PANEL_RAISED)] + [sy + round(H * k * 0.005) for k in (1, 2, 3, -1, -2, -3)], key=fit)
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0 + sy, ux + u * x1, H * y1 + sy)
         season = []
         for sq in self.SEASON_BUFFS:
@@ -1109,6 +1112,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.circle_tried = now
         self.circle_job = threading.Thread(target=self.read_circle, args=(im, box, thumb, u, ux, H), daemon=True); self.circle_job.start()
 
+    PANEL_RAISED = -0.0352                       # where the panel goes when everyone's ready, of the height
     PANEL_SPOT = (0.405, 0.885, 0.43, 0.90)     # the panel's own light blue, left of the circle
     PANEL_BLUE = 170                             # at least this much blue: 183-220 on 24 saved Party screens, 167 at 90% of a fade
 
@@ -1122,6 +1126,11 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             ic = self.icons
             if not self.panel_at_rest(im, u, ux, H): return
             offering = self.read_offering(ic, im, box); party = self.party
+            if offering is None:                 # the panel moves when everyone's ready (8 Nov: ~76 px up, and the offering went blank)
+                x0, y0, x1, y1 = self.OFFERING
+                for sy in {0, round(H * self.PANEL_RAISED)} - {self.panel_sy}:
+                    offering = self.read_offering(ic, im, (ux + u * x0, H * y0 + sy, ux + u * x1, H * y1 + sy))
+                    if offering: self.panel_sy = sy; break
             if not party: return
             with self.buff_lock:
                 last = party.get('buff_reads') or {'season': [None] * len(self.SEASON_BUFFS), 'offering': None}

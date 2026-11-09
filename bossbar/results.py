@@ -1,6 +1,7 @@
 """Reading the game's end screens into runs (core, shared by the plug-ins): result screens, Battle Data, Holo-Battle
 Sim's Victory, Egg Heist's end and rank screens, Challenge Stats; each run saved with its fight (logs/fights). The DPS
 meter keeps them as your results; the leaderboards plug-in (leaderboards.py) decides what to send."""
+import shutil
 from core import *
 
 
@@ -778,14 +779,20 @@ class ResultsMixin:
     def egg_gone(self, now):
         """An end screen that left before its reads agreed goes with what did agree: an unsure number is blank, never a guess."""
         if self.egg_read and now - self.egg_read['seen'] > self.EGG_GONE_S: self.egg_send(now)
-        # the rank screen comes after a load: a match that's waited this long goes without its picture
-        if self.egg_pending and now - self.egg_pending['at'] > self.EGG_RANK_WAIT_S: self.egg_flush()
+        # the rank screen comes after a load: no rank screen by now, and the pictures kept for it go
+        if self.egg_pending and now - self.egg_pending['at'] > self.EGG_RANK_WAIT_S: self.egg_update()
 
-    def egg_flush(self, rank_shot=None):
-        """The match waiting for its rank screen goes: the end screen, the Party screen and the rank screen, one record."""
+    def egg_update(self, rank_shot=None):
+        """The match's record again, now with the rank screen's picture (the sender removes pictures it has sent, so copies wait
+        for this). Without one, only the copies go."""
         pending, self.egg_pending = self.egg_pending, None
-        if pending and self.submitter:
-            self.submitter.enqueue(pending['payload'], pending['shot'], battle=rank_shot, party=pending['party'])
+        if not pending: return
+        if rank_shot and self.submitter:
+            self.send_result(pending['payload'], pending['shot'], battle=rank_shot, party=pending['party']); return
+        for rel in (pending['shot'], pending['party']):
+            try:
+                if rel: os.remove(os.path.join(HERE, rel))
+            except OSError: pass
 
     def egg_screen_hold(self, spotted, heads, now):
         """Inputs held while an Egg Heist end screen, or the rank screen after it, is being read, so a press can't skip past it.
@@ -805,8 +812,8 @@ class ResultsMixin:
         read, self.egg_read = self.egg_read, None
         votes = read['votes']; self.egg_sent_at = now
         match = {key: confirmed(votes, key) for key in ('outcome', 'difficulty', 'mode', 'time_s', 'objective', 'loot', 'defeats', 'chests_today')}
-        self.egg_hold_end('end screen read')
-        if match['loot'] is None and match['time_s'] is None: return    # nothing agreed on: no record of nothing
+        if match['loot'] is None and match['time_s'] is None:           # nothing agreed on: no record of nothing
+            self.egg_hold_end('end screen read'); return
         outcome, difficulty, seconds, loot, defeats = (match[key] for key in ('outcome', 'difficulty', 'time_s', 'loot', 'defeats'))
         im = read['im']
         self.screen_check = None
@@ -824,14 +831,23 @@ class ResultsMixin:
             if new: w.writerow(['time', 'uid', 'outcome', 'difficulty', 'mode', 'time_s', 'objective', 'loot', 'defeats', 'chests_today', 'screenshot'])
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, outcome, difficulty, match['mode'], seconds, match['objective'],
                         loot, defeats, match['chests_today'], os.path.relpath(shot, HERE) if shot else ''])
-        # to the leaderboards (Egg Heist > Matches), with the end screen as proof, once the rank screen after it is in too
+        # to the leaderboards (Egg Heist > Matches), at once, with the end screen as proof: inputs stay held until it's sent
+        # (send_result). A wait for the rank screen sent it over a minute late, 9 Nov: the record is updated with that instead.
+        self.egg_hold = None
         if self.submitter and self.uid:
-            self.egg_flush()
+            self.egg_update()
             picture = party.get('picture') if party and match.get('party') else None
             party_shot = self.picture(picture, 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False) if picture is not None else None
-            self.egg_pending = {'at': now, 'payload': S.egg_match_payload(match, getattr(self, 'egg_season', None), self.uid),
-                                'shot': os.path.relpath(shot, HERE) if shot else None,
-                                'party': os.path.relpath(party_shot, HERE) if party_shot else None}
+            rel = lambda path: os.path.relpath(path, HERE) if path else None
+            def spare(path):
+                if not path: return None
+                try:
+                    copy = path + '.again' + os.path.splitext(path)[1]; shutil.copyfile(path, copy); return rel(copy)
+                except OSError: return None
+            payload = S.egg_match_payload(match, getattr(self, 'egg_season', None), self.uid, played_at=now)
+            self.egg_pending = {'at': now, 'payload': payload, 'shot': spare(shot), 'party': spare(party_shot)}
+            self.send_result(payload, rel(shot), party=rel(party_shot))
+        if not self.send_waiting: self.hold.stop()
         self.screen_settled('egg_result', time.time())
         self.out('status', f"Egg Heist match recorded: {'escaped' if outcome == 'success' else outcome}"
                  + (f', {loot:,} loot' if loot is not None else '') + (f' ({difficulty})' if difficulty else ''))
@@ -925,8 +941,10 @@ class ResultsMixin:
         self.egg_rank_read_at = now
         if self.egg_pending:
             shot = self.picture(im, 'screens', 'egg_rank_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
-            self.egg_flush(os.path.relpath(shot, HERE) if shot else None)
-        self.egg_hold_end('rank screen read')
+            self.egg_hold = None
+            self.egg_update(os.path.relpath(shot, HERE) if shot else None)
+            if not self.send_waiting: self.hold.stop()
+        else: self.egg_hold_end('rank screen read')
 
     def egg_emperor_count(self, im, now, u, ux, H, count_text):
         """The same post-match screen at Egg Emperor, the top rank: no points bar, just the eggs collected ("x57"),
@@ -1127,7 +1145,7 @@ class ResultsMixin:
         if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
             party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False)
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
-                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
+                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screen_check': self.result_check, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
                                  **({'party': party} if party else {}),
                                  **({'team': self.party.get('team'), 'teams': self.party.get('teams'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))

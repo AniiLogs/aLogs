@@ -7,8 +7,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### New
 - **Egg Heist runs have their party:** who played, their lead Aniimo and their team are read from the Party screen and sent with each match.
-- **Egg Heist's Party and rank screens go with the run:** both pictures are in the run's Battle History. Inputs are held for a moment while the end and
-  rank screens are read, so a press can't skip past them.
+- **Egg Heist's Party and rank screens go with the run:** the run goes as soon as its end screen is read, and the rank screen's picture is added when that's read.
+- **Inputs are held until a run is sent:** with the automation on, your presses are ignored while a result is read and sent, so nothing gets skipped. The notice shows, then they come back, after 10 seconds at most.
 - **Show an example of the DPS window:** DPS Meter › Overlay can now show it with made-up numbers, so you can place it without a fight.
 - **Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn
   on and off independently, and none needs another. With the DPS meter off, your records are still read and sent
@@ -50,6 +50,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **The Special Offering is read when everyone's ready:** the panel moves up then, and the offering could go blank.
 - **HP labels stay put:** a boss bar read short could put a label over its right end, which then hid the bar from the meter: labels disappeared or the HP % froze.
 - **Special Offerings and Season Buffs in someone else's party:** the offering is read there too, and your own lobby's Season Buffs no longer go with that run.
 - **Result pictures are of the game itself:** the pictures sent with a run on Windows 10 are copies of the game window, without anything on top of it.
