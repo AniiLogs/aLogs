@@ -8,6 +8,12 @@ import logging
 
 log = logging.getLogger('meter.dps')   # its lines in meter.log are tagged [dps]
 
+def offset_on_screen(off, x, y, ox, oy, W, H):
+    """Whether a saved offset (a fraction of the game's height) from the spot (x, y) still lands in the game's area
+    (ox, oy, W, H)."""
+    nx, ny = x + off[0] * H, y + off[1] * H
+    return ox - H * 0.2 <= nx <= ox + W and oy - H * 0.2 <= ny <= oy + H
+
 def run_overlay(meter, hide):
     """The DPS window (drag to move, right-click to close the meter) and three HP labels attached to the boss bar.
     Positions are remembered in overlay_positions.json."""
@@ -87,6 +93,15 @@ def run_overlay(meter, hide):
         own_spot(win, (int(x), int(y), int(x) + win.winfo_reqwidth(), int(y) + win.winfo_reqheight()))
         if not AWAY['on']: win.geometry(f'+{int(x)}+{int(y)}')
     def park(win): placed.pop(win, None); own_spot(win, None); win.geometry(OFF)
+    def spot(win):
+        """Where a window is drawn. Not Tk's winfo_x: a window drawn with `present` was moved by Windows (layered.show), and
+        Tk still has it parked at -32000 (8 Nov: dragging the DPS window threw it off screen, and saved that spot)."""
+        p = placed.get(win)
+        return (int(p[-2]), int(p[-1])) if p else (win.winfo_x(), win.winfo_y())
+    def move_to(win, x, y, image=None):
+        """A window being dragged follows the mouse, in whichever way it's drawn."""
+        if image is not None: present(win, image, x, y)
+        else: place(win, x, y)
 
     def ink(im):
         """(left, right) of the letters' solid part, leaving out the soft shadow (at most ~120 alpha), which spreads
@@ -179,17 +194,21 @@ def run_overlay(meter, hide):
     dw.dragging = False
     dps_at = {'base': None, 'h': 1, 'shown': False, 'hide_at': None, 'lines': None, 'key': None}
     drag = {}
-    def dps_locked(): return bool(meter.args.cfg['overlay'].get('dps_locked', True))
+    def dps_example(): return bool(meter.args.cfg['overlay'].get('dps_example'))
+    # (Overlay › Show an example: it can be dragged while it's up, however the lock is set)
+    def dps_locked(): return bool(meter.args.cfg['overlay'].get('dps_locked', True)) and not (dps_example() and not meter.fight)
     def dps_start(e):
         if dps_locked(): return
-        drag['x'], drag['y'] = e.x_root - dw.winfo_x(), e.y_root - dw.winfo_y(); dw.dragging = True
+        x, y = spot(dw)
+        drag['x'], drag['y'] = e.x_root - x, e.y_root - y; dw.dragging = True
     def dps_move(e):
-        if dw.dragging: dw.geometry(f'+{e.x_root - drag["x"]}+{e.y_root - drag["y"]}')
+        if dw.dragging: move_to(dw, e.x_root - drag['x'], e.y_root - drag['y'], dps_at.get('img'))
     def dps_drop(e=None):
         if not dw.dragging: return
         dw.dragging = False
         if dps_at['base']:
-            pos[dps_at['key']] = [(dw.winfo_x() - dps_at['base'][0]) / dps_at['h'], (dw.winfo_y() - dps_at['base'][1]) / dps_at['h']]
+            x, y = spot(dw)
+            pos[dps_at['key']] = [(x - dps_at['base'][0]) / dps_at['h'], (y - dps_at['base'][1]) / dps_at['h']]
             save_positions()
     for wdg in (dw, dc):
         wdg.bind('<Button-1>', dps_start); wdg.bind('<B1-Motion>', dps_move)
@@ -270,8 +289,11 @@ def run_overlay(meter, hide):
         if lines is not None and (lines != dps_at['lines'] or dps_at.get('scale') != scale):
             dps_at['lines'] = lines; dps_at['scale'] = scale; render_stats(lines, H * scale)
         x, y = base; off = pos.get(key)
+        # (a spot off the game's area can only be from the old drag, which saved its way off screen: forgotten)
+        if off and not offset_on_screen(off, x, y, ox, oy, W, H):
+            del pos[key]; save_positions(); off = None
         if off: x += off[0] * H; y += off[1] * H
-        if dw.dragging: x, y = dw.winfo_x(), dw.winfo_y()
+        if dw.dragging: x, y = spot(dw)
         if dps_at.get('img') is not None: present(dw, dps_at['img'], x, y)
         elif not dw.dragging: place(dw, x, y)
         dps_at['shown'] = True; dps_at['hide_at'] = None
@@ -281,7 +303,7 @@ def run_overlay(meter, hide):
         H = dps_at['h']                                # the HUD height show_dps placed it by
         lines = [(t, '#ffffff' if i else '#ffd36a', 0.0165 if i else 0.02) for i, t in enumerate(text.split('\n')) if t]
         dps_at['lines'] = lines; render_stats(lines, H * dps_at.get('scale', 1.0))   # the spot's size (smaller by the minimap)
-        if dps_at.get('img') is not None: present(dw, dps_at['img'], dw.winfo_x(), dw.winfo_y())
+        if dps_at.get('img') is not None: present(dw, dps_at['img'], *spot(dw))
     def hide_dps(): park(dw); dps_at['shown'] = False
     def end_note_result(d):
         # 'result recorded: Omega Sherro - score 11232, 11 stars, 180s' -> 'Result saved / Omega Sherro · 11,232 · 11 stars · 3:00'
@@ -335,13 +357,17 @@ def run_overlay(meter, hide):
         w.configure(bg=KEY); w.attributes('-transparentcolor', KEY); w.geometry(OFF)
         c = tk.Canvas(w, bg=KEY, highlightthickness=0, width=1, height=1); c.pack()
         L = hp[name] = {'win': w, 'c': c, 'base': None, 'span': 1, 'drag': None}
-        def start(e): L['drag'] = (e.x_root - w.winfo_x(), e.y_root - w.winfo_y())
+        def start(e):
+            x, y = spot(w); L['drag'] = (e.x_root - x, e.y_root - y)
         def move(e):
-            if L['drag']: w.geometry(f'+{e.x_root - L["drag"][0]}+{e.y_root - L["drag"][1]}')
+            if L['drag']:
+                p = placed.get(w)
+                move_to(w, e.x_root - L['drag'][0], e.y_root - L['drag'][1], p[1] if p and p[0] == 'img' else None)
         def done(e):
             L['drag'] = None
             if L['base']:
-                pos['hp_' + name] = [(w.winfo_x() - L['base'][0]) / L['span'], (w.winfo_y() - L['base'][1]) / L['span']]
+                x, y = spot(w)
+                pos['hp_' + name] = [(x - L['base'][0]) / L['span'], (y - L['base'][1]) / L['span']]
                 save_positions()
         def reset(e): pos.pop('hp_' + name, None); save_positions()
         for x in (w, c):
@@ -377,7 +403,7 @@ def run_overlay(meter, hide):
             L['base'], L['span'] = (x, y), span
             off = pos.get('hp_' + name)
             if off: x += off[0] * span; y += off[1] * span
-            if L['drag']: x, y = L['win'].winfo_x(), L['win'].winfo_y()
+            if L['drag']: x, y = spot(L['win'])
             present(L['win'], img, x, y); return
         c.delete('all'); c.photos = []
         styled(c, pad, pad, text, px, colour, bold=name == 'pct')
@@ -550,6 +576,20 @@ def run_overlay(meter, hide):
         if show_dps_window: show_dps(d['screen'], d['bossrush'], stat_lines(d), d.get('bar'))
         if time.time() - meter.bar_seen < BAR_HIDDEN: show_hp(d); dps_at['hp_up'] = True
 
+    # Overlay › Show an example: the DPS window with made-up numbers, over the game, so it can be placed without a fight. It's
+    # at the spot for where you are (Interlink's, or the world's), and a fight's real numbers take over while they're up.
+    EXAMPLE = {'avg': 12345, 'recent': 15678, 'damage': 987654, 'max_hp': 2500000, 'elapsed': 80, 'title': None}
+    def show_example():
+        w, h = meter.frame_size
+        on = show_dps_window and dps_example() and not meter.fight and not dps_at['hide_at'] and w > 0 and h > 0
+        if on:
+            now = time.time()
+            if now - dps_at.get('example_at', 0) >= OVERLAY_REDRAW:      # (its place only changes with the settings)
+                dps_at['example_at'] = now; dps_at['example'] = True
+                show_dps((meter.origin[0], meter.origin[1], w, h), bool(meter.bossrush_space), stat_lines(EXAMPLE))
+        elif dps_at.get('example'):
+            dps_at['example'] = False
+            if not meter.fight and not dps_at['hide_at']: hide_dps()
     poll_error = {'at': 0.0}
     def poll():
         if not th.is_alive(): root.destroy(); return          # the meter stopped (asked to, or closed): exit
@@ -651,6 +691,7 @@ def run_overlay(meter, hide):
         if (meter.fight and meter.holosim_space and dps_at['shown'] and not dps_at['hide_at']
                 and time.time() - meter.bar_seen >= 2): hide_dps()
         if dps_at['hide_at'] and time.time() > dps_at['hide_at'] and not meter.fight: hide_dps(); dps_at['hide_at'] = None
+        show_example()
     th = threading.Thread(target=meter.run, daemon=True); th.start()
     def backstop():
         # the meter stopped (aLogs closed or turned it off) but the window loop didn't end: never stay behind with
