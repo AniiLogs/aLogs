@@ -708,6 +708,7 @@ class ResultsMixin:
     EGG_MAX_READS = 6        # reads of a screen that never agrees on everything: then what has agreed goes, the rest blank
     EGG_GONE_S = 4.0         # the screen left before that: the same
     EGG_SENT_S = 60.0
+    EGG_PARTY_S = 1800       # a Party screen read this long ago can still be this match's (a match's 15 minutes, and the queue)
     egg_read = None; egg_sent_at = 0
 
     def egg_result(self, im, now, u, ux, H, title):
@@ -787,6 +788,11 @@ class ResultsMixin:
         self.screen_check = None
         shot = self.picture(im, 'screens', 'egg_result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         match['screen_check'] = self.screen_check
+        # who played it: the Party screen read before it, once. (A run started some other way has none, not the last one's)
+        party = getattr(self, 'party', None)
+        if party and party.get('egg') and now - party['at'] < self.EGG_PARTY_S:
+            match['party'] = {'party': party['members'], 'teams': party.get('teams'), 'team': party.get('team')}
+            party['egg'] = False
         path = os.path.join(HERE, 'logs', 'egg_matches.csv'); new = not os.path.exists(path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'a', newline='', encoding='utf-8') as f:

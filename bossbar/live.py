@@ -350,6 +350,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
 
     # The screens' text boxes: (name, preparation, box as fractions of the 16:9 UI area: x0, y0, x1, y1)
     SCREEN_BOXES = (('h', 'text', (0.065, 0.035, 0.17, 0.08)), ('cs', 'text', (0.35, 0.075, 0.65, 0.155)),
+                    # the Party screen's top line: "Operation: Egg Heist Team Mode ...", which has its own layout (EGG_PARTY_SLOTS)
+                    ('ph', 'text', (0.39, 0.005, 0.60, 0.045)),
                     ('bs', 'text', (0.785, 0.03, 0.97, 0.09)), ('lbl', 'text', (0.2, 0.425, 0.83, 0.47)),
                     ('cc', 'text', (0.38, 0.07, 0.62, 0.125)), ('me', 'text', (0.657, 0.068, 0.86, 0.104)),
                     ('uid', 'text', (0.657, 0.104, 0.745, 0.134)), ('eh', 'bright', (0.03, 0.08, 0.52, 0.17)),
@@ -371,9 +373,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     #   cs/lbl: Interlink's result screen · bs: Interlink's battle prep (the lobby, out in the world too)
     #   cc: Catch Countdown · pl/pe: the EXP card · pc/pb: the catch card · eh/ep/es: Egg Heist's end and rank screens
     #   sv: Holo-Battle Sim's Victory line
-    PLACE_SKIP = {'interlink': {'cc', 'pl', 'pe', 'pc', 'pb', 'eh', 'ep', 'es', 'sv'},
-                  'holo-sim': {'cs', 'lbl', 'bs', 'cc', 'pc', 'pb', 'eh', 'ep', 'es'},
-                  'egg heist': {'cs', 'lbl', 'bs', 'cc', 'sv', 'pc', 'pb'},
+    PLACE_SKIP = {'interlink': {'ph', 'cc', 'pl', 'pe', 'pc', 'pb', 'eh', 'ep', 'es', 'sv'},
+                  'holo-sim': {'ph', 'cs', 'lbl', 'bs', 'cc', 'pc', 'pb', 'eh', 'ep', 'es'},
+                  'egg heist': {'ph', 'cs', 'lbl', 'bs', 'cc', 'sv', 'pc', 'pb'},
                   'world': {'cs', 'lbl', 'sv'}}
     FULL_READ_S = 5.0
 
@@ -613,6 +615,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if self.title_is(head, 'profile'): self.test_frame(im, 'profile', now); self.profile_screen(im, now, u, ux, H); return
         if party:
             self.test_frame(im, 'party', now)
+            self.party_layout(heads.get('ph', ''))
             self.party_circle(im, now, u, ux, H)
             # at party_screen's own pace (2 s): a pill's ready mark or voice icon changes its look, and each change
             # would send all four to the name models at every screen read, where the screen reads them every 2 s
@@ -745,6 +748,21 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         """The Party screen's four name pills, prepared ({'n0'..'n3': box})."""
         return {f'n{i}': R.prep_bright(im, (ux + u * a, H * b, ux + u * c, H * d), u / 2000) for i, (a, b, c, d) in enumerate(self.PARTY_SLOTS)}
 
+    # Egg Heist's Party screen has up to three players, laid out its own way: you centre if you lead, 2P on the left, 3P on the
+    # right (measured on 2-player and 3-player screens, 8 Nov), and no Special Offering or Season Buffs. The cards are the same
+    # size as Interlink's, and their team rows the same.
+    EGG_PARTY_SLOTS = ((0.44, 0.197, 0.545, 0.226), (0.143, 0.2515, 0.2525, 0.278), (0.73, 0.2267, 0.8275, 0.256))
+    EGG_PARTY_CARDS = ((0.4505, 0.569, 0.5605, 0.626), (0.162, 0.6236, 0.272, 0.6806), (0.743, 0.5996, 0.853, 0.6566))
+    egg_party = False
+
+    def party_layout(self, top_line):
+        """Which Party screen this is, by its top line. A line that didn't read leaves it as it was."""
+        line = re.sub(r'[^a-z]', '', (top_line or '').lower())
+        if not line: return
+        self.egg_party = 'heist' in line or 'operation' in line
+        self.__dict__.pop('PARTY_SLOTS', None); self.__dict__.pop('PARTY_CARDS', None)
+        if self.egg_party: self.PARTY_SLOTS, self.PARTY_CARDS = self.EGG_PARTY_SLOTS, self.EGG_PARTY_CARDS
+
     def party_screen(self, im, now, u, ux, H, names=None):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
         name, the voice icon), and who is who. Every real player's card shows CP and the game's AI teammates' don't
@@ -794,6 +812,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}")
         members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge
         self.set_party(members, now)
+        if self.party: self.party['egg'] = self.egg_party
         # the screen itself goes with the run (its lineup and the leader's buffs): the last capture before the fight,
         # since anyone can still change their team until it starts. Kept in memory; saved when the result is in.
         if self.party: self.party['picture'] = im
@@ -977,6 +996,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # few px each card's fit wanders don't (the buff squares mind even 3 px)
         # A panel that doesn't fit where expected is looked for a little around it (3 saved screens had it 0.5-1% of
         # the height lower, the cards where measured).
+        if self.egg_party: return self.party_teams(teams, who)    # no buffs on this screen
         dys = sorted(s[1] for s in shifts); dy = dys[len(dys) // 2] if dys else 0
         at = lambda off: (lambda x0, y0, x1, y1: (ux + u * x0, H * y0 + off, ux + u * x1, H * y1 + off))
         fits = {}
@@ -1003,18 +1023,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.panel_sy = sy
         # (the Special Offering: party_circle's, as soon as it changes; this read is older by the time it's done)
         offering = None if self.circle_on else self.read_offering(ic, im, box(*self.OFFERING))
-        party = self.party
+        party = self.party_teams(teams, who)
         if not party: return
-        now_who = {m['slot']: self.who(m) for m in party['members']}
-        out = party.setdefault('teams', [None] * 4)    # by slot, 1P..4P
-        had = party.setdefault('team_who', {})          # whose team each slot's reads are
-        for slot, team in teams.items():
-            if now_who.get(slot) != who.get(slot): continue        # the card changed hands while it was read
-            last = out[slot] if had.get(slot) == who[slot] and out[slot] else [None] * 3
-            out[slot] = [n or o for n, o in zip(team, last)]
-            had[slot] = who[slot]
-        mine = next((m['slot'] for m in party['members'] if m['self']), None)
-        if mine is not None: party['team'] = out[mine]
+        out = party.get('teams')
         # each buff square keeps its last read when this one couldn't make it out (a read that caught the Season Buffs
         # but not the Special Offering used to drop the offering)
         with self.buff_lock:
@@ -1024,6 +1035,23 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             kept = [None] * len(season) if not any(season) and self.panel_at_rest(im, u, ux, H) else last['season']
             self.set_buffs(party, [n or o for n, o in zip(season, kept)], offering or last['offering'])
         log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
+
+    def party_teams(self, teams, who):
+        """Each card's team reads into the party (by slot, 1P..4P), the newest of each tile standing."""
+        party = self.party
+        if not party: return None
+        now_who = {m['slot']: self.who(m) for m in party['members']}
+        out = party.setdefault('teams', [None] * 4)
+        had = party.setdefault('team_who', {})          # whose team each slot's reads are
+        for slot, team in teams.items():
+            if now_who.get(slot) != who.get(slot): continue        # the card changed hands while it was read
+            last = out[slot] if had.get(slot) == who[slot] and out[slot] else [None] * 3
+            out[slot] = [n or o for n, o in zip(team, last)]
+            had[slot] = who[slot]
+        mine = next((m['slot'] for m in party['members'] if m['self']), None)
+        if mine is not None: party['team'] = out[mine]
+        if self.egg_party: log.info(f'Egg Heist party: teams {out}')
+        return party
 
     @staticmethod
     def set_buffs(party, season, offering):
@@ -1051,7 +1079,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     CIRCLE_RETRY_S = 3.0      # a picture that doesn't read ('+' before one is chosen): not again and again
 
     def party_circle(self, im, now, u, ux, H):
-        if not self.party or self.icons_state != 'ready' or now - self.circle_at < self.CIRCLE_EVERY_S: return
+        if not self.party or self.egg_party or self.icons_state != 'ready' or now - self.circle_at < self.CIRCLE_EVERY_S: return
         self.circle_on = True; self.circle_at = now
         x0, y0, x1, y1 = self.OFFERING
         box = (ux + u * x0, H * y0 + self.panel_sy, ux + u * x1, H * y1 + self.panel_sy)

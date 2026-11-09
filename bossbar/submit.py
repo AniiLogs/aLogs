@@ -590,7 +590,8 @@ def egg_match_payload(match, season, uid, played_at=None):
             'difficulty': (match.get('difficulty') or None) if re.fullmatch(r'[A-Za-z ]{1,20}', match.get('difficulty') or '') else None,
             'defeats': match.get('defeats'), 'playedAt': at,
             'extra': {**{k: match.get(k) for k in ('mode', 'objective', 'chests_today') if match.get(k)},
-                      **({'screenCheck': {'result': match['screen_check']}} if match.get('screen_check') else {})}}
+                      **({'screenCheck': {'result': match['screen_check']}} if match.get('screen_check') else {}),
+                      **(_lineup(match['party']) if match.get('party') else {})}}
 
 def eggheist_payload(standing, season, uid, profile=None):
     """eggheist_season: the season standing as seen (Rank Info, or the rank screen after a match) - one entry per
