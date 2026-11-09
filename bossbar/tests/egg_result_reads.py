@@ -163,6 +163,35 @@ for what, high, low in (('the higher layout', '1464/1530', '15111 IOZU'), ('the 
     check(f'{what}: the gain and total', g.last_scores.get('egg_gain', (None, None, None))[1:], (1464, 40))
 g = Meter.__new__(Meter); g.ocr = Reads('1500/1530', ''); g.egg_points = '1464/1530'; rank_seen = []; g.egg_rank_seen = lambda im, now: rank_seen.append(now)
 g.egg_rank_gain(pill, 100.0, U, 0, H); check('still counting up: not read', rank_seen, [])
+# -- a quick press: the rank screen leaves before its second read ------------------------------------------------------------------------
+class Whole:
+    def __init__(s, seen): s.seen = seen
+    def __call__(s): return s.seen
+def fast(points='1464/1530'):
+    g = Meter.__new__(Meter); g.ocr = Reads(points, ''); g.uid = '302000000001'; g.submitter = None; g.last_scores = {}; g.out = lambda *a: None
+    got = []; g.egg_rank_seen = lambda im, now: (got.append(now), setattr(g, 'egg_rank_read_at', now))
+    return g, got
+up = {'et': 'Tap anywhere to continue'}; gone = {'h': 'x'}
+g, got = fast(); g.egg_rank_watch(pill, up, 100.0); g.egg_rank_gain(pill, 100.0, U, 0, H); g.egg_rank_watch(pill, gone, 100.2)
+check('one read that missed it: not gone yet', got, [])
+g.egg_rank_watch(pill, gone, 100.6)
+check('gone after one read: the kept frame is read', (len(got), g.last_scores['egg_gain'][1:], g.egg_rank_frame, g.egg_points), (1, (1464, 40), None, None))
+g, got = fast(); g.egg_rank_watch(pill, up, 100.0); g.egg_rank_gain(pill, 100.0, U, 0, H); g.egg_rank_watch(pill, up, 100.3); g.egg_rank_gain(pill, 100.3, U, 0, H)
+g.egg_rank_watch(pill, gone, 101.0); check('read twice while up: not read again when it goes', got, [100.3])
+parts = pill.copy(); parts.info['parts'] = True
+g, got = fast(); g.egg_rank_watch(parts, up, 100.0); g.egg_rank_watch(pill, gone, 101.0); check('only a frame of parts: nothing to read', (got, g.egg_rank_frame), ([], None))
+g, got = fast(); g.egg_points = '1464/1530'; g.egg_rank_watch(pill, gone, 100.0); check('a leftover first read goes, so fast reads stop', g.egg_points, None)
+g, got = fast(); g.egg_rank_watch(pill, up, 100.0); g.egg_rank_watch(pill, gone, 120.0); check('gone long ago: too old to read', got, [])
+# -- 4 reads a second only while an Egg Heist screen is being read -------------------------------------------------------------------------
+def due(after, **state):
+    p_ = Meter.__new__(Meter); p_.last_results = 100.0; p_.auto_active = lambda: False; p_.idle = lambda: False
+    p_.top_sig = p_.screen_read_sig = b'same'; live.screen_changed = lambda a, b, limit=24: False
+    for key, value in state.items(): setattr(p_, key, value)
+    return p_.screen_read_due(100.0 + after)
+keep_changed = live.screen_changed
+check('a still screen: every 1.5 s', (due(0.3), due(1.6)), (False, True))
+for key, value in (('egg_hold', [0, 0, 0]), ('egg_read', {'votes': {}}), ('egg_points', '1/2')): check(f'{key}: 4 a second', (due(0.2, **{key: value}), due(0.3, **{key: value})), (False, True))
+live.screen_changed = keep_changed
 # -- gains and losses ---------------------------------------------------------------------------------------------------------------
 import eggheist
 for text, want in (('+40', 40), ('-12', -12), ('\u221212', -12), ('', None), ('40', None)): check(f'the pill {text!r}', eggheist.parse_gain(text), want)
