@@ -341,7 +341,29 @@
     }
   }
 
-  const BUILDERS = { status: statusTab, overlay: overlayTab, mini: miniTab, markers: markersTab, detection: detectionTab, general: generalTab, layouts: layoutsTab };
+  // Beta only: proposed changes, each its own switch, to test one at a time. Sanctum Helper holds them in memory and starts with
+  // all off: nothing here is saved, on purpose, since a build can change what a switch does.
+  function devTab() {
+    const options = info().dev || [];
+    if (!state.running) return [el("p", { class: "hint" }, "The Dev tab needs Sanctum Helper running.")];
+    if (!options.length) return [el("p", { class: "hint" }, "Loading the switches…")];
+    const on = new Set(status().devOn || []);
+    const sections = [...new Set(options.map((o) => o.section))];
+    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, and never saved. ${on.size} on now. With all off, Sanctum Helper works as in 0.1.36.`)];
+    for (const section of sections) {
+      nodes.push(el("div", { class: "group" }, el("h2", { textContent: section }), ...options.filter((o) => o.section === section).map((o) => {
+        const box = el("input", { type: "checkbox" });
+        box.checked = on.has(o.id);
+        box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
+        return el("label", { class: "toggle" }, box, el("span"), el("div", {},
+          el("strong", { textContent: `${o.title} (${o.area})` }),
+          el("small", { textContent: `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` })));
+      })));
+    }
+    return nodes;
+  }
+
+  const BUILDERS = { dev: devTab, status: statusTab, overlay: overlayTab, mini: miniTab, markers: markersTab, detection: detectionTab, general: generalTab, layouts: layoutsTab };
 
   // ---------------------------------------------------------------- frame
   const tabRow = el("div", { class: "tabs", role: "tablist" });
@@ -351,11 +373,14 @@
   for (const [id, label] of TABS) {
     tabRow.append(el("button", { role: "tab", "data-tab": id, textContent: label, onclick: () => { activeTab = id; draw(true); } }));
   }
+  const devButton = el("button", { role: "tab", "data-tab": "dev", textContent: "Dev", hidden: true, onclick: () => { activeTab = "dev"; draw(true); } });
+  tabRow.append(devButton);
 
   /** Redraws the active tab. Live-only tabs (status, hotkeys) redraw on every poll; the rest only when asked or
    *  when what they show changes, so a slider being dragged isn't rebuilt under the mouse. */
   function draw(force = false) {
-    const key = JSON.stringify([activeTab, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
+    devButton.hidden = !state.beta;
+    const key = JSON.stringify([activeTab, activeTab === "dev" ? [state.status?.devOn, state.info?.dev?.length] : null, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
       activeTab === "status" || activeTab === "overlay" ? state.status : null,
       activeTab === "general" ? state.status?.ocrMissingLanguage : null]);
     if (!force && key === rendered) return;
@@ -364,7 +389,7 @@
     if (!force && editing && body.contains(document.activeElement) && activeTab !== "status") return;
     rendered = key;
     for (const button of tabRow.children) button.setAttribute("aria-selected", String(button.dataset.tab === activeTab));
-    subtitle.textContent = TABS.find(([id]) => id === activeTab)[2];
+    subtitle.textContent = activeTab === "dev" ? "Test each proposed change on its own." : TABS.find(([id]) => id === activeTab)[2];
     body.replaceChildren(...BUILDERS[activeTab]());
     const enabled = body.querySelector("input[type=checkbox]");
     if (activeTab === "status" && enabled) enabled.checked = state.enabled;
