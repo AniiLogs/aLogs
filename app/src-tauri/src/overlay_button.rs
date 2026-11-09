@@ -72,13 +72,18 @@ const TIMER_FOLLOW: usize = 1;
 const ROW_CHECK_MS: u32 = 125; // the icon row is looked at 8 times a second (a 1400x135 strip at 4K)
 // default: missing this long in fresh pictures, the game hid its icons, so the button goes too. 750 ms, not 300: the
 // owner's app.log (29 h) had 2160 misses that came back within 2 s, 792 of them 300 ms or longer (a blink of the button
-// each) but only 267 of 750 ms or longer, and testers saw the button blink. A saved hide_ms is kept: every save writes it,
-// so a saved 300 can't be told from never having chosen
+// each) but only 267 of 750 ms or longer, and testers saw the button blink.
 const ROW_GONE_MS: u64 = 750;
-/// Dev switch button-hide-300: a saved 300 counts as the default (the setting itself stays as saved). 300 was the default
-/// once, so most who have it never chose it: with it, one install's 395 of 756 hides came back within 2 s.
-fn hide_after(saved: u64, treat_300_as_default: bool) -> u64 {
-    if treat_300_as_default && saved == 300 { ROW_GONE_MS } else { saved }
+/// Saved with hide_ms from 0.1.37 B2 on. A file without it was written while 300 was the default, and every save wrote
+/// hide_ms, so a saved 300 there can't be told from never having chosen: it becomes 750 once (one install's 395 of 756
+/// hides came back within 2 s at 300). A 300 picked after that is kept.
+const HIDE_VERSION: u64 = 2;
+fn loaded_hide_ms(saved: Option<u64>, version: Option<u64>) -> u64 {
+    match saved {
+        None => ROW_GONE_MS,
+        Some(300) if version.is_none() => ROW_GONE_MS,
+        Some(n) => n.min(2000),
+    }
 }
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
@@ -192,7 +197,7 @@ fn load() -> State {
         hotkey_label: v["hotkey_label"].as_str().unwrap_or("Ins").to_string(),
         pad_buttons: v["pad_buttons"].as_u64().unwrap_or(0) as u32,
         pad_label: v["pad_label"].as_str().unwrap_or("").to_string(),
-        hide_ms: v["hide_ms"].as_u64().map_or(ROW_GONE_MS, |n| n.min(2000)),
+        hide_ms: loaded_hide_ms(v["hide_ms"].as_u64(), v["hide_v"].as_u64()),
         resume: v["resume"].as_object().cloned(),
     }
 }
@@ -202,7 +207,7 @@ fn save(s: &State) {
         "capture_on": CAPTURE_ON.load(Ordering::SeqCst), "show": s.show, "x": s.x, "y": s.y, "locked": s.locked, "always": s.always,
         "icon": s.icon.as_ref().map(|p| p.to_string_lossy().to_string()),
         "hotkey_vk": s.hotkey_vk, "hotkey_mods": s.hotkey_mods, "hotkey_label": s.hotkey_label,
-        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label, "hide_ms": s.hide_ms, "resume": s.resume,
+        "pad_buttons": s.pad_buttons, "pad_label": s.pad_label, "hide_ms": s.hide_ms, "hide_v": HIDE_VERSION, "resume": s.resume,
     });
     let path = state_path();
     let tmp = path.with_extension("json.tmp");
@@ -1032,7 +1037,7 @@ unsafe fn run() {
             } else if reader.is_none() {
                 s.x.is_some()
             } else {
-                let hide_ms = hide_after(s.hide_ms, crate::dev::on("button-hide-300"));
+                let hide_ms = s.hide_ms;
                 (now.saturating_sub(row_seen) < 1500.max(hide_ms) && (row_missed == 0 || now.saturating_sub(row_missed) < hide_ms))
                     || press().is_some()
             };
@@ -1200,12 +1205,14 @@ mod hide_tests {
     use super::*;
 
     #[test]
-    fn only_a_saved_300_changes_and_only_with_the_switch() {
-        assert_eq!(hide_after(300, true), ROW_GONE_MS);
-        assert_eq!(hide_after(300, false), 300);
+    fn an_old_saved_300_becomes_750_once() {
+        assert_eq!(loaded_hide_ms(None, None), ROW_GONE_MS);
+        assert_eq!(loaded_hide_ms(Some(300), None), ROW_GONE_MS, "saved before B2: the old default");
+        assert_eq!(loaded_hide_ms(Some(300), Some(HIDE_VERSION)), 300, "picked after: kept");
         for other in [0, 150, 750, 1500] {
-            assert_eq!(hide_after(other, true), other);
-            assert_eq!(hide_after(other, false), other);
+            assert_eq!(loaded_hide_ms(Some(other), None), other);
+            assert_eq!(loaded_hide_ms(Some(other), Some(HIDE_VERSION)), other);
         }
+        assert_eq!(loaded_hide_ms(Some(9000), None), 2000);
     }
 }

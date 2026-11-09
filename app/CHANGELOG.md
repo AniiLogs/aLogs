@@ -9,6 +9,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **A Dev menu in the Beta Menu (betas only):** a tab each for Core, the DPS meter, Sanctum Helper and the leaderboards: proposed changes to their speed, smoothness, accuracy and memory, each with its own switch, with filters by risk and type, so each can be tested alone. Anyone on a beta sees it. All are off at every start unless you make one Persistent, which starts it on through restarts and updates until you undo it or that setting changes in an update. Only make one Persistent once you've tested it and decided it's no risk for you. With all off, it works as in 0.1.36.
 
 ### Fixed
+- **The button over the game blinks less on older installs:** if it was still set to hide after 0.3 s, the old default, it now waits 0.75 s like new installs. If you want 0.3 s, pick it again in General Settings › The button over the game and it stays.
 - **Settings text:** "Capture only the game window" now says the yellow border can still show briefly with it off, and "Block from the fade to black" no longer says it's off by default.
 
 ## 0.1.36
