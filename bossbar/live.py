@@ -790,6 +790,27 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.__dict__.pop('PARTY_SLOTS', None); self.__dict__.pop('PARTY_CARDS', None)
         if self.egg_party: self.PARTY_SLOTS, self.PARTY_CARDS = self.EGG_PARTY_SLOTS, self.EGG_PARTY_CARDS
 
+    CARD_LEAD = r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)"
+
+    def own_slots(self, members, now):
+        """Each player in a slot of their own. Badges fade as the fight nears (9 Nov: 4P read 'P', then 'IP', which is 1P, and took
+        1P's place in the last read, so the run went with 3 of 4). So a CP seen moments ago keeps its slot, and of two pills
+        after one slot, the one that sits in that place has it and the other takes a slot nobody holds."""
+        recent = (self.party or {}).get('members', []) if self.party and now - self.party['at'] < 60 else []
+        for m in members:
+            was = [p for p in recent if m.get('cp') and p.get('cp') == m['cp']]
+            if len(was) == 1: m['slot'] = was[0]['slot']
+        kept = {}
+        for m in sorted(members, key=lambda m: m.get('pill') != m['slot']):
+            if m['slot'] not in kept: kept[m['slot']] = m
+        for m in members:
+            if any(m is v for v in kept.values()): continue
+            free = [s for s in range(len(self.PARTY_SLOTS)) if s not in kept]
+            if not free: continue
+            m['slot'] = m['pill'] if m.get('pill') in free else free[0]
+            kept[m['slot']] = m
+        return list(kept.values())
+
     def party_screen(self, im, now, u, ux, H, names=None):
         """Interlink's Party screen: each slot's name (its pill reads e.g. '2P @ Flora O': the badge, a ready mark, the
         name, the voice icon), and who is who. Every real player's card shows CP and the game's AI teammates' don't
@@ -811,6 +832,16 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if not any((t.get(f'a{i}') or '').strip() for i in range(len(self.PARTY_CARDS))):
             log.info(f"Party screen: no player's card reads, not read as a party (pills {[t.get(f'n{i}') for i in range(len(self.PARTY_SLOTS))]!r})")
             return
+        # A card that read its level and CP but not its lead's name: the card sits higher on some of these screens, with the name
+        # line above its box (9 Nov: the lead missing on 2 of 3 Egg Heist Party screens). That card alone is read again, taller; its
+        # CP has to read the same. (The taller box on 5 such cards at 4K and 1080p: all read, and no CP changed.)
+        for i, spot in enumerate(self.PARTY_CARDS):
+            card = t.get(f'a{i}') or ''
+            cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
+            if not cp or re.match(self.CARD_LEAD, card): continue
+            again = self.ocr.read({'again': R.prep_grey(im, box(spot[0], spot[1] + self.PANEL_RAISED, spot[2], spot[3]), k)}).get('again') or ''
+            cp2 = re.search(r'CP\W{0,3}(\d{3,6})', again)
+            if re.match(self.CARD_LEAD, again) and cp2 and cp2.group(1) == cp.group(1): t[f'a{i}'] = again
         # (Season Buffs' "Lv. 4" and Challenge's "4/4" are too small and short for OCR to read reliably: left out)
         known = self.character_name; members = []
         def yellow(i):                                     # your own name is yellow (the others' white)
@@ -826,7 +857,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             if not got and self.egg_party and known and i < len(self.PARTY_SLOTS) and yellow(i): got = (i, known)   # your own pill
             if not got: continue
             slot, name = got
-            pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
+            pet = re.match(self.CARD_LEAD, card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
             mine = bool(known and same_name(known, name)) or (not known and yellow(i))
             if mine and known: name = known                 # your own name is known: no misread of it on your card
@@ -846,7 +877,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                                      and int(r['puppetId']) in R.active_cycle_bosses()), None) if boss else None)
         if row: self.prep_boss = (now, row)
         log.info(f"Party screen: OCR {t!r} -> boss {boss or '?'}")
-        members = sorted({m['slot']: m for m in members}.values(), key=lambda m: m['slot'])   # 1P..4P, one per badge
+        members = sorted(self.own_slots(members, now), key=lambda m: m['slot'])   # 1P..4P, one each
         self.set_party(members, now)
         if self.party: self.party['egg'] = self.egg_party
         # the screen itself goes with the run (its lineup and the leader's buffs): the last capture before the fight,
