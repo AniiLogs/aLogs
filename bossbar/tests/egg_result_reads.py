@@ -10,6 +10,7 @@ Meter.egg_result (8 Nov: Loot 40939 went as 4, Total Defeats blank, and one matc
 - a screen that never agrees goes after EGG_MAX_READS, with the rest blank;
 - without the game's font the OCR read is used, still two alike, and only when all of it is a number.
 Meter.party_screen: a card that reads blank doesn't stop the read (INTERLINK_NPCS reaches live.py).
+Meter.party_layout, egg_send: Egg Heist's Party screen by its own layout; the party goes with its match, once.
 Made-up pictures and numbers; readers and sending are stubbed. Exit code 1 on any failure.
 """
 import os, sys, tempfile
@@ -89,6 +90,28 @@ try:
     p.party_screen(IM, 1000.0, U, 0, H)
 finally: live.keep_sample = results_keep
 check('a blank card: an AI name is AI, another is not', [(m_['name'], m_['ai']) for m_ in sent_party.get('members', [])], [('Moonpetal', False), ('Flora', True), ('Someone', False)])
+
+# -- Egg Heist's own Party layout, and its party going with the match --------------------------------------------------------
+m = Meter.__new__(Meter)
+m.party_layout('Operation: Egg Heist Team Mode Normal')
+check('its top line: its own layout', (m.egg_party, m.PARTY_CARDS is Meter.EGG_PARTY_CARDS, m.PARTY_SLOTS is Meter.EGG_PARTY_SLOTS), (True, True, True))
+m.party_layout('')
+check("a line that didn't read: as it was", m.egg_party, True)
+m.party_layout('Omega Jeburst')
+check("Interlink's: Interlink's layout", (m.egg_party, m.PARTY_CARDS is Meter.EGG_PARTY_CARDS, len(m.PARTY_SLOTS)), (False, False, 4))
+check('every egg card is the size of an Interlink one', {(round(c[2] - c[0], 3), round(c[3] - c[1], 3)) for c in Meter.EGG_PARTY_CARDS}, {(0.11, 0.057)})
+people = [{'slot': 0, 'name': 'Alpha', 'self': True, 'ai': False, 'aniimo': 'Budling', 'aniimo_level': 70, 'cp': 4000}, {'slot': 1, 'name': 'Bravo', 'self': False, 'ai': False, 'aniimo': 'Cinder', 'cp': 3000}]
+m = meter(); m.party = {'at': m.t, 'egg': True, 'members': people, 'teams': [['Dune', None, 'Ember'], ['Frost', 'Glade', None], None, None], 'team': ['Dune', None, 'Ember']}
+show(m, times=2)
+line = m.submitter.sent[0]['extra']['lineup']
+check('the match has its party', [(p['name'], p['aniimo']) for p in line], [('Alpha', 'Budling'), ('Bravo', 'Cinder')])
+check('...and their teams', [t['aniimo'] for t in line[1]['team']], ['Cinder', 'Frost', 'Glade'])
+m.t += Meter.EGG_SENT_S + 1; m.reader.loot = 777; show(m, times=2)
+check('the next match has no old party', 'lineup' in m.submitter.sent[1]['extra'], False)
+m = meter(); m.party = {'at': m.t, 'members': people}; show(m, times=2)
+check("Interlink's party is not a match's", 'lineup' in m.submitter.sent[0]['extra'], False)
+m = meter(); m.party = {'at': m.t - Meter.EGG_PARTY_S - 1, 'egg': True, 'members': people}; show(m, times=2)
+check('too long ago', 'lineup' in m.submitter.sent[0]['extra'], False)
 
 if fails:
     print('\n'.join(fails)); sys.exit(1)
