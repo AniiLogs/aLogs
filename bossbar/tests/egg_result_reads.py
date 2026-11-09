@@ -40,7 +40,7 @@ class Sub:
     def __init__(self): self.sent = []
     def enqueue(self, payload, shot, battle=None, party=None): self.sent.append(payload); self.files = getattr(self, 'files', []) + [(shot, battle, party)]
 def meter(reader=True):
-    m = Meter.__new__(Meter); m.ocr = Ocr(); m.submitter = Sub(); m.uid = '1'; m.egg_season = 'S1'; m.reader = Reader()
+    m = Meter.__new__(Meter); m.ocr = Ocr(); m.submitter = Sub(); m.uid = '1'; m.egg_season = 'S1'; m.reader = Reader(); m.args = type('A', (), {'replay': None, 'cfg': {}})()
     m.name_reader = lambda: m.reader if reader else None
     m.picture = lambda *a, **k: None; m.egg_hold_end = lambda why: m.__dict__.setdefault('holds', []).append(why); m.screen_settled = lambda *a: None; m.out = lambda *a: None
     m.t = 1000.0
