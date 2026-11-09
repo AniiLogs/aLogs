@@ -344,23 +344,18 @@
   // Beta only: proposed changes, each its own switch, to test one at a time. Sanctum Helper holds them in memory and starts with
   // all off, on purpose, since a build can change what a switch does. The exception is one a tester made persistent, so they
   // needn't remember what they liked. It has nothing to do with what goes into a release.
-  let devAsking = null;   // the switch whose Persistent warning is showing
+  const DEV_PERSISTENT_INFO = "Persistent: this setting starts ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you.";
   function devPersistentCell(o, persistent) {
-    const box = el("input", { type: "checkbox", title: "Start on at every restart" });
+    const box = el("input", { type: "checkbox", "aria-label": `${o.title}: persistent` });
     box.checked = persistent;
-    box.addEventListener("change", () => {
-      if (box.checked) { box.checked = false; devAsking = o.id; draw(true); return; }   // asks first
-      void command("dev-persistent", { id: o.id, persistent: false });
-    });
-    return el("label", { style: "display:flex;flex-direction:column;align-items:center;gap:2px;min-width:64px;font-size:12px" }, box, "Persistent");
+    box.addEventListener("change", () => void command("dev-persistent", { id: o.id, persistent: box.checked }));
+    return el("div", { style: "width:88px;text-align:center" }, box);
   }
-  function devPersistentWarning(o) {
-    if (devAsking !== o.id) return null;
-    return el("div", { class: "notice", style: "grid-column:1 / -1;margin-top:6px" },
-      el("p", { textContent: "This setting will start ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you." }),
-      el("button", { type: "button", class: "primary", textContent: "Make it persistent", onclick: () => { devAsking = null; void command("dev-persistent", { id: o.id, persistent: true }); draw(true); } }),
-      " ",
-      el("button", { type: "button", textContent: "Cancel", onclick: () => { devAsking = null; draw(true); } }));
+  function devHeader(section) {
+    return el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center" },
+      el("h2", { textContent: section }),
+      el("div", { style: "width:88px;text-align:center;font-size:12px" }, "Persistent ",
+        el("span", { title: DEV_PERSISTENT_INFO, "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0, style: "cursor:help" }, "\u24D8")));
   }
   function devTab() {
     const options = info().dev || [];
@@ -370,13 +365,13 @@
     const persistent = new Set(status().devPersistent || []);
     const changed = status().devChanged || [];
     const sections = [...new Set(options.map((o) => o.section))];
-    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, Sanctum Helper works as in 0.1.36. Don't check Persistent unless you've tested the setting and decided it's no risk for you.`)];
+    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, Sanctum Helper works as in 0.1.36.`)];
     if (changed.length) {
       const names = changed.map((id) => options.find((o) => o.id === id)?.title || id).join(", ");
       nodes.push(el("p", { class: "notice" }, `Changed in this update, so no longer persistent: ${names}. Test it again before making it persistent.`));
     }
     for (const section of sections) {
-      nodes.push(el("div", { class: "group" }, el("h2", { textContent: section }), ...options.filter((o) => o.section === section).map((o) => {
+      nodes.push(el("div", { class: "group" }, devHeader(section), ...options.filter((o) => o.section === section).map((o) => {
         const box = el("input", { type: "checkbox" });
         box.checked = on.has(o.id);
         box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
@@ -384,8 +379,7 @@
           el("label", { class: "toggle" }, box, el("span"), el("div", {},
             el("strong", { textContent: `${o.title} (${o.area})` }),
             el("small", { textContent: `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` }))),
-          devPersistentCell(o, persistent.has(o.id)),
-          devPersistentWarning(o));
+          devPersistentCell(o, persistent.has(o.id)));
       })));
     }
     return nodes;
