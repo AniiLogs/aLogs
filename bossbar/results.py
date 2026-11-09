@@ -326,6 +326,15 @@ SCREEN_READS = 10                   # reads of each screen per appearance; the v
 SETTLE_S = 0.25         # s between looks while waiting for a proof screen to stop moving
 
 
+SCREEN_MOVED_ON = 240     # cells of screen_difference's 480: more than half unlike is another screen, not something on top
+
+def screen_difference(screen, window):
+    """How far a copy of the screen is from the game window alone, cell by cell on a 30 x 16 grid (mean brightness, 0-255), leaving
+    out the screen's edges, where counters and other programs' icons sit: {'worst', 'over25', 'over40'} (cells over each)."""
+    a, b = (im.convert('L').resize((320, 180), Image.BOX).crop((10, 11, 310, 169)).resize((30, 16), Image.BOX) for im in (screen, window))
+    cells = list(ImageChops.difference(a, b).getdata())
+    return {'worst': max(cells), 'over25': sum(v > 25 for v in cells), 'over40': sum(v > 40 for v in cells)}
+
 INTERLINK_NPCS = {'flora', 'mario', 'leonard', 'tammy'}    # the game's AI teammates (its pills don't mark them): names seen filling an Interlink party
 
 class ResultsMixin:
@@ -549,18 +558,20 @@ class ResultsMixin:
                 stamp = getattr(self, 'bd_stamp', None) or time.strftime('%Y%m%d_%H%M%S')
                 shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0])))
                 if shot: self.bd_shot = os.path.relpath(shot, HERE)
+                self.bd_check = getattr(self, 'screen_check', None)
                 msg = f'Battle Data screen saved: {self.bd_shot or "numbers only (no picture kept)"} - game team DPS {sum(vals):,} (players {", ".join(f"{v:,}" for v in vals)})'
                 msg, f = self.bd_measure(msg, vals, now)
                 self.out('status', msg)
                 self.bd_note(stamp, msg, cards, text, f)
             if lf: self.fight_summary(lf[0], battle_data={'players': cards, 'team_avg_dps': sum(vals) if vals else None,
-                                                          'screenshot': self.bd_shot, 'reads': self.bd_reads})
+                                                          'screenshot': self.bd_shot, 'reads': self.bd_reads, 'screen_check': getattr(self, 'bd_check', None)})
             if agreed and bd_complete(cards, party):               # read twice the same: send, stop (below)
                 if self.pending_run: self.pending_run = (self.pending_run[0], now)
                 if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
             return
         stamp = self.bd_stamp = time.strftime('%Y%m%d_%H%M%S'); os.makedirs(os.path.join(HERE, 'logs', 'battle_data'), exist_ok=True)
         shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0]))); self.bd_shot = os.path.relpath(shot, HERE) if shot else None
+        self.bd_check = getattr(self, 'screen_check', None)
         msg = f'Battle Data screen saved: {os.path.relpath(shot, HERE) if shot else "numbers only (no picture kept)"}'
         if vals: msg += f' - game team DPS {sum(vals):,} (players {", ".join(f"{v:,}" for v in vals)})'
         msg, f = self.bd_measure(msg, vals, now)
@@ -771,7 +782,9 @@ class ResultsMixin:
         if match['loot'] is None and match['time_s'] is None: return    # nothing agreed on: no record of nothing
         outcome, difficulty, seconds, loot, defeats = (match[key] for key in ('outcome', 'difficulty', 'time_s', 'loot', 'defeats'))
         im = read['im']
+        self.screen_check = None
         shot = self.picture(im, 'screens', 'egg_result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
+        match['screen_check'] = self.screen_check
         path = os.path.join(HERE, 'logs', 'egg_matches.csv'); new = not os.path.exists(path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'a', newline='', encoding='utf-8') as f:
@@ -1047,10 +1060,11 @@ class ResultsMixin:
             mark_you(players, self.party_for_result(now), self.character_name)
             if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                    'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader,
-                                                   'screenshot': self.result_shot, 'reads': self.result_reads})
+                                                   'screenshot': self.result_shot, 'reads': self.result_reads, 'screen_check': getattr(self, 'result_check', None)})
             return
         d = os.path.join(HERE, 'logs', 'screens'); os.makedirs(d, exist_ok=True)
         shot = self.picture(im, 'screens', 'result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True); self.result_shot = os.path.relpath(shot, HERE) if shot else None
+        self.result_check = getattr(self, 'screen_check', None)
         path = os.path.join(HERE, 'logs', 'results.csv'); new = not os.path.exists(path)
         with open(path, 'a', newline='', encoding='utf-8') as fh:
             w = csv.writer(fh)
@@ -1222,10 +1236,27 @@ class ResultsMixin:
         keep = int(self.args.cfg['capture'].get('keep_hours', 0))
         sending = proof and self.submitter and self.submitter.config and self.submitter.config['screenshots']
         if keep == 0 and not sending: return None
-        if proof and fresh: im = self.settled_frame(im)
+        if proof and fresh: im = self.game_alone(self.settled_frame(im))
         path = save_picture(im, folder, name, 3840 if sending else 1920)
         if proof: self.proof_with_overlay(im, name)
         return path
+
+    def game_alone(self, im):
+        """A proof is of the game, not of what's on top of it. A copy of the screen (Desktop Duplication, Windows 10) shows anything
+        over the game, even a picture of a result screen, so one copy of the game window alone is taken as well: it becomes
+        the proof, and how far the two differ goes with the run (screen_check, for the site). A copy nothing like the
+        picture read is no proof of that screen (the game can have moved on since): the picture read stays then."""
+        self.screen_check = None
+        if self.args.replay is not None or im is None: return im
+        if not wc.shared.screen_copy:
+            self.screen_check = {'source': 'window'}; return im   # window capture: only ever the game
+        try: copy = wc.window_copy(self.hwnd)
+        except Exception as e: log.info(f'proof: no copy of the game window ({e!r})'); copy = None
+        if copy is None or copy.size != im.size or max(ImageStat.Stat(copy.resize((64, 36), Image.BOX)).mean) < 3:
+            self.screen_check = {'source': 'screen', 'copy': 'failed'}; return im     # nothing, another size, or black
+        check = screen_difference(im, copy); self.screen_check = {'source': 'screen', 'copy': 'ok', **check}
+        log.info(f"proof: screen against the game window alone: {check}")
+        return copy if check['over40'] <= SCREEN_MOVED_ON else im
 
     def settled_frame(self, im):
         """The screen once it has stopped moving: a fresh whole frame every SETTLE_S until two in a row match (at most
@@ -1259,4 +1290,4 @@ class ResultsMixin:
             sig = fsig
         return last
 
-__all__ = ['INTERLINK_NPCS', 'BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']
+__all__ = ['INTERLINK_NPCS', 'SCREEN_MOVED_ON', 'screen_difference', 'BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']

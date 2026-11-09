@@ -47,6 +47,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **Result pictures are of the game itself:** the pictures sent with a run on Windows 10 are copies of the game window, without anything on top of it.
 - **Result, Party and menu screens are read from the game itself:** on Windows 10 they now come from the game window, not from what's
   on top of it. Windows shows a yellow border around the game while one of them is up.
 - **Dragging the DPS window no longer makes it disappear:** it could jump off screen and stay there. The HP labels had the same

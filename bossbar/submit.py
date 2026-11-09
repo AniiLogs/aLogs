@@ -427,6 +427,11 @@ def _slot(cycle, boss_id):
     slot, split = reader.cycle_slot(cycle, boss_id)
     return {k: v for k, v in (('slot', slot), ('split', split)) if v is not None}
 
+def _screen_checks(result, battle_data):
+    """{'screenCheck': {'result': ..., 'battleData': ...}} for a run's extra: what's known of each proof."""
+    checks = {k: v for k, v in (('result', result.get('screen_check')), ('battleData', battle_data.get('screen_check'))) if v}
+    return {'screenCheck': checks} if checks else {}
+
 def _lineup(summary):
     """{'lineup': each slot's player and lead Aniimo from the Party screen, 'title': your title} for a run's extra."""
     # every player's card: lead Aniimo, level and CP (shown on the site, the user's call 2026-10-31), and the rest of
@@ -548,6 +553,8 @@ def run_payload(summary, uid):
                   'instanceId': summary.get('instance'), **_slot(summary.get('cycle'), summary.get('puppetId')),
                   **_lineup(summary), **({'starCap': res['star_cap']} if res.get('star_cap') else {}),
                   **({'endedByLeader': True} if res.get('ended_by_leader') else {}),
+                  # how far each proof's screen was from the game window alone (Meter.game_alone)
+                  **_screen_checks(res, summary.get('battle_data') or {}),
                   # the run's own clock as it started (4:00 with Overtime): what tells a quit run from one that ran out
                   **({'timeLimitS': meter['time_limit_s']} if meter.get('time_limit_s') else {}), **_bosses(meter)},
     }
@@ -582,7 +589,8 @@ def egg_match_payload(match, season, uid, played_at=None):
             'cleared': None if match.get('outcome') not in ('success', 'failed') else match['outcome'] == 'success',
             'difficulty': (match.get('difficulty') or None) if re.fullmatch(r'[A-Za-z ]{1,20}', match.get('difficulty') or '') else None,
             'defeats': match.get('defeats'), 'playedAt': at,
-            'extra': {k: match.get(k) for k in ('mode', 'objective', 'chests_today') if match.get(k)}}
+            'extra': {**{k: match.get(k) for k in ('mode', 'objective', 'chests_today') if match.get(k)},
+                      **({'screenCheck': {'result': match['screen_check']}} if match.get('screen_check') else {})}}
 
 def eggheist_payload(standing, season, uid, profile=None):
     """eggheist_season: the season standing as seen (Rank Info, or the rank screen after a match) - one entry per
