@@ -50,6 +50,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **HP labels stay put:** a boss bar read short could put a label over its right end, which then hid the bar from the meter: labels disappeared or the HP % froze.
 - **Special Offerings and Season Buffs in someone else's party:** the offering is read there too, and your own lobby's Season Buffs no longer go with that run.
 - **Result pictures are of the game itself:** the pictures sent with a run on Windows 10 are copies of the game window, without anything on top of it.
 - **Result, Party and menu screens are read from the game itself:** on Windows 10 they now come from the game window, not from what's
