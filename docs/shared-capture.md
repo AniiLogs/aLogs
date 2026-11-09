@@ -40,6 +40,10 @@ for 3 s is stale. While the meter takes a leaderboard proof it sets "clean until
 keeps its overlays out of screen captures until then, so a proof is the game alone. A Sanctum Helper map drawn over
 the game itself isn't listed: it covers what Sanctum Helper reads, so it stays out of screen copies.
 
+While a result, Party or menu screen is up on Windows 10, the meter asks for window capture by keeping "game only until"
+(1792, unix ms) a few seconds ahead: the app opens it, yellow border and all, so those screens are read from the game alone and
+not what's on top of it, and closes it when the time runs out. Windows 11 always uses window capture.
+
 A reader can also ask the graphics card to shrink its area first (picture slot byte 60: 2 or 4; byte 61 says what
 was used): the card averages it down through mip levels and only the smaller picture leaves it. The damage-number
 recorder (bossbar/dmgnumbers.py) uses this to keep 60 frames a second of a 4K screen's middle at 1080p size.

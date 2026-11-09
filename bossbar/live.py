@@ -529,6 +529,40 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             self.party_kept_said = now; log.info(f'Party screen: still up by Environment info (title read {head!r})')
         return True
 
+    # A copy of the screen (Desktop Duplication, Windows 10) shows anything over the game, even a picture of a result screen. So
+    # these screens are read from window capture, in bursts: the app opens it (Windows 10's yellow border with it) while one is
+    # up, and closes it GAME_ONLY_HOLD_S after. It takes a moment to open: nothing is read from the screen meanwhile,
+    # for up to GAME_ONLY_WAIT_S, and then it is, on a PC where it doesn't open.
+    GAME_ONLY_SCREENS = {'result', 'Holo-Battle Sim result', 'challenge', 'battle prep', 'Egg Heist rank', 'profile', 'party', 'Egg Heist', 'menu', 'Battle Data'}
+    GAME_ONLY_HOLD_S = 3.0
+    GAME_ONLY_WAIT_S = 1.5
+    game_only_since = 0.0; game_only_asked = 0.0; game_only_spot = None
+
+    def game_only(self, spotted, now):
+        """This frame of a spotted screen should wait for the game window alone. Asks for it, and says when the screen shows one of
+        these and the game window, once it's open, doesn't (Meter.game_only_gone)."""
+        if spotted not in self.GAME_ONLY_SCREENS: return False
+        if now - self.game_only_asked > 0.5:
+            self.game_only_asked = now
+            try: wc.shared.set_game_only_until((time.time() + self.GAME_ONLY_HOLD_S) * 1000)
+            except Exception: pass
+        if not wc.shared.screen_copy:
+            self.game_only_since = 0.0; self.game_only_spot = None; return False
+        last = self.game_only_spot[1] if self.game_only_spot else 0.0
+        if not self.game_only_since or now - last > self.GAME_ONLY_HOLD_S: self.game_only_since = now
+        self.game_only_spot = (spotted, now)
+        if now - self.game_only_since < self.GAME_ONLY_WAIT_S: return True
+        if not getattr(self, 'game_only_said', False):
+            self.game_only_said = True; log.info(f'window capture did not open for the {spotted} screen: reading the screen')
+        return False
+
+    def game_only_gone(self, spotted, now):
+        """The screen showed one of these and, with the game window open, it's nothing like it: something on top, or a misread."""
+        spot = self.game_only_spot
+        if spot and not spotted and not wc.shared.screen_copy and now - spot[1] < self.GAME_ONLY_HOLD_S:
+            self.game_only_spot = None
+            log.info(f"the screen showed a {spot[0]} screen and the game window doesn't: nothing read from it")
+
     def read_screen(self, im, now, heads):
         self.screens_gone(now)
         self.egg_gone(now)
@@ -536,8 +570,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # boxes (screen_parts) is read again whole at once; whole frames go on until FULL_HOLD_S after the last one
         party = self.party_up(heads, now)
         spotted = self.screen_spotted(heads) or ('party' if party else None)
+        self.game_only_gone(spotted, now)
         if spotted and self.args.replay is None:
             self.full_until = now + self.FULL_HOLD_S
+            if self.game_only(spotted, now): self.last_results = 0; return
             if im.info.get('parts'):
                 if now - getattr(self, 'parts_said', 0) > 60:
                     self.parts_said = now; log.info(f"screen read: {spotted} spotted, whole frames while it's up")
