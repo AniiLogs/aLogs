@@ -502,14 +502,18 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         tests = (('result', 'score' in g('lbl') and 'time' in g('lbl')), ('Holo-Battle Sim result', 'battle time' in g('sv')),
                  ('challenge', 'challenge' in g('cs')), ('battle prep', 'score' in g('bs')), ('Catch Countdown', 'catch' in g('cc')),
                  ('Egg Heist rank', 'rank info' in head), ('profile', Meter.title_is(head, 'profile')),
+                 ('Egg Heist', 'adventure' in g('eh') or Meter.rank_screen(heads)),   # (before Party: the rank screen is over it)
                  ('party', Meter.title_is(head, 'party')), ('Holo-Battle', hl.startswith('holobattlei')),
-                 ('Egg Heist', 'adventure' in g('eh') or re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', g('ep')) is not None
-                  or re.fullmatch(r'\s*[x×]\s*\d{1,6}\s*', g('es')) is not None),
                  ('menu', bool(g('me') and g('uid'))), ('Battle Data', 'battle' in hl and 'dat' in hl),
                  ('EXP card', 'level' in g('pl')), ('catch card', bool(re.search(r'view|close', g('pb'))) and '/' in g('pc')))
         return next((name for name, hit in tests if hit), None)
 
     PARTY_KEEP_S = 30      # a Party screen stays 'up' this long after its last sign, title or Environment info
+
+    @staticmethod
+    def rank_screen(heads):
+        return (re.fullmatch(r'\s*\d{1,6}\s*/\s*\d{1,6}\s*', heads.get('ep') or '') is not None
+                or re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', heads.get('es') or '') is not None)
 
     def party_up(self, heads, now):
         """Whether this read is of the Party screen. Its title decides, but on some backgrounds OCR reads it only now and
@@ -520,6 +524,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         head = heads.get('h') or ''
         if getattr(self, 'fight', None) is not None:
             self.party_title_at = 0; return False
+        # Egg Heist's rank screen comes up over the Party screen, whose title and top line still read: it's the rank screen (8 Nov)
+        if self.rank_screen(heads): return False
         if self.title_is(head, 'party'):
             self.party_title_at = now; return True
         # Egg Heist's Party screen says so across the top, however its title reads (8 Nov: seen for one read, and no party sent)
@@ -781,7 +787,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         crops = dict(names[0]) if names else self.party_names(im, u, ux, H)
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
-        t = self.ocr.read(crops, names={f'n{i}': 20 for i in range(4)})       # (prep_bright pads 20 px)
+        # (prep_bright pads 20 px. Each pill this screen has: Egg Heist's has three, and asking for a fourth stopped every read)
+        t = self.ocr.read(crops, names={k: 20 for k in crops if re.fullmatch(r'n\d', k)})
         # no card reads at all: not a Party screen, whatever its top said (8 Nov: Egg Heist's rank screen, its garbled pills
         # taken for the party)
         if not any((t.get(f'a{i}') or '').strip() for i in range(len(self.PARTY_CARDS))):

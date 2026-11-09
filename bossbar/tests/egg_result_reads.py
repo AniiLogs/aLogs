@@ -116,6 +116,26 @@ check("Interlink's party is not a match's", (sent(m), 'lineup' in m.submitter.se
 m = meter(); m.party = {'at': m.t - Meter.EGG_PARTY_S - 1, 'egg': True, 'members': people}; show(m, times=2)
 check('too long ago', (sent(m), 'lineup' in m.submitter.sent[0]['extra'])[1], False)
 
+# -- Egg Heist's Party screen: three pills; its rank screen over it ------------------------------------------------------------
+seen = {}
+def reads(crops, names=None):
+    missing = [k for k in (names or {}) if k not in crops]         # the real reader's KeyError, 8 Nov
+    if missing: raise KeyError(missing[0])
+    return {'n0': '1P Moonpetal', 'a0': 'Budling / Lv.60 CP:1000', 'n1': '2P Bravo', 'a1': 'Cinder / Lv.60 CP:900', 'n2': '', 'a2': ''}
+p = Meter.__new__(Meter); p.character_name = 'Moonpetal'; p.party = None; p.catalog = []; p.ocr = type('O', (), {'read': lambda s, c, names=None: reads(c, names)})()
+p.party_layout('Operation: Egg Heist Team Mode'); p.cycle_boss = lambda b: None; p.stage_first = lambda r: r
+p.set_party = lambda ms, now: seen.update(members=ms); p.read_party_icons = lambda *a: None
+live.keep_sample = lambda *a: None
+crops3 = {f'n{i}': IM for i in range(3)}
+p.party_names = lambda *a: crops3
+p.party_screen(IM, 1000.0, U, 0, H)
+check("three pills: it's read, no fourth asked for", [m_['name'] for m_ in seen.get('members', [])], ['Moonpetal', 'Bravo'])
+rank = {'h': 'Party', 'ph': 'Operation: Egg Heist Team Mode', 'ep': '1464/1530'}
+check('the rank screen over it is the rank screen', Meter.screen_spotted(rank), 'Egg Heist')
+q = Meter.__new__(Meter); q.fight = None
+check('...not the Party screen', q.party_up(rank, 100.0), False)
+check('the Party screen by its top line', q.party_up({'h': '', 'ph': 'Operation: Egg Heist Team Mode'}, 100.0), True)
+
 # -- the match waits for the rank screen, whose picture goes with it; inputs held while they're read -------------------------
 m = meter(); show(m, times=2)
 check('read: it waits for its rank screen', m.submitter.sent, [])
