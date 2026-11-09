@@ -7,6 +7,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### New
 - **Egg Heist runs have their party:** who played, their lead Aniimo and their team are read from the Party screen and sent with each match.
+- **Egg Heist's Party and rank screens go with the run:** both pictures are in the run's Battle History. Inputs are held for a moment while the end and
+  rank screens are read, so a press can't skip past them.
 - **Show an example of the DPS window:** DPS Meter › Overlay can now show it with made-up numbers, so you can place it without a fight.
 - **Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn
   on and off independently, and none needs another. With the DPS meter off, your records are still read and sent

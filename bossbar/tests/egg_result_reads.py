@@ -8,6 +8,7 @@ Meter.egg_result (8 Nov: Loot 40939 went as 4, Total Defeats blank, and one matc
 - later reads of the same screen, even with another number, make no second record;
 - a screen that leaves early sends what agreed, with the rest blank;
 - a screen that never agrees goes after EGG_MAX_READS, with the rest blank;
+- the rank screen's picture goes with the match, which waits for it; inputs are held while they're read;
 - without the game's font the OCR read is used, still two alike, and only when all of it is a number.
 Meter.party_screen: a card that reads blank doesn't stop the read (INTERLINK_NPCS reaches live.py).
 Meter.party_layout, egg_send: Egg Heist's Party screen by its own layout; the party goes with its match, once.
@@ -37,7 +38,7 @@ class Ocr:
         return {'difficulty': 'Normal', 'mode': 'Operation: Egg Heist Team Mode', 'time': self.time, 'goal': '', 'chests': '', **self.extra}
 class Sub:
     def __init__(self): self.sent = []
-    def enqueue(self, payload, shot): self.sent.append(payload)
+    def enqueue(self, payload, shot, battle=None, party=None): self.sent.append(payload); self.files = getattr(self, 'files', []) + [(shot, battle, party)]
 def meter(reader=True):
     m = Meter.__new__(Meter); m.ocr = Ocr(); m.submitter = Sub(); m.uid = '1'; m.egg_season = 'S1'; m.reader = Reader()
     m.name_reader = lambda: m.reader if reader else None
@@ -47,7 +48,9 @@ def meter(reader=True):
 def show(m, title='Adventure Successful', times=1):
     for _ in range(times):
         m.t += 2; m.egg_result(IM, m.t, U, 0, H, title)
-def sent(m): return [(p['score'], p['defeats'], p['clearTimeS'], p['cleared']) for p in m.submitter.sent]
+def sent(m):
+    if m.egg_pending: m.egg_flush()
+    return [(p['score'], p['defeats'], p['clearTimeS'], p['cleared']) for p in m.submitter.sent]
 
 m = meter(); show(m); check('one read: nothing goes', sent(m), [])
 show(m); check('two alike: it goes', sent(m), [(1234, 1, 132, True)])
@@ -103,15 +106,38 @@ check('every egg card is the size of an Interlink one', {(round(c[2] - c[0], 3),
 people = [{'slot': 0, 'name': 'Alpha', 'self': True, 'ai': False, 'aniimo': 'Budling', 'aniimo_level': 70, 'cp': 4000}, {'slot': 1, 'name': 'Bravo', 'self': False, 'ai': False, 'aniimo': 'Cinder', 'cp': 3000}]
 m = meter(); m.party = {'at': m.t, 'egg': True, 'members': people, 'teams': [['Dune', None, 'Ember'], ['Frost', 'Glade', None], None, None], 'team': ['Dune', None, 'Ember']}
 show(m, times=2)
-line = m.submitter.sent[0]['extra']['lineup']
+line = (sent(m), m.submitter.sent[0]['extra']['lineup'])[1]
 check('the match has its party', [(p['name'], p['aniimo']) for p in line], [('Alpha', 'Budling'), ('Bravo', 'Cinder')])
 check('...and their teams', [t['aniimo'] for t in line[1]['team']], ['Cinder', 'Frost', 'Glade'])
 m.t += Meter.EGG_SENT_S + 1; m.reader.loot = 777; show(m, times=2)
-check('the next match has no old party', 'lineup' in m.submitter.sent[1]['extra'], False)
+check('the next match has no old party', (sent(m), 'lineup' in m.submitter.sent[1]['extra'])[1], False)
 m = meter(); m.party = {'at': m.t, 'members': people}; show(m, times=2)
-check("Interlink's party is not a match's", 'lineup' in m.submitter.sent[0]['extra'], False)
+check("Interlink's party is not a match's", (sent(m), 'lineup' in m.submitter.sent[0]['extra'])[1], False)
 m = meter(); m.party = {'at': m.t - Meter.EGG_PARTY_S - 1, 'egg': True, 'members': people}; show(m, times=2)
-check('too long ago', 'lineup' in m.submitter.sent[0]['extra'], False)
+check('too long ago', (sent(m), 'lineup' in m.submitter.sent[0]['extra'])[1], False)
+
+# -- the match waits for the rank screen, whose picture goes with it; inputs held while they're read -------------------------
+m = meter(); show(m, times=2)
+check('read: it waits for its rank screen', m.submitter.sent, [])
+m.picture = lambda im, folder, name, proof=False, fresh=True: os.path.join(live.HERE, 'logs', 'screens', name + '.jpg')
+m.egg_rank_seen(IM, m.t + 5)
+check('the rank screen sends it', len(m.submitter.sent), 1)
+check('...with both pictures', [os.path.basename(x).split('_')[1] for x in m.submitter.files[0][1:2]], ['rank'])
+check('...and lets go of inputs', m.holds[-1], 'rank screen read')
+m = meter(); show(m, times=2); m.egg_gone(m.t + 10); check('not long after: still waiting', m.submitter.sent, [])
+m.egg_gone(m.t + Meter.EGG_RANK_WAIT_S + 1); check('no rank screen came: it goes', len(m.submitter.sent), 1)
+class Hold:
+    started = 0
+    def start(self, s): Hold.started += 1
+    def stop(self): pass
+m = meter(); m.hold = Hold(); m.args = type('A', (), {'replay': None, 'cfg': {'leaderboard': {'submit': True, 'automation': True}, 'results': {'egg_fade_hold': True}}})(); m.hwnd = None; m.space = 'x'
+m.egg_screen_hold('Egg Heist', {'eh': 'Adventure Successful'}, 100.0); check('an end screen: inputs held', Hold.started, 1)
+m.egg_hold = None; m.egg_sent_at = 100.0
+m.egg_screen_hold('Egg Heist', {'eh': 'Adventure Successful'}, 110.0); check('...not once it went', Hold.started, 1)
+m.egg_screen_hold('Egg Heist', {'ep': '1464/1530'}, 120.0); check('its rank screen: held', Hold.started, 2)
+m.egg_hold = None; m.egg_sent_at = 0
+m.egg_screen_hold('Egg Heist', {'ep': '18/18'}, 9000.0); check('a rank-looking number with no match before: not held', Hold.started, 2)
+m.egg_screen_hold('party', {}, 9000.0); check('other screens: not held', Hold.started, 2)
 
 if fails:
     print('\n'.join(fails)); sys.exit(1)
