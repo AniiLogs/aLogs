@@ -349,13 +349,13 @@
     const box = el("input", { type: "checkbox", "aria-label": `${o.title}: persistent` });
     box.checked = persistent;
     box.addEventListener("change", () => void command("dev-persistent", { id: o.id, persistent: box.checked }));
-    return el("div", { style: "width:88px;text-align:center" }, box);
+    return el("div", { class: "dev-persistent" }, box);
   }
   function devHeader(section) {
-    return el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center" },
+    return el("div", { class: "dev-row group-head" },
       el("h2", { textContent: section }),
-      el("div", { style: "width:88px;text-align:center;font-size:12px" }, "Persistent ",
-        el("span", { title: DEV_PERSISTENT_INFO, "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0, style: "cursor:help" }, "\u24D8")));
+      el("h2", { class: "dev-persistent" }, "Persistent ",
+        el("span", { class: "dev-info", title: DEV_PERSISTENT_INFO, "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0 }, "\u24D8")));
   }
   function devTab() {
     const options = info().dev || [];
@@ -375,7 +375,7 @@
         const box = el("input", { type: "checkbox" });
         box.checked = on.has(o.id);
         box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
-        return el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center" },
+        return el("div", { class: "dev-row" },
           el("label", { class: "toggle" }, box, el("span"), el("div", {},
             el("strong", { textContent: `${o.title} (${o.area})` }),
             el("small", { textContent: `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` }))),
