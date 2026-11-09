@@ -689,11 +689,21 @@ class ResultsMixin:
         if not prep or time.time() - prep.get('at', 0) > 7200: return {}
         return {k: v for k, v in prep.items() if k == 'skills'}
 
+    # Egg Heist's end screen, read like Battle Data: Loot This Match and Total Defeats by the game's own digits (8 Nov: OCR read
+    # 40939 as 4UYSY, sent as 4, and left Total Defeats blank; on 3 saved 4K screens, at 1440p to 720p, fading and sliding, the
+    # digits read every number right or not at all), each from its own place, and nothing goes until two reads agree. A title
+    # that isn't clearly won or lost counts for nothing (a tip over "Successful" read as "Adventure", and went as a second
+    # match). One match, one record: what a later read says for EGG_SENT_S after it goes is the same match.
+    EGG_MAX_READS = 6        # reads of a screen that never agrees on everything: then what has agreed goes, the rest blank
+    EGG_GONE_S = 4.0         # the screen left before that: the same
+    EGG_SENT_S = 60.0
+    egg_read = None; egg_sent_at = 0
+
     def egg_result(self, im, now, u, ux, H, title):
         """Egg Heist end screen ("Adventure Successful", or the failed one): difficulty, mode, time, objective, Loot
         This Match, Total Defeats and today's chests. One record per match in logs/egg_matches.csv, with the
         screen kept as proof."""
-        if now - getattr(self, 'egg_seen', 0) < 3: return
+        if now - getattr(self, 'egg_seen', 0) < 1.5 or now - self.egg_sent_at < self.EGG_SENT_S: return
         self.egg_seen = now
         k = u / 2000
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
@@ -703,42 +713,64 @@ class ResultsMixin:
             'time': R.prep_short(im, box(0.262, 0.2, 0.31, 0.235), k),
             'goal': R.prep_text(im, box(0.05, 0.258, 0.26, 0.292), k),
             'chests': R.prep_bright(im, box(0.18, 0.81, 0.305, 0.84), k)})
-        # Loot This Match and Total Defeats sit 4% higher when there's no objective line above them (Team Mode has
-        # none): read them where this screen's layout puts them, and the other way if that gives no number.
-        def numbers(dy):
-            return self.ocr.read({
-                'loot': R.prep_text(im, box(0.03, 0.345 + dy, 0.15, 0.42 + dy), k),
-                'defeats': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:'),
-                'defeats2': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=3),
-                'defeats3': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=5)})   # 720p
-        shifts = (0.0, -0.04) if (t.get('goal') or '').strip() else (-0.04, 0.0)
-        t.update(numbers(shifts[0]))
-        if first_num((t.get('loot') or '').replace(',', '').replace(' ', '')) is None: t.update(numbers(shifts[1]))
+        goal = (t.get('goal') or '').strip()
+        reader = self.name_reader()
+        if reader:           # (they sit 4% lower with an objective line above them; Team Mode has none)
+            dy = 0.04 if goal else 0.0
+            loot = reader.number(im, box(0.03, 0.285 + dy, 0.15, 0.345 + dy))
+            defeats = reader.number(im, box(0.03, 0.39 + dy, 0.075, 0.45 + dy))
+        else:
+            # Loot This Match and Total Defeats sit 4% higher when there's no objective line above them (Team Mode has
+            # none): read them where this screen's layout puts them, and the other way if that gives no number.
+            def numbers(dy):
+                return self.ocr.read({
+                    'loot': R.prep_text(im, box(0.03, 0.345 + dy, 0.15, 0.42 + dy), k),
+                    'defeats': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:'),
+                    'defeats2': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=3),
+                    'defeats3': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=5)})   # 720p
+            shifts = (0.0, -0.04) if goal else (-0.04, 0.0)
+            t.update(numbers(shifts[0]))
+            if first_num((t.get('loot') or '').replace(',', '').replace(' ', '')) is None: t.update(numbers(shifts[1]))
+            loot = first_num((t.get('loot') or '').replace(',', '').replace(' ', ''))
+            # the number after the drawn label; a lone 1 often reads as I, l or |, a 0 as O
+            def digits(text):
+                raw = (text or '').split(':', 1)[-1].strip().translate(str.maketrans('Il|!Oo', '111100')).replace(' ', '')
+                return int(raw) if re.fullmatch(r'\d+', raw) else None
+            defeats = digits(t.get('defeats'))
+            if defeats is None: defeats = digits(t.get('defeats2'))
+            if defeats is None: defeats = digits(t.get('defeats3'))
         low = title.lower()
-        outcome = 'success' if 'success' in low else 'failed' if ('fail' in low or 'unsuccess' in low) else title.strip()
+        outcome = 'failed' if ('fail' in low or 'unsuccess' in low) else 'success' if 'success' in low else None
         m = re.search(r'(\d{1,2})\s*:\s*(\d{2})', t.get('time', ''))
         seconds = int(m.group(1)) * 60 + int(m.group(2)) if m else None
-        loot = first_num((t.get('loot') or '').replace(',', '').replace(' ', ''))
-        # the number after the drawn label; a lone 1 often reads as I, l or |, a 0 as O
-        def digits(text):
-            raw = (text or '').split(':', 1)[-1].strip().translate(str.maketrans('Il|!Oo', '111100')).replace(' ', '')
-            return int(raw) if re.fullmatch(r'\d+', raw) else None
-        defeats = digits(t.get('defeats'))
-        if defeats is None: defeats = digits(t.get('defeats2'))
-        if defeats is None: defeats = digits(t.get('defeats3'))
         cm = re.search(r'(\d+)\s*/\s*(\d+)', t.get('chests', ''))
         difficulty = next((d for d in ('Chaos', 'Nightmare', 'Expert', 'Hard', 'Normal', 'Easy') if d.lower() in t.get('difficulty', '').lower()),
                           (t.get('difficulty') or '').strip() or None)
         mode = (t.get('mode') or '').split(':', 1)[-1].strip()
         match = {'outcome': outcome, 'difficulty': difficulty, 'mode': canon(mode, EGG_MODES) if mode else None,
-                 'time_s': seconds, 'objective': (t.get('goal') or '').strip() or None, 'loot': loot, 'defeats': defeats,
+                 'time_s': seconds, 'objective': goal or None, 'loot': loot, 'defeats': defeats,
                  'chests_today': f'{cm.group(1)}/{cm.group(2)}' if cm else None}
         log.info(f'Egg Heist result: OCR {t!r} -> {match}')
         if loot is None and seconds is None: return                  # still sliding in: the next frame reads it
+        read = self.egg_read
+        if not read or now - read['seen'] > self.EGG_GONE_S: read = self.egg_read = {'votes': {}, 'reads': 0}
+        read.update(seen=now, im=im); read['reads'] += 1
+        for key, value in match.items(): vote(read['votes'], key, value)
+        agreed = all(confirmed(read['votes'], key) is not None for key in ('outcome', 'loot', 'defeats', 'time_s'))
+        if agreed or read['reads'] >= self.EGG_MAX_READS: self.egg_send(now)
+
+    def egg_gone(self, now):
+        """An end screen that left before its reads agreed goes with what did agree: an unsure number is blank, never a guess."""
+        if self.egg_read and now - self.egg_read['seen'] > self.EGG_GONE_S: self.egg_send(now)
+
+    def egg_send(self, now):
+        read, self.egg_read = self.egg_read, None
+        votes = read['votes']; self.egg_sent_at = now
+        match = {key: confirmed(votes, key) for key in ('outcome', 'difficulty', 'mode', 'time_s', 'objective', 'loot', 'defeats', 'chests_today')}
         self.egg_hold_end('end screen read')
-        key = (outcome, loot, seconds, defeats)
-        if self.last_scores.get('egg_result') == key: return
-        self.last_scores['egg_result'] = key
+        if match['loot'] is None and match['time_s'] is None: return    # nothing agreed on: no record of nothing
+        outcome, difficulty, seconds, loot, defeats = (match[key] for key in ('outcome', 'difficulty', 'time_s', 'loot', 'defeats'))
+        im = read['im']
         shot = self.picture(im, 'screens', 'egg_result_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         path = os.path.join(HERE, 'logs', 'egg_matches.csv'); new = not os.path.exists(path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1227,4 +1259,4 @@ class ResultsMixin:
             sig = fsig
         return last
 
-__all__ = ['BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']
+__all__ = ['INTERLINK_NPCS', 'BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']
