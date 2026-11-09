@@ -1,6 +1,29 @@
 // Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.
 window.PATCH_NOTES = [
  {
+  "version": "0.1.37",
+  "intro": "",
+  "sections": [
+   {
+    "heading": "Improved",
+    "items": [
+     "**Sanctum Helper uses much less CPU:** following you on the map costs far less for each position it reads, most of all out on the island, and it updates just as often.",
+     "**Sanctum Helper redraws less while you stand still,** and draws its labels without rebuilding them every frame.",
+     "**Sanctum Helper loads maps faster with less memory:** the island map loads in about half the time and no longer pauses tracking while it does."
+    ]
+   },
+   {
+    "heading": "Fixed",
+    "items": [
+     "**Sanctum Helper doesn't forget your layout after time in a menu:** time spent in menus, on the map screen or out on the island no longer counts as the layout not matching.",
+     "**Sanctum Helper doesn't bring back an old run's layout** from the map screen.",
+     "**The map doesn't glide between two different maps** when you go between the island and a Sanctum.",
+     "**Settings text:** \"Capture only the game window\" now says the yellow border can still show briefly with it off, and \"Block from the fade to black\" no longer says it's off by default."
+    ]
+   }
+  ]
+ },
+ {
   "version": "0.1.36",
   "intro": "",
   "sections": [
@@ -93,18 +116,6 @@ window.PATCH_NOTES = [
     "heading": "Fixed",
     "items": [
      "**Beta Menu bug reports** say which aLogs you're on, not an old test list's build."
-    ]
-   }
-  ]
- },
- {
-  "version": "0.1.32",
-  "intro": "",
-  "sections": [
-   {
-    "heading": "Fixed",
-    "items": [
-     "**Sanctum Helper's Auto difficulty** reads the party screen again when you queue for Egg Heist from your homeland, and catches a difficulty picked just before you start."
     ]
    }
   ]
