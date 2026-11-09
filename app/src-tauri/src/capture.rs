@@ -645,8 +645,62 @@ fn place_or_make_room(shared: &Shared, readers: &mut [Reader; SLOTS], active: &[
         shared.write(at + 16, || shared.put_u32(at + 12, 0));
         (readers[i].room, readers[i].request) = (0, 0);
     }
-    crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved", bytes / 1024));
+    if crate::dev::on("capture-log-once") {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        match ROOM_LOG.lock().unwrap().note(now) {
+            Some(0) => crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved (said once a minute from now on)", bytes / 1024)),
+            Some(more) => crate::app_log(&format!("capture: no room: the other readers were moved {more} more times, the last for a {} KB picture (reader {slot})", bytes / 1024)),
+            None => {}
+        }
+    } else {
+        crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved", bytes / 1024));
+    }
     Some(0)
+}
+
+/// Dev switch capture-log-once: one app.log had 1,476 "no room" lines in 7 hours, up to about 10 a second while several
+/// whole-frame readers were asking. The first is said, then a count at most once a minute.
+struct RoomLog {
+    said_at: Option<u64>, // ms
+    since: u32,           // times since it was last said
+}
+static ROOM_LOG: std::sync::Mutex<RoomLog> = std::sync::Mutex::new(RoomLog { said_at: None, since: 0 });
+
+impl RoomLog {
+    /// Another time at `now` (ms): what to say. Some(0): the first; Some(n): n times since the last line; None: nothing yet.
+    fn note(&mut self, now: u64) -> Option<u32> {
+        match self.said_at {
+            None => {
+                self.said_at = Some(now);
+                Some(0)
+            }
+            Some(at) if now.saturating_sub(at) >= 60_000 => {
+                let more = self.since + 1;
+                (self.said_at, self.since) = (Some(now), 0);
+                Some(more)
+            }
+            Some(_) => {
+                self.since += 1;
+                None
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod room_log_tests {
+    use super::RoomLog;
+
+    #[test]
+    fn the_first_then_a_count_each_minute() {
+        let mut log = RoomLog { said_at: None, since: 0 };
+        assert_eq!(log.note(1_000), Some(0));
+        assert_eq!(log.note(1_100), None);
+        assert_eq!(log.note(30_000), None);
+        assert_eq!(log.note(61_000), Some(3));
+        assert_eq!(log.note(61_100), None);
+        assert_eq!(log.note(500_000), Some(2));
+    }
 }
 
 /// Writes the readers that are due: each gets the area it asked for, in its own picture. A reader whose area

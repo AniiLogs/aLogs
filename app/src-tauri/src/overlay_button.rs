@@ -75,6 +75,11 @@ const ROW_CHECK_MS: u32 = 125; // the icon row is looked at 8 times a second (a 
 // each) but only 267 of 750 ms or longer, and testers saw the button blink. A saved hide_ms is kept: every save writes it,
 // so a saved 300 can't be told from never having chosen
 const ROW_GONE_MS: u64 = 750;
+/// Dev switch button-hide-300: a saved 300 counts as the default (the setting itself stays as saved). 300 was the default
+/// once, so most who have it never chose it: with it, one install's 395 of 756 hides came back within 2 s.
+fn hide_after(saved: u64, treat_300_as_default: bool) -> u64 {
+    if treat_300_as_default && saved == 300 { ROW_GONE_MS } else { saved }
+}
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 
@@ -1027,7 +1032,8 @@ unsafe fn run() {
             } else if reader.is_none() {
                 s.x.is_some()
             } else {
-                (now.saturating_sub(row_seen) < 1500.max(s.hide_ms) && (row_missed == 0 || now.saturating_sub(row_missed) < s.hide_ms))
+                let hide_ms = hide_after(s.hide_ms, crate::dev::on("button-hide-300"));
+                (now.saturating_sub(row_seen) < 1500.max(hide_ms) && (row_missed == 0 || now.saturating_sub(row_missed) < hide_ms))
                     || press().is_some()
             };
             let wanted = s.show && in_front && row;
@@ -1185,6 +1191,21 @@ mod look {
                 let _ = DeleteObject(bitmap.into());
                 let _ = DeleteDC(dc);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod hide_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_saved_300_changes_and_only_with_the_switch() {
+        assert_eq!(hide_after(300, true), ROW_GONE_MS);
+        assert_eq!(hide_after(300, false), 300);
+        for other in [0, 150, 750, 1500] {
+            assert_eq!(hide_after(other, true), other);
+            assert_eq!(hide_after(other, false), other);
         }
     }
 }

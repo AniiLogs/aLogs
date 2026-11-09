@@ -15,6 +15,7 @@
 //!   16 u64 last boss kill sound (unix ms, when it started)   24 f32 its match score   28 u32 count (wraps)
 //!   32 u32 state: 0 not listening, 1 listening, 2 can't listen (no game, or Windows refused)
 //!   36 u32 game process id   40 u64 last audio heard (unix ms)
+//!   44 f32 best match of the last few seconds   48 u64 when it started (unix ms): only with the Dev switch kill-sound-log on
 //! A reader takes a cue when the count changes; the count is written last.
 
 use std::collections::VecDeque;
@@ -105,6 +106,8 @@ struct Listener {
     frame_ms: VecDeque<u64>,
     best: Option<(f32, u64, u32)>, // a match being followed: (score, sound start, frames since its peak)
     last_cue: u64,
+    peak: Option<(f32, u64)>, // Dev switch kill-sound-log: the best match of the last few seconds, however low (score, start)
+    track_peak: bool,
 }
 
 impl Listener {
@@ -131,6 +134,8 @@ impl Listener {
             frame_ms: VecDeque::new(),
             best: None,
             last_cue: 0,
+            peak: None,
+            track_peak: false,
         }
     }
 
@@ -186,6 +191,9 @@ impl Listener {
             .sum::<f32>()
             / FRAMES as f32;
         let start = self.frame_ms[0];
+        if self.track_peak {
+            self.peak = Some(next_peak(self.peak, score, start));
+        }
         match self.best {
             Some((best, _, _)) if score > best => self.best = Some((score, start, 0)),
             Some((best, at, since)) => {
@@ -204,6 +212,16 @@ impl Listener {
             None => {}
         }
         None
+    }
+}
+
+/// The best match to keep: a better one, or this one once the kept one is older than PEAK_MS. Long enough to still hold the
+/// kill sound's when the Catch Countdown comes, a few seconds after it.
+const PEAK_MS: u64 = 10_000;
+fn next_peak(peak: Option<(f32, u64)>, score: f32, start: u64) -> (f32, u64) {
+    match peak {
+        Some((best, at)) if best >= score && start.saturating_sub(at) < PEAK_MS => (best, at),
+        _ => (score, start),
     }
 }
 
@@ -259,8 +277,13 @@ fn listen(shared: &Shared, listener: &mut Listener, pid: u32) -> Result<(), Box<
             mono.push((l + r) * 0.5);
         }
         shared.put_u64(40, end);
+        listener.track_peak = crate::dev::on("kill-sound-log");
         if let Some((at, score)) = listener.feed(&mono, end) {
             shared.cue(at, score);
+        }
+        if let (true, Some((score, at))) = (listener.track_peak, listener.peak) {
+            shared.put_u32(44, score.to_bits());
+            shared.put_u64(48, at);
         }
     }
     let _ = client.stop_stream();
@@ -311,10 +334,26 @@ pub fn start() {
                 listener.reset();
                 if let Err(e) = listen(&shared, &mut listener, pid) {
                     eprintln!("audio cues: {e}");
+                    if crate::dev::on("kill-sound-log") {
+                        crate::app_log(&format!("audio cues: can't listen to the game: {e}"));
+                    }
                     shared.put_u32(32, 2);
                     std::thread::sleep(Duration::from_millis(2000));
                 }
             }
         })
         .ok();
+}
+
+#[cfg(test)]
+mod peak_tests {
+    use super::next_peak;
+
+    #[test]
+    fn the_best_of_the_last_seconds_is_kept() {
+        assert_eq!(next_peak(None, 0.2, 1_000), (0.2, 1_000));
+        assert_eq!(next_peak(Some((0.5, 1_000)), 0.2, 2_000), (0.5, 1_000));
+        assert_eq!(next_peak(Some((0.5, 1_000)), 0.6, 2_000), (0.6, 2_000));
+        assert_eq!(next_peak(Some((0.5, 1_000)), 0.2, 20_000), (0.2, 20_000));
+    }
 }

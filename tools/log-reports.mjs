@@ -89,7 +89,11 @@ if (action === "list") {
   const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
   for (let n = 1; n <= 30; n += 1) {                           // a Beta Menu bug send has up to 30
     const shot = await fetch(`${API}/admin/log-reports/${arg}/screenshots/${n}`, { headers: { authorization: `Bearer ${token}` } });
-    if (!shot.ok) break;
+    if (shot.status === 404) break;                            // no more
+    if (!shot.ok) {                                            // not the same as no more: say so, and try the next
+      console.error(`screenshot ${n} not fetched (${shot.status}): get this report again for it`);
+      continue;
+    }
     writeFileSync(join(out, `screenshot-${n}.${EXT[shot.headers.get("content-type")] || "img"}`), Buffer.from(await shot.arrayBuffer()));
   }
   // a Beta Menu send: its results or bugs next to the logs

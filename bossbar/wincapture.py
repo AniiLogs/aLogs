@@ -437,6 +437,13 @@ class SharedAudio:
         if not n: return None
         return n, SharedCapture._u64(self.base, 16) / 1000, ctypes.c_float.from_address(self.base + 24).value
 
+    def listening(self):
+        """For the Dev switch kill-sound-log: (state, unix time audio was last heard, best match of the last few seconds,
+        when it started), or None without the app. The last two only have a value with that switch on."""
+        if not self.base: return None
+        return (SharedCapture._u32(self.base, 32), SharedCapture._u64(self.base, 40) / 1000,
+                ctypes.c_float.from_address(self.base + 44).value, SharedCapture._u64(self.base, 48) / 1000)
+
 audio = SharedAudio()
 
 def grab_parts(hwnd, rects):

@@ -58,6 +58,15 @@ def standing(title, points=None, stars=None):
     return {'tier': tier, 'subtier': row[1], 'name': row[2] if points is not None else RANKS[tier - 1][0],
             'points': points, 'stars': None}
 
+# Dev switch egg-gain-limit. egg_rank_base_data.pointLimit by tier, the same in every sub-rank of a tier. That it caps what one
+# match can add is inferred from its name and size: nothing in the client reads it, and real gains (up to 204) are all under it
+POINT_LIMIT = {1: 90, 2: 180, 3: 270, 4: 360, 5: 360, 6: 360, 7: 360}
+
+def gain_possible(gain, tier):
+    """Could a match have added this? Yes when either is unknown, and for a loss."""
+    limit = POINT_LIMIT.get(tier)
+    return gain is None or limit is None or gain <= limit
+
 def parse_points(text):
     """'Rank Points 1277/2370' -> (1277, 2370)."""
     m = re.search(r'(\d[\d,]*)\s*/\s*(\d[\d,]*)', (text or '').replace('O', '0').replace('o', '0'))
