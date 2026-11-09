@@ -1,8 +1,10 @@
 """Following a boss fight on its HP bar (core, shared by the plug-ins): the fight, the boss, its damage and DPS, the
 kill. The DPS meter shows it (dps_overlay.py); the leaderboards send the run it becomes (leaderboards.py)."""
 from core import *
+import devflags as D
 
 KILL_SOUND_WINDOW = (2.5, 6.0)  # the boss kill sound counts when it started this many seconds before the countdown
+SLIDE_IN_RISE = 0.15    # Dev switch fight-bar-slide-in: how much fuller than the fight's lowest a reading must be to throw that lowest out
 KILL_TO_COUNTDOWN = 3.0 # seconds from the killing blow to the game's Catch Countdown (the kill-cam: no HUD, slow
 FIGHT_INTERVAL = 1 / 30 # seconds between frames during a fight
 DAMAGE_NUMBERS = False  # the damage-number recorder (dmgnumbers.py, capture.damage_numbers): paused, off whatever the setting
@@ -130,6 +132,7 @@ class Fight:
         # Interlink's clock runs from the start, like the game's own timer.
         self.hit = bossrush; self.first_damage = None; self.last_at = self.created
         self.low_pending = None      # (fill, time) of a big one-frame drop waiting for a later frame to confirm it
+        self.rise_at = None          # Dev switch fight-bar-slide-in: when a reading far above seg_fill was first seen
         self.away = 0.0              # seconds of this fight with the game in the background (you tabbed out)
         self.seg = None              # xN of the segment we are in (boss rush)
         self.seg_fill = 1.0          # lowest fill seen in this segment (damage never goes back)
@@ -226,6 +229,16 @@ class Fight:
                 if not agrees: self.low_pending = (fill, now)
             else:
                 self.seg_fill = min(self.seg_fill, fill); self.low_pending = None
+        # Dev switch fight-bar-slide-in. A world boss's bar can read nearly empty, in its own red, as it slides in, for longer
+        # than the check above covers. 'HP only drops' then keeps that low reading, no drop counts as a hit until the bar falls
+        # below it, and the clock starts far too late (8 Nov: at 5.4% after 15.5 s, a 2 s fight at 178,203 DPS). Nobody has hit
+        # it yet and two readings say it's far fuller: the low one was the bar arriving.
+        if not self.hit and not self.bossrush and fill is not None and fill - self.seg_fill > SLIDE_IN_RISE and D.on('fight-bar-slide-in'):
+            if self.rise_at is None: self.rise_at = now
+            elif now - self.rise_at >= CONFIRM_GAP:
+                note = (note + f' low reading {self.seg_fill * 100:.1f}% dropped: the bar was sliding in').strip()
+                self.seg_fill = fill; self.low_pending = None; self.first_damage = None; self.rise_at = None; self.samples.clear()
+        elif self.rise_at is not None: self.rise_at = None
         if fill is not None: self.last_fill = fill
         if self.timer.feed(timer_ocr, now) == 'resync': note = (note + ' timer resync').strip()
         # the clock's first trusted reading, a few seconds into a fight seen from its full bar, rounded up to 5 s. Only
@@ -381,6 +394,7 @@ class FightsMixin:
                 # runs to the kill, 3 s before the countdown, never earlier than the last bar reading.
                 # The boss kill sound, when heard, dates the blow itself (Boss kill sound, DPS Meter > Meter).
                 heard = self.kill_sound()
+                if D.on('kill-sound-log'): self.kill_sound_note(heard)
                 kill, how = ((heard, 'by its sound') if heard is not None else
                              (self.catch_seen - KILL_TO_COUNTDOWN, f'{KILL_TO_COUNTDOWN:.0f} s before the Catch Countdown'))
                 if kill - f.t0 > f.elapsed:
@@ -537,6 +551,25 @@ class FightsMixin:
         self.kill_sound_used = c[0]
         log.info(f'boss kill sound heard {self.catch_seen - at:.1f}s before the Catch Countdown (match {score:.2f})')
         return at
+
+    def kill_sound_note(self, heard):
+        """Dev switch kill-sound-log: why this kill's sound was or wasn't used. In 24 log files it never was, and nothing said why.
+        The game plays it with every kill-cam (ClientCombatEntityComponent's kill performance has no condition on it), so
+        it's the listening: no stream, or a match too low in the fight's din."""
+        try:
+            at = self.catch_seen
+            on = bool(self.args.cfg.get('audio_cues', {}).get('boss_kill'))
+            used = 'used' if heard is not None else 'not used'
+            c = wc.audio.cue(); now = wc.audio.listening()
+            if now is None:
+                log.info(f"boss kill sound {used}: setting {'on' if on else 'off'}, the app's listening can't be read"); return
+            state, audio_at, best, best_at = now
+            parts = [f"setting {'on' if on else 'off'}", {0: 'not listening', 1: 'listening', 2: "can't listen"}.get(state, f'state {state}'),
+                     f'game audio last heard {at - audio_at:.1f}s before the Catch Countdown' if audio_at else 'no game audio heard yet',
+                     f'best match {best:.2f} (a kill needs 0.55) {at - best_at:.1f}s before it' if best_at else 'no match measured',
+                     f'newest cue {at - c[1]:.1f}s before it (match {c[2]:.2f}; counts {KILL_SOUND_WINDOW[0]}-{KILL_SOUND_WINDOW[1]} s)' if c else 'no cue yet']
+            log.info(f'boss kill sound {used}: ' + ', '.join(parts))
+        except Exception as e: log.info(f'boss kill sound: no note: {e!r}')
 
     def hit_watch(self, now):
         """While you're tabbed out: the HP number on your HP bar (a strip of its own, 4 times a second). A reading counts

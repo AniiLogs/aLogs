@@ -21,6 +21,7 @@ treats the plug-ins as a set uses this list, so a new plug-in doesn't need new w
 | Reading end screens into runs (result, Battle Data, Holo-Battle Sim, Egg Heist, Challenge Stats) | core (the DPS meter keeps them as your results; the leaderboards send them) | `bossbar/results.py` |
 | Notices over the game, for every plug-in | core | `bossbar/notice_window.py` |
 | The button over the game | core | `app/src-tauri/src/overlay_button.rs` |
+| The boss kill sound (Audio cues, on the DPS meter's page) | DPS meter | `app/src-tauri/src/audio.rs` |
 | Screen capture | core | `app/src-tauri/src/capture.rs`, [shared-capture.md](shared-capture.md) |
 | DPS window, HP labels, end-screen notes, "You're being attacked" | DPS meter | `bossbar/dps_overlay.py` |
 | Deciding and sending runs, proof automation, character link, online status | Leaderboards | `bossbar/leaderboards.py`, `submit.py` |
@@ -72,6 +73,27 @@ treats the plug-ins as a set uses this list, so a new plug-in doesn't need new w
    - Wrap the methods the core calls with `guarded('<id>', fallback)`.
 4. If it's its own program: start and stop it from the app like Sanctum Helper (below). It reads the game picture
    from the shared capture ([shared-capture.md](shared-capture.md)) and hands its notices over the same way.
+
+## Adding a Dev switch
+
+A proposed change that testers can try alone (Beta Menu › Dev, beta builds only). With its switch off, the code does exactly
+what it did before. All are off at every start, except what a tester made Persistent.
+
+1. Add it to [`app/ui/dev-options.json`](../app/ui/dev-options.json), in its section's place: `id`; `plugin` (`core`, `dps`
+   or `leaderboards`, whoever owns the code in the table above); `section` (`No known risk`, `Low risk`, `High risk`);
+   `area` (`CPU`, `Smoothness`, `Accuracy`, `Memory`, `Speed`); `title`, `what`, `gain`, `risk`, `tested` for players, in plain
+   words, no file names; `revision` (1). Be honest: `tested` says `Not tested yet` unless you tested it, and what you
+   tested it on.
+2. Guard the change: `devflags.on('<id>')` in the meter (at most one look at the file a second, never raises; put cheap
+   conditions first), `crate::dev::on("<id>")` in the app.
+3. Test it on and off (`bossbar/tests/dev_switches.py`). That test also fails on an id the list doesn't have.
+
+**Raise `revision` only when the switch's behaviour changes.** That turns it off for everyone who made it Persistent, and
+the tab says which changed so they can test it again. Rewording its text isn't a change. A new id starts fresh.
+
+On a release build `dev::start` loads nothing, every switch reads off and the meter isn't told about the list
+(`ALOGS_DEV_ON`). Files, in the meter's data folder: `dev-persistent.json` (`{id: revision}`) and `dev-on.json` (what's on
+now, for the meter). Sanctum Helper has its own switches and tab data (`Dev.cs`); the tab draws both the same way.
 
 ## Sanctum Helper: what aLogs and it agree on
 

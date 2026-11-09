@@ -7,7 +7,7 @@ window.PATCH_NOTES = [
    {
     "heading": "New",
     "items": [
-     "**A Dev menu in the Beta Menu (betas only):** a tab for each plug-in, starting with Sanctum Helper: proposed changes to its speed, smoothness, accuracy and memory, each with its own switch, with filters by risk and type, so each can be tested alone. Anyone on a beta sees it. All are off at every start unless you make one Persistent, which starts it on through restarts and updates until you undo it or that setting changes in an update. Only make one Persistent once you've tested it and decided it's no risk for you. With all off, it works as in 0.1.36."
+     "**A Dev menu in the Beta Menu (betas only):** a tab each for Core, the DPS meter, Sanctum Helper and the leaderboards: proposed changes to their speed, smoothness, accuracy and memory, each with its own switch, with filters by risk and type, so each can be tested alone. Anyone on a beta sees it. All are off at every start unless you make one Persistent, which starts it on through restarts and updates until you undo it or that setting changes in an update. Only make one Persistent once you've tested it and decided it's no risk for you. With all off, it works as in 0.1.36."
     ]
    },
    {

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "capture-log-once",
+    "plugin": "core",
+    "section": "No known risk",
+    "area": "CPU",
+    "title": "Fewer repeated capture lines in the log",
+    "what": "When the shared picture has no room and the other readers are moved, the log says so the first time, then gives a count at most once a minute.",
+    "gain": "One log had 1,476 of these lines in 7 hours, up to about 10 a second, each one opening the log file.",
+    "risk": "None found; the log shows a count rather than each moment.",
+    "tested": "Bench tested the counting, not tried in a game",
+    "revision": 1
+  },
+  {
+    "id": "button-hide-300",
+    "plugin": "core",
+    "section": "Low risk",
+    "area": "Smoothness",
+    "title": "Button over the game: a saved 0.3 s counts as 0.75 s",
+    "what": "If the button is set to hide after 0.3 s, it waits 0.75 s instead. The setting itself isn't changed, and other choices stay as they are.",
+    "gain": "Less blinking. On one PC at 0.3 s, 395 of 756 hides came back within 2 s; of the icon row's short dips, 540 were long enough to hide the button at 0.3 s and 200 at 0.75 s.",
+    "risk": "If you really chose 0.3 s, the button stays 0.45 s longer when the game hides its icons.",
+    "tested": "Checked against a real app log, not tried in a game",
+    "revision": 1
+  },
+  {
+    "id": "fight-bar-slide-in",
+    "plugin": "core",
+    "section": "Low risk",
+    "area": "Accuracy",
+    "title": "World boss: a low first reading isn't damage",
+    "what": "While a boss's bar slides in it can read nearly empty. If nobody has hit it yet and the bar then reads much fuller twice in a row, the low reading is dropped.",
+    "gain": "The fight's clock starts at the real first hit. In 5 of 59 world fights in real logs the low reading stuck; one started 15.5 s late and read as 2 s and 178,203 DPS.",
+    "risk": "A boss that really is low and reads much fuller, in the bar's own red, before anyone hits it would count from the fuller reading until a low one is confirmed.",
+    "tested": "Bench tested on readings from real logs, not tried in a game",
+    "revision": 1
+  },
+  {
+    "id": "kill-sound-log",
+    "plugin": "dps",
+    "section": "No known risk",
+    "area": "Accuracy",
+    "title": "Say why the boss kill sound wasn't used",
+    "what": "After each world boss is caught, the log says whether aLogs was listening, when it last heard the game, and how close the best match to the kill sound came. Nothing about the fight changes.",
+    "gain": "The sound wasn't used once in 24 log files, so fights fall back on 3 s before the Catch Countdown. This shows why, so it can be fixed.",
+    "risk": "None found; one more log line per boss caught.",
+    "tested": "Bench tested with made-up values, not tried in a game",
+    "revision": 1
+  },
+  {
+    "id": "egg-gain-limit",
+    "plugin": "leaderboards",
+    "section": "Low risk",
+    "area": "Accuracy",
+    "title": "Egg Heist: reject impossible rank gains",
+    "what": "A gain read on the rank screen above that rank's limit in the game's data (90, 180, 270, then 360) counts as a misread and isn't sent to your profile. The total still is.",
+    "gain": "A misread number can't show on your profile as your last gain. None has been seen yet: all 14 gains in real logs were within the limit.",
+    "risk": "That this limit caps one match's gain is inferred from its name and size, not confirmed. If it means something else, a real bigger gain wouldn't show as your last gain.",
+    "tested": "Checked against real logs (14 gains kept), not tried in a game",
+    "revision": 1
+  }
+]

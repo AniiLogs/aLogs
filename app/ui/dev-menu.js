@@ -1,5 +1,6 @@
 // Beta Menu > Dev (beta builds only): proposed changes, each its own switch, to test one at a time, with a tab for each plug-in and
-// for Core, the parts they share. Off at every start, on purpose, since a build can change what a switch does; the exception is one
+// for Core, the parts they share. Sanctum Helper's switches live in its own program; the rest in dev-options.json and dev.rs. One
+// render for all of them. Off at every start, on purpose, since a build can change what a switch does; the exception is one
 // a tester made persistent, so they needn't remember what they liked, which has nothing to do with what goes into a release.
 // Temporary: all of this comes out before a real release.
 (() => {
@@ -8,9 +9,11 @@
   if (!root) return;
 
   const PLUGINS = [["core", "Core"], ["dps", "DPS meter"], ["sanctum", "Sanctum Helper"], ["leaderboards", "Leaderboards"]];
+  const WORKS_AS = { core: "aLogs works", dps: "the DPS meter works", sanctum: "Sanctum Helper works", leaderboards: "the leaderboards work" };
   const INFO = "Persistent: this setting starts ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you.";
-  let plugin = "sanctum";
-  let state = {};
+  let plugin = "core";
+  let state = {};      // Sanctum Helper's, from its program
+  let dev = {};        // the others', from the app
   let rendered = "";
   // Filters: lit shows, darkened hides, in each row, per plug-in. Not saved: the tab opens with everything showing.
   const hidden = { core: new Set(), dps: new Set(), sanctum: new Set(), leaderboards: new Set() };
@@ -27,13 +30,40 @@
     return node;
   };
 
-  async function command(name, args) {
+  async function act(name, args) {
     try {
-      await invoke("sanctum_command", { command: name, args });
+      await invoke(name, args);
     } catch (error) {
       window.alogsToast?.(String(error), true);
     }
     void refresh();
+  }
+
+  // ---------------------------------------------------------------- where a plug-in's switches come from
+  function view(id) {
+    if (id === "sanctum") {
+      const options = state.info?.dev || [];
+      return {
+        options,
+        on: state.status?.devOn || [],
+        persistent: state.status?.devPersistent || [],
+        changed: state.status?.devChanged || [],
+        waiting: !state.running ? "Sanctum Helper's switches need it running." : options.length ? null : "Loading the switches…",
+        set: (option, on) => act("sanctum_command", { command: "dev-set", args: { id: option, on } }),
+        keep: (option, persistent) => act("sanctum_command", { command: "dev-persistent", args: { id: option, persistent } }),
+      };
+    }
+    const options = (dev.options || []).filter((o) => o.plugin === id);
+    const mine = (list) => (list || []).filter((option) => options.some((o) => o.id === option));
+    return {
+      options,
+      on: mine(dev.on),
+      persistent: mine(dev.persistent),
+      changed: mine(dev.changed),
+      waiting: options.length ? null : `No switches for ${PLUGINS.find(([p]) => p === id)[1]} yet.`,
+      set: (option, on) => act("dev_set", { id: option, on }),
+      keep: (option, persistent) => act("dev_persistent", { id: option, persistent }),
+    };
   }
 
   // ---------------------------------------------------------------- the info panel, at the mouse
@@ -76,17 +106,16 @@
   }
 
   // ---------------------------------------------------------------- a plug-in's switches
-  function sanctumNodes() {
-    const options = state.info?.dev || [];
-    if (!state.running) return [el("p", { class: "hint" }, "Sanctum Helper's switches need it running.")];
-    if (!options.length) return [el("p", { class: "hint" }, "Loading the switches…")];
-    const on = new Set(state.status?.devOn || []);
-    const persistent = new Set(state.status?.devPersistent || []);
-    const changed = state.status?.devChanged || [];
+  function switchNodes(id) {
+    const { options, waiting, set, keep: setKeep, ...lists } = view(id);
+    if (waiting) return [el("p", { class: "hint" }, waiting)];
+    const on = new Set(lists.on);
+    const persistent = new Set(lists.persistent);
+    const changed = lists.changed;
     const sections = [...new Set(options.map((o) => o.section))];
     const areas = [...new Set(options.map((o) => o.area))];
-    const shown = options.filter((o) => !hidden.sanctum.has(o.section) && !hidden.sanctum.has(o.area));
-    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, Sanctum Helper works as in 0.1.36.`)];
+    const shown = options.filter((o) => !hidden[id].has(o.section) && !hidden[id].has(o.area));
+    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, ${WORKS_AS[id]} as in 0.1.36.`)];
     if (changed.length) {
       const names = changed.map((id) => options.find((o) => o.id === id)?.title || id).join(", ");
       nodes.push(el("p", { class: "notice" }, `Changed in this update, so no longer persistent: ${names}. Test it again before making it persistent.`));
@@ -101,10 +130,10 @@
         here.map((o) => {
           const box = el("input", { type: "checkbox" });
           box.checked = on.has(o.id);
-          box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
+          box.addEventListener("change", () => void set(o.id, box.checked));
           const keep = el("input", { type: "checkbox", "aria-label": `${o.title}: persistent` });
           keep.checked = persistent.has(o.id);
-          keep.addEventListener("change", () => void command("dev-persistent", { id: o.id, persistent: keep.checked }));
+          keep.addEventListener("change", () => void setKeep(o.id, keep.checked));
           return el("div", { class: "dev-row" },
             el("label", { class: "toggle" }, box, el("span"), el("div", {},
               el("strong", { textContent: `${o.title} (${o.area})` }),
@@ -120,26 +149,28 @@
   const body = el("div");
   root.append(tabRow, el("p", { class: "lead", textContent: "Test each proposed change on its own." }), body);
   for (const [id, label] of PLUGINS) {
-    tabRow.append(el("button", { type: "button", role: "tab", "data-dev-plugin": id, textContent: label, onclick: () => { plugin = id; draw(true); } }));
+    tabRow.append(el("button", { type: "button", role: "tab", "data-dev-plugin": id, textContent: label, onclick: () => { plugin = id; draw(true); void refresh(); } }));
   }
 
   function draw(force = false) {
-    const key = JSON.stringify([plugin, state.running, state.status?.devOn, state.status?.devPersistent, state.status?.devChanged, state.info?.dev?.length]);
+    const { options, on, persistent, changed, waiting } = view(plugin);
+    const key = JSON.stringify([plugin, waiting, on, persistent, changed, options.length]);
     if (!force && key === rendered) return;
     rendered = key;
     tip.hidden = true;
     for (const button of tabRow.children) button.setAttribute("aria-selected", String(button.dataset.devPlugin === plugin));
-    const name = PLUGINS.find(([id]) => id === plugin)[1];
-    body.replaceChildren(...(plugin === "sanctum" ? sanctumNodes() : [el("p", { class: "hint", textContent: `No switches for ${name} yet.` })]));
+    body.replaceChildren(...switchNodes(plugin));
   }
 
   async function refresh() {
     if (!root.closest("[data-panel]")?.classList.contains("is-active") || !root.closest("[data-page-body]")?.classList.contains("is-active")) return;
-    try { state = await invoke("sanctum_state"); } catch { state = {}; }
+    if (plugin === "sanctum") { try { state = await invoke("sanctum_state"); } catch { state = {}; } }
+    else { try { dev = await invoke("dev_state"); } catch { dev = {}; } }
     draw();
   }
   setInterval(refresh, 1000);
   document.querySelector('[data-page="beta"]')?.addEventListener("click", () => void refresh());
   document.querySelector('[data-page-body="beta"] [data-tab="dev"]')?.addEventListener("click", () => void refresh());
+  invoke("dev_state").then((found) => { dev = found; draw(true); }).catch(() => {});
   draw(true);
 })();

@@ -17,6 +17,7 @@ use tauri::{AppHandle, Manager, State, WindowEvent};
 mod audio;
 mod auth;
 mod capture;
+mod dev;
 mod gamepad;
 mod gpu_capture;
 mod photos;
@@ -224,6 +225,9 @@ fn ensure_meter(app: &AppHandle) -> Result<(), String> {
         .env("ALOGS_PARENT", std::process::id().to_string())
         .env("ALOGS_VERSION", format!("aLogs-{}+rc.{}", app.package_info().version, update::build_rc()))
         .creation_flags(NO_WINDOW);
+    if update::build_beta() > 0 {
+        cmd.env("ALOGS_DEV_ON", dev::on_file());   // the Dev tab's switches: the meter never looks on a release build
+    }
     let child = cmd.spawn().map_err(|e| format!("Could not start the meter: {e}"))?;
     set_priority(Some(&child), &read_settings());
     *guard = Some(child);
@@ -851,6 +855,7 @@ fn main() {
             install_english_ocr,
             sanctum::install_dotnet_desktop,
             plugins::plugins,
+            dev::dev_state, dev::dev_set, dev::dev_persistent,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
             update::update_state, update::check_update, update::install_update, update::install_update_later,
@@ -876,6 +881,7 @@ fn main() {
                     }
                 })
                 .build(app)?;
+            dev::start();       // before anything a Dev switch guards, and before the meter reads them
             audio::start();     // listens only while the meter asks (Boss Kill audio cue)
             set_priority(None, &read_settings());
             overlay_button::start(app.handle().clone());   // the on/off button over the game

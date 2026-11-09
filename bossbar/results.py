@@ -2,6 +2,7 @@
 Sim's Victory, Egg Heist's end and rank screens, Challenge Stats; each run saved with its fight (logs/fights). The DPS
 meter keeps them as your results; the leaderboards plug-in (leaderboards.py) decides what to send."""
 import shutil
+import devflags as D
 from core import *
 
 
@@ -999,9 +1000,16 @@ class ResultsMixin:
         title = t.get('title') if E.tier_of(t.get('title')) else t.get('title2')
         st = E.standing(title, points)
         season = getattr(self, 'egg_season', None) or E.current_season()
+        # Dev switch egg-gain-limit: above what a match can add at this rank, it's a misread. Asked again of the total's change, which
+        # also runs high when matches went by unread
+        limit = D.on('egg-gain-limit')
+        def within(found):
+            if not limit or (st or {}).get('tier') is None or E.gain_possible(found, st['tier']): return found
+            log.info(f"Egg Heist: {found:+} is above the {E.POINT_LIMIT.get(st['tier'])} a match can add at this rank: taken as a misread")
+        gain = within(gain)
         # no pill read (a loss's may not be yellow; none seen yet): the change from the total this season's last rank screen showed
         before = (self.egg_profile(season).get('bar') or [None])[0]
-        if gain is None and before is not None and points is not None and points != before: gain = points - before
+        if gain is None and before is not None and points is not None and points != before: gain = within(points - before)
         log.info(f'Egg Heist rank after a match: OCR {t!r}, {points_text!r} -> {st}, +{gain}, bar to {bar_end}, season {season}')
         if not st or points is None: return     # (the gain is often unread: 8 Nov. The total counts without it)
         self.egg_rank_seen(im, now)
