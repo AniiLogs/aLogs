@@ -51,6 +51,7 @@ DEFAULTS = {
         'backdrop': 0,                       # dark panel behind the DPS window, % opacity (0 = none)
         'world_position': 'map',             # out in the world: 'map' (right of the minimap) or 'right' (top right)
         'dps_locked': True,                  # the DPS window can't be dragged, and clicks go through it to the game
+        'dps_example': False,                # the DPS window shown with made-up numbers, to place it without a fight
         'dps_reset': 0,                      # the app bumps this to put the DPS window back in its default spots
         'rush_position': 'corner',           # Interlink's DPS window: 'corner' (top left, by Esc) or 'panel' (under the stars/timer)
         'result_seconds': 10,                # out in the world: how long the fight's result stays up (0 = hide at once)

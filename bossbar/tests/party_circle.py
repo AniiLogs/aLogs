@@ -46,7 +46,7 @@ def screen(colour, rest=True):
     im = Image.new('RGB', (W, H), (40, 40, 60)); d = ImageDraw.Draw(im); x0, y0, x1, y1 = Meter.OFFERING
     d.rectangle((W * x0, H * y0, W * x1, H * y1), fill=colour)
     if rest:
-        x0, y0, x1, y1 = Meter.SEASON_BUFFS[0]; d.rectangle((W * x0, H * y0, W * x1, H * y1), fill=(255, 255, 255))
+        x0, y0, x1, y1 = Meter.PANEL_SPOT; d.rectangle((W * x0, H * y0, W * x1, H * y1), fill=(150, 180, 220))
     return im
 def meter():
     m = Meter.__new__(Meter); m.icons = Icons(); m.icons_state = 'ready'
