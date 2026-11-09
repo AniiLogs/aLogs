@@ -712,7 +712,7 @@ class ResultsMixin:
     EGG_PARTY_S = 1800       # a Party screen read this long ago can still be this match's (a match's 15 minutes, and the queue)
     EGG_RANK_WAIT_S = 90.0   # how long a match waits for the rank screen after it (a player can stay on the end screen a while)
     EGG_SCREEN_HOLD_S = 10
-    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0; egg_end_seen = 0; egg_points = None; egg_click = None
+    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0; egg_end_seen = 0; egg_points = None; egg_click = None; egg_rank_frame = None
     EGG_NEXT_TRIES = 4; EGG_NEXT_GAP_S = 1.5; EGG_NEXT_S = 30.0
     # The end screen's Next button, by its height in each layout: on a controller's the whole button sits 76 px higher at 4K
     EGG_NEXT_SPOTS = (('controller', 0.858, 0.90, 0.879), ('keyboard', 0.893, 0.935, 0.9144))
@@ -853,6 +853,10 @@ class ResultsMixin:
         match = {key: confirmed(votes, key) for key in ('outcome', 'difficulty', 'mode', 'time_s', 'objective', 'loot', 'defeats', 'chests_today')}
         if match['loot'] is None and match['time_s'] is None:           # nothing agreed on: no record of nothing
             self.egg_hold_end('end screen read'); return
+        # the time has a strict shape (11:50) and is hard to get wrong: seen by only one read, and no read differing, it stands
+        # (9 Nov: a player's run went with no time, the screen plainly showing it)
+        times = votes.get('time_s') or {}
+        if match['time_s'] is None and len(times) == 1: match['time_s'] = next(iter(times))
         outcome, difficulty, seconds, loot, defeats = (match[key] for key in ('outcome', 'difficulty', 'time_s', 'loot', 'defeats'))
         im = read['im']
         self.screen_check = None
@@ -948,7 +952,25 @@ class ResultsMixin:
         except OSError: pass
         return dict(mine)
 
-    def egg_rank_gain(self, im, now, u, ux, H):
+    def egg_rank_watch(self, im, heads, now):
+        """The rank screen's newest whole frame is kept while it's up. With the automation off nothing holds a player's inputs, and a
+        quick press takes the screen away before its second read (9 Nov: a player's run with no rank at all): once it has been gone a
+        moment, that frame is read, so the rank isn't lost. A frame only: a number still counting up could go, but the next rank
+        screen puts it right."""
+        if self.rank_screen(heads):
+            if not im.info.get('parts'): self.egg_rank_frame = (im, now)
+            return
+        kept = self.egg_rank_frame
+        if not kept:
+            self.egg_points = None; return               # (or the 4 reads a second it asks for never end: screen_read_due)
+        if now - kept[1] < 0.4: return                   # one read that missed it isn't the screen gone
+        self.egg_rank_frame = None; self.egg_points = None
+        if self.egg_rank_read_at >= kept[1] or now - kept[1] > 10: return
+        frame = kept[0]; W, H = frame.size; u = min(W, H * 16 / 9); ux = (W - u) / 2
+        log.info('Egg Heist: the rank screen left before a second read: reading the frame kept of it')
+        self.egg_rank_gain(frame, now, u, ux, H, once=True)
+
+    def egg_rank_gain(self, im, now, u, ux, H, once=False):
         """Egg Heist's rank screen after a match: the rank title over the badge, the Rank Points bar "1337/1350" (the
         total and where the next egg fills) and what the match added ("+18"). The total updates the season's ladder
         entry; the bar and the gain go to the player's profile. The match's grade (B) is left out on purpose.
@@ -964,7 +986,7 @@ class ResultsMixin:
             count = next((v for v in (eggs.get('high'), eggs.get('low')) if re.fullmatch(r'\s*[xX×]\s*\d{1,6}\s*', v or '')), None)
             if count: self.egg_emperor_count(im, now, u, ux, H, count)
             return
-        if points_text != self.egg_points:
+        if points_text != self.egg_points and not once:
             self.egg_points = points_text; return
         self.egg_points = None
         self.egg_gain_seen = now
@@ -993,7 +1015,7 @@ class ResultsMixin:
 
     def egg_rank_seen(self, im, now):
         """The rank screen after a match is read: its picture goes with the match waiting for it, and inputs are let go."""
-        self.egg_rank_read_at = now; self.egg_click = None
+        self.egg_rank_read_at = now; self.egg_click = None; self.egg_rank_frame = None
         if self.egg_pending:
             shot = self.picture(im, 'screens', 'egg_rank_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
             self.egg_hold = None

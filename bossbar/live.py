@@ -591,6 +591,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
 
     def read_screen(self, im, now, heads):
         heads = self.rank_only_after_match(heads, now)
+        self.egg_rank_watch(im, heads, now)
         self.screens_gone(now)
         self.egg_gone(now)
         if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: keep_sample(im, 'egg_after', gap=3, kept=15)
