@@ -66,7 +66,7 @@ check('no result: as read', [e['name'] for e in submit._lineup({'party': summary
 # -- the Party screen's own read ------------------------------------------------------------------------------------
 class Ocr:
     reads = []
-    def read(self, crops, **k): return self.reads.pop(0)
+    def read(self, crops, **k): return {'again': ''} if 'again' in crops else self.reads.pop(0)   # (a card's taller second read: nothing new)
 m = Meter.__new__(Meter); m.ocr = Ocr(); m.party = None; m.character_name = 'Moonpetal'; m.party_seen = 0; m.catalog = []
 m.screen_settled = lambda *a: None; m.read_party_icons = lambda *a: None; m.cycle_boss = lambda b: None; m.stage_first = lambda r: r
 m.party_names = lambda *a: {}
