@@ -5,19 +5,14 @@ window.PATCH_NOTES = [
   "intro": "",
   "sections": [
    {
-    "heading": "Improved",
+    "heading": "New",
     "items": [
-     "**Sanctum Helper uses much less CPU:** following you on the map costs far less for each position it reads, most of all out on the island, and it updates just as often.",
-     "**Sanctum Helper redraws less while you stand still,** and draws its labels without rebuilding them every frame.",
-     "**Sanctum Helper loads maps faster with less memory:** the island map loads in about half the time and no longer pauses tracking while it does."
+     "**Sanctum Helper has a Dev tab (betas only):** proposed changes to its speed, smoothness, accuracy and memory, each with its own switch, sorted by risk, so each can be tested alone. All are off at every start and aren't saved. With all off, it works as in 0.1.36."
     ]
    },
    {
     "heading": "Fixed",
     "items": [
-     "**Sanctum Helper doesn't forget your layout after time in a menu:** time spent in menus, on the map screen or out on the island no longer counts as the layout not matching.",
-     "**Sanctum Helper doesn't bring back an old run's layout** from the map screen.",
-     "**The map doesn't glide between two different maps** when you go between the island and a Sanctum.",
      "**Settings text:** \"Capture only the game window\" now says the yellow border can still show briefly with it off, and \"Block from the fade to black\" no longer says it's off by default."
     ]
    }

@@ -191,6 +191,7 @@ pub fn sanctum_state(app: AppHandle, state: State<Sanctum>) -> Value {
         "info": read_json(&hosted_dir().join("info.json")),
         "status": status,
         "folder": sh_dir().to_string_lossy(),
+        "beta": crate::update::build_beta() > 0,
     })
 }
 
@@ -241,7 +242,7 @@ pub fn sanctum_save(changes: Value) -> Result<Value, String> {
 /// clear-pad, render-layout { layout, width, height }, open-logs.
 #[tauri::command]
 pub fn sanctum_command(command: String, args: Option<Value>) -> Result<(), String> {
-    const ALLOWED: [&str; 7] = ["new-run", "position-map", "capture-key", "capture-pad", "clear-pad", "render-layout", "open-logs"];
+    const ALLOWED: [&str; 8] = ["dev-set", "new-run", "position-map", "capture-key", "capture-pad", "clear-pad", "render-layout", "open-logs"];
     if !ALLOWED.contains(&command.as_str()) {
         return Err("Unknown command.".into());
     }
