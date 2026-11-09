@@ -94,6 +94,31 @@ check('badge .4pK', lambda: party_read([f'1P{YOU}', '2P Brannoch', '3P @ Coolio'
 check('badge .2P with a name', lambda: party_read([f'1P{YOU}', '.2P Brannoch', '3P Mira Vosk', '4p Ashgrove']),
       [(0, YOU, True), (1, 'Brannoch', False), (2, 'MiraVosk', False), (3, 'Ashgrove', False)])
 
+# a faded badge: 4P read as 'IP' (1P) doesn't take 1P's slot and lose a player (9 Nov: the run went with 3 of 4)
+check("4P read as 'IP'", lambda: party_read([f'1P{YOU}', '2P Brannoch', '3P Coolio', 'IP Ashgrove']),
+      [(0, YOU, True), (1, 'Brannoch', False), (2, 'Coolio', False), (3, 'Ashgrove', False)])
+def slots(read, before):
+    m = live.Meter.__new__(live.Meter); m.party = {'at': 1000.0, 'members': before} if before else None
+    return sorted((x['slot'], x['name']) for x in m.own_slots(read, 1010.0))
+was = [{'slot': 0, 'cp': 3000, 'name': 'A'}, {'slot': 3, 'cp': 4000, 'name': 'D'}]
+check('a CP seen moments ago keeps its slot', lambda: slots([{'slot': 0, 'cp': 3000, 'name': 'A', 'pill': 0}, {'slot': 1, 'cp': 4000, 'name': 'D', 'pill': 1}], was),
+      [(0, 'A'), (3, 'D')])
+check('nowhere free: the one in its place stays', lambda: slots([{'slot': 0, 'name': 'A', 'pill': 3}, {'slot': 0, 'name': 'B', 'pill': 0}], None), [(0, 'B'), (3, 'A')])
+# a card whose name sits above its box: read again, taller, and only taken with the same CP
+class Cards:
+    name_cache = {}
+    def __init__(self, again): self.again = again; self.asked = 0
+    def read(self, images, names=None, raws=None):
+        if 'again' in images: self.asked += 1; return {'again': self.again}
+        return {k: (f'1P{YOU}' if k == 'n0' else 'Lv.70 CP:4234' if k == 'a0' else '') for k in images}
+def lead(again):
+    m = live.Meter.__new__(live.Meter); m.ocr = Cards(again); m.character_name = YOU; m.party = None; m.catalog = []; m.icons_state = 'failed'; m.prep_boss = None
+    m.party_screen(Image.new('RGB', (1920, 1080), (30, 30, 40)), 1000.0, 1920, 0, 1080)
+    return m.party['members'][0].get('aniimo'), m.ocr.asked
+check('the name comes from the taller read', lambda: lead('Budling / Lv.70 CP:4234'), ('Budling', 1))
+check('another CP in it: not taken', lambda: lead('Budling / Lv.70 CP:9999'), (None, 1))
+check('nothing new in it: stays blank', lambda: lead('Lv.70 CP:4234'), (None, 1))
+
 # an ordinary misread still takes the Party screen's name; with no Party read, names stay as read (teammates aside)
 party = [member(0, YOU, me=True), member(1, 'Dynlight'), member(2, 'Coolio')]
 check('ordinary misread', lambda: result(party, {0: YOU, 1: 'Dyn*ht', 2: 'Coolio'}),

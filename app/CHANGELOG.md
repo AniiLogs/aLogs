@@ -10,6 +10,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Egg Heist's Party and rank screens go with the run:** the run goes as soon as its end screen is read, and the rank screen's picture is added when that's read.
 - **Egg Heist's rank screen is read on a controller too, with what the match added:** it's spotted by its "Tap anywhere to continue" line right after a match's end screen, and the "+40" goes with your rank.
 - **aLogs presses Next on Egg Heist's end screen:** once the end screen is read it goes on to the rank screen by itself, which is read and sent too, with a notice each time. Turn it off under Sanctum Helper › Egg Heist on the leaderboards.
+- **Sanctum Helper keeps your spot on the map screen:** backing out of the map (M, or Select on a controller) picks your position up from where you were.
+- **Party reads:** a faded badge no longer drops a player from the run, and a lead Aniimo whose card sits higher on the screen is read.
 - **Inputs are held until a run is sent:** with the automation on, your presses are ignored while a result is read and sent, so nothing gets skipped. The notice shows, then they come back, after 10 seconds at most.
 - **Show an example of the DPS window:** DPS Meter › Overlay can now show it with made-up numbers, so you can place it without a fight.
 - **Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn
