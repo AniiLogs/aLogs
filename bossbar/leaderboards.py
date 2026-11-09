@@ -97,6 +97,7 @@ class LeaderboardsMixin:
                 self.egg_fade_frame(im, 'back'); self.egg_hold_end('the screen came back without an end screen')
             return
         before = getattr(self, 'egg_last_lit', None)
+        if now - self.egg_sent_at < 2 * self.EGG_RANK_WAIT_S: return    # the match is read: a black screen now is the load after it
         if not black: self.egg_last_lit = im; self.egg_black = 0; return
         if not getattr(self, 'egg_black', 0): self.egg_black = now                  # when this black stretch began
         if now - self.egg_black < EGG_BLACK or not C.automation(self.args.cfg, 'egg_fade_hold') or not self.sanctum_in_run(now): return

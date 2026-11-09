@@ -709,7 +709,9 @@ class ResultsMixin:
     EGG_GONE_S = 4.0         # the screen left before that: the same
     EGG_SENT_S = 60.0
     EGG_PARTY_S = 1800       # a Party screen read this long ago can still be this match's (a match's 15 minutes, and the queue)
-    egg_read = None; egg_sent_at = 0
+    EGG_RANK_WAIT_S = 90.0   # how long a match waits for the rank screen after it (a player can stay on the end screen a while)
+    EGG_SCREEN_HOLD_S = 10
+    egg_read = None; egg_sent_at = 0; egg_pending = None; egg_rank_read_at = 0
 
     def egg_result(self, im, now, u, ux, H, title):
         """Egg Heist end screen ("Adventure Successful", or the failed one): difficulty, mode, time, objective, Loot
@@ -776,6 +778,28 @@ class ResultsMixin:
     def egg_gone(self, now):
         """An end screen that left before its reads agreed goes with what did agree: an unsure number is blank, never a guess."""
         if self.egg_read and now - self.egg_read['seen'] > self.EGG_GONE_S: self.egg_send(now)
+        # the rank screen comes after a load: a match that's waited this long goes without its picture
+        if self.egg_pending and now - self.egg_pending['at'] > self.EGG_RANK_WAIT_S: self.egg_flush()
+
+    def egg_flush(self, rank_shot=None):
+        """The match waiting for its rank screen goes: the end screen, the Party screen and the rank screen, one record."""
+        pending, self.egg_pending = self.egg_pending, None
+        if pending and self.submitter:
+            self.submitter.enqueue(pending['payload'], pending['shot'], battle=rank_shot, party=pending['party'])
+
+    def egg_screen_hold(self, spotted, heads, now):
+        """Inputs held while an Egg Heist end screen, or the rank screen after it, is being read, so a press can't skip past it.
+        A rank-looking number only counts just after a match (it also turns up on other screens), and each screen is held
+        once. Windows lets go if the read doesn't come: a time limit, and the fade check's 5 s (Meter.egg_fade)."""
+        if spotted != 'Egg Heist' or self.args.replay is not None or getattr(self, 'egg_hold', None): return
+        if not C.automation(self.args.cfg, 'egg_fade_hold'): return
+        if self.hwnd and not wc.is_foreground(self.hwnd): return
+        if 'adventure' in (heads.get('eh') or '').lower():
+            if now - self.egg_sent_at < self.EGG_SENT_S: return
+        elif not (now - self.egg_sent_at < self.EGG_RANK_WAIT_S and now - self.egg_rank_read_at > self.EGG_RANK_WAIT_S): return
+        self.egg_hold = [now + self.EGG_SCREEN_HOLD_S, 0.0, self.space]
+        self.hold.start(self.EGG_SCREEN_HOLD_S)
+        log.info(f'Egg Heist: holding inputs while this screen is read (at most {self.EGG_SCREEN_HOLD_S} s)')
 
     def egg_send(self, now):
         read, self.egg_read = self.egg_read, None
@@ -800,10 +824,14 @@ class ResultsMixin:
             if new: w.writerow(['time', 'uid', 'outcome', 'difficulty', 'mode', 'time_s', 'objective', 'loot', 'defeats', 'chests_today', 'screenshot'])
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, outcome, difficulty, match['mode'], seconds, match['objective'],
                         loot, defeats, match['chests_today'], os.path.relpath(shot, HERE) if shot else ''])
-        # to the leaderboards (Egg Heist > Matches), with the end screen as proof
+        # to the leaderboards (Egg Heist > Matches), with the end screen as proof, once the rank screen after it is in too
         if self.submitter and self.uid:
-            self.submitter.enqueue(S.egg_match_payload(match, getattr(self, 'egg_season', None), self.uid),
-                                   os.path.relpath(shot, HERE) if shot else None)
+            self.egg_flush()
+            picture = party.get('picture') if party and match.get('party') else None
+            party_shot = self.picture(picture, 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False) if picture is not None else None
+            self.egg_pending = {'at': now, 'payload': S.egg_match_payload(match, getattr(self, 'egg_season', None), self.uid),
+                                'shot': os.path.relpath(shot, HERE) if shot else None,
+                                'party': os.path.relpath(party_shot, HERE) if party_shot else None}
         self.screen_settled('egg_result', time.time())
         self.out('status', f"Egg Heist match recorded: {'escaped' if outcome == 'success' else outcome}"
                  + (f', {loot:,} loot' if loot is not None else '') + (f' ({difficulty})' if difficulty else ''))
@@ -882,14 +910,23 @@ class ResultsMixin:
         st = E.standing(title, points)
         season = getattr(self, 'egg_season', None) or E.current_season()
         log.info(f'Egg Heist rank after a match: OCR {t!r}, {points_text!r} -> {st}, +{gain}, bar to {bar_end}, season {season}')
-        if not st or points is None or gain is None: return
+        if not st or points is None: return     # (the gain is often unread: 8 Nov. The total counts without it)
+        self.egg_rank_seen(im, now)
         key = (season, points, gain)
         if self.last_scores.get('egg_gain') == key: return
         self.last_scores['egg_gain'] = key
-        self.out('status', f"Egg Heist: +{gain} Rank Points ({st['name']}, {points:,})")
+        self.out('status', f"Egg Heist: {'+' + str(gain) + ' ' if gain is not None else ''}Rank Points ({st['name']}, {points:,})")
         if self.submitter:
-            profile = self.egg_profile(season, lastGain=gain, bar=[points, bar_end], barAt=int(time.time()))
+            profile = self.egg_profile(season, **({'lastGain': gain} if gain is not None else {}), bar=[points, bar_end], barAt=int(time.time()))
             self.submitter.enqueue(S.eggheist_payload(st, season, self.uid, profile), None)
+
+    def egg_rank_seen(self, im, now):
+        """The rank screen after a match is read: its picture goes with the match waiting for it, and inputs are let go."""
+        self.egg_rank_read_at = now
+        if self.egg_pending:
+            shot = self.picture(im, 'screens', 'egg_rank_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
+            self.egg_flush(os.path.relpath(shot, HERE) if shot else None)
+        self.egg_hold_end('rank screen read')
 
     def egg_emperor_count(self, im, now, u, ux, H, count_text):
         """The same post-match screen at Egg Emperor, the top rank: no points bar, just the eggs collected ("x57"),
@@ -897,6 +934,7 @@ class ResultsMixin:
         eggs)."""
         if now - getattr(self, 'egg_gain_seen', 0) < 5: return
         self.egg_gain_seen = now
+        self.egg_rank_seen(im, now)
         k = u / 2000
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
         t = self.ocr.read({'title': R.prep_text(im, box(0.37, 0.20, 0.63, 0.275), k, thr=230),

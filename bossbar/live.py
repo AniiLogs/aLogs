@@ -522,6 +522,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             self.party_title_at = 0; return False
         if self.title_is(head, 'party'):
             self.party_title_at = now; return True
+        # Egg Heist's Party screen says so across the top, however its title reads (8 Nov: seen for one read, and no party sent)
+        if re.search(r'operation|heist', (heads.get('ph') or '').lower()):
+            self.party_title_at = now; return True
         if now - getattr(self, 'party_title_at', 0) > self.PARTY_KEEP_S: return False
         letters = re.sub(r'[^a-z]', '', head.lower())
         if letters and difflib.SequenceMatcher(None, letters, 'party').ratio() < 0.6: return False     # another screen's title
@@ -575,6 +578,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.game_only_gone(spotted, now)
         if spotted and self.args.replay is None:
             self.full_until = now + self.FULL_HOLD_S
+            self.egg_screen_hold(spotted, heads, now)
             if self.game_only(spotted, now): self.last_results = 0; return
             if im.info.get('parts'):
                 if now - getattr(self, 'parts_said', 0) > 60:
@@ -778,6 +782,11 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})
         crops['boss'] = R.prep_text(im, box(0.45, 0.005, 0.62, 0.04), k)
         t = self.ocr.read(crops, names={f'n{i}': 20 for i in range(4)})       # (prep_bright pads 20 px)
+        # no card reads at all: not a Party screen, whatever its top said (8 Nov: Egg Heist's rank screen, its garbled pills
+        # taken for the party)
+        if not any((t.get(f'a{i}') or '').strip() for i in range(len(self.PARTY_CARDS))):
+            log.info(f"Party screen: no player's card reads, not read as a party (pills {[t.get(f'n{i}') for i in range(len(self.PARTY_SLOTS))]!r})")
+            return
         # (Season Buffs' "Lv. 4" and Challenge's "4/4" are too small and short for OCR to read reliably: left out)
         known = self.character_name; members = []
         def yellow(i):                                     # your own name is yellow (the others' white)

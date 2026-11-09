@@ -76,7 +76,7 @@ DEFAULTS = {
         'sim_gate': False,                   # Holo-Battle Sim: press End Holo-Battle Sim at the exit gate, then the above
         'hold_inputs': True,                 # hold keyboard keys/mouse buttons while doing so
         'hold_controller': False,            # also hide the controller (needs HidHide)
-        'egg_fade_hold': False,              # Egg Heist: hold inputs from the fade to black until the end screen is read (experimental)
+        'egg_fade_hold': True,               # Egg Heist: hold inputs from the fade to black until the end screen is read (experimental)
         'hold_seconds': 60,                  # the longest aLogs keeps control, each time
     },
     'leaderboard': {
