@@ -1041,6 +1041,7 @@
     "Sign-in & account", "Install & updates", "Something else"];
   const SEVERITY = [["blocks", "Stops me testing"], ["wrong", "Wrong result"], ["annoying", "Annoying"], ["looks", "Looks off"]];
   let bundledTests = { build: "", items: [] };   // this build's own list
+  let betaDeleted = [];                          // tests the site deleted 30 days after they were retired
   let betaTests = { build: "", items: [] };      // what's shown: the shared list (retired ones only for the owner)
   let betaShared = false;                        // false: the server couldn't be reached, the bundled list is shown
   let betaOwner = false;
@@ -1075,6 +1076,7 @@
       if (!response.ok) throw new Error(String(response.status));
       const body = await response.json();
       betaTests = { build: body.build || bundledTests.build, items: Array.isArray(body.items) ? body.items : [] };
+      betaDeleted = Array.isArray(body.deleted) ? body.deleted : [];
       for (const [id, mine] of Object.entries(body.mine || {})) {
         const state = (beta.tests[id] ??= { tested: false, result: "", note: "" });
         if (!state.sentAt || mine.at > state.sentAt) Object.assign(state, { sent: mine.working ? "working" : "broken", sentAt: mine.at });
@@ -1135,7 +1137,8 @@
     const box = $("[data-beta-owner]");
     box.hidden = !betaOwner;
     if (!betaOwner) return;
-    const listed = new Set(betaTests.items.map((item) => item.id));
+    // (a test deleted 30 days after it was retired isn't "new": the site says which)
+    const listed = new Set([...betaTests.items.map((item) => item.id), ...(betaDeleted || [])]);
     const fresh = bundledTests.items.filter((item) => !listed.has(item.id)).length;
     $("[data-beta-owner-text]").textContent = !betaShared ? "The shared list couldn't be reached, so this is the build's own list."
       : fresh ? `This build (${bundledTests.build}) has ${fresh === 1 ? "1 test" : `${fresh} tests`} the shared list doesn't have yet.`
@@ -1147,7 +1150,7 @@
     button.disabled = true;
     try {
       const result = await ownerCall("", { build: bundledTests.build, items: bundledTests.items });
-      toast(`Published ${bundledTests.build}: ${result.added ?? 0} added, ${result.updated ?? 0} updated.`);
+      toast(`Published ${bundledTests.build}: ${result.added ?? 0} added, ${result.updated ?? 0} updated${result.skipped ? `, ${Array.isArray(result.skipped) ? result.skipped.length : result.skipped} already deleted` : ""}.`);
       await refreshBetaList();
     } catch (error) {
       toast(`Couldn't publish: ${error.message || error}`, true);
@@ -1246,7 +1249,8 @@
       const row = el("li");
       const back = el("button", "link", { type: "button", textContent: "Bring back" });
       back.addEventListener("click", () => void retireTest(item, false));
-      row.append(el("span", "", { textContent: item.title }), back);
+      const gone = item.deletesAt ? ` (deleted ${new Date(item.deletesAt * 1000).toLocaleDateString()})` : "";
+      row.append(el("span", "", { textContent: item.title + gone }), back);
       return row;
     }));
     testsSummary();

@@ -11,7 +11,7 @@
   const PLUGINS = [["core", "Core"], ["dps", "DPS meter"], ["sanctum", "Sanctum Helper"], ["leaderboards", "Leaderboards"]];
   const WORKS_AS = { core: "aLogs works", dps: "the DPS meter works", sanctum: "Sanctum Helper works", leaderboards: "the leaderboards work" };
   const INFO = "Persistent: this setting starts ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you.";
-  let plugin = "core";
+  let plugin = "sanctum";
   let state = {};      // Sanctum Helper's, from its program
   let dev = {};        // the others', from the app
   let rendered = "";

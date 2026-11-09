@@ -1,155 +1,28 @@
 {
-  "build": "0.1.28 RC47",
+  "build": "0.1.37",
   "items": [
     {
-      "id": "under-attack-hp-number",
-      "title": "\"You're being attacked\" only on real hits",
-      "how": "Tab out at full HP in the open world for 10 minutes: no alert. Get hit while tabbed out: the alert shows.",
+      "id": "damage-guide-checks",
+      "title": "Damage Guide checks",
+      "how": "The site's Damage Guide lists what only the game can settle. Do any section below and report your numbers in the notes.",
       "details": [
-        "A hit now has to hold for three readings in a row, and a small drop only counts when another follows within 10 seconds, so a misread HP number in town can't set it off.",
-        "Stand still in a town for 10 minutes tabbed out: no alert. Get hit by a wild Aniimo while tabbed out: the alert shows.",
-        "If it still shows falsely, send a report right after: it now includes a picture of the HP bar as read."
-      ],
-      "plugin": "dps"
-    },
-    {
-      "id": "interlink-3846247",
-      "title": "Interlink after the Whisperwake update",
-      "how": "Run Interlink: the meter's damage and HP labels match Battle Data, BREAK numbers show for the new bosses.",
-      "details": [
-        "The update raised the bosses' HP by about 60% and added Glameep, Sugartini, Jabster, Magmarex, Turbo, Jeburst and Infergon.",
-        "Compare the meter's total with Battle Data at the end of the run.",
-        "The run should reach the leaderboard with its screenshot."
-      ],
-      "plugin": "dps"
-    },
-    {
-      "id": "interlink-20-stars",
-      "title": "Interlink's 20 / 40 / 20 rating",
-      "how": "Run Interlink: the left and right bosses are rated out of 20 stars, the center boss out of 40. A clear is the full rating; ending early with fewer stars isn't one.",
-      "details": [
-        "Since the Whisperwake update: 20 on the left and right bosses, 40 on the center boss (80 a week).",
-        "If you kill the boss, say what the result screen's rating shows (20, 40 or \"Eliminate\").",
-        "From November 18 the middle fight has two bosses: say whether the DPS window follows both."
-      ],
-      "plugin": "leaderboards"
-    },
-    {
-      "id": "interlink-party-screen",
-      "title": "Interlink's Party screen",
-      "how": "Start Interlink and wait on the Party screen a few seconds: the log notes every player's name, who is AI, your title and each lead Aniimo.",
-      "details": [
-        "There's no lobby since the Whisperwake update: the Party screen comes right before the fight.",
-        "With \"No team available. Cannot chat.\" every other slot should be AI; in a real team, say whether the names and AI marks are right.",
-        "On the result screen, the names should match the Party screen's (no misread names on the leaderboard)."
-      ],
-      "plugin": "core"
-    },
-    {
-      "id": "holo-sim-leaderboard",
-      "title": "Holo-Battle Sim to the leaderboard",
-      "how": "Win a Training and a Trial in Holo-Battle Sim: each run shows on the right board with its time, stage and difficulty.",
-      "details": [
-        "aLogs reads the line under \"Victory\" (\"Battle time 00:08:22 Training of Water - Hard\") and sends the time, the stage and the difficulty, with the screen as proof.",
-        "Say if a win didn't show up, or showed on the wrong board (check meter.log for \"Holo-Battle Sim\")."
-      ],
-      "plugin": "leaderboards"
-    },
-    {
-      "id": "alpha-56-60",
-      "title": "Level 56-60 Alpha totals",
-      "how": "Fight a level 56-60 Alpha in the world (e.g. Sugartini, Glameep): the fight total matches the HP the game shows.",
-      "plugin": "dps"
+        "1. Hits to BREAK a pet: in a duel, BREAK a friend's Lv 50 Aniimo using only Fire Kick from a Lv 50 Flameruff with 20 BREAK potential and no BREAK buffs. Target not countered by Fire, no dodge procs. Expect about 19 kicks, roughly 17-19 with crits.",
+        "2. Physical and Magical: hit a target whose P.DEF and M.DEF are far apart with a Physical and a Magical skill of similar Might. Physical should be cut by P.DEF, Magical by M.DEF. Low priority: the game's stat text already says so.",
+        "3. Attack bonus and Damage Amp: use Ignitis's Dark Dash (+40% basic attack damage) with Glacy's Glimmer Shot (+15% Damage Amp). Basic attacks should do x1.61, not x1.55. Report a hit with neither, with each, and with both.",
+        "4. Whole-team buffs: cast Tromber's Zephyr's Breath or Sparkelf's Inspiration, switch in a benched Aniimo, and compare one hit with and without the buff.",
+        "5. ATK by role: a Lv 70 Heal, Support or REGEN Aniimo with ATK well under 600 should hit for about (420 + 0.3 x ATK - DEF) x Might / 10. Report its ATK, the skill's Might and the target's DEF.",
+        "6. Level gap: hit the same kind of target at your level and one about 10 levels above with the same skill. The ratio (0.7, 0.5 or 0.9) shows which column applies. Report your level, the target's and both hits."
+      ]
     },
     {
       "id": "world-boss-clock",
       "title": "World boss clock and result",
-      "how": "Fight a world boss: the clock starts at the first hit, ends at the kill sound, and the final numbers stay on screen.",
-      "plugin": "dps"
+      "how": "Fight a world boss: the clock starts at the first hit, ends at the kill sound, and the final numbers stay on screen."
     },
     {
-      "id": "glyph-readers",
-      "title": "Screen readers after the patch",
-      "how": "Check the Interlink xN counter, the short names on the game menu and Egg Heist Rank Info still read right.",
-      "plugin": "core"
-    },
-    {
-      "id": "egg-heist-leaderboard",
-      "title": "Egg Heist to the leaderboard",
-      "how": "Play an Egg Heist match: it reaches the leaderboard and the rank screen updates your season standing.",
-      "plugin": "leaderboards"
-    },
-    {
-      "id": "signin-window",
-      "title": "Sign in inside aLogs",
-      "how": "Sidebar Discord button: Discord opens in an aLogs window, approve and you're signed in; closing it cancels.",
-      "details": [
-        "Also try it from the setup guide (General Settings › Open the setup guide).",
-        "Closing the window should bring the Sign in button back straight away."
-      ],
-      "plugin": "core"
-    },
-    {
-      "id": "capture-button-row",
-      "title": "The button over the game follows the game's icons",
-      "how": "It sits left of Chat at the icons' size, and hides in menus, loading screens and the map, even when dragged.",
-      "plugin": "core"
-    },
-    {
-      "id": "sanctum-3846247",
-      "title": "Sanctum Helper on the new layouts",
-      "how": "Run Egg Heist on any layout (ideally 31, 33, 38, 61 or 62): the map shows. A run with the new boss room doesn't break it.",
-      "plugin": "sanctum"
-    },
-    {
-      "id": "profile-link-4k",
-      "title": "Profile link at 4K",
-      "how": "Link your character from the Profile screen at 4K: it's accepted, and your online status shows.",
-      "plugin": "leaderboards"
-    },
-    {
-      "id": "photos-auto",
-      "title": "New photos upload by themselves",
-      "how": "With \"Upload new photos automatically\" on, take a photo in game: it's on your profile within a few seconds.",
-      "plugin": "core"
-    },
-    {
-      "id": "patch-notes-beta",
-      "title": "Patch notes on the beta",
-      "how": "About, Patch notes: shows \"0.1.28 beta (installed; these notes grow until it's released)\" with its notes on top.",
-      "plugin": "core"
-    },
-    {
-      "id": "plugins-on-their-own",
-      "plugin": "core",
-      "title": "Each plug-in on its own switch",
-      "how": "Turn the DPS meter off in the sidebar: Sanctum Helper keeps running and leaderboard sending keeps working.",
-      "details": [
-        "With the DPS meter off and sending on, run Interlink: nothing of the meter shows, the run still reaches the leaderboard.",
-        "Turn Sanctum Helper off and on alone: the DPS meter is untouched.",
-        "Under each plug-in in the sidebar, a short line shows only when it needs a look (e.g. Not signed in)."
-      ]
-    },
-    {
-      "id": "button-plugins",
-      "plugin": "core",
-      "title": "The button turns the plug-ins off and back on",
-      "how": "Press the button over the game: \"aLogs off\" shows and every plug-in it controls goes off. Press again: the same ones come back.",
-      "details": [
-        "General Settings › The button over the game: untick one plug-in, press the button: that one is left alone.",
-        "Turn the notice off in General Settings › Notifications: the button no longer shows it.",
-        "Leaderboard sending never comes on from the button unless it was on before."
-      ]
-    },
-    {
-      "id": "notices-owned",
-      "plugin": "core",
-      "title": "Notices with the DPS meter off",
-      "how": "DPS meter off, sending on: a run sent still shows its notice; Sanctum Helper's notices still show.",
-      "details": [
-        "Your notice spot and motion from before this build are kept (General Settings › Notifications).",
-        "Turn off \"Tell me when a record is sent\" (Leaderboards › Sending): only those stop."
-      ]
+      "id": "windows-11-tabout",
+      "title": "Windows 11: tabbed-out boss bar",
+      "how": "On Windows 11 only: tab out during a boss fight; say whether the boss bar keeps being read (the log notes what it sees)."
     }
   ]
 }
