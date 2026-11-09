@@ -374,7 +374,7 @@ fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Re
     let live = |v: Option<&Value>| {
         let mut v = v.cloned().unwrap_or(Value::Null);
         if let Some(o) = v.as_object_mut() {
-            for k in ["dps_locked", "dps_reset", "world_position", "rush_position"] {
+            for k in ["dps_locked", "dps_example", "dps_reset", "world_position", "rush_position"] {
                 o.remove(k);
             }
         }

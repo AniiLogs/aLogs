@@ -6,6 +6,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 ## 0.1.36
 
 ### New
+- **Show an example of the DPS window:** DPS Meter › Overlay can now show it with made-up numbers, so you can place it without a fight.
 - **Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn
   on and off independently, and none needs another. With the DPS meter off, your records are still read and sent
   (nothing of the meter shows over the game), and Sanctum Helper keeps running.
@@ -47,6 +48,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Fixed
 - **Result pictures are of the game itself:** the pictures sent with a run on Windows 10 are copies of the game window, without anything on top of it.
+- **Dragging the DPS window no longer makes it disappear:** it could jump off screen and stay there. The HP labels had the same
+  problem. A spot saved off screen is forgotten, so the window comes back.
 - **Sanctum Helper's maps stay up in Egg Heist:** it could fail to recognise an Egg Heist run after Interlink or Holo-Battle Sim,
   and its own "Escape Condition" panel could make it hide the maps.
 - **Egg Heist results are read properly:** Loot This Match and Total Defeats are read by the game's own digits and only sent once
