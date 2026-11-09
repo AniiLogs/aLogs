@@ -802,10 +802,13 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             # (yellow from (224,192,80) to (240,224,128) by scene; the yellowish 1P badge alone is ~1% of a pill, a name 3.5-5%)
             return sum(1 for r, g, b in px if r >= 0xc8 and g >= 0xa8 and r - b >= 0x50) > 0.025 * len(px)
         for i in range(4):
+            card = t.get(f'a{i}') or ''
+            # Egg Heist's empty spots have no card, and their '+' and sparks read as odd names (9 Nov: 'Jm38' was sent as the party)
+            if self.egg_party and not card.strip(): continue
             got = party_pill(t.get(f'n{i}') or '', i)
+            if not got and self.egg_party and known and i < len(self.PARTY_SLOTS) and yellow(i): got = (i, known)   # your own pill
             if not got: continue
             slot, name = got
-            card = t.get(f'a{i}') or ''
             pet = re.match(r"\s*([A-Za-z][A-Za-z' -]{1,24}?)\s*(?:/|$)", card)
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
             mine = bool(known and same_name(known, name)) or (not known and yellow(i))

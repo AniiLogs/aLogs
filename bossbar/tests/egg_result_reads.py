@@ -8,7 +8,7 @@ Meter.egg_result (8 Nov: Loot 40939 went as 4, Total Defeats blank, and one matc
 - later reads of the same screen, even with another number, make no second record;
 - a screen that leaves early sends what agreed, with the rest blank;
 - a screen that never agrees goes after EGG_MAX_READS, with the rest blank;
-- the rank screen's picture goes with the match, which waits for it; inputs are held while they're read;
+- the match goes at once, and the rank screen's picture updates it; inputs are held while they're read;
 - without the game's font the OCR read is used, still two alike, and only when all of it is a number.
 Meter.party_screen: a card that reads blank doesn't stop the read (INTERLINK_NPCS reaches live.py).
 Meter.party_layout, egg_send: Egg Heist's Party screen by its own layout; the party goes with its match, once.
@@ -40,7 +40,7 @@ class Sub:
     def __init__(self): self.sent = []
     def enqueue(self, payload, shot, battle=None, party=None): self.sent.append(payload); self.files = getattr(self, 'files', []) + [(shot, battle, party)]
 def meter(reader=True):
-    m = Meter.__new__(Meter); m.ocr = Ocr(); m.submitter = Sub(); m.uid = '1'; m.egg_season = 'S1'; m.reader = Reader(); m.args = type('A', (), {'replay': None, 'cfg': {}})()
+    m = Meter.__new__(Meter); m.ocr = Ocr(); m.submitter = Sub(); m.uid = '1'; m.egg_season = 'S1'; m.reader = Reader(); m.args = type('A', (), {'replay': None, 'cfg': {}})(); m.hold = type('H', (), {'stops': 0, 'start': lambda self, x: None, 'stop': lambda self: setattr(self, 'stops', self.stops + 1)})()
     m.name_reader = lambda: m.reader if reader else None
     m.picture = lambda *a, **k: None; m.egg_hold_end = lambda why: m.__dict__.setdefault('holds', []).append(why); m.screen_settled = lambda *a: None; m.out = lambda *a: None
     m.t = 1000.0
@@ -49,12 +49,11 @@ def show(m, title='Adventure Successful', times=1):
     for _ in range(times):
         m.t += 2; m.egg_result(IM, m.t, U, 0, H, title)
 def sent(m):
-    if m.egg_pending: m.egg_flush()
     return [(p['score'], p['defeats'], p['clearTimeS'], p['cleared']) for p in m.submitter.sent]
 
 m = meter(); show(m); check('one read: nothing goes', sent(m), [])
 show(m); check('two alike: it goes', sent(m), [(1234, 1, 132, True)])
-check('...the input hold ends then', len(m.holds), 1)
+check('...the input hold ends then', m.hold.stops, 1)
 m.reader.loot = 9999; show(m, times=3); check('later reads make no second record', len(sent(m)), 1)
 
 m = meter(); show(m, 'Adventure'); show(m); check('a title cut short is not an outcome', sent(m), [])
@@ -130,22 +129,33 @@ crops3 = {f'n{i}': IM for i in range(3)}
 p.party_names = lambda *a: crops3
 p.party_screen(IM, 1000.0, U, 0, H)
 check("three pills: it's read, no fourth asked for", [m_['name'] for m_ in seen.get('members', [])], ['Moonpetal', 'Bravo'])
+p.ocr = type('O', (), {'read': lambda s, c, names=None: {'n0': '1P Moonpetal', 'a0': 'Budling / Lv.60 CP:1000', 'n1': '', 'a1': '', 'n2': 'Xq38', 'a2': ''}})(); p.party_seen = 0; seen.clear()
+p.party_screen(IM, 2000.0, U, 0, H)
+check("an empty spot's specks aren't a player", [m_['name'] for m_ in seen.get('members', [])], ['Moonpetal'])
 rank = {'h': 'Party', 'ph': 'Operation: Egg Heist Team Mode', 'ep': '1464/1530'}
 check('the rank screen over it is the rank screen', Meter.screen_spotted(rank), 'Egg Heist')
 q = Meter.__new__(Meter); q.fight = None
 check('...not the Party screen', q.party_up(rank, 100.0), False)
 check('the Party screen by its top line', q.party_up({'h': '', 'ph': 'Operation: Egg Heist Team Mode'}, 100.0), True)
 
-# -- the match waits for the rank screen, whose picture goes with it; inputs held while they're read -------------------------
-m = meter(); show(m, times=2)
-check('read: it waits for its rank screen', m.submitter.sent, [])
-m.picture = lambda im, folder, name, proof=False, fresh=True: os.path.join(live.HERE, 'logs', 'screens', name + '.jpg')
+# -- the match goes at once; the rank screen updates it --------------------------------------------------------------------------
+import shutil
+folder = os.path.join(live.HERE, 'logs', 'screens'); os.makedirs(folder, exist_ok=True)
+def real_picture(im, where, name, proof=False, fresh=True):
+    path = os.path.join(folder, name + '.jpg'); open(path, 'wb').write(b'x'); return path
+m = meter(); m.picture = real_picture; show(m, times=2)
+check('read: it goes at once', len(m.submitter.sent), 1)
+first = m.submitter.sent[0]['clientRunId']; kept = m.egg_pending['shot']
+check('a copy waits for the rank screen', os.path.exists(os.path.join(live.HERE, kept)), True)
 m.egg_rank_seen(IM, m.t + 5)
-check('the rank screen sends it', len(m.submitter.sent), 1)
-check('...with both pictures', [os.path.basename(x).split('_')[1] for x in m.submitter.files[0][1:2]], ['rank'])
-check('...and lets go of inputs', m.holds[-1], 'rank screen read')
-m = meter(); show(m, times=2); m.egg_gone(m.t + 10); check('not long after: still waiting', m.submitter.sent, [])
-m.egg_gone(m.t + Meter.EGG_RANK_WAIT_S + 1); check('no rank screen came: it goes', len(m.submitter.sent), 1)
+check('the rank screen updates the same record', [p['clientRunId'] for p in m.submitter.sent], [first, first])
+check('...with its picture', 'egg_rank' in m.submitter.files[1][1], True)
+check('...and the end screen again', m.submitter.files[1][0], kept)
+m = meter(); m.picture = real_picture; show(m, times=2); kept = m.egg_pending['shot']
+m.egg_gone(m.t + 10); check('not long after: still waiting', bool(m.egg_pending), True)
+m.egg_gone(m.t + Meter.EGG_RANK_WAIT_S + 1)
+check('no rank screen came: nothing more sent', len(m.submitter.sent), 1)
+check('...and the copy is gone', os.path.exists(os.path.join(live.HERE, kept)), False)
 class Hold:
     started = 0
     def start(self, s): Hold.started += 1
@@ -176,7 +186,7 @@ m.result_sent({'clientRunId': 'a'}); check('...once', m.hold.stops, 1)
 m = sender(automation=False); m.send_result({'clientRunId': 'a'}, None); check('no automation: never held', m.hold.seconds, [])
 check('...but still sent', len(m.submitter.sent), 1)
 m = sender(hold=False); m.send_result({'clientRunId': 'a'}, None); check('holding switched off: never held', m.hold.seconds, [])
-m = sender(); m.egg_pending = {'payload': {'clientRunId': 'e'}, 'shot': None, 'party': None}; m.egg_flush('rank.jpg')
+m = sender(); m.egg_pending = {'payload': {'clientRunId': 'e'}, 'shot': None, 'party': None}; m.egg_update('rank.jpg')
 check('a match too', (m.hold.seconds, m.submitter.files[0][1]), ([10], 'rank.jpg'))
 
 if fails:
