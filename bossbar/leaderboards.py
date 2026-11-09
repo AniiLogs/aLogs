@@ -124,6 +124,25 @@ class LeaderboardsMixin:
         except Exception as e:
             log.info(f'egg fade frame not saved: {e!r}')
 
+    # Any mode's captured result goes through send_result: inputs stay held until it's sent and its notice is up, so a press can't
+    # skip past anything meanwhile (the owner, 8 Nov: the default for every mode, present and future). SEND_HOLD_S is the failsafe.
+    SEND_HOLD_S = 10
+    send_waiting = None
+
+    def send_result(self, payload, evidence, **files):
+        self.submitter.enqueue(payload, evidence, **files)
+        r = self.args.cfg.get('results') or {}
+        if self.args.replay is not None or not C.automation(self.args.cfg) or not r.get('hold_inputs', True): return
+        if self.hwnd and not wc.is_foreground(self.hwnd): return
+        self.send_waiting = payload.get('clientRunId')
+        self.hold.start(self.SEND_HOLD_S)
+        log.info(f'holding inputs until this is sent (at most {self.SEND_HOLD_S} s)')
+
+    def result_sent(self, payload):
+        """From the sender, once a result is sent: its notice is going up, so inputs come back."""
+        if self.send_waiting and payload.get('clientRunId') == self.send_waiting:
+            self.send_waiting = None; self.hold.stop()
+
     def egg_hold_end(self, why):
         if not getattr(self, 'egg_hold', None): return
         self.egg_hold = None; self.hold.stop()
@@ -146,7 +165,7 @@ class LeaderboardsMixin:
             w.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), self.uid, sim['trial'], sim['difficulty'], sim['time_s'],
                         os.path.relpath(shot, HERE) if shot else ''])
         if self.submitter and self.uid:
-            self.submitter.enqueue(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None, gizmos=shots)
+            self.send_result(S.sim_payload(sim, self.uid), os.path.relpath(shot, HERE) if shot else None, gizmos=shots)
         self.screen_settled('sim_result', time.time())
         self.out('status', f"Holo-Battle Sim recorded: {sim['trial']} - {sim['difficulty']} in {sim['time_s']} s"
                  + (f" ({note})" if note else ''))
@@ -501,7 +520,7 @@ class LeaderboardsMixin:
         if s.get('sent'): return
         s['sent'] = True
         S.write_json(path, s, indent=1, ensure_ascii=False)
-        self.submitter.enqueue(S.run_payload(s, self.uid), (s.get('result') or {}).get('screenshot'),
+        self.send_result(S.run_payload(s, self.uid), (s.get('result') or {}).get('screenshot'),
                                battle=(s.get('battle_data') or {}).get('screenshot'), party=s.get('party_screenshot'))
 
     def sent_notice(self, payload, reply):

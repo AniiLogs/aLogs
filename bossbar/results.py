@@ -785,7 +785,7 @@ class ResultsMixin:
         """The match waiting for its rank screen goes: the end screen, the Party screen and the rank screen, one record."""
         pending, self.egg_pending = self.egg_pending, None
         if pending and self.submitter:
-            self.submitter.enqueue(pending['payload'], pending['shot'], battle=rank_shot, party=pending['party'])
+            self.send_result(pending['payload'], pending['shot'], battle=rank_shot, party=pending['party'])
 
     def egg_screen_hold(self, spotted, heads, now):
         """Inputs held while an Egg Heist end screen, or the rank screen after it, is being read, so a press can't skip past it.
@@ -925,8 +925,9 @@ class ResultsMixin:
         self.egg_rank_read_at = now
         if self.egg_pending:
             shot = self.picture(im, 'screens', 'egg_rank_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
+            self.egg_hold_end('rank screen read')
             self.egg_flush(os.path.relpath(shot, HERE) if shot else None)
-        self.egg_hold_end('rank screen read')
+        else: self.egg_hold_end('rank screen read')
 
     def egg_emperor_count(self, im, now, u, ux, H, count_text):
         """The same post-match screen at Egg Emperor, the top rank: no points bar, just the eggs collected ("x57"),
@@ -1128,7 +1129,7 @@ class ResultsMixin:
             party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False)
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
                                                'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
-                                 **({'party': party} if party else {}),
+                                 **({'party': party} if party else {, 'screen_check': self.result_check}),
                                  **({'team': self.party.get('team'), 'teams': self.party.get('teams'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)

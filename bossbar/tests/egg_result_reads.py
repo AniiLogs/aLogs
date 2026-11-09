@@ -159,6 +159,26 @@ m.egg_hold = None; m.egg_sent_at = 0
 m.egg_screen_hold('Egg Heist', {'ep': '18/18'}, 9000.0); check('a rank-looking number with no match before: not held', Hold.started, 2)
 m.egg_screen_hold('party', {}, 9000.0); check('other screens: not held', Hold.started, 2)
 
+# -- any captured result: inputs held until it's sent, then back; a 10 s failsafe -----------------------------------------------
+class Holder:
+    def __init__(self): self.seconds = []; self.stops = 0
+    def start(self, s): self.seconds.append(s)
+    def stop(self): self.stops += 1
+def sender(automation=True, hold=True):
+    m = meter(); m.hold = Holder(); m.hwnd = None; m.submitter = Sub()
+    m.args = type('A', (), {'replay': None, 'cfg': {'leaderboard': {'submit': True, 'automation': automation}, 'results': {'hold_inputs': hold}}})()
+    return m
+m = sender(); m.send_result({'clientRunId': 'a'}, None)
+check('held for the failsafe', m.hold.seconds, [10])
+m.result_sent({'clientRunId': 'other'}); check("another record's sending doesn't let go", m.hold.stops, 0)
+m.result_sent({'clientRunId': 'a'}); check('sent: inputs back', m.hold.stops, 1)
+m.result_sent({'clientRunId': 'a'}); check('...once', m.hold.stops, 1)
+m = sender(automation=False); m.send_result({'clientRunId': 'a'}, None); check('no automation: never held', m.hold.seconds, [])
+check('...but still sent', len(m.submitter.sent), 1)
+m = sender(hold=False); m.send_result({'clientRunId': 'a'}, None); check('holding switched off: never held', m.hold.seconds, [])
+m = sender(); m.egg_pending = {'payload': {'clientRunId': 'e'}, 'shot': None, 'party': None}; m.egg_flush('rank.jpg')
+check('a match too', (m.hold.seconds, m.submitter.files[0][1]), ([10], 'rank.jpg'))
+
 if fails:
     print('\n'.join(fails)); sys.exit(1)
 print('egg result reads: ok')
