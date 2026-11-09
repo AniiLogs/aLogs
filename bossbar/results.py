@@ -1128,8 +1128,8 @@ class ResultsMixin:
         if f and party and self.party.get('picture') is not None:   # the Party screen this run started from
             party_shot = self.picture(self.party['picture'], 'screens', 'party_' + time.strftime('%Y%m%d_%H%M%S'), proof=True, fresh=False)
         if f: self.fight_summary(f[0], result={'new_best': 'best' in banner.lower(), 'rating_stars': rating, 'score': score,
-                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
-                                 **({'party': party} if party else {, 'screen_check': self.result_check}),
+                                               'time_s': secs, 'cleared': cleared, 'star_cap': full, 'players': players, 'screen_check': self.result_check, 'ended_by_leader': ended_by_leader, 'screenshot': os.path.relpath(shot, HERE) if shot else None},
+                                 **({'party': party} if party else {}),
                                  **({'team': self.party.get('team'), 'teams': self.party.get('teams'), 'buffs': self.party.get('buffs')} if party else {}),
                                  **({'party_screenshot': os.path.relpath(party_shot, HERE)} if party_shot else {}))
         if 'best' in banner.lower() and score is not None and f: self.record_score(im, 'new_best', boss, score, rating)
