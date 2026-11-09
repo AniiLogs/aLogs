@@ -470,17 +470,18 @@ SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest);
 SAMPLE_GAP = 600           # seconds between two samples of one kind (one a run, not one a read)
 _sample_at = {}
 
-def keep_sample(im, kind):
+def keep_sample(im, kind, gap=None, kept=None):
     """A few full-size pictures of the screens the readers depend on (the Party screen, an Interlink fight's HUD),
     kept on this PC so a changed screen can be checked against real pictures later: the newest SAMPLES_KEPT of each
     kind, as PNG at the game's own size. Never sent anywhere."""
     now = time.time()
-    if now - _sample_at.get(kind, 0) < SAMPLE_GAP: return
+    if now - _sample_at.get(kind, 0) < (SAMPLE_GAP if gap is None else gap): return
     _sample_at[kind] = now
     try:
         d = os.path.join(HERE, 'logs', 'samples'); os.makedirs(d, exist_ok=True)
-        im.convert('RGB').save(os.path.join(d, f"{kind}_{time.strftime('%Y%m%d_%H%M%S')}.png"))
-        for old in sorted(n for n in os.listdir(d) if n.startswith(kind + '_'))[:-SAMPLES_KEPT]: os.remove(os.path.join(d, old))
+        # (a short gap is a run of pictures while something's played: JPEGs, which save far quicker than PNGs)
+        im.convert('RGB').save(os.path.join(d, f"{kind}_{time.strftime('%Y%m%d_%H%M%S')}." + ('png' if gap is None else 'jpg')), **({} if gap is None else {'quality': 92}))
+        for old in sorted(n for n in os.listdir(d) if n.startswith(kind + '_'))[:-(kept or SAMPLES_KEPT)]: os.remove(os.path.join(d, old))
     except OSError as e: log.info(f'sample picture not kept: {e!r}')
 
 def last_rush_level():
