@@ -7,47 +7,49 @@ window.PATCH_NOTES = [
    {
     "heading": "New",
     "items": [
-     "**Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn on and off independently, and none needs another. With the DPS meter off, your records are still read and sent (nothing of the meter shows over the game), and Sanctum Helper keeps running.",
-     "**The button over the game turns everything off, and back on:** one press turns off every part it controls; the next turns back on the ones that were on (sending to the leaderboards only if it was on before). Pick which parts it controls in General Settings › The button over the game. A notice says \"aLogs off\" or \"aLogs on\" with what it switched; turn it off in General Settings › Notifications.",
+     "**Each part of aLogs runs on its own switch:** the DPS meter, Sanctum Helper and sending to the leaderboards turn on and off separately, and none needs another. With the DPS meter off, your records are still sent and Sanctum Helper keeps running.",
+     "**The button over the game turns everything off, and back on:** one press turns off the parts it controls, the next brings back the ones that were on. Pick those parts in General Settings › The button over the game.",
      "**A status line in the sidebar** under a part that needs a look: not signed in to the leaderboards, Sanctum Helper needing .NET 9, or a part stopped after errors.",
-     "**Windows 10: capture only the game window:** a new switch in General Settings keeps other programs' overlays (Discord, Steam, notifications, windows on top) out of what aLogs reads and out of your proof pictures. Windows then draws a yellow border round the game, only while aLogs is capturing. About explains both ways."
+     "**Egg Heist runs have their party:** who played, their lead Aniimo and their team are read from the Party screen and sent with each match.",
+     "**Egg Heist's rank screen is read and sent after a match,** on keyboard or controller, with the points that match gained or lost.",
+     "**aLogs can press Next on Egg Heist's end screen:** with Leaderboards › Automation on, it moves on to the rank screen once the end screen is read. Turn just this off under Sanctum Helper › Egg Heist on the leaderboards.",
+     "**Inputs are held until a run is sent:** with Leaderboards › Automation on, your presses are ignored while a result is read and sent, so nothing gets skipped. The notice shows, then they come back, after 10 seconds at most.",
+     "**Show an example of the DPS window:** DPS Meter › Overlay can show it with made-up numbers, so you can place it without a fight.",
+     "**Windows 10: capture only the game window:** a new switch in General Settings keeps other programs' overlays out of what aLogs reads and out of your proof pictures. Windows then draws a yellow border round the game while aLogs is capturing. About explains both ways.",
+     "**A heads-up about Discord's overlay:** Discord draws it inside the game's own picture, so it ends up in proof pictures. aLogs says so once, with where to turn it off."
     ]
    },
    {
     "heading": "Improved",
     "items": [
-     "**Checking for updates copes with GitHub hiccups:** it tries again when a download server is having trouble, and an update it found still shows if its download fails.",
-     "**Teams and buffs on the Party screen read faster:** a read takes under half the time it did, and much less when the screen hasn't changed, with the same answers.",
-     "**A menu best the site already has isn't sent again:** before sending the best score shown on the battle prep screen, aLogs checks the site's board; if your row there already has that score (from a run you or a teammate sent), nothing goes up.",
-     "**An unchanged Egg Heist rank isn't sent again:** opening Rank Info with the same rank, rank points and stars the site already has sends nothing, even after aLogs restarts.",
-     "**Notices belong to their part:** each shows only while the part it comes from is on, and they all show with the DPS meter off. \"Tell me when a record is sent\" moved to Leaderboards › Sending; where notices show stays in General Settings › Notifications, and your spot is kept.",
-     "**A problem in one part no longer stops the others:** if sending to the leaderboards or the DPS window keeps failing, only that part stops and the sidebar says so; turn it off and on to try again.",
-     "**Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed.",
-     "**Battle Data opens sooner after an Interlink result:** View Battle Data is clicked as soon as the result screen has been read (often within a second), instead of about 4 seconds in, and no longer waits on a fresh picture of the game (when that stalled, the click came late or not at all). The game picture no longer drops out for several seconds right after the result screen shows, which held the click up by 7 to 27 s. On a busy graphics card, aLogs no longer waits for it while holding the picture back: the meter always has the newest finished picture to read.",
-     "**A run is sent as soon as both pictures are taken:** the result screen, then Battle Data; once every card is read, the run goes at once and aLogs lets go of your inputs, instead of holding on for 5 more seconds. The Battle Data picture is always the screen that was read (one run's was a loading screen when the game moved on first). The numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent."
+     "**Result, Party, menu and Battle Data screens are read from the game window itself on Windows 10,** so nothing on top of the game gets into what's read or sent. Windows shows its yellow border for a moment while one of these screens is up, even with the switch above off.",
+     "**Runs are sent sooner:** a run goes as soon as its pictures are taken and its numbers are read, and your inputs come back right after.",
+     "**Battle Data opens sooner:** View Battle Data is clicked as soon as the result screen is read, and moving your mouse no longer pulls the click off the button.",
+     "**Party screen reads take under half the time,** with the same answers.",
+     "**Scores the site already has aren't sent again:** this covers a menu best on your board row and an unchanged Egg Heist rank.",
+     "**Checking for updates copes with GitHub hiccups:** it tries again when a download server has trouble, and an update it found still shows if its download fails.",
+     "**The updating window** shows the animated aLogs icon and says which beta it's installing.",
+     "**Notices belong to their part:** each shows only while its part is on. \"Tell me when a record is sent\" moved to Leaderboards › Sending.",
+     "**A problem in one part no longer stops the others:** only that part stops and the sidebar says so. Turn it off and on to try again.",
+     "**Lighter with only sending on:** with the DPS meter off, bosses out in the world aren't followed."
     ]
    },
    {
     "heading": "Fixed",
     "items": [
-     "**General Settings no longer has a second scrollbar:** it left empty space at the bottom of the window.",
-     "**Battle Data numbers are read far more strictly:** each one comes from its own place on its own card, by the game's own digits, once the cards have stopped moving, and only goes out after being read the same way twice. Anything less stays blank. A first read could put one player's Damage Taken and Heal on another's card until a later read corrected it.",
-     "**Teammates' names are sent as the result screen reads them:** those are the clearer read, and a name misread on the Party screen could replace a right one and add a wrong player to the leaderboards.",
-     "**Party cards keep their lead Aniimo and your own name:** a card could go up with no lead Aniimo, and yours with a misread of your name.",
-     "**The Party screen is read right up to the fight:** teams changed or an offering chosen late could be missed when the screen's title was hard to read.",
-     "**Special Offerings like Resurgence are read:** some were never recognized, so the run went in without its offering. aLogs rebuilds its icons once when it first opens after this update.",
-     "**A Party screen is no longer missed when its title reads oddly:** the title could be read with a stray space, and that run then had no teams or buffs. The Profile screen had the same problem.",
-     "**The updating window shows the animated aLogs icon,** not a still picture (the app's security settings kept the animation from loading).",
-     "**Everyone's team on the Party screen** is read far more often: each player's three other Aniimo are found by their skill icons and compared the way the game draws them, faded into the card, so a card sitting a little off (or higher, once everyone is ready) no longer hides them, and look-alikes (Luminelle and Iris) aren't mixed up. On 26 recent Party screens, 299 of 312 were read, up from about half. Each run now sends its own teams: the newest read of each card counts, so a run no longer goes out with the previous run's teams or with only one or two of them.",
-     "**The Special Offering and Season Buffs** are read wherever the game draws the panel (it sits a little higher or lower on some screens), and a later read that misses one no longer drops it.",
-     "**Sanctum Helper's map no longer shows in a Pathfinder challenge:** the game loads a challenge like an Egg Heist island, so the island map came up over it. A challenge's \"Victory Conditions\" panel now tells them apart.",
-     "**The DPS meter no longer starts on the Party screen:** a player's title banner there could pass for a boss bar and open a fight before the run began.",
-     "**Opening Battle Data automatically is faster and sure:** aLogs clicks as soon as the result screen is read (1-4 s, not always 5), and moving your mouse meanwhile no longer pulls the click off the button.",
-     "**\"Run sent\" notices come sooner:** a run goes to the leaderboards a few seconds after its Battle Data is read, not only once you leave the screens.",
-     "**Every player stays in the run's party:** one Party screen read that missed a name (as the screen fades into the fight) no longer drops that player from the run.",
-     "**Teams are read on the first run after an update:** the game's icons load when aLogs starts, not at the Party screen, where rebuilding them could take until the fight had begun.",
-     "**A heads-up when Discord's overlay is in the game:** Discord draws its overlay inside the game's own picture, so its voice widget (names and avatars) ended up in proof pictures. aLogs now says so once, with where to turn it off.",
-     "**The updating window** shows the aLogs icon as its own loader (its HP and break bars fill while the update installs) and says which beta it's installing (0.1.36 B4, not just 0.1.36). Its icon no longer goes missing."
+     "**Teams on the Party screen** are read far more often, look-alike Aniimo aren't mixed up, and each run sends its own teams instead of the previous run's.",
+     "**Special Offerings and Season Buffs** are read wherever the game draws the panel, including offerings like Resurgence, a change made late, and someone else's party. Your own lobby's Season Buffs no longer go with their run.",
+     "**Party screens aren't missed or cut short:** one is read right up to the fight, even when its title reads oddly. A name missed on one read no longer drops that player, and lead Aniimo and your own name stay on their cards.",
+     "**Battle Data numbers are read far more strictly:** each comes from its own spot on its own card once the cards stop moving, and only goes out after two reads agree. One player's numbers can no longer land on another's card.",
+     "**Result pictures are the screen that was read,** never a loading screen the game had moved on to.",
+     "**Names go to the leaderboards correctly:** a misread on the Party screen can't replace a clearer read from the result screen, a Korean name read from your menu or Profile stays Korean, and AI teammates the game renames stay marked as AI.",
+     "**Egg Heist results are read properly:** Loot This Match and Total Defeats are sent once two reads agree, a match can't be sent twice, and leaving the rank screen quickly doesn't lose your rank.",
+     "**Sanctum Helper's maps in Egg Heist:** they stay up after Interlink or Holo-Battle Sim and with the \"Escape Condition\" panel showing, and they go away after you leave. They no longer show in a Pathfinder challenge.",
+     "**Sanctum Helper keeps your spot on the map screen:** backing out of the map (M, or Select on a controller) carries on from where you were.",
+     "**The DPS meter no longer starts on the Party screen:** a player's title banner there could pass for a boss bar.",
+     "**HP labels stay put:** a boss bar read short could put a label over its right end, and then labels disappeared or the HP % froze.",
+     "**Dragging the DPS window or an HP label no longer loses it off screen,** and a spot saved off screen is forgotten so the window comes back.",
+     "**General Settings no longer has a second scrollbar.**"
     ]
    }
   ]
