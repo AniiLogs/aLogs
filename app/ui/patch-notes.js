@@ -7,7 +7,7 @@ window.PATCH_NOTES = [
    {
     "heading": "New",
     "items": [
-     "**Sanctum Helper has a Dev tab (betas only):** proposed changes to its speed, smoothness, accuracy and memory, each with its own switch, sorted by risk, so each can be tested alone. All are off at every start and aren't saved. With all off, it works as in 0.1.36."
+     "**Sanctum Helper has a Dev tab (betas only):** proposed changes to its speed, smoothness, accuracy and memory, each with its own switch, sorted by risk, so each can be tested alone. All are off at every start unless you Keep one, which starts it on through restarts and updates until you stop keeping it or the developer forces it off. Only Keep one you've tested and decided is no risk for you. With all off, it works as in 0.1.36."
     ]
    },
    {

@@ -342,22 +342,44 @@
   }
 
   // Beta only: proposed changes, each its own switch, to test one at a time. Sanctum Helper holds them in memory and starts with
-  // all off: nothing here is saved, on purpose, since a build can change what a switch does.
+  // all off, on purpose, since a build can change what a switch does. The exception is one the player chose to keep.
+  let devAsking = null;   // the switch whose Keep warning is showing
+  function devKeepCell(o, kept) {
+    const box = el("input", { type: "checkbox", disabled: Boolean(o.forcedOff), title: "Keep on at every start" });
+    box.checked = kept;
+    box.addEventListener("change", () => {
+      if (box.checked) { box.checked = false; devAsking = o.id; draw(true); return; }   // asks first
+      void command("dev-keep", { id: o.id, keep: false });
+    });
+    return el("label", { style: "display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;font-size:12px" }, box, "Keep");
+  }
+  function devKeepWarning(o) {
+    if (devAsking !== o.id) return null;
+    return el("div", { class: "notice", style: "grid-column:1 / -1;margin-top:6px" },
+      el("p", { textContent: "This switch will start ON instead of off at every restart and through updates, unless the developer forces it off. Don't check this unless you've tested this setting and decided it's no risk for you." }),
+      el("button", { type: "button", class: "primary", textContent: "Keep it on", onclick: () => { devAsking = null; void command("dev-keep", { id: o.id, keep: true }); draw(true); } }),
+      " ",
+      el("button", { type: "button", textContent: "Cancel", onclick: () => { devAsking = null; draw(true); } }));
+  }
   function devTab() {
     const options = info().dev || [];
     if (!state.running) return [el("p", { class: "hint" }, "The Dev tab needs Sanctum Helper running.")];
     if (!options.length) return [el("p", { class: "hint" }, "Loading the switches…")];
     const on = new Set(status().devOn || []);
     const sections = [...new Set(options.map((o) => o.section))];
-    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, and never saved. ${on.size} on now. With all off, Sanctum Helper works as in 0.1.36.`)];
+    const kept = new Set(status().devKept || []);
+    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you Keep. ${on.size} on now, ${kept.size} kept. With all off, Sanctum Helper works as in 0.1.36. Don't check Keep on a switch unless you've tested it and decided it's no risk for you.`)];
     for (const section of sections) {
       nodes.push(el("div", { class: "group" }, el("h2", { textContent: section }), ...options.filter((o) => o.section === section).map((o) => {
-        const box = el("input", { type: "checkbox" });
+        const box = el("input", { type: "checkbox", disabled: Boolean(o.forcedOff) });
         box.checked = on.has(o.id);
         box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
-        return el("label", { class: "toggle" }, box, el("span"), el("div", {},
-          el("strong", { textContent: `${o.title} (${o.area})` }),
-          el("small", { textContent: `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` })));
+        return el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center" },
+          el("label", { class: "toggle" }, box, el("span"), el("div", {},
+            el("strong", { textContent: `${o.title} (${o.area})` }),
+            el("small", { textContent: o.forcedOff ? "Turned off by the developer." : `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` }))),
+          devKeepCell(o, kept.has(o.id)),
+          devKeepWarning(o));
       })));
     }
     return nodes;
@@ -380,7 +402,7 @@
    *  when what they show changes, so a slider being dragged isn't rebuilt under the mouse. */
   function draw(force = false) {
     devButton.hidden = !state.beta;
-    const key = JSON.stringify([activeTab, activeTab === "dev" ? [state.status?.devOn, state.info?.dev?.length] : null, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
+    const key = JSON.stringify([activeTab, activeTab === "dev" ? [state.status?.devOn, state.status?.devKept, state.info?.dev?.length] : null, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
       activeTab === "status" || activeTab === "overlay" ? state.status : null,
       activeTab === "general" ? state.status?.ocrMissingLanguage : null]);
     if (!force && key === rendered) return;

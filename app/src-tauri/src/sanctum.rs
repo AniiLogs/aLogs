@@ -126,6 +126,9 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
     if !dotnet_desktop_installed() { return; }                       // the page offers to install the runtime
     let mut cmd = Command::new(&path);
     cmd.args(["--hosted", "--parent", &std::process::id().to_string()]).creation_flags(NO_WINDOW);
+    if crate::update::build_beta() > 0 {
+        cmd.arg("--dev");   // the Dev tab's kept switches are only ever loaded on a beta
+    }
     if let Some(dir) = path.parent() {
         cmd.current_dir(dir);
     }
@@ -242,7 +245,7 @@ pub fn sanctum_save(changes: Value) -> Result<Value, String> {
 /// clear-pad, render-layout { layout, width, height }, open-logs.
 #[tauri::command]
 pub fn sanctum_command(command: String, args: Option<Value>) -> Result<(), String> {
-    const ALLOWED: [&str; 8] = ["dev-set", "new-run", "position-map", "capture-key", "capture-pad", "clear-pad", "render-layout", "open-logs"];
+    const ALLOWED: [&str; 9] = ["dev-set", "dev-keep", "new-run", "position-map", "capture-key", "capture-pad", "clear-pad", "render-layout", "open-logs"];
     if !ALLOWED.contains(&command.as_str()) {
         return Err("Unknown command.".into());
     }
