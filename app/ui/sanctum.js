@@ -342,44 +342,44 @@
   }
 
   // Beta only: proposed changes, each its own switch, to test one at a time. Sanctum Helper holds them in memory and starts with
-  // all off, on purpose, since a build can change what a switch does. The exception is one the player chose to keep.
-  let devAsking = null;   // the switch whose Keep warning is showing
-  function devKeepCell(o, kept) {
-    const box = el("input", { type: "checkbox", disabled: Boolean(o.forcedOff), title: "Keep on at every start" });
-    box.checked = kept;
-    box.addEventListener("change", () => {
-      if (box.checked) { box.checked = false; devAsking = o.id; draw(true); return; }   // asks first
-      void command("dev-keep", { id: o.id, keep: false });
-    });
-    return el("label", { style: "display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;font-size:12px" }, box, "Keep");
+  // all off, on purpose, since a build can change what a switch does. The exception is one a tester made persistent, so they
+  // needn't remember what they liked. It has nothing to do with what goes into a release.
+  const DEV_PERSISTENT_INFO = "Persistent: this setting starts ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you.";
+  function devPersistentCell(o, persistent) {
+    const box = el("input", { type: "checkbox", "aria-label": `${o.title}: persistent` });
+    box.checked = persistent;
+    box.addEventListener("change", () => void command("dev-persistent", { id: o.id, persistent: box.checked }));
+    return el("div", { class: "dev-persistent" }, box);
   }
-  function devKeepWarning(o) {
-    if (devAsking !== o.id) return null;
-    return el("div", { class: "notice", style: "grid-column:1 / -1;margin-top:6px" },
-      el("p", { textContent: "This switch will start ON instead of off at every restart and through updates, unless the developer forces it off. Don't check this unless you've tested this setting and decided it's no risk for you." }),
-      el("button", { type: "button", class: "primary", textContent: "Keep it on", onclick: () => { devAsking = null; void command("dev-keep", { id: o.id, keep: true }); draw(true); } }),
-      " ",
-      el("button", { type: "button", textContent: "Cancel", onclick: () => { devAsking = null; draw(true); } }));
+  function devHeader(section) {
+    return el("div", { class: "dev-row group-head" },
+      el("h2", { textContent: section }),
+      el("h2", { class: "dev-persistent" }, "Persistent ",
+        el("span", { class: "dev-info", title: DEV_PERSISTENT_INFO, "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0 }, "\u24D8")));
   }
   function devTab() {
     const options = info().dev || [];
     if (!state.running) return [el("p", { class: "hint" }, "The Dev tab needs Sanctum Helper running.")];
     if (!options.length) return [el("p", { class: "hint" }, "Loading the switches…")];
     const on = new Set(status().devOn || []);
+    const persistent = new Set(status().devPersistent || []);
+    const changed = status().devChanged || [];
     const sections = [...new Set(options.map((o) => o.section))];
-    const kept = new Set(status().devKept || []);
-    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you Keep. ${on.size} on now, ${kept.size} kept. With all off, Sanctum Helper works as in 0.1.36. Don't check Keep on a switch unless you've tested it and decided it's no risk for you.`)];
+    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, Sanctum Helper works as in 0.1.36.`)];
+    if (changed.length) {
+      const names = changed.map((id) => options.find((o) => o.id === id)?.title || id).join(", ");
+      nodes.push(el("p", { class: "notice" }, `Changed in this update, so no longer persistent: ${names}. Test it again before making it persistent.`));
+    }
     for (const section of sections) {
-      nodes.push(el("div", { class: "group" }, el("h2", { textContent: section }), ...options.filter((o) => o.section === section).map((o) => {
-        const box = el("input", { type: "checkbox", disabled: Boolean(o.forcedOff) });
+      nodes.push(el("div", { class: "group" }, devHeader(section), ...options.filter((o) => o.section === section).map((o) => {
+        const box = el("input", { type: "checkbox" });
         box.checked = on.has(o.id);
         box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
-        return el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center" },
+        return el("div", { class: "dev-row" },
           el("label", { class: "toggle" }, box, el("span"), el("div", {},
             el("strong", { textContent: `${o.title} (${o.area})` }),
-            el("small", { textContent: o.forcedOff ? "Turned off by the developer." : `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` }))),
-          devKeepCell(o, kept.has(o.id)),
-          devKeepWarning(o));
+            el("small", { textContent: `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` }))),
+          devPersistentCell(o, persistent.has(o.id)));
       })));
     }
     return nodes;
@@ -402,7 +402,7 @@
    *  when what they show changes, so a slider being dragged isn't rebuilt under the mouse. */
   function draw(force = false) {
     devButton.hidden = !state.beta;
-    const key = JSON.stringify([activeTab, activeTab === "dev" ? [state.status?.devOn, state.status?.devKept, state.info?.dev?.length] : null, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
+    const key = JSON.stringify([activeTab, activeTab === "dev" ? [state.status?.devOn, state.status?.devPersistent, state.status?.devChanged, state.info?.dev?.length] : null, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
       activeTab === "status" || activeTab === "overlay" ? state.status : null,
       activeTab === "general" ? state.status?.ocrMissingLanguage : null]);
     if (!force && key === rendered) return;

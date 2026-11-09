@@ -181,6 +181,11 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 @media (prefers-reduced-motion: reduce) { .ocr-progress span { width: 100%; opacity: 0.5; animation: none; } }
 .group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .group-head h2 { margin: 0; }
+/* Sanctum Helper's Dev tab (betas): each switch, with its Persistent checkbox in a column on the right */
+.dev-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 12px; align-items: start; }
+.dev-persistent { margin: 0; text-align: center; }
+.dev-persistent input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); cursor: pointer; }
+.dev-info { color: var(--accent-text); cursor: help; }
 .note h3 { margin: 10px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
 .note p { margin: 8px 0 0; }
 .note ul { margin: 0; padding-left: 18px; }
