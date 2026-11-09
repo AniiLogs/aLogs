@@ -8,7 +8,7 @@ Meter.egg_result (8 Nov: Loot 40939 went as 4, Total Defeats blank, and one matc
 - later reads of the same screen, even with another number, make no second record;
 - a screen that leaves early sends what agreed, with the rest blank;
 - a screen that never agrees goes after EGG_MAX_READS, with the rest blank;
-- without the game's font the OCR read is used, still two alike.
+- without the game's font the OCR read is used, still two alike, and only when all of it is a number.
 Meter.party_screen: a card that reads blank doesn't stop the read (INTERLINK_NPCS reaches live.py).
 Made-up pictures and numbers; readers and sending are stubbed. Exit code 1 on any failure.
 """
@@ -74,6 +74,9 @@ check('the next match is its own record', [s[0] for s in sent(m)], [1234, 777])
 
 m = meter(reader=False); m.ocr.extra = {'loot': '4321', 'defeats': 'Defeats: 2'}; show(m); check('no font, one read: nothing', sent(m), [])
 show(m); check('no font: OCR, two alike', sent(m), [(4321, 2, 132, True)])
+
+m = meter(reader=False); m.ocr.extra = {'loot': '4UYSY', 'defeats': 'Defeats: 2'}; show(m, times=2); m.t += 10; m.egg_gone(m.t)
+check('no font: part of a number is no number', [x[0] for x in sent(m)], [None])
 
 # -- the Party screen with a card that reads blank (B22, B23: a NameError on every such read) ------------------------------
 check('the name list reaches live.py', 'mario' in live.INTERLINK_NPCS, True)

@@ -741,8 +741,10 @@ class ResultsMixin:
                     'defeats3': R.prep_labelled(im, box(0.03, 0.465 + dy, 0.075, 0.535 + dy), k, 'Defeats:', size=5)})   # 720p
             shifts = (0.0, -0.04) if goal else (-0.04, 0.0)
             t.update(numbers(shifts[0]))
-            if first_num((t.get('loot') or '').replace(',', '').replace(' ', '')) is None: t.update(numbers(shifts[1]))
-            loot = first_num((t.get('loot') or '').replace(',', '').replace(' ', ''))
+            # the whole read has to be a number: 40939 read as 4UYSY went as 4 (8 Nov), a part of a number looks like one
+            whole = lambda text: (lambda v: int(v) if re.fullmatch(r'\d{1,9}', v) else None)(re.sub(r'[,\s]', '', text or '').replace('O', '0'))
+            if whole(t.get('loot')) is None: t.update(numbers(shifts[1]))
+            loot = whole(t.get('loot'))
             # the number after the drawn label; a lone 1 often reads as I, l or |, a 0 as O
             def digits(text):
                 raw = (text or '').split(':', 1)[-1].strip().translate(str.maketrans('Il|!Oo', '111100')).replace(' ', '')
