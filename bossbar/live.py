@@ -531,6 +531,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
 
     def read_screen(self, im, now, heads):
         self.screens_gone(now)
+        self.egg_gone(now)
         # a screen the meter reads is up: its readers look at more of the frame than the boxes. A frame of only the
         # boxes (screen_parts) is read again whole at once; whole frames go on until FULL_HOLD_S after the last one
         party = self.party_up(heads, now)

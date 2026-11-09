@@ -46,8 +46,10 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
-- **Sanctum Helper's map works in Egg Heist after Interlink:** after an Interlink or Holo-Battle Sim run, it could fail to
-  recognise your next Egg Heist run, and the map key showed nothing.
+- **Sanctum Helper's maps stay up in Egg Heist:** it could fail to recognise an Egg Heist run after Interlink or Holo-Battle Sim,
+  and its own "Escape Condition" panel could make it hide the maps.
+- **Egg Heist results are read properly:** Loot This Match and Total Defeats are read by the game's own digits and only sent once
+  two reads agree, and a match can no longer be sent twice. Loot could be sent as a single digit.
 - **General Settings no longer has a second scrollbar:** it left empty space at the bottom of the window.
 - **The Special Offering you changed to is the one sent:** its circle on the Party screen is checked twice a second, so a late
   change no longer sends the old one.
