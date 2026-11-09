@@ -46,6 +46,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **Result pictures are of the game itself:** the pictures sent with a run on Windows 10 are copies of the game window, without anything on top of it.
 - **Sanctum Helper's maps stay up in Egg Heist:** it could fail to recognise an Egg Heist run after Interlink or Holo-Battle Sim,
   and its own "Escape Condition" panel could make it hide the maps.
 - **Egg Heist results are read properly:** Loot This Match and Total Defeats are read by the game's own digits and only sent once

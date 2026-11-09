@@ -443,6 +443,27 @@ def grab_window(hwnd, top_fraction=None):
     try: return shared.read(hwnd, top_fraction) if shared.app_present() else None
     except Exception: return None
 
+def window_copy(hwnd):
+    """The game window alone, drawn into memory by Windows (PrintWindow, ~50 ms at 4K), or None: nothing on top of it can be in
+    this picture, as it can in a copy of the screen. For one picture at a time (a proof): many would make the game stutter."""
+    u, g = ctypes.WinDLL('user32'), ctypes.WinDLL('gdi32')      # their own handles: these prototypes stay in here
+    u.GetDC.restype = W.HDC; u.GetDC.argtypes = [W.HWND]; u.ReleaseDC.argtypes = [W.HWND, W.HDC]; u.PrintWindow.argtypes = [W.HWND, W.HDC, W.UINT]
+    u.GetClientRect.argtypes = [W.HWND, ctypes.POINTER(W.RECT)]
+    g.CreateCompatibleDC.restype = W.HDC; g.CreateCompatibleDC.argtypes = [W.HDC]; g.DeleteDC.argtypes = [W.HDC]
+    g.CreateCompatibleBitmap.restype = W.HBITMAP; g.CreateCompatibleBitmap.argtypes = [W.HDC, ctypes.c_int, ctypes.c_int]
+    g.SelectObject.restype = W.HGDIOBJ; g.SelectObject.argtypes = [W.HDC, W.HGDIOBJ]; g.DeleteObject.argtypes = [W.HGDIOBJ]
+    g.GetBitmapBits.argtypes = [W.HBITMAP, ctypes.c_long, ctypes.c_void_p]
+    r = W.RECT()
+    if not u.GetClientRect(hwnd, ctypes.byref(r)) or r.right < 16 or r.bottom < 16: return None
+    w, h = r.right, r.bottom
+    screen = u.GetDC(None); mem = g.CreateCompatibleDC(screen); bmp = g.CreateCompatibleBitmap(screen, w, h); old = g.SelectObject(mem, bmp)
+    try:
+        if not u.PrintWindow(hwnd, mem, 3): return None         # the client area, with what the graphics card drew
+        buf = ctypes.create_string_buffer(w * h * 4); g.GetBitmapBits(bmp, len(buf), buf)
+        return Image.frombuffer('RGBA', (w, h), buf, 'raw', 'BGRA', 0, 1).convert('RGB')
+    finally:
+        g.SelectObject(mem, old); g.DeleteObject(bmp); g.DeleteDC(mem); u.ReleaseDC(None, screen)
+
 WDA_EXCLUDEFROMCAPTURE = 0x11
 def hide_from_capture(hwnd, on=True):
     """Keep our own overlay window out of screen captures (Windows 10 2004+); on=False shows it in them again."""
