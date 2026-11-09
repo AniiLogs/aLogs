@@ -461,6 +461,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         """Between fights only the frame's top part is copied (where a boss bar appears; ~3x cheaper at 4K) unless
         the whole frame is needed: for a screen read, the end-screen note, Egg Heist's fade or diagnostic frames."""
         if self.end_sig is not None or getattr(self, 'egg_hold', None) or getattr(self, 'sim_tour', None) or self.sanctum_in_run(now): return True
+        if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: return True        # the rank screen can come any moment after a match
         if getattr(self, 'sim_ctl', None) or (self.holosim_space and (getattr(self, 'sim_gate_state', None) or {}).get('last')): return True
         cap = self.args.cfg['capture']; a = self.after_fight
         if a and cap['end_screens'] and now - a[2] >= 3: return True
@@ -574,9 +575,12 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             self.game_only_spot = None
             log.info(f"the screen showed a {spot[0]} screen and the game window doesn't: nothing read from it")
 
+    EGG_AFTER_S = 45.0     # after a match's end screen: whole frames, and pictures of what comes next, to see the rank screen
+
     def read_screen(self, im, now, heads):
         self.screens_gone(now)
         self.egg_gone(now)
+        if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: keep_sample(im, 'egg_after', gap=3, kept=15)
         # a screen the meter reads is up: its readers look at more of the frame than the boxes. A frame of only the
         # boxes (screen_parts) is read again whole at once; whole frames go on until FULL_HOLD_S after the last one
         party = self.party_up(heads, now)
@@ -1034,7 +1038,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             if not r or r[1] < 0.8 or r[2] < 0.2: season.append(None); continue
             x0, y0, x1, y1 = self.SEASON_LEVEL
             d = ic.digit(im, box(sq[0] + x0, y0, sq[0] + x1, y1))
-            level = int(d[0]) if d and d[2] >= 0.08 else None
+            level = int(d[0]) if d and d[2] >= 0.055 else None     # (Lv. 6 is the closest call: 0.061-0.065 on real screens, every other digit 0.13 up)
             ids = ic.buffs_named(r[0], 'season', level) if level else []
             names = [ic.buffs[k]['name'] for k in ic.buffs_named(r[0], 'season')]
             season.append({'id': int(ids[0]), 'name': ic.buffs[ids[0]]['name'], 'level': level} if ids else
