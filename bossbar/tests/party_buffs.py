@@ -42,6 +42,7 @@ class Icons:
 
 m = Meter.__new__(Meter)
 m.icons = Icons(); m.screen_settled = lambda kind, now: None
+rest = {'on': False}; m.panel_at_rest = lambda im, u, ux, H: rest['on']
 m.team_tile = lambda *a, **k: None
 def screen(cards_dy, panel_dy, offering='glass', season=('guard', 'strike'), wobble=0):
     m.card_shift = lambda ic, im, a, b, u_, ux_, H_: (0, cards_dy + (wobble if a == Meter.PARTY_CARDS[0][0] else 0))
@@ -74,6 +75,14 @@ m.set_party([member(0, 'Alpha'), member(2, 'Charlie')], 506)
 check('rebuilt, same 1P: buffs kept', [b['name'] for b in m.party.get('buffs', [])], ['Joint Guard', 'Team Strike', 'Hourglass'])
 m.set_party([member(0, 'Delta'), member(1, 'Bravo'), member(2, 'Charlie')], 509)
 check('a new 1P: their buffs, not the last', m.party.get('buffs'), None)
+
+m.party = None; m.set_party(full, 600)
+read(screen(0, 0))
+rest['on'] = False
+check('fading: no Season Buffs read, they stay', read(screen(0, 0, season=(None, None))), ['Joint Guard', 'Team Strike', 'Hourglass'])
+rest['on'] = True
+check("at rest with padlocks: an earlier party's go", read(screen(0, 0, season=(None, None))), ['Hourglass'])
+rest['on'] = False
 
 if fails:
     print('\n'.join(fails)); sys.exit(1)

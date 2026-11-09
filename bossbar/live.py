@@ -1019,7 +1019,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # but not the Special Offering used to drop the offering)
         with self.buff_lock:
             last = party.get('buff_reads') or {'season': [None] * len(season), 'offering': None}
-            self.set_buffs(party, [n or o for n, o in zip(season, last['season'])], offering or last['offering'])
+            # no Season Buff at all on a panel at rest: padlocks, someone else's party. An earlier party's aren't this one's
+            # (8 Nov: a run went with the player's own lobby's)
+            kept = [None] * len(season) if not any(season) and self.panel_at_rest(im, u, ux, H) else last['season']
+            self.set_buffs(party, [n or o for n, o in zip(season, kept)], offering or last['offering'])
         log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
 
     @staticmethod
@@ -1040,7 +1043,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     # The Special Offering can change until the fight starts, and a whole read of the screen takes seconds (8 Nov: the last
     # one stayed 3 s after the change). So its circle alone is looked at twice a second: the same picture costs nothing, and
     # a new one is read as soon as it holds still, and what was there before goes. That's only while the panel's at rest: a
-    # frame without its first Season Buff is the screen fading into the fight, whose last read stands.
+    # frame without its light panel is the screen fading into the fight, whose last read stands. (Not by the Season Buffs: in
+    # someone else's party those squares are padlocks, 8 Nov, and no offering was read at all.)
     circle_on = False; circle_at = 0; circle_prev = None; circle_read = None; circle_tried = 0; circle_job = None; panel_sy = 0
     buff_lock = threading.Lock()
     CIRCLE_EVERY_S = 0.5
@@ -1061,11 +1065,18 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.circle_tried = now
         self.circle_job = threading.Thread(target=self.read_circle, args=(im, box, thumb, u, ux, H), daemon=True); self.circle_job.start()
 
+    PANEL_SPOT = (0.405, 0.885, 0.43, 0.90)     # the panel's own light blue, left of the circle
+    PANEL_BLUE = 170                             # at least this much blue: 183-220 on 24 saved Party screens, 167 at 90% of a fade
+
+    def panel_at_rest(self, im, u, ux, H):
+        x0, y0, x1, y1 = self.PANEL_SPOT
+        spot = im.crop((int(ux + u * x0), int(H * y0 + self.panel_sy), int(ux + u * x1), int(H * y1 + self.panel_sy)))
+        return ImageStat.Stat(spot.convert('RGB')).mean[2] >= self.PANEL_BLUE
+
     def read_circle(self, im, box, thumb, u, ux, H):
         try:
-            ic = self.icons; x0, y0, x1, y1 = self.SEASON_BUFFS[0]
-            rest = ic.buff(im, (ux + u * x0, H * y0 + self.panel_sy, ux + u * x1, H * y1 + self.panel_sy), 'season')
-            if not rest or rest[1] < 0.8: return
+            ic = self.icons
+            if not self.panel_at_rest(im, u, ux, H): return
             offering = self.read_offering(ic, im, box); party = self.party
             if not party: return
             with self.buff_lock:
