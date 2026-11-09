@@ -33,6 +33,15 @@ def colored(p): return is_fill(p) or is_ghost(p)                                
 # Where the meter's own overlay windows are in its picture of the screen (Meter.mask_own paints them this magenta):
 # not the game, so neither fill nor empty track - the readers look past it.
 COVER = (255, 0, 255)
+
+def label_span(left, span, width):
+    """The bracket span the HP labels are placed by: boss bars are drawn centred, so a read much shorter than its left bracket's
+    mirror (a bar sliding in, a flash on it) is that mirror. Placed by the short read, a label sat on the real right end, its
+    cover hid the right bracket from the next read, and the bar stayed unread (8 Nov: 84% of a fight, labels gone or frozen). A
+    read near it or past it stands, and so does anything not bar-like (mirror over 1.6 times the read, or no left half)."""
+    mirror = width - 2 * left
+    if mirror <= 0 or span >= mirror * 0.99 or mirror > span * 1.6: return span
+    return mirror
 def covered(p): return p[0] >= 250 and p[1] <= 5 and p[2] >= 250
 
 def _bar_run(px, y, x0, x1, gap):
