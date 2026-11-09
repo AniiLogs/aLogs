@@ -341,94 +341,7 @@
     }
   }
 
-  // Beta only: proposed changes, each its own switch, to test one at a time. Sanctum Helper holds them in memory and starts with
-  // all off, on purpose, since a build can change what a switch does. The exception is one a tester made persistent, so they
-  // needn't remember what they liked. It has nothing to do with what goes into a release.
-  const DEV_PERSISTENT_INFO = "Persistent: this setting starts ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you.";
-  function devPersistentCell(o, persistent) {
-    const box = el("input", { type: "checkbox", "aria-label": `${o.title}: persistent` });
-    box.checked = persistent;
-    box.addEventListener("change", () => void command("dev-persistent", { id: o.id, persistent: box.checked }));
-    return el("div", { class: "dev-persistent" }, box);
-  }
-  // The info panel floats at the mouse while it's over an info icon (one panel, shared; it never moves the page).
-  const devTip = el("div", { class: "dev-tip", hidden: true, role: "tooltip", textContent: DEV_PERSISTENT_INFO });
-  document.body.append(devTip);
-  function placeDevTip(x, y) {
-    devTip.hidden = false;
-    const box = devTip.getBoundingClientRect();
-    devTip.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - box.width - 8))}px`;
-    devTip.style.top = `${y + 18 + box.height + 8 > window.innerHeight ? Math.max(8, y - box.height - 10) : y + 18}px`;
-  }
-  function devInfoIcon() {
-    const icon = el("span", { class: "dev-info", "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0 }, "\u24D8");
-    icon.addEventListener("mouseenter", (event) => placeDevTip(event.clientX, event.clientY));
-    icon.addEventListener("mousemove", (event) => placeDevTip(event.clientX, event.clientY));
-    icon.addEventListener("mouseleave", () => { devTip.hidden = true; });
-    icon.addEventListener("focus", () => { const r = icon.getBoundingClientRect(); placeDevTip(r.left, r.bottom - 12); });
-    icon.addEventListener("blur", () => { devTip.hidden = true; });
-    return icon;
-  }
-  function devHeader(section) {
-    return el("div", { class: "dev-row group-head" },
-      el("h2", { textContent: section }),
-      el("h2", { class: "dev-persistent" }, "Persistent ", devInfoIcon()));
-  }
-  // Filters: lit shows, darkened hides, in each row. Not saved: the tab opens with everything showing.
-  const devHidden = new Set();
-  function devChip(label, lit, onclick) {
-    return el("button", { type: "button", class: `dev-chip${lit ? "" : " is-off"}`, "aria-pressed": String(lit), textContent: label, onclick });
-  }
-  function devFilters(sections, areas, showing, total) {
-    const names = [...sections, ...areas];
-    const flip = (name) => () => { if (devHidden.has(name)) devHidden.delete(name); else devHidden.add(name); draw(true); };
-    const row = (label, list) => el("div", { class: "dev-filter-row" }, el("span", { class: "dev-filter-name", textContent: label }),
-      el("div", { class: "dev-chips" }, list.map((name) => devChip(name, !devHidden.has(name), flip(name)))));
-    const allOn = devHidden.size === 0;
-    return el("div", { class: "dev-filters" },
-      el("div", { class: "dev-filter-row" }, el("span"), el("div", { class: "dev-chips" }, devChip("Show all", allOn, () => {
-        if (allOn) names.forEach((name) => devHidden.add(name)); else devHidden.clear();
-        draw(true);
-      }))),
-      row("Risk", sections), row("Type", areas),
-      el("p", { class: "hint", textContent: `Showing ${showing} of ${total}` }));
-  }
-  function devTab() {
-    const options = info().dev || [];
-    if (!state.running) return [el("p", { class: "hint" }, "The Dev tab needs Sanctum Helper running.")];
-    if (!options.length) return [el("p", { class: "hint" }, "Loading the switches…")];
-    devTip.hidden = true;
-    const on = new Set(status().devOn || []);
-    const persistent = new Set(status().devPersistent || []);
-    const changed = status().devChanged || [];
-    const sections = [...new Set(options.map((o) => o.section))];
-    const areas = [...new Set(options.map((o) => o.area))];
-    const shown = options.filter((o) => !devHidden.has(o.section) && !devHidden.has(o.area));
-    const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, Sanctum Helper works as in 0.1.36.`)];
-    if (changed.length) {
-      const names = changed.map((id) => options.find((o) => o.id === id)?.title || id).join(", ");
-      nodes.push(el("p", { class: "notice" }, `Changed in this update, so no longer persistent: ${names}. Test it again before making it persistent.`));
-    }
-    nodes.push(devFilters(sections, areas, shown.length, options.length));
-    if (!shown.length) nodes.push(el("p", { class: "hint" }, "No switches match these filters."));
-    for (const section of sections) {
-      const here = shown.filter((o) => o.section === section);
-      if (!here.length) continue;
-      nodes.push(el("div", { class: "group" }, devHeader(section), ...here.map((o) => {
-        const box = el("input", { type: "checkbox" });
-        box.checked = on.has(o.id);
-        box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
-        return el("div", { class: "dev-row" },
-          el("label", { class: "toggle" }, box, el("span"), el("div", {},
-            el("strong", { textContent: `${o.title} (${o.area})` }),
-            el("small", { textContent: `${o.what} Gain: ${o.gain} Risk: ${o.risk} ${o.tested}.` }))),
-          devPersistentCell(o, persistent.has(o.id)));
-      })));
-    }
-    return nodes;
-  }
-
-  const BUILDERS = { dev: devTab, status: statusTab, overlay: overlayTab, mini: miniTab, markers: markersTab, detection: detectionTab, general: generalTab, layouts: layoutsTab };
+  const BUILDERS = { status: statusTab, overlay: overlayTab, mini: miniTab, markers: markersTab, detection: detectionTab, general: generalTab, layouts: layoutsTab };
 
   // ---------------------------------------------------------------- frame
   const tabRow = el("div", { class: "tabs", role: "tablist" });
@@ -438,14 +351,11 @@
   for (const [id, label] of TABS) {
     tabRow.append(el("button", { role: "tab", "data-tab": id, textContent: label, onclick: () => { activeTab = id; draw(true); } }));
   }
-  const devButton = el("button", { role: "tab", "data-tab": "dev", textContent: "Dev", hidden: true, onclick: () => { activeTab = "dev"; draw(true); } });
-  tabRow.append(devButton);
 
   /** Redraws the active tab. Live-only tabs (status, hotkeys) redraw on every poll; the rest only when asked or
    *  when what they show changes, so a slider being dragged isn't rebuilt under the mouse. */
   function draw(force = false) {
-    devButton.hidden = !state.beta;
-    const key = JSON.stringify([activeTab, activeTab === "dev" ? [state.status?.devOn, state.status?.devPersistent, state.status?.devChanged, state.info?.dev?.length] : null, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
+    const key = JSON.stringify([activeTab, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
       activeTab === "status" || activeTab === "overlay" ? state.status : null,
       activeTab === "general" ? state.status?.ocrMissingLanguage : null]);
     if (!force && key === rendered) return;
@@ -454,7 +364,7 @@
     if (!force && editing && body.contains(document.activeElement) && activeTab !== "status") return;
     rendered = key;
     for (const button of tabRow.children) button.setAttribute("aria-selected", String(button.dataset.tab === activeTab));
-    subtitle.textContent = activeTab === "dev" ? "Test each proposed change on its own." : TABS.find(([id]) => id === activeTab)[2];
+    subtitle.textContent = TABS.find(([id]) => id === activeTab)[2];
     body.replaceChildren(...BUILDERS[activeTab]());
     const enabled = body.querySelector("input[type=checkbox]");
     if (activeTab === "status" && enabled) enabled.checked = state.enabled;

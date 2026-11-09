@@ -187,6 +187,7 @@ button.capturing { border-color: var(--gold); color: var(--gold-text); }
 .dev-persistent input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); cursor: pointer; }
 .dev-info { color: var(--accent-text); cursor: help; }
 .dev-tip { position: fixed; z-index: 50; max-width: 360px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); font-size: 12.5px; pointer-events: none; }
+.dev-plugins { position: static; margin-top: 4px; }
 .dev-filters { margin: 0 0 12px; }
 .dev-filter-row { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: center; margin-bottom: 8px; }
 .dev-filter-name { color: var(--muted); font-size: 12px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }

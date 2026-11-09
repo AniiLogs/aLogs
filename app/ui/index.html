@@ -9,6 +9,7 @@
     <script src="combobox.js" defer></script>
     <script src="app.js" defer></script>
     <script src="sanctum.js" defer></script>
+    <script src="dev-menu.js" defer></script>
   </head>
   <body>
     <aside class="nav">
@@ -463,8 +464,9 @@
       <section class="page page-wide" data-page-body="beta">
         <header class="page-head"><h1>Beta Menu</h1><span class="beta-build" data-beta-build></span></header>
         <div class="tabs" role="tablist" aria-label="Beta Menu">
-          <button type="button" role="tab" data-tab="tests" aria-selected="true">Tests <span class="tab-count" data-beta-count></span></button>
-          <button type="button" role="tab" data-tab="bugs" aria-selected="false">Bug reports <span class="tab-count" data-bug-count></span></button>
+          <button type="button" role="tab" data-tab="tests" data-beta-tester aria-selected="true">Tests <span class="tab-count" data-beta-count></span></button>
+          <button type="button" role="tab" data-tab="bugs" data-beta-tester aria-selected="false">Bug reports <span class="tab-count" data-bug-count></span></button>
+          <button type="button" role="tab" data-tab="dev" data-beta-build-only aria-selected="false" hidden>Dev</button>
         </div>
         <div class="dps-panel is-active" data-panel="tests">
           <p class="lead">What's new or fixed in this build. Tick what you tested, say whether it works, and add a note if
@@ -489,6 +491,7 @@
             <button type="button" class="primary" data-beta-tests-send>Send results</button>
           </div>
         </div>
+        <div class="dps-panel" data-panel="dev"><div data-dev-menu></div></div>
         <div class="dps-panel" data-panel="bugs">
           <p class="lead">One card per bug. Found more than one? <strong>+ Another bug</strong> adds a card; they all go
             up together, with your logs.</p>
