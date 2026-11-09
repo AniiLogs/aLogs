@@ -364,6 +364,13 @@ class SharedCapture:
                 out.append(tuple(ctypes.c_int32.from_address(base + at + 16 + 16 * k + 4 * j).value for j in range(4)))
         return out
 
+    GAME_ONLY_UNTIL = 1792
+    def set_game_only_until(self, ms):
+        """Asks for window capture until then (Windows 10: with its yellow border): pictures of the game alone."""
+        import time
+        base = self._open(time.time())
+        if base: ctypes.c_uint64.from_address(base + self.GAME_ONLY_UNTIL).value = int(ms)
+
     def set_clean_until(self, ms):
         import time
         base = self._open(time.time())

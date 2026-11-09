@@ -47,6 +47,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
   numbers go once two reads in a row agree, so a read while Battle Data is still fading in is never sent.
 
 ### Fixed
+- **Result, Party and menu screens are read from the game itself:** on Windows 10 they now come from the game window, not from what's
+  on top of it. Windows shows a yellow border around the game while one of them is up.
 - **Dragging the DPS window no longer makes it disappear:** it could jump off screen and stay there. The HP labels had the same
   problem. A spot saved off screen is forgotten, so the window comes back.
 - **Sanctum Helper's maps stay up in Egg Heist:** it could fail to recognise an Egg Heist run after Interlink or Holo-Battle Sim,
