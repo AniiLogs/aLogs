@@ -351,27 +351,70 @@
     box.addEventListener("change", () => void command("dev-persistent", { id: o.id, persistent: box.checked }));
     return el("div", { class: "dev-persistent" }, box);
   }
+  // The info panel floats at the mouse while it's over an info icon (one panel, shared; it never moves the page).
+  const devTip = el("div", { class: "dev-tip", hidden: true, role: "tooltip", textContent: DEV_PERSISTENT_INFO });
+  document.body.append(devTip);
+  function placeDevTip(x, y) {
+    devTip.hidden = false;
+    const box = devTip.getBoundingClientRect();
+    devTip.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - box.width - 8))}px`;
+    devTip.style.top = `${y + 18 + box.height + 8 > window.innerHeight ? Math.max(8, y - box.height - 10) : y + 18}px`;
+  }
+  function devInfoIcon() {
+    const icon = el("span", { class: "dev-info", "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0 }, "\u24D8");
+    icon.addEventListener("mouseenter", (event) => placeDevTip(event.clientX, event.clientY));
+    icon.addEventListener("mousemove", (event) => placeDevTip(event.clientX, event.clientY));
+    icon.addEventListener("mouseleave", () => { devTip.hidden = true; });
+    icon.addEventListener("focus", () => { const r = icon.getBoundingClientRect(); placeDevTip(r.left, r.bottom - 12); });
+    icon.addEventListener("blur", () => { devTip.hidden = true; });
+    return icon;
+  }
   function devHeader(section) {
     return el("div", { class: "dev-row group-head" },
       el("h2", { textContent: section }),
-      el("h2", { class: "dev-persistent" }, "Persistent ",
-        el("span", { class: "dev-info", title: DEV_PERSISTENT_INFO, "aria-label": DEV_PERSISTENT_INFO, role: "img", tabIndex: 0 }, "\u24D8")));
+      el("h2", { class: "dev-persistent" }, "Persistent ", devInfoIcon()));
+  }
+  // Filters: lit shows, darkened hides, in each row. Not saved: the tab opens with everything showing.
+  const devHidden = new Set();
+  function devChip(label, lit, onclick) {
+    return el("button", { type: "button", class: `dev-chip${lit ? "" : " is-off"}`, "aria-pressed": String(lit), textContent: label, onclick });
+  }
+  function devFilters(sections, areas, showing, total) {
+    const names = [...sections, ...areas];
+    const flip = (name) => () => { if (devHidden.has(name)) devHidden.delete(name); else devHidden.add(name); draw(true); };
+    const row = (label, list) => el("div", { class: "dev-filter-row" }, el("span", { class: "dev-filter-name", textContent: label }),
+      el("div", { class: "dev-chips" }, list.map((name) => devChip(name, !devHidden.has(name), flip(name)))));
+    const allOn = devHidden.size === 0;
+    return el("div", { class: "dev-filters" },
+      el("div", { class: "dev-filter-row" }, el("span"), el("div", { class: "dev-chips" }, devChip("Show all", allOn, () => {
+        if (allOn) names.forEach((name) => devHidden.add(name)); else devHidden.clear();
+        draw(true);
+      }))),
+      row("Risk", sections), row("Type", areas),
+      el("p", { class: "hint", textContent: `Showing ${showing} of ${total}` }));
   }
   function devTab() {
     const options = info().dev || [];
     if (!state.running) return [el("p", { class: "hint" }, "The Dev tab needs Sanctum Helper running.")];
     if (!options.length) return [el("p", { class: "hint" }, "Loading the switches…")];
+    devTip.hidden = true;
     const on = new Set(status().devOn || []);
     const persistent = new Set(status().devPersistent || []);
     const changed = status().devChanged || [];
     const sections = [...new Set(options.map((o) => o.section))];
+    const areas = [...new Set(options.map((o) => o.area))];
+    const shown = options.filter((o) => !devHidden.has(o.section) && !devHidden.has(o.area));
     const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, Sanctum Helper works as in 0.1.36.`)];
     if (changed.length) {
       const names = changed.map((id) => options.find((o) => o.id === id)?.title || id).join(", ");
       nodes.push(el("p", { class: "notice" }, `Changed in this update, so no longer persistent: ${names}. Test it again before making it persistent.`));
     }
+    nodes.push(devFilters(sections, areas, shown.length, options.length));
+    if (!shown.length) nodes.push(el("p", { class: "hint" }, "No switches match these filters."));
     for (const section of sections) {
-      nodes.push(el("div", { class: "group" }, devHeader(section), ...options.filter((o) => o.section === section).map((o) => {
+      const here = shown.filter((o) => o.section === section);
+      if (!here.length) continue;
+      nodes.push(el("div", { class: "group" }, devHeader(section), ...here.map((o) => {
         const box = el("input", { type: "checkbox" });
         box.checked = on.has(o.id);
         box.addEventListener("change", () => void command("dev-set", { id: o.id, on: box.checked }));
