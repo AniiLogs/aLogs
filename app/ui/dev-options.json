@@ -12,18 +12,6 @@
     "revision": 1
   },
   {
-    "id": "button-hide-300",
-    "plugin": "core",
-    "section": "Low risk",
-    "area": "Smoothness",
-    "title": "Button over the game: a saved 0.3 s counts as 0.75 s",
-    "what": "If the button is set to hide after 0.3 s, it waits 0.75 s instead. The setting itself isn't changed, and other choices stay as they are.",
-    "gain": "Less blinking. On one PC at 0.3 s, 395 of 756 hides came back within 2 s; of the icon row's short dips, 540 were long enough to hide the button at 0.3 s and 200 at 0.75 s.",
-    "risk": "If you really chose 0.3 s, the button stays 0.45 s longer when the game hides its icons.",
-    "tested": "Checked against a real app log, not tried in a game",
-    "revision": 1
-  },
-  {
     "id": "fight-bar-slide-in",
     "plugin": "core",
     "section": "Low risk",

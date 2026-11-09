@@ -233,9 +233,9 @@ mod tests {
     #[test]
     fn off_until_started() {
         // The tests never call start(), as a release build doesn't: every switch reads off and can't be set
-        assert!(!on("button-hide-300"));
-        assert!(dev_set("button-hide-300".into(), true).is_err());
-        assert!(dev_persistent("button-hide-300".into(), true).is_err());
+        assert!(!on("capture-log-once"));
+        assert!(dev_set("capture-log-once".into(), true).is_err());
+        assert!(dev_persistent("capture-log-once".into(), true).is_err());
         assert_eq!(dev_state()["beta"], false);
     }
 }
