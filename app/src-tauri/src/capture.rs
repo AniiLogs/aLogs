@@ -41,6 +41,8 @@
 //!         the picture is then w / shrink by h / shrink pixels (rounded down), x, y, w, h still in client pixels
 //!   1344 u64 clean until (unix ms): a proof is being taken (the meter); every aLogs program keeps its overlay windows
 //!      out of screen captures until then (B9)
+//!   1792 u64 game only until (unix ms), a reader's ask on Windows 10: while a result, Party or menu screen is up, window
+//!      capture, border and all, so what's read is the game and not what's on top of it. Closed again when it runs out
 //!   1352 overlay windows (B9): 3 x 144 { u64 updated (unix ms), u32 pid, u32 count (<= 8), 8 x i32 x0, y0, x1, y1
 //!      (screen px) }, owners 0 the meter, 1 Sanctum Helper, 2 the app (the button over the game). Overlays stay in
 //!      screenshots and recordings; every reader of a screen copy covers all of them in its own picture. A block not
@@ -308,11 +310,14 @@ pub(crate) fn borderless_capture() -> bool {
 }
 
 static GAME_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A reader asked for the game window alone just now (GAME_ONLY_UNTIL).
+static BURST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const GAME_ONLY_UNTIL: usize = 1792;
 
 /// General Settings › Capture only the game window, on Windows 10 (Windows 11 always does): window capture with
 /// Windows' yellow border instead of Desktop Duplication. Read from settings.json every 2 s by the capture thread.
 fn game_window_only() -> bool {
-    !borderless_capture() && GAME_ONLY.load(Ordering::Relaxed)
+    !borderless_capture() && (GAME_ONLY.load(Ordering::Relaxed) || BURST.load(Ordering::Relaxed))
 }
 
 /// The best way to take pictures here: window capture where it can be borderless or the player chose it.
@@ -988,6 +993,12 @@ pub fn start() {
                         best = best_kind();
                         (kind, source, tries, black_since) = (best, None, 0, 0);
                     }
+                }
+                // a reader's burst of the game window alone starts or runs out: start again the way that's best now
+                let burst = now < shared.get_u64(GAME_ONLY_UNTIL);
+                if BURST.swap(burst, Ordering::Relaxed) != burst && best_kind() != best {
+                    best = best_kind();
+                    (kind, source, tries, black_since) = (best, None, 0, 0);
                 }
                 // the DPS meter switched off (the overlay button or the app): the flag tells the meter
                 let off = !crate::overlay_button::capture_on();
