@@ -1099,13 +1099,23 @@
     renderTests();
     saveBeta();
   }
+  // Testers get all of it. On a beta build everyone gets the menu, with just its Dev tab (dev-menu.js).
+  let betaTester = false, betaBuild = false;
   function showBeta(on, permissions = []) {
-    $("[data-beta-nav]").hidden = !on;
+    betaTester = on;
+    $("[data-beta-nav]").hidden = !on && !betaBuild;
+    $$("[data-beta-tester]").forEach((tab) => { tab.hidden = !on; });
     betaOwner = on && permissions.includes("beta.manage");
     if (on) void refreshBetaList();
-    if (!on && $('[data-page-body="beta"]').classList.contains("is-active")) $('[data-page="dashboard"]').click();
+    if (!on && betaBuild) showTab("beta", "dev");
+    if (!on && !betaBuild && $('[data-page-body="beta"]').classList.contains("is-active")) $('[data-page="dashboard"]').click();
   }
-  $('[data-page="beta"]').addEventListener("click", () => void refreshBetaList());
+  invoke("sanctum_state").then((found) => {
+    betaBuild = found?.beta === true;
+    $("[data-beta-build-only]").hidden = !betaBuild;
+    showBeta(betaTester, betaOwner ? ["beta.manage"] : []);
+  }).catch(() => {});
+  $('[data-page="beta"]').addEventListener("click", () => { if (betaTester) void refreshBetaList(); });
   $("[data-beta-hide-working]").addEventListener("change", (event) => {
     hideWorking = event.target.checked;
     try { localStorage.setItem(BETA_HIDE_KEY, hideWorking ? "1" : "0"); } catch { /* this session only */ }
