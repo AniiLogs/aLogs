@@ -74,6 +74,7 @@ DEFAULTS = {
         'auto_open_battle_data': True,       # Interlink: click "View Battle Data" on the result screen
         'sim_gizmos': True,                  # Holo-Battle Sim: open the Gizmo screen after a win and read it
         'sim_gate': False,                   # Holo-Battle Sim: press End Holo-Battle Sim at the exit gate, then the above
+        'egg_auto_next': True,               # Egg Heist: press Next once the end screen is read, on to the rank screen
         'hold_inputs': True,                 # hold keyboard keys/mouse buttons while doing so
         'hold_controller': False,            # also hide the controller (needs HidHide)
         'egg_fade_hold': True,               # Egg Heist: hold inputs from the fade to black until the end screen is read (experimental)

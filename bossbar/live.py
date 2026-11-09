@@ -457,6 +457,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # the automatic Battle Data session waits for the result screen to be wholly read before its first click: read it
         # 4 times a second until then, not every 1.5 s (6 Nov: the click came ~4 s after the screen, 1.5 s of it this wait)
         if self.auto_active() and getattr(self, 'clicks', 1) == 0: gap = min(gap, 0.25)
+        # Egg Heist's end and rank screens, read with the player's inputs held: as soon as the reads can agree (9 Nov: three
+        # reads 1.6 s apart held them about 3.5 s, on a still screen)
+        if getattr(self, 'egg_hold', None) or getattr(self, 'egg_read', None) or getattr(self, 'egg_points', None): gap = min(gap, 0.25)
         if not quick and self.idle(): gap = max(gap, 1.0)
         return now - self.last_results >= gap
 

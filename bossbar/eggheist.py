@@ -74,9 +74,9 @@ def current_season(today=None):
     return max(started)[1] if started else None
 
 def parse_gain(text):
-    """'+18' (the Rank Points a match added, on the post-match rank screen) -> 18."""
-    m = re.search(r'\+\s*(\d{1,4})', (text or '').replace('O', '0'))
-    return int(m.group(1)) if m else None
+    """'+18' (the Rank Points a match added, on the post-match rank screen) -> 18, and a loss, '-18', -> -18."""
+    m = re.search(r'([+\-\u2212\u2013])\s*(\d{1,4})', (text or '').replace('O', '0'))
+    return (int(m.group(2)) if m.group(1) == '+' else -int(m.group(2))) if m else None
 
 def parse_season(badge, header=''):
     """'S1' from the season badge; the stylised badge rarely OCRs, so the date range under the season title is the

@@ -163,6 +163,41 @@ for what, high, low in (('the higher layout', '1464/1530', '15111 IOZU'), ('the 
     check(f'{what}: the gain and total', g.last_scores.get('egg_gain', (None, None, None))[1:], (1464, 40))
 g = Meter.__new__(Meter); g.ocr = Reads('1500/1530', ''); g.egg_points = '1464/1530'; rank_seen = []; g.egg_rank_seen = lambda im, now: rank_seen.append(now)
 g.egg_rank_gain(pill, 100.0, U, 0, H); check('still counting up: not read', rank_seen, [])
+# -- gains and losses ---------------------------------------------------------------------------------------------------------------
+import eggheist
+for text, want in (('+40', 40), ('-12', -12), ('\u221212', -12), ('', None), ('40', None)): check(f'the pill {text!r}', eggheist.parse_gain(text), want)
+class NoPill(Reads):
+    def read(s, crops, names=None):
+        s.calls += 1
+        return {'high': s.high, 'low': s.low} if 'high' in crops else {'title': 'Pro Egg Snatcher Ill', 'title2': ''}
+results.HERE, keep_here = tempfile.mkdtemp(prefix='alogs_egg_'), results.HERE; os.makedirs(os.path.join(results.HERE, 'logs'))
+for before, seen, want in ((1600, 1577, -23), (1537, 1577, 40), (1577, 1577, None)):
+    g = Meter.__new__(Meter); g.ocr = NoPill(f'{seen}/1620', ''); g.uid = f'30200000{before}'; g.egg_season = 'S1'; g.submitter = None; g.last_scores = {}
+    told = []; g.out = lambda *a: told.append(a[1]); g.egg_rank_seen = lambda im, now: None
+    g.egg_profile('S1', bar=[before, 1620])
+    g.egg_rank_gain(IM, 100.0, U, 0, H); g.egg_rank_gain(IM, 100.4, U, 0, H)
+    check(f'no pill read, {before} to {seen}: the change', g.last_scores['egg_gain'][2], want)
+    check(f'...and it says so', (want is None) or (f'{want:+}' in told[-1]), True)
+results.HERE = keep_here
+# -- the end screen's Next -----------------------------------------------------------------------------------------------------------
+class Labels:
+    def __init__(s, **seen): s.seen = seen
+    def read(s, crops, names=None): return {k: s.seen.get(k, '') for k in crops}
+clicks = []; keep_click, keep_front = live.wc.click_at, live.wc.is_foreground
+live.wc.click_at = lambda x, y: clicks.append((round(x), round(y))); live.wc.is_foreground = lambda h: front[0]
+front = [True]
+def nexter(**seen):
+    n = Meter.__new__(Meter); n.ocr = Labels(**seen); n.hwnd = 1; n.origin = (0, 0); n.hold = type('H', (), {'active': False})()
+    n.egg_click = {'at': 100.0, 'last': 0.0, 'tries': 0}; return n
+n = nexter(controller='Next'); n.egg_next(IM, 100.0, U, 0, H); check('the higher button', clicks, [(round(U * 0.88), round(H * 0.879))]); clicks.clear()
+n = nexter(keyboard='Next'); n.egg_next(IM, 100.0, U, 0, H); check('the lower button', clicks, [(round(U * 0.88), round(H * 0.9144))]); clicks.clear()
+n = nexter(controller='Share'); n.egg_next(IM, 100.0, U, 0, H); check('not reading Next: no press', clicks, [])
+n.egg_next(IM, 100.5, U, 0, H); check('...not tried again at once', n.egg_click['tries'], 1)
+for t_ in (102.0, 104.0, 106.0, 108.0): n.egg_next(IM, t_, U, 0, H)
+check('...and it gives up', (clicks, n.egg_click), ([], None))
+front[0] = False; n = nexter(controller='Next'); n.egg_next(IM, 100.0, U, 0, H); check('game not in front: no press, and none later', (clicks, n.egg_click), ([], None)); front[0] = True
+n = nexter(controller='Next'); n.egg_next(IM, 200.0, U, 0, H); check('long after: no press', (clicks, n.egg_click), ([], None))
+live.wc.click_at, live.wc.is_foreground = keep_click, keep_front
 check('the Party screen by its top line', q.party_up({'h': '', 'ph': 'Operation: Egg Heist Team Mode'}, 100.0), True)
 
 # -- the match goes at once; the rank screen updates it --------------------------------------------------------------------------

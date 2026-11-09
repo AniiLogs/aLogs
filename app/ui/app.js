@@ -10,7 +10,7 @@
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", dps_locked: true, dps_example: false, dps_reset: 0,
       rush_position: "corner", result_seconds: 10 },
     capture: { game_window_only: false, look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
-    results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false },
+    results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false, egg_auto_next: true },
     leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true },
     // every plug-in's notices over the game: where and how (each plug-in's own on/off is on its page), and the button's
     notifications: { place: "top-right", motion: "fade", locked: true, button: true },
@@ -512,7 +512,7 @@
     $('[data-nav-switch="leaderboards"]').setAttribute("aria-checked", String(sending));
     $('[data-k="leaderboard.automation"]').disabled = !sending;
     $('[data-guide-k="leaderboard.automation"]').disabled = !sending;   // the setup guide's copy (fill() runs on its changes)
-    for (const key of ["results.auto_open_battle_data", "results.sim_gizmos", "results.sim_gate", "results.egg_fade_hold",
+    for (const key of ["results.auto_open_battle_data", "results.sim_gizmos", "results.sim_gate", "results.egg_fade_hold", "results.egg_auto_next",
       "results.hold_inputs", "results.hold_seconds"]) $(`[data-k="${key}"]`).disabled = !auto;
     $('[data-k="results.hold_controller"]').disabled = !auto || !status.hidhide_installed;
   }
