@@ -664,7 +664,7 @@ class FightsMixin:
                            'damage': f.damage, 'elapsed': f.elapsed, 'avg': f.avg, 'recent': f.recent,
                            'boss': f.boss_of(),
                            'bossrush': f.bossrush, 'holosim': self.holosim_space, 'seg_size': si.get('size_hp'), 'seg_left': si.get('left_hp'),
-                           'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], bar['span']),
+                           'bar': (self.origin[0] + bar['left_bracket'], self.origin[1] + bar['yc'], R.label_span(bar['left_bracket'], bar['span'], self.frame_size[0])),
                            'break': f.brk.info(time.time()), 'screen': self.last_screen})
 
     def identify(self, title_text, xn, red_text=None):
