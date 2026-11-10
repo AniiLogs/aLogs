@@ -12,6 +12,7 @@ import io, json, logging, os, re, threading, time, urllib.error, urllib.parse, u
 from PIL import Image, ImageOps
 
 import settings as C
+import devflags as D
 HERE = C.DATA
 QUEUE = os.path.join(HERE, 'logs', 'submit_queue')
 CLIENT_VERSION = os.environ.get('ALOGS_VERSION') or 'meter-0.1'   # e.g. aLogs-0.1.28+rc.8, from the app
@@ -81,6 +82,65 @@ def _party_bytes(path):
         data = _jpeg(small, quality)
         if len(data) <= PARTY_MAX: return data
     return data
+
+class Proofs:
+    """Dev switch proof-encode-once: the proof pictures of a record that didn't go through, as they were made for
+    sending (the JPEG bytes), kept in memory so the next try sends the same bytes without opening and shrinking the
+    screenshots again. A picture is known by how it's cut and by its file's path, size and time of writing, so a file
+    written again is encoded afresh; the encoders give the same bytes for the same file, so what the site gets doesn't
+    differ. At most MAX_N pictures and MAX_BYTES (the oldest go first); a record's are dropped once it's sent or set
+    aside, all of them when the switch is turned off, and nothing is written to disk."""
+    MAX_N, MAX_BYTES, TELL_S = 48, 24_000_000, 60.0
+
+    def __init__(self):
+        self.kept = {}; self.size = 0; self.n = {'encoded': 0, 'reused': 0}; self.ms = 0.0; self.told = 0.0
+
+    @staticmethod
+    def _key(how, path):
+        st = os.stat(path)
+        return (how, os.path.normcase(os.path.abspath(path)), st.st_mtime_ns, st.st_size)
+
+    def get(self, how, path, make):
+        """The bytes make() gives for this file, from the last time if the file is the same."""
+        try: key = self._key(how, path)
+        except OSError: return make()                                 # no such file: it fails as it would have
+        data = self.kept.pop(key, None)
+        if data is None:
+            t = time.perf_counter(); data = make(); self.ms += (time.perf_counter() - t) * 1000; self.n['encoded'] += 1
+            try: same = self._key(how, path) == key                   # (written again meanwhile: not kept)
+            except OSError: same = False
+            if not same or not isinstance(data, bytes): return data
+            self.size += len(data)
+        else: self.n['reused'] += 1
+        self.kept[key] = data                                         # the newest last
+        while self.kept and (len(self.kept) > self.MAX_N or self.size > self.MAX_BYTES):
+            self.size -= len(self.kept.pop(next(iter(self.kept))))
+        return data
+
+    def forget(self, item):
+        """A record is done with (sent, or set aside): its pictures' bytes go."""
+        if not self.kept: return
+        rels = [item.get(k) for k in ('evidence', 'battle', 'party')] + list(item.get('gizmos') or [])
+        paths = {os.path.normcase(os.path.abspath(os.path.join(HERE, rel))) for rel in rels if rel}
+        for key in [k for k in self.kept if k[1] in paths]: self.size -= len(self.kept.pop(key))
+
+    def clear(self):
+        if self.kept: self.kept.clear(); self.size = 0
+
+    def tell(self, now):
+        """One line a minute in meter.log while anything was counted: counts, milliseconds and sizes only."""
+        if now - self.told < self.TELL_S or not any(self.n.values()): return
+        log.info(f"proof-encode-once: {self.n['encoded']} proof pictures encoded ({self.ms:.0f} ms), {self.n['reused']} sent "
+                 f"again as they were; {len(self.kept)} kept ({self.size // 1024} KB)")
+        self.told = now; self.n = dict.fromkeys(self.n, 0); self.ms = 0.0
+
+PROOFS = Proofs()
+
+def _proof(how, path, make):
+    """A proof picture's bytes for sending: make(), or with the Dev switch proof-encode-once the ones kept from the
+    last try (Proofs)."""
+    if D.on('proof-encode-once'): return PROOFS.get(how, path, make)
+    PROOFS.clear(); return make()
 
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
 # the last Egg Heist standing the site took, per UID and season: the same one again isn't sent (a restart forgot it)
@@ -166,6 +226,10 @@ def _multipart(payload, files):
                          f'Content-Type: image/jpeg\r\n\r\n'.encode() + data + b'\r\n')
     parts.append(f'--{boundary}--\r\n'.encode())
     return b''.join(parts), f'multipart/form-data; boundary={boundary}'
+
+HOLD_MAX_S = 300        # queue-wait-fight: the longest a retry waits for fights, however many follow each other
+HOLD_LOOK_S = 2         # ... while it waits, s between looks at whether the fight is over
+FIGHT_STALE_S = 5       # ... the meter says "a fight is on" about once a second; older than this, it isn't believed
 
 class Submitter(threading.Thread):
     def __init__(self):
@@ -272,6 +336,7 @@ class Submitter(threading.Thread):
 
     def drop_proof(self, item):
         """A proof picture is only kept until it's sent (Captures & logs > Keep screenshots: until their data is saved)."""
+        PROOFS.forget(item)                    # (proof-encode-once: its bytes kept for another try go too)
         if int(C.load()['capture'].get('keep_hours', 0)) != 0: return
         for key in ('evidence', 'battle', 'party'):
             if item.get(key):
@@ -308,15 +373,19 @@ class Submitter(threading.Thread):
             if not item.get(key) or (key == 'battle' and 'evidence' not in files): continue   # Battle Data goes with a result
             path = os.path.join(HERE, item[key])
             try:
-                files[key] = _crop_bytes(path, boxes[key]) if key in boxes else _evidence_bytes(path)
-                files[key + '_full'] = _full_bytes(path)
+                # (_proof: the encoder's bytes; with the Dev switch proof-encode-once, a retry's are the ones kept)
+                files[key] = (_proof(('crop', tuple(boxes[key])), path, lambda: _crop_bytes(path, boxes[key])) if key in boxes
+                              else _proof('evidence', path, lambda: _evidence_bytes(path)))
+                files[key + '_full'] = _proof('full', path, lambda: _full_bytes(path))
             except (OSError, ValueError): files.pop(key, None)
         if item.get('party') and 'evidence' in files:            # the Party screen, whole: the run's lineup and buffs
-            try: files['party'] = _party_bytes(os.path.join(HERE, item['party']))
+            path = os.path.join(HERE, item['party'])
+            try: files['party'] = _proof('party', path, lambda: _party_bytes(path))
             except (OSError, ValueError): pass
         if 'evidence' in files:                                  # Holo-Battle Sim: the Gizmo screen, a view per part of the list
             for i, rel in enumerate((item.get('gizmos') or [])[:20], 1):
-                try: files[f'gizmo{i}'] = _full_bytes(os.path.join(HERE, rel))   # the whole screen, like every proof
+                path = os.path.join(HERE, rel)
+                try: files[f'gizmo{i}'] = _proof('full', path, lambda: _full_bytes(path))   # the whole screen, like every proof
                 except (OSError, ValueError): pass
         if files:
             if boxes: payload = {**payload, 'extra': {**(payload.get('extra') or {}), 'proofBoxes': {k: list(v) for k, v in boxes.items() if k in files}}}
@@ -362,10 +431,46 @@ class Submitter(threading.Thread):
             log.info(f'leaderboard: board not read before a menu best ({e!r}); sending it')
         return False
 
+    @staticmethod
+    def queued():
+        """{file name: when it was written} of the records waiting to go."""
+        out = {}
+        try: names = os.listdir(QUEUE)
+        except OSError: return out
+        for n in names:
+            if not n.endswith('.json'): continue
+            try: out[n] = os.stat(os.path.join(QUEUE, n)).st_mtime_ns
+            except OSError: pass
+        return out
+
+    def hold_retry(self, woke, now):
+        """Dev switch queue-wait-fight: whether this pass waits. Only a retry does: the minute came round (`woke`
+        False) and every record waiting was already there, as it is, when the last pass ended (`tried`), so each has
+        had its turn. And only while the meter says a fight is on (fight_seen: when it said so, and what). A new
+        record, or one written again, goes at once as ever and takes the waiting ones along; so does the first pass
+        after a start. No retry waits longer than HOLD_MAX_S; queued records stay on disk whatever happens."""
+        since = getattr(self, 'held_since', None)
+        if not D.on('queue-wait-fight'): self.held_since = self.tried = None; return False
+        seen = getattr(self, 'fight_seen', None)
+        fighting = bool(seen and seen[1] and 0 <= now - seen[0] < FIGHT_STALE_S)
+        new = woke
+        if not woke and fighting and (since is None or 0 <= now - since < HOLD_MAX_S):
+            queued = self.queued(); tried = getattr(self, 'tried', None) or {}
+            new = any(tried.get(n) != at for n, at in queued.items())
+            if queued and not new:
+                if since is None: self.held_since = now
+                return True
+        if since is not None:                                        # one line per wait: seconds only
+            why = 'a new record came' if new else 'the fight was over' if not fighting else 'the longest it waits'
+            log.info(f'queue-wait-fight: a retry waited {max(0, now - since):.0f} s for a fight ({why})')
+            self.held_since = None
+        return False
+
     def run(self):
         delay = 5
         while not self.stop:
-            self.wake.wait(delay); self.wake.clear()
+            woke = self.wake.wait(delay); self.wake.clear()
+            if self.hold_retry(woke, time.time()): delay = HOLD_LOOK_S; continue
             self.refresh()                                           # sending turned on or off, signed in or out
             self.expire()
             if not self.account: delay = 60; continue
@@ -418,6 +523,8 @@ class Submitter(threading.Thread):
                     log.warning(f'leaderboard: {name} not sent yet: {e!r}'); break
                 except Exception as e:                                       # an odd reply: never stop the sender
                     log.warning(f'leaderboard: {name} not sent ({e!r})'); break
+            if D.on('proof-encode-once'): PROOFS.tell(time.time())
+            if D.on('queue-wait-fight'): self.tried = self.queued()   # what has had its turn (hold_retry)
             delay = 60 if any(n.endswith('.json') for n in os.listdir(QUEUE)) else 300
 
 # ---------------------------------------------------------------- payloads from the meter's records

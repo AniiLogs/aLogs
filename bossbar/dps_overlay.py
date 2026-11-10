@@ -5,8 +5,99 @@ core's notices (notice_window.py), so they show whatever this plug-in's switch."
 from core import *
 from notice_window import notice_window
 import logging
+import devflags as D
 
 log = logging.getLogger('meter.dps')   # its lines in meter.log are tagged [dps]
+
+def with_shadow(img, px):
+    """Text with a soft dark shadow (blurred, a little down and right), so white labels stay readable over bright
+    effects and snow. Returns the image and how far the text sits inside it."""
+    from PIL import ImageFilter
+    blur = max(1, round(px * 0.14)); drop = max(1, round(px * 0.06)); edge = 2 * blur + drop
+    out = Image.new('RGBA', (img.width + 2 * edge, img.height + 2 * edge), (0, 0, 0, 0))
+    mask = Image.new('L', out.size, 0); mask.paste(img.getchannel('A'), (edge + drop, edge + drop))
+    mask = mask.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: min(255, v * 2))      # dense near the text
+    shade = Image.new('RGBA', out.size, (6, 8, 16, 0)); shade.putalpha(mask)
+    out.alpha_composite(shade); out.alpha_composite(img, (edge, edge))
+    return out, edge
+
+class Reuse:
+    """Dev switch overlay-label-cache. Two things are kept, and nothing on screen differs:
+    - an HP label's finished picture (text, outline, shadow), by everything that decides its pixels: asked for again,
+      it's the same picture, not drawn again (the newest KEEP of them);
+    - what each window shows now (the very picture and the spot): asked to show that again, the window is left as it
+      is. Anything else that touches a window (parked, moved by Tk, tabbed out or back in) forgets it, and a window is
+      shown again every REFRESH_S whatever happened to it."""
+    KEEP, REFRESH_S, TELL_S = 32, 2.0, 60.0
+
+    def __init__(self):
+        self.labels = {}; self.up = {}; self.told = None
+        self.n = {'drawn': 0, 'reused': 0, 'shown': 0, 'left': 0}; self.ms = {'drawn': 0.0, 'shown': 0.0}
+
+    def label(self, key, make):
+        """The picture kept under `key`, made (and kept) when it isn't there."""
+        got = self.labels.pop(key, None)
+        if got is None:
+            t = time.perf_counter(); got = make(); self.ms['drawn'] += (time.perf_counter() - t) * 1000
+            self.n['drawn'] += 1
+            while len(self.labels) >= self.KEEP: del self.labels[next(iter(self.labels))]     # the oldest goes
+        else: self.n['reused'] += 1
+        self.labels[key] = got                                                                # the newest last
+        return got
+
+    def show(self, show, win, hwnd, image, x, y, now=None):
+        """show(hwnd, image, x, y) (layered.show), unless `win` already shows this very picture at this spot."""
+        now = time.monotonic() if now is None else now
+        was = self.up.get(win); at = (int(x), int(y))
+        if was and was[0] is image and was[1] == at and 0 <= now - was[2] < self.REFRESH_S:
+            self.n['left'] += 1; return True
+        self.up.pop(win, None)                                # (an error below leaves nothing remembered)
+        t = time.perf_counter(); ok = show(hwnd, image, x, y); self.ms['shown'] += (time.perf_counter() - t) * 1000
+        self.n['shown'] += 1
+        if ok: self.up[win] = (image, at, now)                # the picture itself is held, so `is` can't be fooled
+        return ok
+
+    def forget(self, win=None):
+        """This window (or every one) was touched some other way: its next picture is shown whatever it is."""
+        if win is None: self.up.clear()
+        else: self.up.pop(win, None)
+
+    def tell(self, now):
+        """One line a minute in meter.log while anything was counted: counts and milliseconds only."""
+        if self.told is None: self.told = now
+        if now - self.told < self.TELL_S or not any(self.n.values()): return
+        n, ms = self.n, self.ms
+        log.info(f"overlay-label-cache: labels {n['drawn']} drawn ({ms['drawn']:.0f} ms), {n['reused']} reused; windows "
+                 f"{n['shown']} shown ({ms['shown']:.0f} ms), {n['left']} left as they were (last {now - self.told:.0f} s)")
+        self.told = now; self.n = dict.fromkeys(n, 0); self.ms = dict.fromkeys(ms, 0.0)
+
+POLL_MS, IDLE_MS = 15, 50       # ms between the window loop's looks; the longer one is overlay-idle-poll's
+
+def overlay_idle(meter, placed, waiting, dragging, drawn, dps_at, alert, toast, now):
+    """Dev switch overlay-idle-poll: nothing is showing, moving, fading or waiting its turn, so the next look can only
+    find that something began (a fight, a notice, a hit while tabbed out, the example turned on) and may come IDLE_MS
+    later instead of POLL_MS. `waiting`: messages from the meter not looked at yet; `dragging`: a window is held."""
+    return not (meter.fight or placed or waiting or dragging or drawn['pending'] is not None or dps_at['hide_at']
+                or dps_at.get('example') or alert['since'] is not None
+                or toast['since'] is not None or toast['queue'] or toast['sample'] or toast['drag']
+                or now - getattr(meter, 'hit_at', 0) < 5                 # "You're being attacked" may be due
+                or now < getattr(meter, 'proof_until', 0))               # a proof is being taken (capture_clean)
+
+class Pace:
+    """Dev switch overlay-idle-poll: the ms until the window loop's next look, and its line in meter.log."""
+    TELL_S = 60.0
+
+    def __init__(self): self.idle = self.busy = 0; self.told = None
+
+    def wait(self, idle, now):
+        if self.told is None: self.told = now
+        if idle: self.idle += 1
+        else: self.busy += 1
+        if now - self.told >= self.TELL_S:
+            log.info(f"overlay-idle-poll: {self.idle} looks at {IDLE_MS} ms (nothing up), {self.busy} at {POLL_MS} ms "
+                     f"(last {now - self.told:.0f} s)")
+            self.told = now; self.idle = self.busy = 0
+        return IDLE_MS if idle else POLL_MS
 
 def offset_on_screen(off, x, y, ox, oy, W, H):
     """Whether a saved offset (a fraction of the game's height) from the spot (x, y) still lands in the game's area
@@ -54,6 +145,7 @@ def run_overlay(meter, hide):
     # Over the game only: while another window is in front (you tabbed out), every overlay window stays parked off
     # screen; each remembers where it belongs and comes back when the game is in front again.
     AWAY = {'on': False}; placed = {}
+    reuse = Reuse(); pace = Pace()                    # the Dev switches overlay-label-cache and overlay-idle-poll
     # Where the DPS window is drawn (screen pixels), for the meter to black out of its pictures of the screen
     # (Meter.mask_own): with that, the DPS window and its notes can stay in screenshots and recordings on Windows 10
     # too. A spot it just left is kept a moment: the picture being read can be a little older than the move.
@@ -85,14 +177,17 @@ def run_overlay(meter, hide):
         """With the game font: the window is this RGBA image, with real per-pixel alpha (layered.py)."""
         placed[win] = ('img', image, x, y)
         own_spot(win, (int(x), int(y), int(x) + image.width, int(y) + image.height))
-        if not AWAY['on']: layered.show(layered.top_hwnd(win), image, x, y)
+        if AWAY['on']: return
+        # Dev switch overlay-label-cache: a window that already shows this very picture at this spot is left as it is
+        if D.on('overlay-label-cache'): reuse.show(layered.show, win, layered.top_hwnd(win), image, x, y)
+        else: reuse.forget(); layered.show(layered.top_hwnd(win), image, x, y)
     def place(win, x, y):
         """Without the game font: move the window there (a plain Tk window)."""
-        placed[win] = ('geo', x, y)
+        placed[win] = ('geo', x, y); reuse.forget(win)
         win.update_idletasks()
         own_spot(win, (int(x), int(y), int(x) + win.winfo_reqwidth(), int(y) + win.winfo_reqheight()))
         if not AWAY['on']: win.geometry(f'+{int(x)}+{int(y)}')
-    def park(win): placed.pop(win, None); own_spot(win, None); win.geometry(OFF)
+    def park(win): placed.pop(win, None); own_spot(win, None); reuse.forget(win); win.geometry(OFF)
     def spot(win):
         """Where a window is drawn. Not Tk's winfo_x: a window drawn with `present` was moved by Windows (layered.show), and
         Tk still has it parked at -32000 (8 Nov: dragging the DPS window threw it off screen, and saved that spot)."""
@@ -375,18 +470,6 @@ def run_overlay(meter, hide):
             x.bind('<Double-Button-1>', reset)
     for n in HP_SPOTS: hp_label(n)
 
-    def with_shadow(img, px):
-        """Text with a soft dark shadow (blurred, a little down and right), so white labels stay readable over bright
-        effects and snow. Returns the image and how far the text sits inside it."""
-        from PIL import ImageFilter
-        blur = max(1, round(px * 0.14)); drop = max(1, round(px * 0.06)); edge = 2 * blur + drop
-        out = Image.new('RGBA', (img.width + 2 * edge, img.height + 2 * edge), (0, 0, 0, 0))
-        mask = Image.new('L', out.size, 0); mask.paste(img.getchannel('A'), (edge + drop, edge + drop))
-        mask = mask.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: min(255, v * 2))      # dense near the text
-        shade = Image.new('RGBA', out.size, (6, 8, 16, 0)); shade.putalpha(mask)
-        out.alpha_composite(shade); out.alpha_composite(img, (edge, edge))
-        return out, edge
-
     def draw(name, text, bar, colour='#ffffff', hp_rgb=None):
         """Text at its spot next to the bar. bar = (left bracket x, bar centre y, bracket span) on screen.
         (Not `hp=`: that hid the labels' own `hp`, and every label failed to draw, from 0.1.28.)"""
@@ -396,10 +479,18 @@ def run_overlay(meter, hide):
             # the words HP (in the bar's colour where the HP ends, `hp_rgb`) and BREAK / BROKEN (in their line's colour:
             # yellow when broken) with a thick outline; the numbers with a thin one
             lead = (2, hp_rgb or hp_colour(1.0)) if text.startswith('HP ') else                 (len(text.split(' ', 1)[0]), rgb(colour)) if text.startswith(('BREAK', 'BROKEN')) else None
-            img = GF['font'].render(text, px, rgb(colour), bold=name == 'pct', stroke=True, lead=lead)
-            W, H = img.size; tx, ty = bx + fx * span, by + fy * span
+            def plain(): return GF['font'].render(text, px, rgb(colour), bold=name == 'pct', stroke=True, lead=lead)
+            def whole(): img = plain(); return (*with_shadow(img, px), img.size)
+            if D.on('overlay-label-cache'):
+                # the finished picture, kept by all that decides its pixels (the font, text, size, colours, weight)
+                img, edge, (W, H) = reuse.label((id(GF['font']), text, px, colour, name == 'pct',
+                                                 lead and (lead[0], tuple(lead[1]))), whole)
+            else:
+                reuse.labels.clear()
+                img = plain(); W, H = img.size; img, edge = with_shadow(img, px)
+            tx, ty = bx + fx * span, by + fy * span
             x, y = {'w': (tx, ty - H / 2), 'ne': (tx - W, ty), 's': (tx - W / 2, ty - H), 'c': (tx - W / 2, ty - H / 2)}[anchor]
-            img, edge = with_shadow(img, px); x -= edge; y -= edge     # the text itself stays on its spot
+            x -= edge; y -= edge                                       # the text itself stays on its spot
             L['base'], L['span'] = (x, y), span
             off = pos.get('hp_' + name)
             if off: x += off[0] * span; y += off[1] * span
@@ -602,7 +693,15 @@ def run_overlay(meter, hide):
             if not HEALTH.failed('dps'): HEALTH.error('dps', sys.exc_info()[1], 'overlay')
             elif time.time() - poll_error['at'] > 60:
                 poll_error['at'] = time.time(); log.exception('overlay: error with the DPS meter stopped (it keeps going)')
-        root.after(15, poll)    # tabbing in/out and new readings show within a frame or two
+        wait = POLL_MS          # tabbing in/out and new readings show within a frame or two
+        try:                    # (the Dev switches' own bookkeeping: an error here never stops the loop)
+            if D.on('overlay-label-cache'): reuse.tell(time.time())
+            if D.on('overlay-idle-poll'):
+                now = time.time()
+                wait = pace.wait(overlay_idle(meter, placed, not q.empty(), dw.dragging or any(L['drag'] for L in hp.values()),
+                                              drawn, dps_at, alert, toast, now), now)
+        except Exception: wait = POLL_MS
+        root.after(wait, poll)
     drawn = {'at': 0.0, 'pending': None}     # the overlay's last redraw, and the newest reading waiting for its turn
     def poll_tick():
         # the app's picture is of the screen (Desktop Duplication): keep our windows out of it, or the meter would
@@ -625,7 +724,7 @@ def run_overlay(meter, hide):
                 except Exception: meter.own_in_capture = True if want_in else None   # unknown: keep covering, try again
         front = game_in_front()
         if AWAY['on'] != (not front):
-            AWAY['on'] = not front
+            AWAY['on'] = not front; reuse.forget()
             for w, (kind, *where) in list(placed.items()):
                 if AWAY['on']: w.geometry(OFF)                         # tabbed out: out of the way
                 elif kind == 'img': layered.show(layered.top_hwnd(w), *where)

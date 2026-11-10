@@ -85,6 +85,143 @@ fn loaded_hide_ms(saved: Option<u64>, version: Option<u64>) -> u64 {
         Some(n) => n.min(2000),
     }
 }
+// Dev switch button-row-steady: once the row has plainly been there for 2 s with nothing hinting at a change, it's looked
+// at 4 times a second, not 8; any hint, or a look that doesn't find it, and it's 8 again at once. Only ever slower while
+// the row is there: a row that's missing is looked for as often as always, so the button comes back as quickly as always.
+// What it can cost: a row that goes with no hint is first missed up to 250 ms later (125 on average), and the button hides
+// that much later; the wait before hiding (hide_ms) still counts from that first miss, on purpose, so a flash over the row
+// never hides the button sooner than it does today (counting from earlier would bring back the blinks 750 ms was picked
+// against, see ROW_GONE_MS).
+const ROW_STEADY_MS: u64 = 2000;
+const ROW_SLOW_MS: u32 = 250;
+
+/// How far apart looks at the icon row are now (ms). `seen`: the last look found the row; `steady_ms`: how long since
+/// anything changed or hinted at a change. With the switch off, ROW_CHECK_MS whatever else.
+fn row_pace(switch_on: bool, seen: bool, steady_ms: u64) -> u32 {
+    if switch_on && seen && steady_ms >= ROW_STEADY_MS { ROW_SLOW_MS } else { ROW_CHECK_MS }
+}
+
+/// Whether this pass looks: every pass at the usual pace (the timer's own); at the slow one, only once the last look is
+/// about that old (the timer comes every 125 ms, give or take Windows' 16 ms, so every second pass).
+fn row_due(pace: u32, since_look_ms: u64) -> bool {
+    pace <= ROW_CHECK_MS || since_look_ms + (ROW_CHECK_MS / 2) as u64 >= pace as u64
+}
+
+/// What a pass sees for nothing that tends to come just before the row changes (button-row-steady): any difference from
+/// the last pass and the row is looked at 8 times a second again.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+struct RowHints {
+    game: isize,                 // the game's window
+    place: (i32, i32, i32, i32), // its client area on the screen: x, y, width, height (moved, resized, full screen)
+    pointer: (u32, isize),       // the mouse pointer, showing or not and which: the game shows it as a menu opens
+}
+
+unsafe fn row_hints(game: HWND) -> RowHints {
+    let (mut rect, mut at) = (RECT::default(), POINT::default());
+    let _ = GetClientRect(game, &mut rect);
+    let _ = ClientToScreen(game, &mut at);
+    let mut pointer = CURSORINFO { cbSize: std::mem::size_of::<CURSORINFO>() as u32, ..Default::default() };
+    let _ = GetCursorInfo(&mut pointer);
+    RowHints { game: game.0 as isize, place: (at.x, at.y, rect.right, rect.bottom), pointer: (pointer.flags.0, pointer.hCursor.0 as isize) }
+}
+
+/// Dev switch button-row-steady: when the icon row is looked at, and what app.log says about it (a line a minute while
+/// the row is followed, and one as that stops: counts only). Nothing here touches Windows, so the tests run it on a
+/// made-up clock.
+///
+/// The row is only followed while the game is in front, so the game losing the focus is a gap in the passes: after one
+/// it starts over at the usual pace, as it does whenever the passes come late.
+#[derive(Default)]
+struct RowPace {
+    on: bool,          // the switch at the last pass
+    hints: Option<RowHints>,
+    passed: u64,       // the last pass (ms); a gap means the row wasn't followed for a while: start over at the usual pace
+    looked: u64,       // the last look
+    seen: bool,        // it found the row
+    steady_from: u64,  // since when nothing has changed or hinted at a change
+    // since log_from, for app.log
+    log_from: u64,
+    looks: u32,
+    slow_looks: u32,
+    sped: [u32; 3],    // hints that ended the slow pace: the pointer, the game's window, anything else
+    slow_misses: u32,  // looks at the slow pace that found the row gone: the hides that can have come up to 250 ms late
+}
+
+impl RowPace {
+    /// One pass of the follow timer while the row is followed. Returns the pace to look at now (None: not this pass)
+    /// and a line for app.log when one is due. `nudge`: something else says a change may be coming (a press on the
+    /// button, the row seen sliding, the button's own state changed). With the switch off: look, every pass.
+    fn pass(&mut self, switch_on: bool, now: u64, hints: RowHints, nudge: bool) -> (Option<u32>, Option<String>) {
+        if !switch_on {
+            let line = if self.on { self.report(self.passed) } else { None };
+            *self = RowPace::default();
+            return (Some(ROW_CHECK_MS), line);
+        }
+        let gap = !self.on || now.saturating_sub(self.passed) > 400;
+        let line = if gap {
+            let line = self.report(self.passed);
+            self.log_from = now;
+            line
+        } else if now.saturating_sub(self.log_from) >= 60_000 {
+            let line = self.report(now);
+            self.log_from = now;
+            line
+        } else {
+            None
+        };
+        let was = self.hints.unwrap_or(hints);
+        let why = if was.pointer != hints.pointer {
+            Some(0)
+        } else if was.game != hints.game || was.place != hints.place {
+            Some(1)
+        } else if nudge || gap {
+            Some(2)
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            if !gap && row_pace(true, self.seen, now.saturating_sub(self.steady_from)) == ROW_SLOW_MS {
+                self.sped[why] += 1;
+            }
+            self.steady_from = now;
+        }
+        (self.on, self.hints, self.passed) = (true, Some(hints), now);
+        let pace = row_pace(true, self.seen, now.saturating_sub(self.steady_from));
+        if !row_due(pace, now.saturating_sub(self.looked)) {
+            return (None, line);
+        }
+        self.looked = now;
+        (Some(pace), line)
+    }
+
+    /// What the look that `pass` asked for found (None: no picture to tell).
+    fn found(&mut self, now: u64, found: Option<bool>, pace: u32) {
+        if !self.on {
+            return;
+        }
+        self.looks += 1;
+        if pace == ROW_SLOW_MS {
+            self.slow_looks += 1;
+            if found == Some(false) {
+                self.slow_misses += 1;
+            }
+        }
+        let seen = found == Some(true);
+        if seen != self.seen {
+            (self.seen, self.steady_from) = (seen, now);
+        }
+    }
+
+    /// The line for app.log, for the time from log_from to `until`; the counts start again.
+    fn report(&mut self, until: u64) -> Option<String> {
+        let (looks, slow, sped, misses) = (self.looks, self.slow_looks, self.sped, self.slow_misses);
+        (self.looks, self.slow_looks, self.sped, self.slow_misses) = (0, 0, [0; 3], 0);
+        (looks > 0).then(|| format!(
+            "button: icon row checked {looks} times in {} s, {slow} of them at the {ROW_SLOW_MS} ms pace; back to {ROW_CHECK_MS} ms for: the pointer {}, the window {}, something else {}, the row gone {misses}",
+            (until.saturating_sub(self.log_from) + 500) / 1000, sped[0], sped[1], sped[2]))
+    }
+}
+
 const TIMER_PAD: usize = 2; // the controller hotkey, checked 30 times a second while the game is in front
 const DRAG_PX: i32 = 4; // movement before a press counts as a drag, not a click
 
@@ -672,7 +809,8 @@ unsafe fn paint(hwnd: HWND, l: &Layout) {
 
 /// The game's own icon row is showing: its Chat and Emoticon key pills (light grey with a dark key name) are where
 /// they belong. Read from the app's shared capture, a small strip at the bottom left.
-fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<bool> {
+/// `every`: how far apart the looks are (ms), which is how often the capture copies the strip for us.
+fn row_visible(reader: &mut crate::capture::AppReader, game: HWND, every: u32) -> Option<bool> {
     let mut rect = RECT::default();
     if unsafe { GetClientRect(game, &mut rect) }.is_err() || rect.bottom < 100 {
         return None;
@@ -684,7 +822,7 @@ fn row_visible(reader: &mut crate::capture::AppReader, game: HWND) -> Option<boo
     let (y0, y1) = (ch - (2160.0 - ROW_SCAN_TOP) * k, ch - (2160.0 - ROW_SCAN_BOTTOM) * k);
     let share = |v: f64, size: f64| ((v / size).clamp(0.0, 1.0) * 65535.0) as u16;
     let area = [share(x0, cw), share(y0, ch), share(x1, cw), share(y1, ch)];
-    let (w, h, px) = reader.read(game.0 as isize, area, ROW_CHECK_MS)?;
+    let (w, h, px) = reader.read(game.0 as isize, area, every)?;
     // the button itself can be in the picture (Desktop Duplication): its own icon isn't one of the game's. Only when it
     // overlaps the strip: dragged just above Chat it shares Chat's columns, and skipping those lost Chat, which left a
     // controller's two-icon row (Chat, Emoticon) with one icon, so the button hid as soon as a controller was used
@@ -951,6 +1089,7 @@ unsafe fn run() {
     // when the row went missing in fresh pictures (0: it hasn't): hidden once it's been gone ROW_GONE_MS, so the button
     // leaves with the game's icons (B8: it lingered 1.5 s); a bright flash over the row lasts a frame or two
     let mut row_missed = 0u64;
+    let mut pace = RowPace::default(); // Dev switch button-row-steady: how often the row is looked at
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
         if msg.message == WM_TIMER && msg.hwnd == hwnd && msg.wParam.0 == TIMER_PAD {
@@ -1013,7 +1152,19 @@ unsafe fn run() {
             }
             if s.show && in_front && !homeland.1 {
                 if let Some(r) = reader.as_mut() {
-                    match row_visible(r, game) {
+                    // Dev switch button-row-steady (RowPace). Off: a look on every pass, 125 ms apart, as always
+                    let steady = crate::dev::on("button-row-steady");
+                    let hints = if steady { row_hints(game) } else { RowHints::default() };
+                    let nudge = steady && (msg.message == WM_REFRESH || press().is_some() || ROW_NEXT.lock().unwrap().is_some());
+                    let (every, line) = pace.pass(steady, now, hints, nudge);
+                    if let Some(line) = line {
+                        crate::app_log(&line);
+                    }
+                    let found = every.map(|every| (row_visible(r, game, every), every));
+                    if let Some((found, every)) = found {
+                        pace.found(now, found, every);
+                    }
+                    match found.and_then(|(found, _)| found) {
                         Some(true) => {
                             // a miss that came back within 2 s: how long the game's flashes hide the row (tunes ROW_GONE_MS)
                             if row_missed != 0 && now.saturating_sub(row_missed) < 2000 {
@@ -1214,5 +1365,189 @@ mod hide_tests {
             assert_eq!(loaded_hide_ms(Some(other), Some(HIDE_VERSION)), other);
         }
         assert_eq!(loaded_hide_ms(Some(9000), None), 2000);
+    }
+}
+
+/// Dev switch button-row-steady, on a made-up clock: the follow timer's passes, 125 ms apart.
+#[cfg(test)]
+mod pace_tests {
+    use super::*;
+
+    const HINTS: RowHints = RowHints { game: 7, place: (0, 0, 3840, 2160), pointer: (0, 0) };
+
+    /// Runs passes 125 ms apart from `from` for `ms`, the row found or not as `row` says; returns the paces looked at.
+    fn run(pace: &mut RowPace, on: bool, from: u64, ms: u64, row: bool) -> Vec<u32> {
+        let mut looks = Vec::new();
+        for now in (from..from + ms).step_by(125) {
+            if let (Some(every), _) = pace.pass(on, now, HINTS, false) {
+                pace.found(now, Some(row), every);
+                looks.push(every);
+            }
+        }
+        looks
+    }
+
+    #[test]
+    fn the_pace_itself() {
+        assert_eq!(row_pace(true, true, 2000), 250, "steady for 2 s: 4 times a second");
+        assert_eq!(row_pace(true, true, 1999), 125, "not steady long enough yet");
+        assert_eq!(row_pace(true, false, 60_000), 125, "a row that's missing is looked for as often as always");
+        for (seen, steady) in [(true, 0), (true, 2000), (true, 600_000), (false, 2000)] {
+            assert_eq!(row_pace(false, seen, steady), ROW_CHECK_MS, "off: always 125");
+        }
+        // at the slow pace every second pass looks, whatever Windows does to the timer (about 16 ms either way)
+        for since in [0, 109, 125, 141, 187] {
+            assert!(!row_due(250, since), "{since}");
+        }
+        for since in [188, 234, 250, 266, 500] {
+            assert!(row_due(250, since), "{since}");
+        }
+        for since in [0, 1, 125, 300] {
+            assert!(row_due(125, since), "the usual pace: every pass");
+        }
+    }
+
+    #[test]
+    fn off_is_a_look_on_every_pass() {
+        let mut pace = RowPace::default();
+        for now in (0..600_000u64).step_by(125) {
+            // the row, the pointer, the nudges: none of it matters
+            let hints = RowHints { pointer: ((now / 5000 % 2) as u32, 0), ..HINTS };
+            assert_eq!(pace.pass(false, now, hints, now % 1000 == 0), (Some(125), None));
+            pace.found(now, Some(now % 20_000 < 15_000), 125);
+        }
+        assert_eq!((pace.looks, pace.slow_looks, pace.on), (0, 0, false), "nothing kept, nothing to log");
+    }
+
+    #[test]
+    fn steady_for_2_s_then_every_second_pass() {
+        let mut pace = RowPace::default();
+        let first = run(&mut pace, true, 10_000, 2000, true);
+        assert_eq!(first, vec![125; 16], "2 s at the usual pace first: every one of its 16 passes looks");
+        let after = run(&mut pace, true, 12_000, 4000, true);
+        assert_eq!(after, vec![250; 16], "then 4 a second, not 8: every second one of the next 32 passes");
+    }
+
+    #[test]
+    fn a_miss_is_8_a_second_again_until_seen_for_2_s() {
+        let mut pace = RowPace::default();
+        run(&mut pace, true, 0, 10_000, true);
+        // the row goes: the look that finds it gone may be a slow one, every one after it comes at 125
+        let gone = run(&mut pace, true, 10_000, 3000, false);
+        assert!(gone.len() >= 23, "{gone:?}");
+        assert!(gone[1..].iter().all(|&e| e == 125), "{gone:?}");
+        assert_eq!(pace.slow_misses, 1);
+        // back: 125 for 2 s, then slow again
+        let back = run(&mut pace, true, 13_000, 4000, true);
+        assert_eq!(back[..16], [125; 16], "{back:?}");
+        assert_eq!(back[back.len() - 1], 250);
+        // no picture to tell counts as not seen
+        let mut now = 17_000;
+        let every = loop {
+            if let (Some(every), _) = pace.pass(true, now, HINTS, false) {
+                break every;
+            }
+            now += 125;
+        };
+        pace.found(now, None, every);
+        assert_eq!(pace.pass(true, now + 125, HINTS, false).0, Some(125));
+    }
+
+    #[test]
+    fn every_hint_is_a_look_at_once_and_2_s_at_the_usual_pace() {
+        let moved = RowHints { place: (10, 0, 3840, 2160), ..HINTS };
+        let resized = RowHints { place: (0, 0, 2560, 1440), ..HINTS };
+        let pointer = RowHints { pointer: (1, 0), ..HINTS };
+        let other_pointer = RowHints { pointer: (0, 99), ..HINTS };
+        let other_game = RowHints { game: 8, ..HINTS };
+        for (hints, nudge, counted) in [(moved, false, 1), (resized, false, 1), (other_game, false, 1), (pointer, false, 0), (other_pointer, false, 0), (HINTS, true, 2)] {
+            let mut pace = RowPace::default();
+            run(&mut pace, true, 0, 10_000, true);
+            // on to a pass that looks (at the slow pace by now); the one after it wouldn't, without a hint
+            let mut at = 10_000;
+            loop {
+                if let (Some(every), _) = pace.pass(true, at, HINTS, false) {
+                    assert_eq!(every, 250);
+                    pace.found(at, Some(true), every);
+                    break;
+                }
+                at += 125;
+            }
+            at += 125;
+            assert_eq!(pace.pass(true, at, hints, nudge).0, Some(125), "{hints:?} {nudge}: a look at once, at the usual pace");
+            pace.found(at, Some(true), 125);
+            assert_eq!(pace.sped[counted], 1, "{hints:?} {nudge}");
+            assert_eq!(pace.sped.iter().sum::<u32>(), 1, "{hints:?} {nudge}");
+            // the hint stays as it is (the window stays moved): 2 s of every pass, then slow again
+            let mut after = Vec::new();
+            for now in (at + 125..at + 4000).step_by(125) {
+                if let (Some(every), _) = pace.pass(true, now, hints, false) {
+                    pace.found(now, Some(true), every);
+                    after.push(every);
+                }
+            }
+            assert_eq!(after[..15], [125; 15], "{after:?}");
+            assert_eq!(after[after.len() - 1], 250, "{after:?}");
+        }
+    }
+
+    #[test]
+    fn a_gap_starts_over_at_the_usual_pace() {
+        // the game out of the front for 5 s: no passes; the first one back looks, and it's 2 s before it slows again
+        let mut pace = RowPace::default();
+        run(&mut pace, true, 0, 10_000, true);
+        let back = run(&mut pace, true, 15_000, 2000, true);
+        assert_eq!(back, vec![125; 16]);
+        assert_eq!(run(&mut pace, true, 17_000, 1000, true), vec![250; 4]);
+        // the switch turned on mid-game is the same
+        let mut pace = RowPace::default();
+        run(&mut pace, false, 0, 10_000, true);
+        assert_eq!(run(&mut pace, true, 10_000, 2000, true), vec![125; 16]);
+    }
+
+    #[test]
+    fn late_passes_never_look_less_often() {
+        // Windows bunching the timer up to 190 ms apart: every pass looks, so never more than 250 ms between looks
+        let mut pace = RowPace::default();
+        let mut last: Option<u64> = None;
+        for now in (0..20_000u64).step_by(190) {
+            if let (Some(every), _) = pace.pass(true, now, HINTS, false) {
+                pace.found(now, Some(true), every);
+                if let Some(last) = last {
+                    assert!(now - last <= 250, "{now}");
+                }
+                last = Some(now);
+            }
+        }
+        assert!(pace.slow_looks > 0);
+    }
+
+    #[test]
+    fn a_line_a_minute_with_counts_only() {
+        let mut pace = RowPace::default();
+        let mut lines = Vec::new();
+        for now in (0..=120_000u64).step_by(125) {
+            // the pointer shows once, at 30 s
+            let hints = if now >= 30_000 { RowHints { pointer: (1, 5), ..HINTS } } else { HINTS };
+            let (every, line) = pace.pass(true, now, hints, false);
+            lines.extend(line);
+            if let Some(every) = every {
+                pace.found(now, Some(true), every);
+            }
+        }
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        for line in &lines {
+            assert!(line.starts_with("button: icon row checked ") && line.contains(" times in 60 s, "), "{line}");
+            assert!(line.ends_with(", the window 0, something else 0, the row gone 0"), "{line}");
+        }
+        assert!(lines[0].contains("back to 125 ms for: the pointer 1,"), "{}", lines[0]);
+        assert!(lines[1].contains("checked 240 times in 60 s, 240 of them at the 250 ms pace; back to 125 ms for: the pointer 0,"), "{}", lines[1]);
+        // turned off: what's left is said, once
+        let mut pace = RowPace::default();
+        run(&mut pace, true, 0, 5000, true);
+        let (every, line) = pace.pass(false, 5000, HINTS, false);
+        assert_eq!(every, Some(125));
+        assert!(line.as_deref().is_some_and(|l| l.starts_with("button: icon row checked ") && l.contains(" times in 5 s, ")), "{line:?}");
+        assert_eq!(pace.pass(false, 5125, HINTS, false), (Some(125), None));
     }
 }

@@ -647,7 +647,9 @@ fn place_or_make_room(shared: &Shared, readers: &mut [Reader; SLOTS], active: &[
     }
     if crate::dev::on("capture-log-once") {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-        match ROOM_LOG.lock().unwrap().note(now) {
+        let said = ROOM_LOG.lock().unwrap().note(now);
+        ROOM_UNSAID.store(said.is_none(), Ordering::Relaxed);
+        match said {
             Some(0) => crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved (said once a minute from now on)", bytes / 1024)),
             Some(more) => crate::app_log(&format!("capture: no room: the other readers were moved {more} more times, the last for a {} KB picture (reader {slot})", bytes / 1024)),
             None => {}
@@ -659,12 +661,26 @@ fn place_or_make_room(shared: &Shared, readers: &mut [Reader; SLOTS], active: &[
 }
 
 /// Dev switch capture-log-once: one app.log had 1,476 "no room" lines in 7 hours, up to about 10 a second while several
-/// whole-frame readers were asking. The first is said, then a count at most once a minute.
+/// whole-frame readers were asking. The first is said, then a count at most once a minute; a count left when they
+/// stop is said once its minute is over (room_log_rest), so the lines add up to how often it happened.
 struct RoomLog {
     said_at: Option<u64>, // ms
     since: u32,           // times since it was last said
 }
 static ROOM_LOG: std::sync::Mutex<RoomLog> = std::sync::Mutex::new(RoomLog { said_at: None, since: 0 });
+/// A count is waiting to be said: only ever set with the switch on, so off costs each round one plain read.
+static ROOM_UNSAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Each round: the count the switch held back, when no further time came to say it at.
+fn room_log_rest(now: u64) {
+    if !ROOM_UNSAID.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(more) = ROOM_LOG.lock().unwrap().rest(now) {
+        ROOM_UNSAID.store(false, Ordering::Relaxed);
+        crate::app_log(&format!("capture: no room: the other readers were moved {more} more times"));
+    }
+}
 
 impl RoomLog {
     /// Another time at `now` (ms): what to say. Some(0): the first; Some(n): n times since the last line; None: nothing yet.
@@ -685,6 +701,18 @@ impl RoomLog {
             }
         }
     }
+
+    /// The times not said yet, once the minute they were kept for is over.
+    fn rest(&mut self, now: u64) -> Option<u32> {
+        match self.said_at {
+            Some(at) if self.since > 0 && now.saturating_sub(at) >= 60_000 => {
+                let more = self.since;
+                (self.said_at, self.since) = (Some(now), 0);
+                Some(more)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -700,6 +728,23 @@ mod room_log_tests {
         assert_eq!(log.note(61_000), Some(3));
         assert_eq!(log.note(61_100), None);
         assert_eq!(log.note(500_000), Some(2));
+    }
+
+    #[test]
+    fn a_count_left_over_is_said_when_its_minute_is_up() {
+        let mut log = RoomLog { said_at: None, since: 0 };
+        assert_eq!(log.rest(1_000), None, "nothing happened yet");
+        assert_eq!(log.note(1_000), Some(0));
+        assert_eq!(log.rest(70_000), None, "the first was said and nothing came after");
+        assert_eq!(log.note(70_100), Some(1), "over a minute after the first: said at once");
+        assert_eq!(log.note(70_200), None);
+        assert_eq!(log.note(80_000), None);
+        assert_eq!(log.rest(100_000), None, "its minute isn't over");
+        assert_eq!(log.rest(130_100), Some(2));
+        assert_eq!(log.rest(200_000), None, "said, so not again");
+        // every time is in exactly one line: 1 (first) + 1 + 2 = the 4 notes above
+        assert_eq!(log.note(131_000), None, "a new minute starts from the line just written");
+        assert_eq!(log.rest(190_100), Some(1));
     }
 }
 
@@ -718,6 +763,7 @@ fn serve(
         return None;
     }
     let now = now_ms();
+    room_log_rest(now);
     let (iw, ih) = gpu.size();
     let (cx, cy) = (origin.x - image_origin.0, origin.y - image_origin.1); // the client area inside the image
     let generation = gpu.generation();

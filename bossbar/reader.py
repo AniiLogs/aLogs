@@ -8,7 +8,9 @@ from PIL import Image, ImageChops, ImageOps
 from hpcalc import max_hp, break_points
 
 import settings as C
+import devflags as D
 HERE = C.RES                      # shipped data files (catalog, OCR helper)
+DEV = {'fill_fast': 0, 'fill_old': 0}             # what the Dev switches here did, for the meter's once-a-minute line
 
 # ---- layout, in units of the bracket span (left bracket = 0, right bracket = 1) ----
 REF_SPAN = 789                                   # bracket span on the 2000x1125 reference shot
@@ -269,6 +271,10 @@ def measure_fill_any(im, bar, jump=70):
     """Fill fraction without assuming a color: follow the bar from its left end until the color jumps sharply
     (into the hit flash, the ghost, the next segment's color underneath, or the empty track).
     Returns (fraction, fill_color, edge_color). A bar with no jump reads as full."""
+    if D.on('fill-fast'):                                # Dev switch: the same walk over the three rows' bytes
+        r = _fill_fast(im, bar, jump)
+        if r is not None: DEV['fill_fast'] += 1; return r
+        DEV['fill_old'] += 1
     px = im.load(); yc = bar['yc']; q = max(1, bar['thickness'] // 4); rows = (yc - q, yc, yc + q)
     left, right = bar['track_left'], min(bar['track_right'], im.width - 3)
     seen = {}                                            # each column's median once (every one is used three times)
@@ -299,6 +305,41 @@ def _fill_past_cover(med, left, right, jump):
         if _diff(a, med(x)) > jump and _diff(a, med(xs[i + 2])) > jump:
             edge = x - 1 if xs[i] - xs[i - 2] > 2 else xs[i - 1]     # a covered stretch just before: under it
             break
+    frac = max(0.0, min(1.0, (edge - left + 1) / (right - left)))
+    return frac, fill_color, med(min(right - 1, edge + 3))
+
+def _fill_fast(im, bar, jump):
+    """measure_fill_any's answer, pixel for pixel, from the bar's three rows taken out of the picture as bytes in one go
+    (no per-pixel calls into the picture: ~2 ms a look at 4K became a fraction of that). The walk and its numbers are
+    the same; so is the median of three (sorted by sum, ties in row order). None when the picture or the bar isn't
+    plain enough for that (not RGB, a position that isn't a whole number or lies outside the picture, a track under
+    6 px): measure_fill_any then does it its own way."""
+    yc = bar['yc']; t = bar['thickness']; left = bar['track_left']; tr = bar['track_right']
+    if im.mode != 'RGB' or type(yc) is not int or type(t) is not int or type(left) is not int or type(tr) is not int: return None
+    q = max(1, t // 4); right = min(tr, im.width - 3); n = right - left
+    if left < 0 or n < 6 or yc - q < 0 or yc + q >= im.height: return None
+    data = im.crop((left, yc - q, right, yc + q + 1)).tobytes(); row = 3 * n
+    top, mid, low = data[:row], data[q * row:(q + 1) * row], data[2 * q * row:]
+    seen = [None] * n
+    def med(x):
+        i = x - left; v = seen[i]
+        if v is None:
+            j = 3 * i; a = top[j:j + 3]; b = mid[j:j + 3]; c = low[j:j + 3]
+            sa = a[0] + a[1] + a[2]; sb = b[0] + b[1] + b[2]; sc = c[0] + c[1] + c[2]
+            if sa <= sb: m = a if sc < sa else c if sc < sb else b
+            else: m = b if sc < sb else c if sc < sa else a
+            v = seen[i] = (m[0], m[1], m[2])
+        return v
+    # one of our own labels on the bar (every third pixel of the centre row, as measure_fill_any looks)
+    reds, greens, blues = mid[0::9], mid[1::9], mid[2::9]
+    if max(reds) >= 250 and min(greens) <= 5 and max(blues) >= 250 and any(
+            r >= 250 and g <= 5 and b >= 250 for r, g, b in zip(reds, greens, blues)):
+        return _fill_past_cover(med, left, right, jump)
+    fill_color = med(left + 2); edge = right
+    for x in range(left + 3, right - 2):
+        a = med(x - 2)
+        if _diff(a, med(x)) > jump and _diff(a, med(x + 2)) > jump:
+            edge = x - 1; break
     frac = max(0.0, min(1.0, (edge - left + 1) / (right - left)))
     return frac, fill_color, med(min(right - 1, edge + 3))
 
@@ -555,6 +596,8 @@ class Ocr:
     def launch(self):
         """Starts a helper: (its process, the language it says it reads in). Raises when it doesn't start."""
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        # Dev switch: the helper starts below normal priority, so its reading gives way to the game on a busy PC
+        if D.on('helpers-below-normal'): flags |= getattr(subprocess, 'BELOW_NORMAL_PRIORITY_CLASS', 0)
         if self.native:
             p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
             first = lambda: p.stdout.readline().decode('utf-8', 'replace')
@@ -566,6 +609,16 @@ class Ocr:
             first = p.stdout.readline
         try: return p, ready_language(first())
         except Exception: p.kill(); raise
+
+    def set_priority(self, low):
+        """This reader's running helper to below normal priority (Dev switch helpers-below-normal), or back to normal:
+        True when Windows took it. Never raises."""
+        try:
+            import ctypes
+            k = ctypes.WinDLL('kernel32', use_last_error=True)
+            k.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]; k.SetPriorityClass.restype = ctypes.c_int
+            return bool(k.SetPriorityClass(int(self.p._handle), 0x4000 if low else 0x20))    # BELOW_NORMAL / NORMAL
+        except Exception: return False
 
     def restart(self):
         """A new helper in this one's place, which picks Windows OCR's language again: English added to Windows since

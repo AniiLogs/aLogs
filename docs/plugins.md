@@ -91,6 +91,14 @@ what it did before. All are off at every start, except what a tester made Persis
 **Raise `revision` only when the switch's behaviour changes.** That turns it off for everyone who made it Persistent, and
 the tab says which changed so they can test it again. Rewording its text isn't a change. A new id starts fresh.
 
+**How did it go?** Next to each switch a tester picks Better, No difference, Worse or Broke something and can add a note
+(needed for the last two). The app keeps that with how long the switch was on while the game was open
+(`dev-verdicts.json`, by id, `sanctum:<id>` for Sanctum Helper's), for that revision only: a raised revision starts both
+again. **Send feedback** sends what hasn't gone up yet, for all four tabs, as one report on the same route as Report a
+problem: `dev-feedback.json` inside the logs (each verdict, note, revision and minutes on, what is on now, the build) and
+a summary as the report's note. So give every switch a log line its verdict can be checked against: one whose effect can't
+be seen in the logs can't become the default.
+
 On a release build `dev::start` loads nothing, every switch reads off and the meter isn't told about the list
 (`ALOGS_DEV_ON`). Files, in the meter's data folder: `dev-persistent.json` (`{id: revision}`) and `dev-on.json` (what's on
 now, for the meter). Sanctum Helper has its own switches and tab data (`Dev.cs`); the tab draws both the same way.

@@ -46,6 +46,32 @@ fn read_json(path: &PathBuf) -> Value {
     fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null)
 }
 
+/// Sanctum Helper's Dev switches that are on right now, each with its revision and title, and the ids of those made
+/// persistent: nothing unless it's running (a status file left by an earlier run doesn't count). For the Dev tab's count
+/// of how long each was on, and the feedback sent from there.
+pub(crate) fn dev_switches() -> (Vec<(String, u64, String)>, Vec<String>) {
+    let status = read_json(&hosted_dir().join("status.json"));
+    if !status.get("time").and_then(Value::as_u64).is_some_and(|t| now_ms().saturating_sub(t) < 5000) {
+        return (Vec::new(), Vec::new());
+    }
+    let ids = |list: &Value| -> Vec<String> { list.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect() };
+    let on = ids(&status["devOn"]);
+    if on.is_empty() {
+        return (Vec::new(), ids(&status["devPersistent"]));
+    }
+    let info = read_json(&hosted_dir().join("info.json"));
+    let option = |id: &str| info["dev"].as_array().and_then(|all| all.iter().find(|o| o["id"] == id));
+    let on = on
+        .into_iter()
+        .map(|id| {
+            let found = option(&id);
+            let title = found.and_then(|o| o["title"].as_str()).unwrap_or(&id).to_string();
+            (id.clone(), found.and_then(|o| o["revision"].as_u64()).unwrap_or(0), title)
+        })
+        .collect();
+    (on, ids(&status["devPersistent"]))
+}
+
 /// The bundled Sanctum Helper (resources/sanctumhelper), or a local build while developing.
 fn exe(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(res) = app.path().resource_dir() {
