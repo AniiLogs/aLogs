@@ -886,6 +886,11 @@
     }
     if (!photoPending) return;
     photoPending = false;
+    // Dev switch photos-wait-fight: not during a fight (photos.rs photos_wait: always false with the switch off); it
+    // stays pending and this asks again in 3 s. Asked there because `status` here stops refreshing while the window is hidden
+    let wait = false;
+    try { wait = await invoke("photos_wait"); } catch { /* upload as always */ }
+    if (wait) { photoPending = true; return; }
     await uploadNewPhotos();
   }, 3000);
 
@@ -992,28 +997,38 @@
   });
   report.addEventListener("click", (event) => { if (event.target === report) closeReport(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !report.hidden) closeReport(); });
+  // One report to the site: the logs, a note and any screenshots. With devFeedback the logs also carry what the tester
+  // said about the Dev switches (dev-feedback.json, made in dev.rs), which is how Beta Menu > Dev sends it (dev-menu.js).
+  // Throws with words for the user.
+  const NO_UID = "aLogs hasn't seen your game UID yet: open Aniimo with the meter running, then try again.";
+  async function sendReport({ note = "", shots = [], devFeedback = false } = {}) {
+    const uid = status.character?.uid;
+    if (!uid) throw new Error(NO_UID);
+    const zip = Uint8Array.from(atob(await invoke("collect_logs", { devFeedback })), (c) => c.charCodeAt(0));
+    const version = await window.__TAURI__.app.getVersion();
+    const rc = await invoke("build_number").catch(() => 0);
+    const form = new FormData();
+    form.set("uid", uid);
+    form.set("note", note);
+    form.set("app_version", rc ? `${version}+rc.${rc}` : version);
+    form.set("logs", new Blob([zip], { type: "application/zip" }), "logs.zip");
+    shots.forEach((shot, index) => form.append("screenshot", shot, `screenshot-${index + 1}`));
+    const response = await fetch(`${api()}/logs/reports`, { method: "POST", body: form });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
+  }
+  window.alogsSendReport = sendReport;
+
   $("[data-logs-send]").addEventListener("click", async () => {
     const button = $("[data-logs-send]");
-    const uid = status.character?.uid;
-    if (!uid) {
-      toast("aLogs hasn't seen your game UID yet: open Aniimo with the meter running, then try again.", true);
+    if (!status.character?.uid) {
+      toast(NO_UID, true);
       return;
     }
     button.disabled = true;
     button.textContent = "Sending…";
     try {
-      const zip = Uint8Array.from(atob(await invoke("collect_logs")), (c) => c.charCodeAt(0));
-      const version = await window.__TAURI__.app.getVersion();
-      const rc = await invoke("build_number").catch(() => 0);
-      const form = new FormData();
-      form.set("uid", uid);
-      form.set("note", $("[data-logs-note]").value.trim());
-      form.set("app_version", rc ? `${version}+rc.${rc}` : version);
-      form.set("logs", new Blob([zip], { type: "application/zip" }), "logs.zip");
-      reportShots.forEach((shot, index) => form.append("screenshot", shot.blob, `screenshot-${index + 1}`));
-      const response = await fetch(`${api()}/logs/reports`, { method: "POST", body: form });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `The server answered ${response.status}.`);
+      await sendReport({ note: $("[data-logs-note]").value.trim(), shots: reportShots.map((shot) => shot.blob) });
       $("[data-logs-note]").value = "";
       const shots = reportShots.length;
       clearShots();

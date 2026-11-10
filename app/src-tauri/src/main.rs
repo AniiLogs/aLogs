@@ -257,11 +257,16 @@ fn quit_app(app: &AppHandle) {
 /// How much of the PC aLogs, the meter and Sanctum Helper may take when it's busy (General › Priority):
 /// "low" (below normal: the game and OBS come first), "normal" or "high" (above normal); not set (the default):
 /// left as Windows starts it (normal), so None.
-fn priority_class(settings: &Value) -> Option<u32> {
+///
+/// `game_first` is the Dev switch priority-game-first: "high" then gives normal, never above it. Windows starts a game at normal
+/// unless the game asks for more, so above normal lets aLogs, the meter and Sanctum Helper take the processor from it
+/// whenever they have work.
+fn priority_class(settings: &Value, game_first: bool) -> Option<u32> {
     use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
     match settings.pointer("/app/priority").and_then(Value::as_str) {
         Some("low") => Some(BELOW_NORMAL_PRIORITY_CLASS),
         Some("normal") => Some(NORMAL_PRIORITY_CLASS),
+        Some("high") if game_first => Some(NORMAL_PRIORITY_CLASS),
         Some("high") => Some(ABOVE_NORMAL_PRIORITY_CLASS),
         // not chosen: lower, so the game (and OBS) always come first (B8; was Windows' normal)
         _ => Some(BELOW_NORMAL_PRIORITY_CLASS),
@@ -277,8 +282,34 @@ pub(crate) fn set_priority(child: Option<&Child>, settings: &Value) {
         None => unsafe { GetCurrentProcess() },
     };
     // not set: back to normal (it may have been set earlier this session)
-    let class = priority_class(settings).unwrap_or(windows_sys::Win32::System::Threading::NORMAL_PRIORITY_CLASS);
+    let class = priority_class(settings, dev::on("priority-game-first")).unwrap_or(windows_sys::Win32::System::Threading::NORMAL_PRIORITY_CLASS);
     unsafe { SetPriorityClass(handle, class) };
+}
+
+/// A priority in words, for app.log.
+fn priority_name(class: u32) -> &'static str {
+    use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
+    match class {
+        BELOW_NORMAL_PRIORITY_CLASS => "below normal",
+        NORMAL_PRIORITY_CLASS => "normal",
+        ABOVE_NORMAL_PRIORITY_CLASS => "above normal",
+        _ => "something else",
+    }
+}
+
+/// Dev switch priority-game-first, turned on or off while aLogs runs: the priorities are set again at once (they're
+/// otherwise only set at start, as the meter or Sanctum Helper starts and when the settings are saved), and app.log says
+/// what Windows then reports for aLogs and the meter, so a tester's log shows it took.
+fn priority_switched(app: &AppHandle, game_first: bool) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetPriorityClass};
+    let settings = read_settings();
+    apply_priority(app, &settings);
+    let own = unsafe { GetPriorityClass(GetCurrentProcess()) };
+    let meter = app.state::<Meter>().child.lock().unwrap().as_ref().map(|c| unsafe { GetPriorityClass(c.as_raw_handle() as _) });
+    let chosen = settings.pointer("/app/priority").and_then(Value::as_str).filter(|p| ["low", "normal", "high"].contains(p)).unwrap_or("not set");
+    app_log(&format!("priority: game first {} (Priority setting: {chosen}): aLogs now {}, the meter {}",
+        if game_first { "on" } else { "off" }, priority_name(own), meter.map_or("not running", priority_name)));
 }
 
 fn apply_priority(app: &AppHandle, settings: &Value) {
@@ -409,6 +440,70 @@ fn get_status(meter: State<Meter>) -> Value {
     status
 }
 
+/// Does this status.json (the meter's, written about once a second) say a fight is on? A boss fight being followed, or the
+/// moments after one while aLogs opens and reads its Battle Data. Only one the meter wrote within the last 10 s: a meter
+/// that stopped mid-fight left its last one saying "fight" for good.
+///
+/// What it can't know: a boss out in the world with only the leaderboards on (the meter doesn't follow those), anything
+/// with every plug-in off (the meter rests), and Egg Heist or Lost Sanctum runs (no boss bar is followed there).
+pub(crate) fn fight_in(status: &Value, now_secs: f64) -> bool {
+    let fresh = status.get("time").and_then(Value::as_f64).is_some_and(|t| (now_secs - t).abs() < 10.0);
+    fresh && (status.get("fight").is_some_and(Value::is_object) || status.get("auto_battle_data").and_then(Value::as_bool) == Some(true))
+}
+
+/// Is a fight on now, by the meter's status.json? One small file read: for the Dev switches that put work off during a
+/// fight, which only ask while their switch is on and they have something to put off.
+pub(crate) fn fight_on() -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    fight_in(&read_json(&data_dir().join("status.json")), now)
+}
+
+/// Seconds since this was first asked, on a clock that never goes back (Windows' own time can be set back, and a wait
+/// counted on it could then last an hour): what FightWait counts on.
+pub(crate) fn steady_secs() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs()
+}
+
+/// How long after the last sign of a fight work stays put off: bosses that come one after another leave a few seconds
+/// with no fight between them, and a result is read and sent just after the last.
+pub(crate) const AFTER_FIGHT_S: u64 = 30;
+
+/// Putting one piece of background work off while a fight is on, for the Dev switches updates-wait-fight and
+/// photos-wait-fight. Asked each time the work is about to start: wait, or go. It goes once no fight has been seen for
+/// AFTER_FIGHT_S, or once it has waited `ceiling_s` in all, so nothing is put off for good (a status that says "fight"
+/// for hours, say). With the switch off it never waits and keeps nothing.
+pub(crate) struct FightWait {
+    began: Option<u64>,    // when this wait began
+    fight_at: Option<u64>, // the last time a fight was seen
+}
+
+impl FightWait {
+    pub(crate) const fn new() -> Self {
+        FightWait { began: None, fight_at: None }
+    }
+
+    pub(crate) fn waiting(&self) -> bool {
+        self.began.is_some()
+    }
+
+    /// (wait?, the seconds a wait that ends with this answer lasted: for app.log). `fight` is only looked at with the
+    /// switch on; times are seconds on a clock that doesn't go back (steady_secs).
+    pub(crate) fn ask(&mut self, switch_on: bool, fight: bool, now_s: u64, ceiling_s: u64) -> (bool, Option<u64>) {
+        if switch_on && fight {
+            self.fight_at = Some(now_s);
+        }
+        let recent = switch_on && self.fight_at.is_some_and(|at| now_s.saturating_sub(at) < AFTER_FIGHT_S);
+        let waited = self.began.map(|began| now_s.saturating_sub(began));
+        if recent && waited.unwrap_or(0) < ceiling_s {
+            self.began.get_or_insert(now_s);
+            return (true, None);
+        }
+        *self = FightWait::new();
+        (false, waited)
+    }
+}
+
 fn set_autostart(on: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = Command::new("reg");
@@ -502,12 +597,13 @@ impl Scrubber {
 /// newest fight logs, profile notes, status, settings without the leaderboard token) and Sanctum Helper (its log,
 /// settings and state). Most useful first; whatever would take it past ~7.5 MB is left out.
 // (async): on a worker thread, not the window's (it showed "Not responding" while this ran)
+// dev_feedback (Beta Menu > Dev, "Send feedback"): the verdicts on the Dev switches go in as dev-feedback.json.
 #[tauri::command(async)]
-fn collect_logs(app: AppHandle) -> Result<String, String> {
-    collect_logs_inner(&app.package_info().version.to_string(), meter_running(&app.state::<Meter>()))
+fn collect_logs(app: AppHandle, dev_feedback: Option<bool>) -> Result<String, String> {
+    collect_logs_inner(&app.package_info().version.to_string(), meter_running(&app.state::<Meter>()), dev_feedback.unwrap_or(false))
 }
 
-fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
+fn collect_logs_inner(version: &str, meter_on: bool, dev_feedback: bool) -> Result<String, String> {
     use std::io::Write;
     use base64::Engine;
     const LIMIT: u64 = 7_500_000;
@@ -530,6 +626,10 @@ fn collect_logs_inner(version: &str, meter_on: bool) -> Result<String, String> {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
     );
     files.push(("app.txt".into(), info.into_bytes()));
+    if dev_feedback {
+        let text = dev::feedback_report(&format!("{version}{build}")).ok_or("There is no new feedback to send.")?;
+        files.push(("dev-feedback.json".into(), text.into_bytes()));
+    }
     add(&mut files, "meter.log", logs.join("meter.log"));
     add(&mut files, "app.log", data.join("app.log"));
     let mut fights: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&logs)
@@ -851,11 +951,11 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held, capture_choose_icon,
-            auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, auth::auth_window_open, auth::auth_window_close, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, photos::photos_stamp, site::site_view,
+            auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, auth::auth_window_open, auth::auth_window_close, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, photos::photos_stamp, photos::photos_wait, site::site_view,
             install_english_ocr,
             sanctum::install_dotnet_desktop,
             plugins::plugins,
-            dev::dev_state, dev::dev_set, dev::dev_persistent,
+            dev::dev_state, dev::dev_set, dev::dev_persistent, dev::dev_feedback_set, dev::dev_feedback_sent,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
             update::update_state, update::check_update, update::install_update, update::install_update_later,
@@ -894,14 +994,22 @@ fn main() {
             sanctum::ensure(app.handle(), &read_settings());
             update::start(app.handle());
             let handle = app.handle().clone();
-            std::thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                if handle.state::<Meter>().quitting.load(Ordering::SeqCst) {
-                    break;
+            std::thread::spawn(move || {
+                let mut game_first = false;   // Dev switch priority-game-first, as last applied here
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    if handle.state::<Meter>().quitting.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let _ = ensure_meter(&handle);
+                    sanctum::ensure(&handle, &read_settings());
+                    overlay_button::refresh();
+                    let now = dev::on("priority-game-first");
+                    if now != game_first {
+                        game_first = now;
+                        priority_switched(&handle, now);
+                    }
                 }
-                let _ = ensure_meter(&handle);
-                sanctum::ensure(&handle, &read_settings());
-                overlay_button::refresh();
             });
             if minimized {
                 if let Some(window) = app.get_webview_window("main") {
@@ -1035,5 +1143,149 @@ mod ocr_install_tests {
         assert!(ocr_install_log(&ocr_install_outcome(Some(4))).starts_with("English OCR: failed: Windows' admin prompt was declined, or "));
         assert_eq!(ocr_install_log(&ocr_install_outcome(Some(0))), "English OCR: installed");
         assert_eq!(ocr_install_log(&ocr_install_outcome(Some(3010))), "English OCR: installed (Windows wants a restart to finish)");
+    }
+}
+
+/// Dev switch priority-game-first: "high" gives normal with it on; every other choice, and everything with it off, is
+/// as it was.
+#[cfg(test)]
+mod priority_tests {
+    use super::priority_class;
+    use serde_json::json;
+    use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
+
+    #[test]
+    fn off_is_as_before() {
+        let class = |p: serde_json::Value| priority_class(&json!({ "app": { "priority": p } }), false);
+        assert_eq!(class(json!("low")), Some(BELOW_NORMAL_PRIORITY_CLASS));
+        assert_eq!(class(json!("normal")), Some(NORMAL_PRIORITY_CLASS));
+        assert_eq!(class(json!("high")), Some(ABOVE_NORMAL_PRIORITY_CLASS));
+        assert_eq!(class(json!("")), Some(BELOW_NORMAL_PRIORITY_CLASS));
+        assert_eq!(priority_class(&json!({}), false), Some(BELOW_NORMAL_PRIORITY_CLASS));
+        assert_eq!(priority_class(&json!(null), false), Some(BELOW_NORMAL_PRIORITY_CLASS));
+    }
+
+    #[test]
+    fn on_only_changes_high() {
+        let class = |p: serde_json::Value| priority_class(&json!({ "app": { "priority": p } }), true);
+        assert_eq!(class(json!("high")), Some(NORMAL_PRIORITY_CLASS), "never above the game");
+        assert_eq!(class(json!("low")), Some(BELOW_NORMAL_PRIORITY_CLASS));
+        assert_eq!(class(json!("normal")), Some(NORMAL_PRIORITY_CLASS));
+        assert_eq!(priority_class(&json!({}), true), Some(BELOW_NORMAL_PRIORITY_CLASS));
+    }
+
+    #[test]
+    fn the_log_names_them() {
+        assert_eq!(super::priority_name(BELOW_NORMAL_PRIORITY_CLASS), "below normal");
+        assert_eq!(super::priority_name(NORMAL_PRIORITY_CLASS), "normal");
+        assert_eq!(super::priority_name(ABOVE_NORMAL_PRIORITY_CLASS), "above normal");
+        assert_eq!(super::priority_name(0), "something else");   // what Windows answers when it can't say
+    }
+}
+
+/// Dev switches updates-wait-fight and photos-wait-fight: what counts as a fight, and how long work is put off for one.
+#[cfg(test)]
+mod fight_wait_tests {
+    use super::{fight_in, FightWait, AFTER_FIGHT_S};
+    use serde_json::json;
+
+    const NOW: f64 = 1_800_000_000.0;
+
+    #[test]
+    fn a_fight_is_what_the_meter_says_now() {
+        let fight = json!({ "boss": "x", "seconds": 12 });
+        assert!(fight_in(&json!({ "time": NOW - 1.0, "fight": fight }), NOW));
+        assert!(!fight_in(&json!({ "time": NOW - 1.0, "fight": null }), NOW));
+        assert!(!fight_in(&json!({ "time": NOW - 1.0 }), NOW));
+        // reading the Battle Data just after one counts too
+        assert!(fight_in(&json!({ "time": NOW, "fight": null, "auto_battle_data": true }), NOW));
+        assert!(!fight_in(&json!({ "time": NOW, "fight": null, "auto_battle_data": false }), NOW));
+        // a meter that stopped mid-fight left the file saying "fight": not believed after 10 s
+        assert!(fight_in(&json!({ "time": NOW - 9.0, "fight": fight }), NOW));
+        assert!(!fight_in(&json!({ "time": NOW - 11.0, "fight": fight }), NOW));
+        assert!(!fight_in(&json!({ "time": NOW - 3600.0, "fight": fight, "auto_battle_data": true }), NOW));
+        // no file, a broken one, one without a time: no fight
+        assert!(!fight_in(&json!(null), NOW));
+        assert!(!fight_in(&json!({ "fight": fight }), NOW));
+        assert!(!fight_in(&json!([1, 2]), NOW));
+        assert!(!fight_in(&json!({ "time": "soon", "fight": fight }), NOW));
+    }
+
+    #[test]
+    fn off_never_waits() {
+        let mut wait = FightWait::new();
+        for now in 0..5000 {
+            assert_eq!(wait.ask(false, true, now, 600), (false, None), "{now}");
+            assert!(!wait.waiting());
+        }
+    }
+
+    #[test]
+    fn no_fight_no_wait() {
+        let mut wait = FightWait::new();
+        for now in (0..5000).step_by(5) {
+            assert_eq!(wait.ask(true, false, now, 600), (false, None), "{now}");
+        }
+    }
+
+    #[test]
+    fn waits_through_the_fight_and_a_little_after() {
+        let mut wait = FightWait::new();
+        // a 90 s fight, asked every 5 s from 1000
+        for now in (1000..1090).step_by(5) {
+            assert_eq!(wait.ask(true, true, now, 600), (true, None), "{now}");
+            assert!(wait.waiting());
+        }
+        // over (last seen at 1085): still waiting until AFTER_FIGHT_S has gone by
+        for now in (1090..1085 + AFTER_FIGHT_S).step_by(5) {
+            assert_eq!(wait.ask(true, false, now, 600), (true, None), "{now}");
+        }
+        // then it goes, and says how long it was put off
+        assert_eq!(wait.ask(true, false, 1085 + AFTER_FIGHT_S, 600), (false, Some(85 + AFTER_FIGHT_S)));
+        assert!(!wait.waiting());
+        assert_eq!(wait.ask(true, false, 1200, 600), (false, None), "said once");
+    }
+
+    #[test]
+    fn the_next_boss_within_the_gap_keeps_it_waiting() {
+        let mut wait = FightWait::new();
+        assert!(wait.ask(true, true, 0, 600).0);
+        assert!(wait.ask(true, false, 20, 600).0, "between two bosses");
+        assert!(wait.ask(true, true, 25, 600).0);
+        assert!(wait.ask(true, false, 50, 600).0, "counted from the second one");
+        assert_eq!(wait.ask(true, false, 55, 600), (false, Some(55)));
+    }
+
+    #[test]
+    fn never_longer_than_the_ceiling() {
+        // a status that says "fight" for an hour: 600 s and it goes
+        let mut wait = FightWait::new();
+        let mut went = None;
+        for now in (0..3600).step_by(5) {
+            let (hold, ended) = wait.ask(true, true, now, 600);
+            if !hold {
+                went = Some((now, ended));
+                break;
+            }
+        }
+        assert_eq!(went, Some((600, Some(600))));
+        // the work that comes after it gets its own wait, with the same ceiling
+        assert_eq!(wait.ask(true, true, 605, 600), (true, None));
+        assert_eq!(wait.ask(true, true, 1204, 600), (true, None));
+        assert_eq!(wait.ask(true, true, 1205, 600), (false, Some(600)));
+    }
+
+    #[test]
+    fn turned_off_mid_wait_it_goes_at_once() {
+        let mut wait = FightWait::new();
+        assert!(wait.ask(true, true, 100, 600).0);
+        assert_eq!(wait.ask(false, true, 130, 600), (false, Some(30)));
+        assert_eq!(wait.ask(false, true, 135, 600), (false, None));
+    }
+
+    #[test]
+    fn the_clock_it_runs_on_does_not_go_back() {
+        let (a, b) = (super::steady_secs(), super::steady_secs());
+        assert!(b >= a && a < 3600, "seconds since the first call, not Windows' time: {a} {b}");
     }
 }

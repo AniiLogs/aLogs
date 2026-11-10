@@ -15,6 +15,7 @@ import submit as S
 from presence import Presence
 
 import settings as C
+import devflags as D
 # the plug-ins' list, switches and health (plugins.json)
 from plugins import PLUGINS, HEALTH, SwitchWatch, guarded, meter_mode, notice_owners, switched_on
 
@@ -353,6 +354,12 @@ def screen_sig(im):
     """A 48x27 grey thumbnail of the frame (well under a millisecond), to notice the screen changing."""
     return im.resize((48, 27), Image.NEAREST).convert('L').tobytes()
 
+def top_sig_direct(im, top_h):
+    """screen_sig of the frame's top `top_h` rows without cutting them out first: the cut copied the whole top part
+    (some 8 MB at 4K, 3.5-4 ms a look) to keep 48x27 points of it. The same points, picked straight off the frame
+    (Dev switch top-sig-direct; live.py checks the two agree once per frame size before trusting it)."""
+    return im.transform((48, 27), Image.AFFINE, (im.width / 48, 0, 0, 0, top_h / 27, 0), Image.NEAREST).convert('L').tobytes()
+
 def screen_changed(a, b, limit=24):
     """Did the screen change (another screen opened or this one closed), not just animate? Mean difference per pixel."""
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a) > limit
@@ -465,6 +472,58 @@ def save_picture(im, folder, name, width=1920):
     if im.width > width: im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
     path = os.path.join(d, name + '.jpg'); im.convert('RGB').save(path, quality=85); return path
 
+class PictureWriter:
+    """Dev switch proof-off-thread: diagnostic pictures are encoded and written on one thread of their own, so the
+    look that took one isn't held up by it (a whole 4K PNG takes a few tenths of a second). Two wait at most: with
+    both slots taken the caller saves its picture itself, as without the switch, so none is ever dropped. Pictures
+    something reads right after (a run's proof) never come here."""
+    SLOTS = 2
+    def __init__(self):
+        self.q = queue.Queue(self.SLOTS); self.thread = None; self.low = False
+        self.n = {'queued': 0, 'inline': 0, 'failed': 0, 'ms': 0.0, 'max': 0.0}    # for the meter's once-a-minute line
+    def put(self, job):
+        """True when the writer took the job (a call saving one picture); False when both slots are full."""
+        try: self.q.put_nowait(job)
+        except queue.Full: self.n['inline'] += 1; return False
+        self.n['queued'] += 1
+        if self.thread is None or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self.run, daemon=True, name='pictures'); self.thread.start()
+        return True
+    def run(self):
+        while True:
+            job = self.q.get(); t = time.perf_counter()
+            try:
+                # Dev switch: the writer at Windows' lowest thread priority. Its own switch, as a thread Windows
+                # keeps waiting can keep Python's one lock from the reading loop while it holds it
+                low = D.on('proof-writer-low')
+                if low != self.low: self.low = low; self.priority(low)
+                job()
+            except Exception as e:
+                self.n['failed'] += 1; log.info(f'picture not saved: {e!r}')
+            finally:
+                ms = (time.perf_counter() - t) * 1000; self.n['ms'] += ms; self.n['max'] = max(self.n['max'], ms)
+                self.q.task_done()
+    @staticmethod
+    def priority(low):
+        try:
+            k = ctypes.WinDLL('kernel32'); k.GetCurrentThread.restype = ctypes.c_void_p
+            k.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            k.SetThreadPriority(k.GetCurrentThread(), -2 if low else 0)     # THREAD_PRIORITY_LOWEST / NORMAL
+        except Exception: pass
+    def flush(self, timeout=5.0):
+        """Wait for what's queued to be on disk (the meter closing; tests): True when all of it is."""
+        end = time.time() + timeout
+        while self.q.unfinished_tasks and time.time() < end: time.sleep(0.01)
+        return not self.q.unfinished_tasks
+
+WRITER = PictureWriter()
+
+def picture_job(job):
+    """Save a diagnostic picture (job: a call that encodes and writes it, minding its own errors): right here, as
+    ever, or with Dev switch proof-off-thread on, on the writer's thread when it has room."""
+    if D.on('proof-off-thread') and WRITER.put(job): return
+    job()
+
 SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest); they age out like every screenshot
                            # (clean_old_screenshots: Keep screenshots, e.g. 7 days, or a few hours when it's 0)
 SAMPLE_GAP = 600           # seconds between two samples of one kind (one a run, not one a read)
@@ -480,9 +539,15 @@ def keep_sample(im, kind, gap=None, kept=None):
     try:
         d = os.path.join(HERE, 'logs', 'samples'); os.makedirs(d, exist_ok=True)
         # (a short gap is a run of pictures while something's played: JPEGs, which save far quicker than PNGs)
-        im.convert('RGB').save(os.path.join(d, f"{kind}_{time.strftime('%Y%m%d_%H%M%S')}." + ('png' if gap is None else 'jpg')), **({} if gap is None else {'quality': 92}))
-        for old in sorted(n for n in os.listdir(d) if n.startswith(kind + '_'))[:-(kept or SAMPLES_KEPT)]: os.remove(os.path.join(d, old))
-    except OSError as e: log.info(f'sample picture not kept: {e!r}')
+        path = os.path.join(d, f"{kind}_{time.strftime('%Y%m%d_%H%M%S')}." + ('png' if gap is None else 'jpg'))
+        rgb = im.convert('RGB')                 # a copy of its own: the frame may be drawn over by the next look
+    except OSError as e: log.info(f'sample picture not kept: {e!r}'); return
+    def save():                                 # (the encoding is the slow part: on the writer's thread with proof-off-thread)
+        try:
+            rgb.save(path, **({} if gap is None else {'quality': 92}))
+            for old in sorted(n for n in os.listdir(d) if n.startswith(kind + '_'))[:-(kept or SAMPLES_KEPT)]: os.remove(os.path.join(d, old))
+        except OSError as e: log.info(f'sample picture not kept: {e!r}')
+    picture_job(save)
 
 def last_rush_level():
     """The level of the last Interlink boss fought (logs/fights/*.json), for the instant start."""
@@ -719,4 +784,4 @@ OVERLAY_REDRAW = 0.25   # s between redraws of the overlay's numbers (4 a second
 BAR_HIDDEN = 0.5   # s without the game's boss bar before the labels around it are hidden too
 
 # everything above, for the plug-ins (from core import *), underscored names and the imported modules too
-__all__ = ['AWAY_INTERVAL', 'BAR_GONE_GRACE', 'BAR_GONE_S', 'BAR_HIDDEN', 'BAR_SPOT', 'BATTLE_DATA_PAUSE', 'C', 'CENTER_STARS', 'CHARACTERS', 'CLEAR_STARS', 'CONFIRM_GAP', 'CT', 'CpuLoad', 'E', 'FIGHT_LOG_DAYS', 'HERE', 'HOMELAND_SCENE', 'HP_GRADIENT', 'IDLE_INTERVAL', 'IMAGE_TYPES', 'INK_MIN', 'Image', 'ImageChops', 'ImageDraw', 'ImageFont', 'ImageOps', 'ImageStat', 'InputBlock', 'K', 'KEEP_FOLDERS', 'LEFTOVER_HOURS', 'LogWatcher', 'METER_LOG', 'NOTICES', 'NO_ENGLISH_READS', 'OCR_RECHECK', 'OCR_SAY_AGAIN', 'PluginFormatter', 'OVERLAY_REDRAW', 'OcrWorker', 'PLAYER_LOG', 'Presence', 'R', 'RX_SPACE_UID', 'RX_UID', 'S', 'SAMPLES_KEPT', 'SAMPLE_GAP', 'SETTINGS', 'STAR_CAPS', 'STEADY_ALIKE', 'STEADY_SEEN', 'TEAM', 'TEAMMATES', 'TEST_FRAME_BYTES', 'TEST_FRAME_DAYS', 'TEXT_DIAGNOSTICS', 'TOP_PART', 'Teammates', 'X', '_characters_file', '_last_status', '_meter', '_sample_at', '_status_logged', 'argparse', 'boss_row', 'character_verified', 'clean_old_fight_logs', 'clean_old_screenshots', 'clean_test_frames', 'clear_stars', 'collections', 'console_out', 'csv', 'ctypes', 'difflib', 'fmt', 'hp_colour', 'interlink_score', 'json', 'keep_sample', 'known_characters', 'last_rush_level', 'last_uid', 'load_korean_names', 'load_positions', 'log', 'logging', 'math', 'meter_mode', 'PLUGINS', 'HEALTH', 'SwitchWatch', 'guarded', 'notice_owners', 'switched_on', 'ocr_language_note', 'os', 'party_pill', 'pcstats', 'platform', 'queue', 're', 'refresh_cycles', 'same_name', 'save_picture', 'scene_of', 'screen_changed', 'screen_sig', 'screenshot_cleanup', 'setup_log', 'star_caps', 'stop_handles', 'sys', 'threading', 'time', 'uid_in', 'upload_cycles', 'wc']
+__all__ = ['AWAY_INTERVAL', 'BAR_GONE_GRACE', 'BAR_GONE_S', 'BAR_HIDDEN', 'BAR_SPOT', 'BATTLE_DATA_PAUSE', 'C', 'CENTER_STARS', 'CHARACTERS', 'CLEAR_STARS', 'CONFIRM_GAP', 'CT', 'CpuLoad', 'E', 'FIGHT_LOG_DAYS', 'HERE', 'HOMELAND_SCENE', 'HP_GRADIENT', 'IDLE_INTERVAL', 'IMAGE_TYPES', 'INK_MIN', 'Image', 'ImageChops', 'ImageDraw', 'ImageFont', 'ImageOps', 'ImageStat', 'InputBlock', 'K', 'KEEP_FOLDERS', 'LEFTOVER_HOURS', 'LogWatcher', 'METER_LOG', 'NOTICES', 'NO_ENGLISH_READS', 'OCR_RECHECK', 'OCR_SAY_AGAIN', 'PluginFormatter', 'OVERLAY_REDRAW', 'OcrWorker', 'PLAYER_LOG', 'PictureWriter', 'WRITER', 'picture_job', 'top_sig_direct', 'Presence', 'R', 'RX_SPACE_UID', 'RX_UID', 'S', 'SAMPLES_KEPT', 'SAMPLE_GAP', 'SETTINGS', 'STAR_CAPS', 'STEADY_ALIKE', 'STEADY_SEEN', 'TEAM', 'TEAMMATES', 'TEST_FRAME_BYTES', 'TEST_FRAME_DAYS', 'TEXT_DIAGNOSTICS', 'TOP_PART', 'Teammates', 'X', '_characters_file', '_last_status', '_meter', '_sample_at', '_status_logged', 'argparse', 'boss_row', 'character_verified', 'clean_old_fight_logs', 'clean_old_screenshots', 'clean_test_frames', 'clear_stars', 'collections', 'console_out', 'csv', 'ctypes', 'difflib', 'fmt', 'hp_colour', 'interlink_score', 'json', 'keep_sample', 'known_characters', 'last_rush_level', 'last_uid', 'load_korean_names', 'load_positions', 'log', 'logging', 'math', 'meter_mode', 'PLUGINS', 'HEALTH', 'SwitchWatch', 'guarded', 'notice_owners', 'switched_on', 'ocr_language_note', 'os', 'party_pill', 'pcstats', 'platform', 'queue', 're', 'refresh_cycles', 'same_name', 'save_picture', 'scene_of', 'screen_changed', 'screen_sig', 'screenshot_cleanup', 'setup_log', 'star_caps', 'stop_handles', 'sys', 'threading', 'time', 'uid_in', 'upload_cycles', 'wc']

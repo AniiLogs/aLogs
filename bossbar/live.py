@@ -182,6 +182,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                      + (f", {st['none']} without a picture" if st['none'] else ''))
             self.cap_stats = {**st, 'since': now, 'n': 0, 'none': 0, 'ms': 0.0, 'max': 0.0, 'app_us': 0}
             self.load_line(now)
+            self.dev_line(now)
             self.overlay_check()
 
     def picture_gap(self, missing, now):
@@ -462,7 +463,98 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # reads 1.6 s apart held them about 3.5 s, on a still screen)
         if getattr(self, 'egg_hold', None) or getattr(self, 'egg_read', None) or getattr(self, 'egg_points', None): gap = min(gap, 0.25)
         if not quick and self.idle(): gap = max(gap, 1.0)
+        # Dev switch busy-half-pace: busy with no boss bar and nothing that can't wait (busy_calm), 2 reads a second
+        elif not quick and gap < self.CALM_READ_S and D.on('busy-half-pace') and self.busy_calm(now): gap = self.CALM_READ_S
         return now - self.last_results >= gap
+
+    CALM_LOOK_S, CALM_READ_S = 0.1, 0.5         # busy-half-pace: seconds between looks, and between screen reads
+    CALM_JUMP_S, CALM_BLACK_S = 1.5, 10.0       # ...and today's pace for this long after the top part jumped / went black
+
+    def busy_calm(self, now):
+        """Dev switch busy-half-pace. Busy with no boss bar (an Egg Heist run, an Interlink room) used today's full
+        pace throughout: 20 looks and up to 10 screen reads a second. Calm is when nothing there can't wait: no screen
+        just spotted and no fade just seen (calm_watch), no screen up, no hold of the player's inputs, automatic
+        click, tour, result being read, kept or sent, names being read, and not the time after a fight (45 s) or an Egg
+        Heist match (90 s), when result and rank screens come."""
+        if self.fight or self.bar is not None or self.args.replay is not None or self.idle(): return False
+        if now < max(getattr(self, 'calm_until', 0), getattr(self, 'full_until', 0)): return False
+        if (self.end_sig is not None or self.auto_until or self.pending_run or self.awaiting or self.send_waiting
+                or self.hold.active or self.holosim_space or self.names_waiting()): return False
+        if any(getattr(self, k, None) for k in ('egg_hold', 'egg_read', 'egg_points', 'egg_pending', 'egg_click', 'sim_tour', 'sim_ctl')):
+            return False
+        a = self.after_fight
+        if a and now < a[1]: return False
+        return now - max(getattr(self, 'egg_end_seen', 0), getattr(self, 'egg_sent_at', 0)) >= self.EGG_RANK_WAIT_S
+
+    def calm_pace(self, interval):
+        self.dev_count('calm'); return interval if self.bossrush_space else max(interval, self.CALM_LOOK_S)
+
+    def calm_watch(self, sig, now):
+        """busy-half-pace, every look with no boss bar: a screen opening shows as a jump of the frame's top part from
+        one look to the next, and Egg Heist's end screen comes out of a fade to black (egg_fade's test of black, on the
+        top part). Either one puts today's pace back, for CALM_JUMP_S and CALM_BLACK_S."""
+        last, self.calm_sig = getattr(self, 'calm_sig', None), sig
+        hold = self.CALM_JUMP_S if last is None or len(last) != len(sig) or screen_changed(sig, last) else 0.0
+        lum = sorted(sig)
+        if lum[len(lum) // 2] < 14 and lum[int(len(lum) * 0.95)] < 40: hold = self.CALM_BLACK_S
+        if hold: self.calm_until = max(getattr(self, 'calm_until', 0), now + hold)
+
+    def top_sig_fast(self, im, top_h, now):
+        """Dev switch top-sig-direct: the top part's signature picked straight off the frame (core.top_sig_direct), not
+        from a copy of the top part. The same bytes by construction; checked against the old way on the first look of
+        each frame size and once a minute after, and if the two ever differ the old way is used until the meter restarts."""
+        st = self.__dict__.setdefault('sig_check', {'bad': False, 'seen': {}}); key = (im.size, top_h)
+        if not st['bad'] and now - st['seen'].get(key, -1e9) < 60:
+            self.dev_count('sig_direct'); return top_sig_direct(im, top_h)
+        old = screen_sig(im.crop((0, 0, im.width, top_h)))
+        if st['bad']: return old
+        if len(st['seen']) > 64: st['seen'].clear()
+        st['seen'][key] = now
+        if top_sig_direct(im, top_h) != old:
+            st['bad'] = True; log.info(f'dev top-sig-direct: the two ways differ at {im.width}x{im.height}, top {top_h}: the old way from here on')
+        return old
+
+    def search_rests(self, now):
+        """Dev switch tabbed-out-rest: tabbed out with no fight, the whole-frame bar search runs twice a second, not on
+        every look. With red or orange on screen where no bar is, it took 85-110 ms a look: a third of a core over a
+        tabbed-out Interlink session (10 Nov). The spots a bar had before are still checked on every look."""
+        if self.fight or self.bar is not None or self.args.replay is not None or not self.hwnd: return False
+        if not D.on('tabbed-out-rest') or wc.is_foreground(self.hwnd): return False
+        if now - getattr(self, 'searched_at', 0) >= 0.5: self.searched_at = now; return False
+        self.dev_count('search_rest'); return True
+
+    def dev_count(self, key, by=1):
+        n = self.__dict__.setdefault('dev_n', {}); n[key] = n.get(key, 0) + by
+
+    def dev_line(self, now):
+        """Once a minute, with the load line: what the look loop's Dev switches did since the last line (counts and
+        milliseconds only), so a tester's log shows each one working; nothing while none of them did anything. Also
+        where the OCR helpers already running follow helpers-below-normal (new ones start that way: Ocr.launch)."""
+        try:
+            low = D.on('helpers-below-normal')
+            if low != getattr(self, 'helpers_low', False):
+                self.helpers_low = low
+                hs = [o for o in (self.ocr, getattr(self.ocr_bg, 'ocr', None), getattr(self.screen_bg, 'ocr', None),
+                                  getattr(self, 'hp_ocr', None)) if getattr(o, 'set_priority', None)]
+                log.info(f"dev helpers-below-normal: {sum(bool(o.set_priority(low)) for o in hs)} of {len(hs)} OCR helpers now at "
+                         f"{'Below Normal' if low else 'Normal'} priority")
+            w = WRITER.n; n = getattr(self, 'dev_n', None) or {}
+            cur = {'fill fast': R.DEV['fill_fast'], 'fill old way': R.DEV['fill_old'],
+                   'xN read': X.SAME['reads'], 'xN same as last': X.SAME['same'], 'top signatures direct': n.get('sig_direct', 0),
+                   'pictures queued': w['queued'], 'pictures saved in the look': w['inline'], 'pictures failed': w['failed'],
+                   'calm looks': n.get('calm', 0), 'whole frames after a match': n.get('quiet_whole', 0),
+                   'top parts after a match': n.get('quiet_top', 0), 'bar searches skipped': n.get('search_rest', 0),
+                   'area requests': wc.shared.asked, 'for more rows': wc.shared.grown}
+            last, self.dev_last = getattr(self, 'dev_last', None) or dict.fromkeys(cur, 0), cur
+            d = {k: v - last.get(k, 0) for k, v in cur.items()}
+            if not D.on('area-keep-short'): d['area requests'] = d['for more rows'] = 0     # (counted either way)
+            ms, self.dev_ms = w['ms'] - getattr(self, 'dev_ms', 0.0), w['ms']
+            if any(v > 0 for v in d.values()):
+                log.info('dev: ' + ', '.join(f'{v} {k}' for k, v in d.items() if v > 0)
+                         + (f", pictures took {ms:.0f} ms off the look (longest {w['max']:.0f})" if d['pictures queued'] > 0 else ''))
+            w['max'] = 0.0
+        except Exception as e:
+            log.info(f'dev: line not written ({e!r})')
 
     def full_frame_due(self, now):
         """Between fights only the frame's top part is copied (where a boss bar appears; ~3x cheaper at 4K) unless
@@ -472,16 +564,25 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # egg-top-only: only the top part and the screen-read boxes there (10 Nov: a player's game lost FPS in runs).
         if self.end_sig is not None or getattr(self, 'egg_hold', None) or getattr(self, 'sim_tour', None): return True
         if self.sanctum_in_run(now) and not D.on('egg-top-only'): return True
-        if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: return True        # the rank screen can come any moment after a match
+        # the rank screen can come any moment after a match: whole frames on every look. Dev switch quiet-top-only: only
+        # on the looks a screen read is made from (every read there still gets a whole frame: the rank screen is kept
+        # from one), and for the leader's line after an Interlink fight; the looks in between copy the top part
+        egg_after = now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S
+        if egg_after and not D.on('quiet-top-only'): return True
+        if egg_after and getattr(self, 'last_fight', None) and now - getattr(self, 'fight_ended_at', 0) <= 20: return True
         if getattr(self, 'sim_ctl', None) or (self.holosim_space and (getattr(self, 'sim_gate_state', None) or {}).get('last')): return True
         cap = self.args.cfg['capture']; a = self.after_fight
         if a and cap['end_screens'] and now - a[2] >= 3: return True
         if cap['nobar_frames'] and self.bossrush_space and now - self.last_nobar >= 5 and self.nobar_count < 30: return True
         bg = getattr(self, 'screen_bg', None)
         if bg is None: return True
-        if not bg.busy and not self.names_waiting() and self.screen_read_due(now):
+        # (after a match the read asks as check_battle_data will: at once while an automatic click waits for its screen)
+        if not bg.busy and not self.names_waiting() and (self.screen_read_due(now, True) if egg_after and self.auto_active()
+                                                         else self.screen_read_due(now)):
             # only for a screen read: just its boxes (screen_parts), unless a screen is up (then whole frames until it's gone)
-            return True if now < getattr(self, 'full_until', 0) else 'screen'
+            if egg_after: self.dev_count('quiet_whole')
+            return True if egg_after or now < getattr(self, 'full_until', 0) else 'screen'
+        if egg_after: self.dev_count('quiet_top')
         return False
 
     FULL_HOLD_S = 3.0      # whole frames for this long after a screen read saw text (B8)
@@ -1506,7 +1607,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if now > a[1]: self.after_fight = None; return
         if now - a[2] < 3: return
         a[2] = now; d = os.path.join(HERE, 'logs', 'end_screens', a[0]); os.makedirs(d, exist_ok=True)
-        save_picture(im, os.path.join('end_screens', a[0]), time.strftime('%H%M%S'))
+        # (Dev switch proof-off-thread: encoded by the picture writer; the top-only canvas is painted over on the next look)
+        pic = im.copy() if im is getattr(self, 'canvas', None) and D.on('proof-off-thread') else im
+        folder, name = os.path.join('end_screens', a[0]), time.strftime('%H%M%S')
+        picture_job(lambda: save_picture(pic, folder, name))
 
     BAR_LOST_S, BAR_LOST_EACH, BAR_LOST_MAX = 60, 12, 60   # after a lost boss bar: this long, this many, this many a session
 
@@ -1636,7 +1740,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
             self.fight.away += min(1.0, now - getattr(self, 'last_step', now))   # time the fight ran while you were tabbed out
         self.last_step = now
-        self.top_sig = screen_sig(im.crop((0, 0, im.width, max(1, int(self.frame_size[1] * TOP_PART)))))
+        top_h = max(1, int(self.frame_size[1] * TOP_PART))
+        self.top_sig = self.top_sig_fast(im, top_h, now) if D.on('top-sig-direct') else screen_sig(im.crop((0, 0, im.width, top_h)))
+        if not self.fight and self.bar is None and D.on('busy-half-pace'): self.calm_watch(self.top_sig, now)
         if self.frame_full: self.egg_fade(im, now)        # Egg Heist: hold inputs through the fade to its end screen
         self.sim_check(now)
         if self.bar is None and self.holosim_space: self.sim_gate(im, now)    # Holo-Battle Sim's exit gate (last level)
@@ -1646,7 +1752,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 im = self.grab()
                 if im is None: return
             # the spot the bar had last time first (~1 ms), then the whole-frame search (~3 ms): both every frame
-            found = R.bar_at(im, self.bar_spots) or R.find_bar(im)
+            found = R.bar_at(im, self.bar_spots) or (None if self.search_rests(now) else R.find_bar(im))
             if found and not self.fight and self.is_dud(im, found): found = None
             if found and not self.plausible_bar(found, im): found = None
             if found and found.get('world') and ((self.fight and self.fight.bossrush) or self.bossrush_space):
@@ -1744,7 +1850,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         timer = None; text = None
         xn_box = R.box_at(bar, R.XN_BOX)
         top = R.xn_top(self.grades)                            # the counter at full HP (x21)
-        xn = xn_digits = X.read_counter(im.crop(tuple(int(v) for v in xn_box)), self.xn_tpl, top=top)   # digit shapes, every frame
+        box = im.crop(tuple(int(v) for v in xn_box))
+        # digit shapes, every frame. Dev switch fight-skip-unchanged: the last answer again while the box's white shapes
+        # (all read_counter looks at) are the very same as in the last read
+        xn = xn_digits = X.read_counter_same(box, self.xn_tpl, top) if D.on('fight-skip-unchanged') else X.read_counter(box, self.xn_tpl, top=top)
         if not self.fight: self.instant_start(xn, now, low=bar['yc'] > TOP_BAR * self.frame_size[1])
         if self.dud_check(bar, fill, xn, now):
             self.bar = None; self.out('status', 'waiting for a boss bar'); self.snapshot(now); return
@@ -1955,6 +2064,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             if not self.fight and self.hwnd and self.args.replay is None and not wc.is_foreground(self.hwnd):
                 interval = max(interval, AWAY_INTERVAL)     # tabbed out between fights: a lighter pace
             elif self.idle(): interval = max(interval, IDLE_INTERVAL)
+            # Dev switch busy-half-pace: 10 looks a second while busy_calm, except in Interlink rooms, whose boss bars
+            # start timed fights (the screen reads slow down there too: screen_read_due)
+            elif D.on('busy-half-pace') and self.busy_calm(time.time()): interval = self.calm_pace(interval)
             if getattr(self, 'homeland_rest', False): interval = max(interval, 1.0)          # only the game log is read
             nap = max(0, interval - (time.time() - t)); woke = time.perf_counter(); time.sleep(nap)
             late = (time.perf_counter() - woke - nap) * 1000
@@ -1966,6 +2078,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.hold.stop()
         if CT.hidden: CT.hide_controllers(False)                     # never leave the controller hidden from the game
         self.end_fight('meter closed'); self.ocr.close()
+        if WRITER.q.unfinished_tasks: WRITER.flush(3.0)              # proof-off-thread: the pictures still waiting
         if self.submitter and getattr(self, 'presence_sent', None) and self.presence_sent[1] != 'offline':
             self.submitter.presence(self.presence_sent[0], 'offline', wait=True)     # aLogs closing: you're offline
         if self.ocr_bg: self.ocr_bg.close()

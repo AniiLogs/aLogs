@@ -12,13 +12,17 @@ TPL_FILE = os.path.join(HERE, 'xn_templates.json')
 GW, GH = 12, 18                      # normalized glyph size
 SMALL_H = READ_H = 30                # counter crops shorter than this (720p is 16, 1080p 25) are enlarged to it first
 
-def white_mask(img):
-    """1 where the pixel is near-white text (not bright sky or sand), else 0. Built with PIL's own operations."""
+def mask_bytes(img):
+    """white_mask as it comes out of PIL: (width, height, one byte a pixel, row after row)."""
     from PIL import ImageChops
     r, g, b = img.convert('RGB').split(); w, h = img.size
     lo = ImageChops.darker(ImageChops.darker(r, g), b); hi = ImageChops.lighter(ImageChops.lighter(r, g), b)
     m = ImageChops.darker(lo.point(lambda v: 1 if v > 165 else 0), ImageChops.subtract(hi, lo).point(lambda v: 1 if v < 60 else 0))
-    data = m.tobytes()
+    return w, h, m.tobytes()
+
+def white_mask(img):
+    """1 where the pixel is near-white text (not bright sky or sand), else 0. Built with PIL's own operations."""
+    w, h, data = mask_bytes(img)
     return [list(data[y * w:(y + 1) * w]) for y in range(h)]
 
 def glyphs(mask):
@@ -102,3 +106,22 @@ def read_counter(img, tpl=None, max_dist=0.22, top=None):
         s += d
     n = int(s)
     return n if 1 <= n <= top else None
+
+SAME = {'reads': 0, 'same': 0, 'last': None}    # read_counter_same: how often it was asked and answered from the last read
+def read_counter_same(img, tpl, top, max_dist=0.22):
+    """read_counter, worked out again only when the counter's white text changed (Dev switch fight-skip-unchanged).
+    read_counter sees the box through its white-text mask and nothing else (split_counter), so two boxes with the same
+    mask have the same answer, whatever moved behind the digits: the last box's mask and answer are kept, and a box
+    with that mask, the same templates and the same top takes that answer (the mask costs a fifth of the read).
+    Without templates or a top it is read_counter itself."""
+    if not tpl or top is None: return read_counter(img, tpl, max_dist, top)
+    if img.height < SMALL_H:                     # read_counter's own enlarging, done here so the mask is the one it reads
+        img = img.resize((max(1, round(img.width * READ_H / img.height)), READ_H), Image.BICUBIC)
+    key = (mask_bytes(img), top, max_dist)
+    SAME['reads'] += 1
+    last = SAME['last']
+    if last is not None and last[0] is tpl and last[1] == key:
+        SAME['same'] += 1; return last[2]
+    value = read_counter(img, tpl, max_dist, top)
+    SAME['last'] = (tpl, key, value)
+    return value

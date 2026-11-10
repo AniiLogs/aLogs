@@ -8,6 +8,10 @@
 //!
 //! Beta builds only: on a release build nothing is loaded and every switch stays off, and the meter isn't even told where
 //! the list of what's on is (ALOGS_DEV_ON, read by bossbar/devflags.py).
+//!
+//! The tab also asks how each switch went ("How did it go?"): a verdict and a note per switch, kept here with how long
+//! the switch has been on while the game was open (Sanctum Helper's too, under "sanctum:<id>"), in dev-verdicts.json.
+//! Sent from the tab as dev-feedback.json inside the logs of an ordinary report, so it needs nothing new on the server.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -15,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const OPTIONS: &str = include_str!("../../ui/dev-options.json");
@@ -106,7 +111,25 @@ pub fn start() {
         save_persistent(&state);
     }
     share_on(&state);
+    drop(state);
+    let saved = fs::read_to_string(feedback_file()).ok();
+    *FEEDBACK.lock().unwrap() = load_feedback(saved.as_deref(), &revisions(options()));
     ACTIVE.store(true, Ordering::SeqCst);
+    // How long each switch has been on, counted only while the game is open: a switch on overnight in the tray says
+    // nothing about how it plays.
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(TICK_S));
+        if crate::capture::find_game().is_null() {
+            continue;
+        }
+        let (on, _) = switches_now();
+        if on.is_empty() {
+            continue;
+        }
+        let mut all = FEEDBACK.lock().unwrap();
+        tally(&mut all, &on, TICK_S);
+        save_feedback(&all);
+    });
 }
 
 /// Is this switch on? Always false on a release build.
@@ -128,7 +151,10 @@ pub fn dev_state() -> Value {
         return json!({ "beta": false, "options": [], "on": [], "persistent": [], "changed": [] });
     }
     let state = STATE.lock().unwrap();
-    json!({ "beta": true, "options": options(), "on": state.on, "persistent": state.persistent.keys().collect::<Vec<_>>(), "changed": state.changed })
+    let mut view = json!({ "beta": true, "options": options(), "on": state.on, "persistent": state.persistent.keys().collect::<Vec<_>>(), "changed": state.changed });
+    drop(state);
+    view["feedback"] = json!(*FEEDBACK.lock().unwrap());
+    view
 }
 
 #[tauri::command]
@@ -161,6 +187,178 @@ pub fn dev_persistent(id: String, persistent: bool) -> Result<(), String> {
     save_persistent(&state);
     crate::app_log(&format!("dev: {id} {}", if persistent { "persistent" } else { "not persistent" }));
     Ok(())
+}
+
+// ---------------------------------------------------------------- how each switch went
+/// What a tester says about one switch, and how long it has been on with the game open. It holds for one revision of
+/// the switch: a raised revision is a different change, and what was said about the old one says nothing about it.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+#[serde(default)]
+struct Feedback {
+    revision: u64,
+    plugin: String,
+    title: String,
+    seconds: u64,         // on, with the game open
+    verdict: String,      // "" (none yet), or one of VERDICTS
+    note: String,
+    sent_at: u64,         // unix seconds; 0 = never sent
+    sent_verdict: String, // what went up then: the same verdict and note aren't sent twice
+    sent_note: String,
+}
+
+impl Feedback {
+    fn to_send(&self) -> bool {
+        !self.verdict.is_empty() && (self.sent_at == 0 || self.sent_verdict != self.verdict || self.sent_note != self.note)
+    }
+}
+
+/// A switch that is on: its key here (Sanctum Helper's start with SANCTUM), revision, plug-in and title.
+type OnSwitch = (String, u64, String, String);
+
+const VERDICTS: [&str; 4] = ["better", "same", "worse", "broke"];
+const SANCTUM: &str = "sanctum:";
+const TICK_S: u64 = 60;
+const NOTE_MAX: usize = 500;
+
+static FEEDBACK: Mutex<BTreeMap<String, Feedback>> = Mutex::new(BTreeMap::new());
+/// What the last dev-feedback.json held, so that exactly that is marked as sent once the report went up.
+static LAST_REPORT: Mutex<Vec<(String, String, String)>> = Mutex::new(Vec::new());
+
+fn feedback_file() -> PathBuf {
+    crate::data_dir().join("dev-verdicts.json")
+}
+
+fn save_feedback(all: &BTreeMap<String, Feedback>) {
+    if let Err(e) = write_whole(&feedback_file(), &json!(all).to_string()) {
+        crate::app_log(&format!("dev: saving the verdicts: {e}"));
+    }
+}
+
+/// What a saved file means now. One about an earlier revision of a switch, or a switch that's gone, is dropped. Sanctum
+/// Helper's are kept: its revisions are only known once it runs, and `at` drops an outdated one then.
+fn load_feedback(text: Option<&str>, current: &BTreeMap<String, u64>) -> BTreeMap<String, Feedback> {
+    let saved: BTreeMap<String, Feedback> = text.and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default();
+    saved.into_iter().filter(|(key, f)| key.starts_with(SANCTUM) || current.get(key) == Some(&f.revision)).collect()
+}
+
+/// The record of a switch at this revision: started afresh when what's there is about another revision.
+fn at<'a>(all: &'a mut BTreeMap<String, Feedback>, key: &str, revision: u64, plugin: &str, title: &str) -> &'a mut Feedback {
+    let found = all.entry(key.to_string()).or_default();
+    if found.revision != revision {
+        *found = Feedback { revision, ..Feedback::default() };
+    }
+    (found.plugin, found.title) = (plugin.to_string(), title.to_string());
+    found
+}
+
+fn tally(all: &mut BTreeMap<String, Feedback>, on: &[OnSwitch], seconds: u64) {
+    for (key, revision, plugin, title) in on {
+        at(all, key, *revision, plugin, title).seconds += seconds;
+    }
+}
+
+/// The switches on right now, the app's and a running Sanctum Helper's, and the keys of those made persistent.
+fn switches_now() -> (Vec<OnSwitch>, BTreeSet<String>) {
+    let (on, mut persistent) = {
+        let state = STATE.lock().unwrap();
+        (state.on.clone(), state.persistent.keys().cloned().collect::<BTreeSet<String>>())
+    };
+    let text = |o: &Value, field: &str| o[field].as_str().unwrap_or_default().to_string();
+    let mut list: Vec<OnSwitch> = options()
+        .iter()
+        .filter(|o| o["id"].as_str().is_some_and(|id| on.contains(id)))
+        .map(|o| (text(o, "id"), o["revision"].as_u64().unwrap_or(0), text(o, "plugin"), text(o, "title")))
+        .collect();
+    let (theirs, kept) = crate::sanctum::dev_switches();
+    list.extend(theirs.into_iter().map(|(id, revision, title)| (format!("{SANCTUM}{id}"), revision, "sanctum".to_string(), title)));
+    persistent.extend(kept.into_iter().map(|id| format!("{SANCTUM}{id}")));
+    (list, persistent)
+}
+
+/// dev-feedback.json: each verdict not sent yet, with how long its switch was on, and everything that is on now.
+fn report(all: &BTreeMap<String, Feedback>, on: &[OnSwitch], persistent: &BTreeSet<String>, build: &str, now: u64) -> Option<Value> {
+    let is_on = |key: &str| on.iter().any(|(k, ..)| k == key);
+    let switches: Vec<Value> = all
+        .iter()
+        .filter(|(_, f)| f.to_send())
+        .map(|(key, f)| {
+            json!({
+                "switch": key, "plugin": f.plugin, "title": f.title, "revision": f.revision, "verdict": f.verdict, "note": f.note,
+                "minutes_on": f.seconds / 60, "on_now": is_on(key), "persistent": persistent.contains(key),
+            })
+        })
+        .collect();
+    if switches.is_empty() {
+        return None;
+    }
+    let on_now: Vec<Value> = on.iter().map(|(key, revision, ..)| json!({ "switch": key, "revision": revision })).collect();
+    Some(json!({ "build": build, "made": now, "minutes_on": "with the game open", "switches": switches, "on_now": on_now }))
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// For collect_logs: the feedback to send as text, or None when there is nothing to send (or this is a release build).
+pub fn feedback_report(build: &str) -> Option<String> {
+    if !ACTIVE.load(Ordering::SeqCst) {
+        return None;
+    }
+    let (on, persistent) = switches_now();
+    let all = FEEDBACK.lock().unwrap();
+    let made = report(&all, &on, &persistent, build, unix_now())?;
+    *LAST_REPORT.lock().unwrap() =
+        all.iter().filter(|(_, f)| f.to_send()).map(|(key, f)| (key.clone(), f.verdict.clone(), f.note.clone())).collect();
+    serde_json::to_string_pretty(&made).ok()
+}
+
+fn clean_note(note: &str) -> String {
+    note.trim().chars().take(NOTE_MAX).collect()
+}
+
+/// The tab saves a verdict and its note as they're chosen and typed. `key` is the switch's id, or "sanctum:<id>".
+#[tauri::command]
+pub fn dev_feedback_set(key: String, plugin: String, title: String, revision: u64, verdict: String, note: String) -> Result<(), String> {
+    if !ACTIVE.load(Ordering::SeqCst) {
+        return Err("Dev switches are only on a beta build.".into());
+    }
+    if !verdict.is_empty() && !VERDICTS.contains(&verdict.as_str()) {
+        return Err(format!("No verdict called {verdict}."));
+    }
+    let (revision, plugin, title) = match key.strip_prefix(SANCTUM) {
+        Some(id) if !id.is_empty() && plugin == "sanctum" => (revision, plugin, title.chars().take(120).collect()),
+        Some(_) => return Err(format!("No switch called {key}.")),
+        None => {
+            let option = options().iter().find(|o| o["id"] == key.as_str()).ok_or_else(|| format!("No switch called {key}."))?;
+            let text = |field: &str| option[field].as_str().unwrap_or_default().to_string();
+            (option["revision"].as_u64().unwrap_or(0), text("plugin"), text("title"))
+        }
+    };
+    let mut all = FEEDBACK.lock().unwrap();
+    let found = at(&mut all, &key, revision, &plugin, &title);
+    (found.verdict, found.note) = (verdict, clean_note(&note));
+    save_feedback(&all);
+    Ok(())
+}
+
+/// The report holding the last dev-feedback.json went up: what was in it is marked sent (a verdict or note changed
+/// since then is not, and goes with the next one).
+#[tauri::command]
+pub fn dev_feedback_sent() -> Result<(), String> {
+    let sent = std::mem::take(&mut *LAST_REPORT.lock().unwrap());
+    let mut all = FEEDBACK.lock().unwrap();
+    mark_sent(&mut all, &sent, unix_now());
+    save_feedback(&all);
+    crate::app_log(&format!("dev: feedback sent for {} switches", sent.len()));
+    Ok(())
+}
+
+fn mark_sent(all: &mut BTreeMap<String, Feedback>, sent: &[(String, String, String)], now: u64) {
+    for (key, verdict, note) in sent {
+        if let Some(found) = all.get_mut(key) {
+            (found.sent_at, found.sent_verdict, found.sent_note) = (now, verdict.clone(), note.clone());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -237,5 +435,75 @@ mod tests {
         assert!(dev_set("capture-log-once".into(), true).is_err());
         assert!(dev_persistent("capture-log-once".into(), true).is_err());
         assert_eq!(dev_state()["beta"], false);
+        assert!(dev_feedback_set("capture-log-once".into(), "core".into(), "x".into(), 1, "better".into(), String::new()).is_err());
+        assert!(feedback_report("0.0.0").is_none(), "a release build sends no dev feedback");
+    }
+
+    fn sw(key: &str, revision: u64) -> OnSwitch {
+        (key.to_string(), revision, "core".to_string(), format!("{key} title"))
+    }
+
+    #[test]
+    fn time_on_counts_per_switch_and_starts_again_with_a_new_revision() {
+        let mut all = BTreeMap::new();
+        tally(&mut all, &[sw("a", 1), sw("sanctum:x", 0)], 60);
+        tally(&mut all, &[sw("a", 1)], 60);
+        assert_eq!((all["a"].seconds, all["sanctum:x"].seconds), (120, 60));
+        assert_eq!(all["a"].title, "a title");
+        at(&mut all, "a", 1, "core", "a title").verdict = "better".into();
+        tally(&mut all, &[sw("a", 1)], 60);
+        assert_eq!((all["a"].seconds, all["a"].verdict.as_str()), (180, "better"), "the count doesn't touch a verdict");
+        tally(&mut all, &[sw("a", 2)], 60);
+        assert_eq!((all["a"].seconds, all["a"].verdict.as_str(), all["a"].revision), (60, "", 2), "revision 2 is another change");
+    }
+
+    #[test]
+    fn saved_verdicts_hold_while_the_revision_does() {
+        let mut all = BTreeMap::new();
+        tally(&mut all, &[sw("a", 1), sw("b", 1), sw("gone", 1), sw("sanctum:x", 7)], 60);
+        let text = json!(all).to_string();
+        let kept = load_feedback(Some(&text), &current());
+        assert_eq!(kept.keys().collect::<Vec<_>>(), ["a", "sanctum:x"], "b is at revision 2 now, gone is gone, Sanctum Helper's wait for it");
+        assert_eq!(kept["a"], all["a"]);
+        for text in [None, Some(""), Some("not json"), Some("[1,2]")] {
+            assert!(load_feedback(text, &current()).is_empty(), "{text:?}");
+        }
+        // a file from before a field existed still reads
+        assert_eq!(load_feedback(Some(r#"{"a":{"revision":1,"seconds":120}}"#), &current())["a"].seconds, 120);
+    }
+
+    #[test]
+    fn only_new_verdicts_are_sent() {
+        let mut all = BTreeMap::new();
+        let nothing = BTreeSet::new();
+        tally(&mut all, &[sw("a", 1), sw("b", 2), sw("c", 1)], 3900);
+        assert!(report(&all, &[], &nothing, "0.1.37 (B4)", 5).is_none(), "time on alone is nothing to send");
+        at(&mut all, "a", 1, "core", "a title").verdict = "better".into();
+        let b = at(&mut all, "b", 2, "core", "b title");
+        (b.verdict, b.note) = ("broke".into(), "the bar froze".into());
+        let made = report(&all, &[sw("a", 1), sw("c", 1)], &BTreeSet::from(["a".to_string()]), "0.1.37 (B4)", 5).unwrap();
+        assert_eq!(made["build"], "0.1.37 (B4)");
+        let sent = made["switches"].as_array().unwrap();
+        assert_eq!(sent.len(), 2, "c has no verdict: {made}");
+        assert_eq!(sent[0], json!({ "switch": "a", "plugin": "core", "title": "a title", "revision": 1, "verdict": "better", "note": "",
+            "minutes_on": 65, "on_now": true, "persistent": true }));
+        assert_eq!((&sent[1]["note"], &sent[1]["on_now"], &sent[1]["persistent"]), (&json!("the bar froze"), &json!(false), &json!(false)));
+        assert_eq!(made["on_now"].as_array().unwrap().len(), 2, "what else was on is said too: {made}");
+
+        mark_sent(&mut all, &[("a".into(), "better".into(), String::new()), ("b".into(), "broke".into(), "the bar froze".into())], 9);
+        assert!(report(&all, &[], &nothing, "x", 10).is_none(), "the same verdicts aren't sent twice");
+        at(&mut all, "b", 2, "core", "b title").note = "the bar froze in Interlink".into();
+        let again = report(&all, &[], &nothing, "x", 11).unwrap();
+        assert_eq!(again["switches"].as_array().unwrap().len(), 1, "a changed note goes up again: {again}");
+        // sent while the tester went on typing: what went up is what's marked, so the newer verdict still goes
+        at(&mut all, "a", 1, "core", "a title").verdict = "worse".into();
+        mark_sent(&mut all, &[("a".into(), "better".into(), String::new())], 12);
+        assert!(all["a"].to_send());
+    }
+
+    #[test]
+    fn a_note_is_kept_short() {
+        assert_eq!(clean_note("  ok  "), "ok");
+        assert_eq!(clean_note(&"é".repeat(900)).chars().count(), NOTE_MAX);
     }
 }

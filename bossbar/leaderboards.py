@@ -4,6 +4,7 @@ your character to your account, and your online status. Its own switch: leaderbo
 from core import *
 from results import *
 import logging
+import devflags as D
 
 log = logging.getLogger('meter.leaderboards')   # its lines in meter.log are tagged [leaderboards]
 
@@ -606,6 +607,9 @@ class LeaderboardsMixin:
     def presence_tick(self, now):
         """Online / AFK on your profile while the game runs (presence.py): sent when it changes and every 2 minutes
         (the site forgets it after 5), and "offline" once the game closes."""
+        # Dev switch queue-wait-fight: the sender is told, about once a second, whether a fight is on (Submitter.hold_retry)
+        if getattr(self, 'submitter', None) and D.on('queue-wait-fight'):
+            self.submitter.fight_seen = (time.time(), bool(getattr(self, 'fight', None)))
         if self.args.replay is not None or not self.submitter or not self.uid: return
         last = getattr(self, 'presence_sent', None)
         if not (self.hwnd and ctypes.windll.user32.IsWindow(self.hwnd)):

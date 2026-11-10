@@ -6,6 +6,7 @@ PrintWindow and screen copies took ~50 ms per 4K frame and could make the game s
 """
 import ctypes, ctypes.wintypes as W
 from PIL import Image
+import devflags as D
 
 user32 = ctypes.windll.user32; gdi32 = ctypes.windll.gdi32
 try: ctypes.windll.shcore.SetProcessDpiAwareness(2)   # real pixels on scaled displays
@@ -68,6 +69,8 @@ class SharedCapture:
     NAME, MAGIC, HEADER, SLOTS, SLOT_BASE, PICTURE_BASE, PICTURE = r'Local\aLogs.Capture.v2', 0x50434C41, 4096, 16, 64, 320, 64
     SOURCES = {1: 'window copy (tabbed out)', 3: 'Desktop Duplication', 4: 'window capture'}
     AREA_KEEP = 2.0            # seconds an area stays asked for after its last use
+    AREA_SHORT = 0.3           # ...with the Dev switch area-keep-short on
+    asked = grown = 0          # area requests made, and how many of them were for more rows (the meter's dev line)
     # seconds read() may wait for its picture. The app copies a reader's picture in place with its seq odd the whole
     # time (10-35 ms for a 4K frame) and serves each reader at the pace it reads, so the meter ran in step with the
     # app and kept arriving mid-copy: 4 tries 2 ms apart gave up on up to half the frames (meter.log 2026-10-30,
@@ -142,10 +145,14 @@ class SharedCapture:
     def _ask_area(self, base, now, area):
         """Asks for the box around `area` and the areas used in the last AREA_KEEP seconds (shares of the frame,
         0-65535); a new box gets a new request id."""
-        self.areas = [(t, a) for t, a in self.areas if now - t < self.AREA_KEEP and a != area] + [(now, area)]
+        # Dev switch area-keep-short: a whole frame stays asked for 0.3 s after its last use, not 2 s, so the app stops
+        # copying whole frames between screen reads that are further apart (each such read then waits for its own copy)
+        keep = self.AREA_SHORT if D.on('area-keep-short') else self.AREA_KEEP
+        self.areas = [(t, a) for t, a in self.areas if now - t < keep and a != area] + [(now, area)]
         box = tuple(f(a[k] for _, a in self.areas) for k, f in enumerate((min, min, max, max)))
         at = self.PICTURE_BASE + self.slot * self.PICTURE
         if box != self.box or self._u32(base, at + 8) != self.request:
+            self.asked += 1; self.grown += bool(self.box and len(self.box) == 4 and isinstance(self.box[3], int) and box[3] > self.box[3])
             self.box = box; self.request = (self.request % 0xFFFFFFFF) + 1
             ctypes.c_uint32.from_address(base + self.RECT_BASE + self.slot * self.RECT_SIZE).value = 0   # one area, no parts
             for k, v in enumerate(box): ctypes.c_uint16.from_address(base + at + 2 * k).value = v

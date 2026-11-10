@@ -456,7 +456,12 @@ class FightsMixin:
             im = self.grab()
             if im is None: return
             d = os.path.join(HERE, 'logs', 'bar_samples'); os.makedirs(d, exist_ok=True)
-            im.save(os.path.join(d, os.path.splitext(os.path.basename(f.log.name))[0] + '.png'))
+            path = os.path.join(d, os.path.splitext(os.path.basename(f.log.name))[0] + '.png')
+            if im is getattr(self, 'canvas', None): im = im.copy()    # (never for a whole frame: the next look draws on that one)
+            def save():                                 # a whole PNG: the slow part, on the writer's thread with proof-off-thread
+                try: im.save(path)
+                except Exception as e: log.info(f'bar sample not saved: {e!r}')
+            picture_job(save)
         except Exception as e:
             log.info(f'bar sample not saved: {e!r}')
 
@@ -539,7 +544,10 @@ class FightsMixin:
         self.last_frame = now; s = bar['span']; lb = bar['left_bracket']; yc = bar['yc']
         crop = im.crop((int(lb - 0.02 * s), int(yc - 0.08 * s), int(lb + 1.03 * s), int(yc + 0.03 * s)))
         if crop.width > 1000: crop = crop.resize((1000, int(crop.height * 1000 / crop.width)), Image.BILINEAR)
-        crop.save(os.path.join(f.frames, f'{now - f.created:07.2f}.png'))
+        path = os.path.join(f.frames, f'{now - f.created:07.2f}.png')
+        if not D.on('proof-off-thread'): crop.save(path); return
+        crop.load()                                     # its own pixels now: the frame it's cut from may be drawn over
+        picture_job(lambda: crop.save(path))            # (an error there is the writer's log line, not this look's)
 
     def kill_sound(self):
         """When the boss kill sound started, if the app heard one in the seconds before the Catch Countdown."""
