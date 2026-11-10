@@ -13,6 +13,7 @@ from core import *
 from fights import *
 from results import *
 from leaderboards import *
+import devflags as D
 # the DPS meter plug-in: its overlay
 from dps_overlay import run_overlay
 
@@ -466,7 +467,11 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     def full_frame_due(self, now):
         """Between fights only the frame's top part is copied (where a boss bar appears; ~3x cheaper at 4K) unless
         the whole frame is needed: for a screen read, the end-screen note, Egg Heist's fade or diagnostic frames."""
-        if self.end_sig is not None or getattr(self, 'egg_hold', None) or getattr(self, 'sim_tour', None) or self.sanctum_in_run(now): return True
+        # In an Egg Heist run, whole frames were copied on every look (20 a second, ~33 MB each at 4K) for the fade hold,
+        # which is gone; the end and rank screens bring whole frames themselves (screen reads, egg_sent_at). Dev switch
+        # egg-top-only: only the top part and the screen-read boxes there (10 Nov: a player's game lost FPS in runs).
+        if self.end_sig is not None or getattr(self, 'egg_hold', None) or getattr(self, 'sim_tour', None): return True
+        if self.sanctum_in_run(now) and not D.on('egg-top-only'): return True
         if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: return True        # the rank screen can come any moment after a match
         if getattr(self, 'sim_ctl', None) or (self.holosim_space and (getattr(self, 'sim_gate_state', None) or {}).get('last')): return True
         cap = self.args.cfg['capture']; a = self.after_fight

@@ -36,6 +36,18 @@
     "revision": 1
   },
   {
+    "id": "egg-top-only",
+    "plugin": "dps",
+    "section": "Low risk",
+    "area": "Speed",
+    "title": "Egg Heist: don't copy the whole screen",
+    "what": "During an Egg Heist run the DPS meter copied the whole screen on every look, 20 times a second, for something it no longer does. With this on it copies only the top of the screen and the spots it reads there. The end and rank screens still get the whole screen when they show.",
+    "gain": "About 620 MB a second less copied at 4K during a run (of about 800 in all). One player's game lost FPS in runs; this is the biggest part of what aLogs copies there.",
+    "risk": "If an end or rank screen is first seen later than before, its numbers are read a moment later; inputs are still held until they're read.",
+    "tested": "Checked against the code and a test, not tried in a game",
+    "revision": 1
+  },
+  {
     "id": "egg-gain-limit",
     "plugin": "leaderboards",
     "section": "Low risk",

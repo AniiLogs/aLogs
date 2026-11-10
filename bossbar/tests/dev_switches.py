@@ -225,6 +225,28 @@ fights.wc.audio = real_audio
 src = open(os.path.join(HERE, 'fights.py'), encoding='utf-8').read()
 check('it runs only with the switch on', "if D.on('kill-sound-log'): self.kill_sound_note(heard)" in src, True)
 
+# ---------------------------------------------------------------- egg-top-only
+def egg_meter(read_due=False, screen_up=False):
+    """In an Egg Heist run, between screens: what full_frame_due asks the capture for."""
+    m = Meter.__new__(Meter)
+    m.end_sig = None; m.after_fight = None; m.holosim_space = None; m.bossrush_space = None
+    m.args = type('A', (), {'cfg': {'capture': {'end_screens': True, 'nobar_frames': False}}, 'replay': None})()
+    m.sanctum_in_run = lambda now: True
+    m.screen_bg = type('B', (), {'busy': False})(); m.names_waiting = lambda: False; m.screen_read_due = lambda now: read_due
+    m.full_until = 2000.0 if screen_up else 0.0
+    return m
+D.use(None)
+check('off, as today: whole frames all run long', egg_meter().full_frame_due(1000.0), True)
+switches('egg-top-only')
+check('on: only the top part between screen reads', egg_meter().full_frame_due(1000.0), False)
+check('on: a screen read gets its boxes', egg_meter(read_due=True).full_frame_due(1000.0), 'screen')
+check('on: a screen that is up gets whole frames', egg_meter(read_due=True, screen_up=True).full_frame_due(1000.0), True)
+m = egg_meter(); m.egg_sent_at = 995.0
+check('on: whole frames still follow a sent match (the rank screen)', m.full_frame_due(1000.0), True)
+m = egg_meter(); m.egg_hold = [1, 0, 'x']
+check('on: an input hold still gets whole frames', m.full_frame_due(1000.0), True)
+D.use(None)
+
 if fails:
     print('\n'.join(fails)); sys.exit(1)
 print('dev switches: ok')
