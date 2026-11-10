@@ -45,6 +45,11 @@ const STAGING_KEPT: usize = 24;
 /// ...and at most this much memory for each kind (a 4K frame is 33 MB: eight of those held 265 MB).
 const STAGING_BYTES: usize = 128 << 20;
 
+/// Dev switch capture-hold-frame: the screen's image is held only while new ones keep coming this close together...
+const FLOWING: std::time::Duration = std::time::Duration::from_millis(100);
+/// ...and a reader left without its new area this long on a still screen has Desktop Duplication started again.
+const STARVED: std::time::Duration = std::time::Duration::from_millis(300);
+
 /// Room for a `width` x `height` texture in `kept` (sizes from `size`): drops the least recently used (the front).
 fn make_room<T>(kept: &mut Vec<T>, size: impl Fn(&T) -> (u32, u32), width: u32, height: u32) {
     let bytes = |(w, h): (u32, u32)| w as usize * h as usize * 4;
@@ -108,11 +113,82 @@ pub struct Gpu {
     queued: Vec<((u32, u32, u32, u32, u32), ID3D11Texture2D, u32, u32, std::time::Instant)>,
     /// When Windows captured the newest image (window capture's own frame time), if known.
     pub captured_at: Option<std::time::Instant>,
+    /// Dev switch capture-hold-frame: `cache` is the screen's own texture, held from Desktop Duplication, not a copy
+    /// of it (hold); never written to.
+    borrowed: bool,
+    /// ...which is ours until the round's areas are copied out of it (end_round), then given back to this.
+    held: Option<IDXGIOutputDuplication>,
+    /// ...and once it's given back there's nothing to copy a new area from until the next image (queue, ready).
+    /// Areas already on their way are unaffected.
+    lost: bool,
+    /// Since when a reader has been asking for an area that can't be copied (`lost`).
+    starved: Option<std::time::Instant>,
+    /// Dev switch capture-low-priority: this device's work on the card goes behind the game's.
+    low: bool,
 }
 
 impl Gpu {
     fn new(device: ID3D11Device, context: ID3D11DeviceContext) -> Gpu {
-        Gpu { device, context, cache: None, staging: Vec::new(), shrinkers: Vec::new(), generation: 0, queued: Vec::new(), captured_at: None }
+        Gpu {
+            device,
+            context,
+            cache: None,
+            staging: Vec::new(),
+            shrinkers: Vec::new(),
+            generation: 0,
+            queued: Vec::new(),
+            captured_at: None,
+            borrowed: false,
+            held: None,
+            lost: false,
+            starved: None,
+            low: false,
+        }
+    }
+
+    /// Dev switch capture-low-priority, on or off: the copies this device asks of the graphics card are done after
+    /// the game's own work (the lowest of the priorities a program may give itself), or as before.
+    fn low_priority(&mut self, low: bool) {
+        if low == self.low {
+            return;
+        }
+        self.low = low;
+        let set = self.device.cast::<IDXGIDevice>().and_then(|d| unsafe { d.SetGPUThreadPriority(if low { -7 } else { 0 }) });
+        match set {
+            Ok(()) => crate::app_log(&format!("capture: graphics card priority {}", if low { "lowest (capture-low-priority)" } else { "normal again" })),
+            Err(e) => crate::app_log(&format!("capture: graphics card priority not changed ({e})")),
+        }
+    }
+
+    /// Dev switch capture-hold-frame: the screen's own texture, held from Desktop Duplication, is the newest image as
+    /// it is, with no copy of the whole screen on the card. Areas are copied straight out of it until it's given
+    /// back to `from`, when the round ends. `new`: a new image, not the one given back taken again.
+    fn hold(&mut self, source: &ID3D11Texture2D, new: bool, from: &IDXGIOutputDuplication) -> Result<()> {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { source.GetDesc(&mut desc) };
+        if desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM {
+            return Err(E_FAIL.into()); // an HDR desktop (16-bit colour): not readable as is
+        }
+        self.cache = Some((source.clone(), desc.Width, desc.Height));
+        (self.borrowed, self.lost, self.starved) = (true, false, None);
+        self.held = Some(from.clone());
+        if new {
+            self.generation += 1;
+        }
+        Ok(())
+    }
+
+    /// The held texture goes back to Windows, the copies started out of it sent to the card first. Right after the
+    /// round, not just before the next image is asked for: asked for straight after one went back, Windows had no
+    /// new image half the time, which halved the pictures (measured: 145 new images in 300 rounds instead of 288).
+    fn give_back(&mut self) {
+        if let Some(duplication) = self.held.take() {
+            unsafe {
+                self.context.Flush();
+                let _ = duplication.ReleaseFrame();
+            }
+            self.lost = true;
+        }
     }
 
     /// Keeps the top-left `width` x `height` of `source` as the newest image (a copy on the card).
@@ -123,6 +199,10 @@ impl Gpu {
             return Err(E_FAIL.into()); // an HDR desktop (16-bit colour): not readable as is
         }
         let (width, height) = (width.min(desc.Width), height.min(desc.Height));
+        if self.borrowed {
+            (self.cache, self.borrowed) = (None, false); // the screen's own texture (hold): the copy gets its own again
+        }
+        (self.lost, self.starved) = (false, None);
         if self.cache.as_ref().map_or(true, |c| c.1 != width || c.2 != height) {
             let mut texture = None;
             unsafe { self.device.CreateTexture2D(&texture_desc(width, height, false), None, Some(&mut texture))? };
@@ -153,7 +233,10 @@ impl Gpu {
         if !self.queued.iter().any(|q| q.0 == key) {
             self.queue(x, y, width, height, shrink)?;
         }
-        let Some(i) = self.queued.iter().position(|q| q.0 == key) else { return Ok(()) };   // an empty area
+        let Some(i) = self.queued.iter().position(|q| q.0 == key) else {
+            // an empty area; or nothing to copy it from (callers ask ready() first, which says so)
+            return if self.lost { Err(E_FAIL.into()) } else { Ok(()) };
+        };
         let (_, staging, width, height, _) = self.queued.remove(i);
         unsafe {
             // the first map of a round waits for the card once; the copies queued with it are done by then
@@ -188,7 +271,8 @@ impl Gpu {
         if !self.queued.iter().any(|q| q.0 == key) {
             self.queue(x, y, width, height, shrink)?;
         }
-        let Some(q) = self.queued.iter().find(|q| q.0 == key) else { return Ok(true) };   // an empty area
+        // an empty area; or the held image was given back and no newer one came: asked again next round
+        let Some(q) = self.queued.iter().find(|q| q.0 == key) else { return Ok(!self.lost) };
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         match unsafe { self.context.Map(&q.1, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
             Ok(()) => {
@@ -203,6 +287,7 @@ impl Gpu {
     /// The round is over: copies read are gone; one still on its way stays for the next rounds (ready), up to
     /// KEEP_QUEUED, then it's dropped and started again.
     pub fn end_round(&mut self) {
+        self.give_back();
         self.queued.retain(|q| q.4.elapsed() < KEEP_QUEUED);
     }
 
@@ -213,6 +298,10 @@ impl Gpu {
         let key = (x, y, width, height, shrink);
         if self.queued.iter().any(|q| q.0 == key) {
             return Ok(()); // already on its way (from an earlier round, not finished yet)
+        }
+        if self.lost {
+            self.starved.get_or_insert_with(std::time::Instant::now);
+            return Ok(());
         }
         let Some((cache, cw, ch)) = self.cache.as_ref() else { return Err(E_FAIL.into()) };
         let (width, height) = (width.min(cw.saturating_sub(x)), height.min(ch.saturating_sub(y)));
@@ -297,6 +386,11 @@ pub struct Duplication {
     /// That screen's position on the desktop, and the screen itself (to notice the game moving to another).
     pub desktop: RECT,
     pub monitor: HMONITOR,
+    /// When the last new image came: one is held only while they keep coming (FLOWING).
+    last_new: Option<std::time::Instant>,
+    /// Images held, images copied and rounds without a new one, for a line in app.log once a minute while holding.
+    counts: [u32; 3],
+    counted_since: std::time::Instant,
 }
 
 impl Duplication {
@@ -316,7 +410,15 @@ impl Duplication {
                     }
                     let (device, context) = device(Some(&adapter.cast::<IDXGIAdapter>()?))?;
                     let duplication = output.cast::<IDXGIOutput1>()?.DuplicateOutput(&device)?;
-                    return Ok(Duplication { gpu: Gpu::new(device, context), duplication, desktop: desc.DesktopCoordinates, monitor });
+                    return Ok(Duplication {
+                        gpu: Gpu::new(device, context),
+                        duplication,
+                        desktop: desc.DesktopCoordinates,
+                        monitor,
+                        last_new: None,
+                        counts: [0; 3],
+                        counted_since: std::time::Instant::now(),
+                    });
                 }
             }
         }
@@ -326,24 +428,89 @@ impl Duplication {
     /// Takes the newest screen image if it changed. Ok(false): nothing new (or no image yet). An error means
     /// the duplication is lost (resolution or fullscreen change, a UAC prompt): make a new one.
     pub fn update(&mut self) -> Result<bool> {
+        self.gpu.low_priority(crate::dev::on("capture-low-priority"));
+        self.update_as(crate::dev::on("capture-hold-frame"))
+    }
+
+    /// `hold` (dev switch capture-hold-frame): instead of copying the whole screen into a texture of our own on every
+    /// new image and giving the frame straight back, the frame is kept for the round and the readers' areas are
+    /// copied out of the screen's own texture; it goes back when the round ends (Gpu::end_round). Off: exactly as
+    /// before.
+    fn update_as(&mut self, hold: bool) -> Result<bool> {
+        self.gpu.give_back(); // a round that ended without its end_round
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource: Option<IDXGIResource> = None;
         match unsafe { self.duplication.AcquireNextFrame(0, &mut info, &mut resource) } {
-            Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(false),
+            Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => {
+                self.count(2);
+                // a still screen right after a held image went back: a reader with a new area has nothing to get it
+                // from. Started again, Desktop Duplication hands over the whole screen at once, and that one is copied.
+                if self.gpu.starved.is_some_and(|t| t.elapsed() >= STARVED) {
+                    crate::app_log("capture: no new screen image while a reader waits for a new area; starting Desktop Duplication again");
+                    return Err(E_FAIL.into());
+                }
+                return Ok(false);
+            }
             Err(e) => return Err(e),
             Ok(()) => {}
         }
-        let result = (|| {
+        // (whether the image is new, whether the frame is kept)
+        let result: Result<(bool, bool)> = (|| {
             // only the mouse pointer moved: the picture is the same
-            if info.LastPresentTime == 0 && self.gpu.has_image() {
-                return Ok(false);
+            let same = info.LastPresentTime == 0 && self.gpu.has_image();
+            if same && !self.gpu.lost {
+                return Ok((false, false));
             }
             let texture: ID3D11Texture2D = resource.ok_or(E_FAIL)?.cast()?;
-            self.gpu.store(&texture, u32::MAX, u32::MAX)?; // the whole screen, at its real pixel size
-            Ok(true)
+            if same {
+                self.gpu.hold(&texture, false, &self.duplication)?; // the image that was given back, unchanged: ours again
+                return Ok((false, true));
+            }
+            // held only while images keep coming: on a still screen the copy stays readable for any new area
+            let keep = hold && self.last_new.is_some_and(|t| t.elapsed() < FLOWING);
+            self.last_new = Some(std::time::Instant::now());
+            if keep {
+                self.gpu.hold(&texture, true, &self.duplication)?;
+            } else {
+                self.gpu.store(&texture, u32::MAX, u32::MAX)?; // the whole screen, at its real pixel size
+            }
+            Ok((true, keep))
         })();
-        let _ = unsafe { self.duplication.ReleaseFrame() };
-        result
+        match result {
+            Ok((new, keep)) => {
+                if !keep {
+                    let _ = unsafe { self.duplication.ReleaseFrame() };
+                }
+                if new {
+                    self.count(if keep { 0 } else { 1 });
+                }
+                Ok(new)
+            }
+            Err(e) => {
+                self.gpu.held = None;
+                let _ = unsafe { self.duplication.ReleaseFrame() };
+                Err(e)
+            }
+        }
+    }
+
+    /// One more image held (0), copied (1) or round without a new one (2); once a minute, if any was held, app.log
+    /// says how many of each, so a test can tell what the switch did.
+    fn count(&mut self, what: usize) {
+        self.counts[what] += 1;
+        if self.counted_since.elapsed().as_secs() >= 60 {
+            if self.counts[0] > 0 {
+                let [held, copied, none] = self.counts;
+                crate::app_log(&format!("capture: hold-frame, last minute: {held} images held, {copied} copied, {none} rounds without a new one"));
+            }
+            (self.counts, self.counted_since) = ([0; 3], std::time::Instant::now());
+        }
+    }
+}
+
+impl Drop for Duplication {
+    fn drop(&mut self) {
+        self.gpu.give_back();
     }
 }
 
@@ -409,6 +576,7 @@ impl WindowCapture {
             }
         }
         let Some(frame) = newest else { return Ok(false) };
+        self.gpu.low_priority(crate::dev::on("capture-low-priority"));
         // when Windows captured it (its QPC time, 100 ns units), as a moment on this clock: readers then time a fight
         // by when the game showed a frame, not by when they got around to reading it (B8)
         self.gpu.captured_at = frame.SystemRelativeTime().ok().and_then(|t| {
@@ -490,6 +658,61 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(16));
         }
         println!("update: {new} new images in {:?}", t.elapsed());
+    }
+
+    /// Dev switch capture-hold-frame against the copy, on this PC's screen as it is now:
+    /// `cargo test --release --bins hold_frame -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn hold_frame_speed() {
+        unsafe {
+            windows::Win32::UI::HiDpi::SetThreadDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        for hold in [false, true, false, true] {
+            let mut d = Duplication::new(hwnd).expect("Desktop Duplication");
+            let started = std::time::Instant::now();
+            while !d.gpu.has_image() && started.elapsed().as_secs() < 3 {
+                d.update_as(hold).expect("update");
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+            let (w, h) = d.gpu.size();
+            let mut buf = vec![0u8; 600 * 400 * 4];
+            let (mut new, mut held, mut none, mut read, mut waiting, mut x) = (0, 0, 0, 0, 0, 0u32);
+            let (mut in_update, mut in_read) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+            for round in 0..300u32 {
+                let t = std::time::Instant::now();
+                match d.update_as(hold) {
+                    Ok(true) => new += 1,
+                    Ok(false) => none += 1,
+                    Err(_) => {
+                        // a still screen with a reader waiting: started again, as the capture thread does
+                        d = Duplication::new(hwnd).expect("Desktop Duplication again");
+                        continue;
+                    }
+                }
+                in_update += t.elapsed();
+                held += d.gpu.held.is_some() as u32;
+                // an area asked for until it's read (as serve does), then a new one: the hard case while nothing is held
+                let t = std::time::Instant::now();
+                if d.gpu.ready(x, 0, 600, 400, 1).expect("ready") {
+                    d.gpu.read(x, 0, 600, 400, buf.as_mut_ptr(), 600 * 4, 1).expect("read");
+                    assert!(buf.chunks(4).step_by(97).any(|p| p[..3] != [0, 0, 0]), "a black picture");
+                    read += 1;
+                    x = (round * 7) % (w - 600);
+                } else {
+                    waiting += 1;
+                }
+                in_read += t.elapsed();
+                d.gpu.end_round();
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+            println!(
+                "hold {hold}: screen {w}x{h}, 300 rounds: {new} new images ({held} rounds holding), {none} without; {read} areas read, {waiting} not yet; update {:.3} ms, read {:.3} ms a round",
+                in_update.as_secs_f64() * 1000.0 / 300.0,
+                in_read.as_secs_f64() * 1000.0 / 300.0,
+            );
+        }
     }
 
     #[test]

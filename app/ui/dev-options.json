@@ -24,6 +24,30 @@
     "revision": 1
   },
   {
+    "id": "capture-hold-frame",
+    "plugin": "core",
+    "section": "Low risk",
+    "area": "Smoothness",
+    "title": "Don't copy the whole screen on the graphics card",
+    "what": "aLogs keeps the newest picture of the screen on the graphics card and copies out only the spots its readers ask for. Until now it first copied the whole screen into a picture of its own, each time the screen changed and a reader was due: up to about 60 times a second with Sanctum Helper's map tracking. With this on it copies the spots straight out of the screen's own picture and hands that back to Windows as soon as they are started. Only where aLogs captures the screen rather than the game window (every Windows 10 PC).",
+    "gain": "Unknown until tested in a game. One whole-screen copy less on the graphics card per picture taken (33 MB at 4K, about 2 GB a second at 60 a second). It should matter most when the game already uses the whole card.",
+    "risk": "If the screen stops changing just as a reader asks for a new spot, that reader waits for the next picture; after 0.3 s the capture starts again, which takes a moment. A spot copied while the card is very busy could show a slightly newer picture than its time says.",
+    "tested": "Measured outside the game on one Windows 10 PC at 4K (10 Nov): as many pictures as with it off (282 and 281 in 300 rounds), as many spots read (98 and 98), none black, and aLogs' own time per picture down from 0.14 to 0.06 ms. Not tried in a game yet: the frame rate is the open question.",
+    "revision": 1
+  },
+  {
+    "id": "capture-low-priority",
+    "plugin": "core",
+    "section": "Low risk",
+    "area": "Smoothness",
+    "title": "Let the game go first on the graphics card",
+    "what": "aLogs asks Windows to do its copies on the graphics card after the game's own work, at the lowest priority a program may give itself. Off puts it back to normal at once.",
+    "gain": "Unknown until tested in a game. When the card is fully used, aLogs' copies should no longer be done ahead of the game's frames.",
+    "risk": "When the card is very busy, pictures reach the DPS meter and Sanctum Helper later than now, so bars, the map and result screens could be read late. On result screens the card already took up to 0.85 s to hand over a whole picture.",
+    "tested": "Not tested yet",
+    "revision": 1
+  },
+  {
     "id": "kill-sound-log",
     "plugin": "dps",
     "section": "No known risk",
