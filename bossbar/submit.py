@@ -84,12 +84,12 @@ def _party_bytes(path):
     return data
 
 class Proofs:
-    """Dev switch proof-encode-once: the proof pictures of a record that didn't go through, as they were made for
+    """The proof pictures of a record that didn't go through, as they were made for
     sending (the JPEG bytes), kept in memory so the next try sends the same bytes without opening and shrinking the
     screenshots again. A picture is known by how it's cut and by its file's path, size and time of writing, so a file
     written again is encoded afresh; the encoders give the same bytes for the same file, so what the site gets doesn't
     differ. At most MAX_N pictures and MAX_BYTES (the oldest go first); a record's are dropped once it's sent or set
-    aside, all of them when the switch is turned off, and nothing is written to disk."""
+    aside, and nothing is written to disk."""
     MAX_N, MAX_BYTES, TELL_S = 48, 24_000_000, 60.0
 
     def __init__(self):
@@ -137,10 +137,9 @@ class Proofs:
 PROOFS = Proofs()
 
 def _proof(how, path, make):
-    """A proof picture's bytes for sending: make(), or with the Dev switch proof-encode-once the ones kept from the
-    last try (Proofs)."""
-    if D.on('proof-encode-once'): return PROOFS.get(how, path, make)
-    PROOFS.clear(); return make()
+    """A proof picture's bytes for sending: the ones kept from the last try if the file is the same, else make()
+    (Proofs)."""
+    return PROOFS.get(how, path, make)
 
 DISPUTE = os.path.join(HERE, 'character_dispute.json')
 # the last Egg Heist standing the site took, per UID and season: the same one again isn't sent (a restart forgot it)
@@ -336,7 +335,7 @@ class Submitter(threading.Thread):
 
     def drop_proof(self, item):
         """A proof picture is only kept until it's sent (Captures & logs > Keep screenshots: until their data is saved)."""
-        PROOFS.forget(item)                    # (proof-encode-once: its bytes kept for another try go too)
+        PROOFS.forget(item)                    # (its bytes kept for another try go too)
         if int(C.load()['capture'].get('keep_hours', 0)) != 0: return
         for key in ('evidence', 'battle', 'party'):
             if item.get(key):
@@ -373,7 +372,7 @@ class Submitter(threading.Thread):
             if not item.get(key) or (key == 'battle' and 'evidence' not in files): continue   # Battle Data goes with a result
             path = os.path.join(HERE, item[key])
             try:
-                # (_proof: the encoder's bytes; with the Dev switch proof-encode-once, a retry's are the ones kept)
+                # (_proof: the encoder's bytes; a retry's are the ones kept)
                 files[key] = (_proof(('crop', tuple(boxes[key])), path, lambda: _crop_bytes(path, boxes[key])) if key in boxes
                               else _proof('evidence', path, lambda: _evidence_bytes(path)))
                 files[key + '_full'] = _proof('full', path, lambda: _full_bytes(path))
@@ -523,7 +522,7 @@ class Submitter(threading.Thread):
                     log.warning(f'leaderboard: {name} not sent yet: {e!r}'); break
                 except Exception as e:                                       # an odd reply: never stop the sender
                     log.warning(f'leaderboard: {name} not sent ({e!r})'); break
-            if D.on('proof-encode-once'): PROOFS.tell(time.time())
+            PROOFS.tell(time.time())
             if D.on('queue-wait-fight'): self.tried = self.queued()   # what has had its turn (hold_retry)
             delay = 60 if any(n.endswith('.json') for n in os.listdir(QUEUE)) else 300
 

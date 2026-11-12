@@ -271,10 +271,9 @@ def measure_fill_any(im, bar, jump=70):
     """Fill fraction without assuming a color: follow the bar from its left end until the color jumps sharply
     (into the hit flash, the ghost, the next segment's color underneath, or the empty track).
     Returns (fraction, fill_color, edge_color). A bar with no jump reads as full."""
-    if D.on('fill-fast'):                                # Dev switch: the same walk over the three rows' bytes
-        r = _fill_fast(im, bar, jump)
-        if r is not None: DEV['fill_fast'] += 1; return r
-        DEV['fill_old'] += 1
+    r = _fill_fast(im, bar, jump)                        # the same walk over the three rows' bytes, when plain enough
+    if r is not None: DEV['fill_fast'] += 1; return r
+    DEV['fill_old'] += 1
     px = im.load(); yc = bar['yc']; q = max(1, bar['thickness'] // 4); rows = (yc - q, yc, yc + q)
     left, right = bar['track_left'], min(bar['track_right'], im.width - 3)
     seen = {}                                            # each column's median once (every one is used three times)

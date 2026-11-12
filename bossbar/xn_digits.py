@@ -109,7 +109,7 @@ def read_counter(img, tpl=None, max_dist=0.22, top=None):
 
 SAME = {'reads': 0, 'same': 0, 'last': None}    # read_counter_same: how often it was asked and answered from the last read
 def read_counter_same(img, tpl, top, max_dist=0.22):
-    """read_counter, worked out again only when the counter's white text changed (Dev switch fight-skip-unchanged).
+    """read_counter, worked out again only when the counter's white text changed.
     read_counter sees the box through its white-text mask and nothing else (split_counter), so two boxes with the same
     mask have the same answer, whatever moved behind the digits: the last box's mask and answer are kept, and a box
     with that mask, the same templates and the same top takes that answer (the mask costs a fifth of the read).

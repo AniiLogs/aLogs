@@ -9,6 +9,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **A Dev menu in the Beta Menu (betas only):** a tab each for Core, the DPS meter, Sanctum Helper and the leaderboards: proposed changes to their speed, smoothness, accuracy and memory, each with its own switch, with filters by risk and type, so each can be tested alone. Anyone on a beta sees it. All are off at every start unless you make one Persistent, which starts it on through restarts and updates until you undo it or that setting changes in an update. Only make one Persistent once you've tested it and decided it's no risk for you. With all off, it works as in 0.1.36.
 
 ### Improved
+- **Seven tested speed-ups from the Dev menu are now standard** (and leave it): faster boss HP and xN counter reads in fights, a cheaper screen-change check, proof pictures made once when a record is sent again, no update check or photo upload during a boss fight, and fewer repeated capture lines in the log. Same readings as before.
 - **Sanctum Helper says the difficulty you chose each time you open the party screen** ("Normal Mode chosen."), not only when it changes.
 
 ### Fixed

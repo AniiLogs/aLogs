@@ -451,8 +451,8 @@ pub(crate) fn fight_in(status: &Value, now_secs: f64) -> bool {
     fresh && (status.get("fight").is_some_and(Value::is_object) || status.get("auto_battle_data").and_then(Value::as_bool) == Some(true))
 }
 
-/// Is a fight on now, by the meter's status.json? One small file read: for the Dev switches that put work off during a
-/// fight, which only ask while their switch is on and they have something to put off.
+/// Is a fight on now, by the meter's status.json? One small file read: for the work put off during a fight
+/// (the timed update check, photo uploads), asked only when there is something to put off.
 pub(crate) fn fight_on() -> bool {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
     fight_in(&read_json(&data_dir().join("status.json")), now)
@@ -469,8 +469,8 @@ pub(crate) fn steady_secs() -> u64 {
 /// with no fight between them, and a result is read and sent just after the last.
 pub(crate) const AFTER_FIGHT_S: u64 = 30;
 
-/// Putting one piece of background work off while a fight is on, for the Dev switches updates-wait-fight and
-/// photos-wait-fight. Asked each time the work is about to start: wait, or go. It goes once no fight has been seen for
+/// Putting one piece of background work off while a fight is on, for the update check and
+/// photo uploads. Asked each time the work is about to start: wait, or go. It goes once no fight has been seen for
 /// AFTER_FIGHT_S, or once it has waited `ceiling_s` in all, so nothing is put off for good (a status that says "fight"
 /// for hours, say). With the switch off it never waits and keeps nothing.
 pub(crate) struct FightWait {
@@ -1183,7 +1183,7 @@ mod priority_tests {
     }
 }
 
-/// Dev switches updates-wait-fight and photos-wait-fight: what counts as a fight, and how long work is put off for one.
+/// The update check and photo uploads waiting out a fight: what counts as a fight, and how long work is put off for one.
 #[cfg(test)]
 mod fight_wait_tests {
     use super::{fight_in, FightWait, AFTER_FIGHT_S};

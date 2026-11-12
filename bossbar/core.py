@@ -358,7 +358,7 @@ def screen_sig(im):
 def top_sig_direct(im, top_h):
     """screen_sig of the frame's top `top_h` rows without cutting them out first: the cut copied the whole top part
     (some 8 MB at 4K, 3.5-4 ms a look) to keep 48x27 points of it. The same points, picked straight off the frame
-    (Dev switch top-sig-direct; live.py checks the two agree once per frame size before trusting it)."""
+    (live.py checks the two agree on the first look at each frame size and once a minute after)."""
     return im.transform((48, 27), Image.AFFINE, (im.width / 48, 0, 0, 0, top_h / 27, 0), Image.NEAREST).convert('L').tobytes()
 
 def screen_changed(a, b, limit=24):

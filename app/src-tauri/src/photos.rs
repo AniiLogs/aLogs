@@ -127,21 +127,20 @@ pub fn photos_stamp() -> Option<u64> {
     Some(ms(&folder.join("PlayerPhotoMetaInfo.json")).max(days.unwrap_or(0)))
 }
 
-/// Dev switch photos-wait-fight, below: one wait at a time, and the longest it lasts.
+/// photos_wait, below: one wait at a time, and the longest it lasts.
 static WAIT: std::sync::Mutex<crate::FightWait> = std::sync::Mutex::new(crate::FightWait::new());
 const FIGHT_WAIT_MAX_S: u64 = 10 * 60;
 
 /// Should "Upload new photos automatically" wait? The page asks just before it starts an upload (each one reads a 4K
-/// picture, makes a WebP of it and sends it). Dev switch photos-wait-fight: yes while the meter says a fight is on, for
-/// FIGHT_WAIT_MAX_S at most; the page asks again 3 s later. Off: always no, and nothing is read. Asked here and not
+/// picture, makes a WebP of it and sends it). Yes while the meter says a fight is on, for
+/// FIGHT_WAIT_MAX_S at most; the page asks again 3 s later. Asked here and not
 /// from the page's own status, which stops refreshing while the window is hidden. Uploads you start by hand never ask.
 /// app.log says when a wait starts and how long it lasted.
 #[tauri::command(async)]
 pub fn photos_wait() -> bool {
-    let on = crate::dev::on("photos-wait-fight");
     let mut wait = WAIT.lock().unwrap_or_else(|e| e.into_inner());
     let began = wait.waiting();
-    let (hold, ended) = wait.ask(on, on && crate::fight_on(), crate::steady_secs(), FIGHT_WAIT_MAX_S);
+    let (hold, ended) = wait.ask(true, crate::fight_on(), crate::steady_secs(), FIGHT_WAIT_MAX_S);
     if let Some(secs) = ended {
         crate::app_log(&format!("photos: upload put off {secs} s for a fight{}", if secs >= FIGHT_WAIT_MAX_S { " (the longest it waits)" } else { "" }));
     }
