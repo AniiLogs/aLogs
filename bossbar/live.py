@@ -2075,7 +2075,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if getattr(self, 'egg_hold', None): self.egg_hold_end('meter closed')
         self.hold.stop()
         if CT.hidden: CT.hide_controllers(False)                     # never leave the controller hidden from the game
-        self.end_fight('meter closed'); self.ocr.close()
+        self.end_fight('meter closed')
+        self.send_waiting_run()                                      # a run waiting for its Battle Data isn't lost
+        self.ocr.close()
         if WRITER.q.unfinished_tasks: WRITER.flush(3.0)              # proof-off-thread: the pictures still waiting
         if self.submitter and getattr(self, 'presence_sent', None) and self.presence_sent[1] != 'offline':
             self.submitter.presence(self.presence_sent[0], 'offline', wait=True)     # aLogs closing: you're offline
