@@ -66,7 +66,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.icon_read = None        # the Party screen icon read running in the background (a thread)
         self.last_fight = None       # (Fight, ended at) - the result screen doesn't name the boss
         self.last_screen = None      # game area on screen (x, y, w, h), for placing the DPS window
-        self.hold = InputBlock(log.info); self.hold_started = 0.0; self.clicks = 0; self.unread = 0; self.last_click = 0.0
+        self.hold = InputBlock(log.info); self.focus_guard = FocusGuard(log.info); self.hold_started = 0.0; self.clicks = 0; self.unread = 0; self.last_click = 0.0
         self.numbers = None             # the damage-number recorder (experimental), made when the option is on
         try: self.cfg_stamp = os.stat(C.SETTINGS_FILE).st_mtime   # the settings as loaded at start (a save during start-up was missed)
         except OSError: pass
