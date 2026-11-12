@@ -543,6 +543,14 @@ class LeaderboardsMixin:
         """A run whose Battle Data never showed up: decide on the result screen alone."""
         if self.pending_run and now > self.pending_run[1]: self.decide_run(self.pending_run[0])
 
+    def send_waiting_run(self):
+        """The meter closing (aLogs quit, restarted or updating) while a run still waits for its Battle Data: decide it
+        now on what it has. It's then in the send queue on disk and goes at once or on the next start; before, the run
+        was dropped (12 Nov: a new best record lost, aLogs quit 39 s after its result screen, inside the 45 s wait)."""
+        if getattr(self, 'pending_run', None):
+            log.info('leaderboard: the meter is closing - sending the run that was waiting for its Battle Data')
+            self.decide_run(self.pending_run[0])
+
     def proof_crop(self, im, u, ux, H, where, suffix=''):
         """The proof the site keeps, saved in logs/characters: the top of the menu (your picture, name and UID), or the
         Profile screen's left column from the name card down to the UID - and nothing else."""

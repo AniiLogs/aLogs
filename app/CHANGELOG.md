@@ -13,6 +13,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Sanctum Helper says the difficulty you chose each time you open the party screen** ("Normal Mode chosen."), not only when it changes.
 
 ### Fixed
+- **A record no longer gets lost when you quit or restart aLogs right after a run:** a best run waits up to 45 s for its Battle Data before it is sent; quitting during that wait used to drop it. It is now sent (or queued for the next start) as aLogs closes.
 - **The button over the game blinks less on older installs:** if it was still set to hide after 0.3 s, the old default, it now waits 0.75 s like new installs. If you want 0.3 s, pick it again in General Settings › The button over the game and it stays.
 - **Holo-Battle Sim: your controller can no longer skip the end.** From your press at the exit gate until the gizmos are read and the run is sent, aLogs keeps the game in the background, where it reads no controller (hiding the controller couldn't stop it, as the game already had it open). It also stops clicking if the game leaves the Sim anyway.
 - **Settings text:** "Capture only the game window" now says the yellow border can still show briefly with it off, and "Block from the fade to black" no longer says it's off by default.
