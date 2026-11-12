@@ -90,7 +90,8 @@ def table_checks():
         # 50% on a one-boss stage, 95% for a two-boss stage's first boss, 39.76% for its second
         check(f'{c}: where each bar starts (Lua run)', lua_walk(cum), LUA_WALK[c])
         check(f'{c}: bar at 50% / 95% / 39.76% lost (Lua run)', tuple(bar_at(x, cum) for x in (0.5, 0.95, 0.3976)), LUA_BAR_AT[c])
-    check('second boss: bar 20 ends at 33/83 exactly', grades[SECOND][20], 33 / 83)
+    # the game's table is rounded to 15 digits, so compare to 12
+    check('second boss: bar 20 ends at 33/83', round(grades[SECOND][20], 12), round(33 / 83, 12))
     return grades
 
 def column_checks():
