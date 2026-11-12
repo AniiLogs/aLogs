@@ -431,11 +431,11 @@ mod tests {
     #[test]
     fn off_until_started() {
         // The tests never call start(), as a release build doesn't: every switch reads off and can't be set
-        assert!(!on("capture-log-once"));
-        assert!(dev_set("capture-log-once".into(), true).is_err());
-        assert!(dev_persistent("capture-log-once".into(), true).is_err());
+        assert!(!on("kill-sound-log"));
+        assert!(dev_set("kill-sound-log".into(), true).is_err());
+        assert!(dev_persistent("kill-sound-log".into(), true).is_err());
         assert_eq!(dev_state()["beta"], false);
-        assert!(dev_feedback_set("capture-log-once".into(), "core".into(), "x".into(), 1, "better".into(), String::new()).is_err());
+        assert!(dev_feedback_set("kill-sound-log".into(), "core".into(), "x".into(), 1, "better".into(), String::new()).is_err());
         assert!(feedback_report("0.0.0").is_none(), "a release build sends no dev feedback");
     }
 

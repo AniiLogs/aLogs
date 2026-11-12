@@ -560,9 +560,14 @@ def sim_item():        # a kind without cuts, with two Gizmo screens
             'gizmos': [picture('logs/proofs/b_gizmo1.png', 5), picture('logs/proofs/b_gizmo2.png', 6, (2560, 1440))]}
 
 # ---------------------------------------------------------------- proof-encode-once
+# proof-encode-once is normal behaviour now: "off" below is the old way (every try encodes afresh), kept for comparison
+REAL_PROOF = submit._proof
+def old_way(): submit._proof = lambda how, path, make: make()
+def new_way(): submit._proof = REAL_PROOF
 sub = sender(); A, B = run_item(), sim_item(); NET.online = False
-switches(); ENC.clear()
+switches(); ENC.clear(); old_way()
 offA, offB = tries(sub, A, 2), tries(sub, B, 2)
+new_way()
 check('off: every try encodes every picture again', ENC, {'_crop_bytes': 4, '_full_bytes': 4 + 6, '_party_bytes': 2, '_evidence_bytes': 2})
 check('off: nothing is kept', (submit.PROOFS.kept, submit.PROOFS.size), ({}, 0))
 check('off: what goes up', (sorted(offA[0][0]), sorted(offB[0][0])),
@@ -603,8 +608,7 @@ check('encode once: nothing kept once every record is done with', (submit.PROOFS
 
 A, B = run_item(), sim_item(); os.remove(full(B['gizmos'][0])); tries(sub, A); tries(sub, B)
 check('encode once: kept for the next try', len(submit.PROOFS.kept), 5 + 3)
-switches(); ENC.clear(); offgone = tries(sub, B)[0]
-check('turned off: nothing stays kept, and every picture is encoded', (submit.PROOFS.kept, submit.PROOFS.size, ENC), ({}, 0, {'_evidence_bytes': 1, '_full_bytes': 3}))
+switches(); ENC.clear(); old_way(); offgone = tries(sub, B)[0]; new_way()
 check('a missing picture: the same goes up either way', gone == offgone, True)
 
 # the bounds, on a store of its own
@@ -721,7 +725,7 @@ def queue_run(*on, end=900, online_at=400, keep=False, fight=fights):
 def fight_lines(q): return [l for l in q.lines if l.startswith('queue-wait-fight')]
 def proof_lines(q): return [re.sub(r'\(\d+ (ms|KB)\)', '(N)', l) for l in q.lines if l.startswith('proof-encode-once')]
 
-qoff = queue_run()
+old_way(); qoff = queue_run(); new_way()
 MINUTES = [5, 65, 125, 185, 200, 260, 320, 380, 440]        # today: 5 s after the start, every minute, and when a record comes (200 s)
 check('off: a try each minute, fight or not, until it goes through',
       qoff.tries, [(s, 'submissions', False) for s in MINUTES[:-1]] + [(440, 'submissions', True)] * 2)
@@ -730,7 +734,7 @@ check('off: the picture encoded again for every try', qoff.enc, {'_crop_bytes': 
 check('off: the meter says nothing to the sender, the sender remembers nothing, no line', (hasattr(qoff.sub, 'fight_seen'), qoff.sub.tried, fight_lines(qoff) + proof_lines(qoff)), (False, None, []))
 check('off: the looks are 60 s apart with records waiting, 300 s with none', [d for _, d, _ in qoff.looks], [5] + [60] * 8 + [300] * 2)
 
-qon = queue_run('queue-wait-fight')
+old_way(); qon = queue_run('queue-wait-fight'); new_way()
 check('wait: the first pass as ever (5 s), the retries after each fight, a new record at once, the ceiling',
       qon.tries, [(5, 'submissions', False), (131, 'submissions', False), (200, 'submissions', False), (560, 'submissions', True), (560, 'submissions', True)])
 check('wait: one line per wait, seconds only', fight_lines(qon),

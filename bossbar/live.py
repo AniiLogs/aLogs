@@ -500,7 +500,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if hold: self.calm_until = max(getattr(self, 'calm_until', 0), now + hold)
 
     def top_sig_fast(self, im, top_h, now):
-        """Dev switch top-sig-direct: the top part's signature picked straight off the frame (core.top_sig_direct), not
+        """The top part's signature picked straight off the frame (core.top_sig_direct), not
         from a copy of the top part. The same bytes by construction; checked against the old way on the first look of
         each frame size and once a minute after, and if the two ever differ the old way is used until the meter restarts."""
         st = self.__dict__.setdefault('sig_check', {'bad': False, 'seen': {}}); key = (im.size, top_h)
@@ -539,9 +539,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 log.info(f"dev helpers-below-normal: {sum(bool(o.set_priority(low)) for o in hs)} of {len(hs)} OCR helpers now at "
                          f"{'Below Normal' if low else 'Normal'} priority")
             w = WRITER.n; n = getattr(self, 'dev_n', None) or {}
-            cur = {'fill fast': R.DEV['fill_fast'], 'fill old way': R.DEV['fill_old'],
-                   'xN read': X.SAME['reads'], 'xN same as last': X.SAME['same'], 'top signatures direct': n.get('sig_direct', 0),
-                   'pictures queued': w['queued'], 'pictures saved in the look': w['inline'], 'pictures failed': w['failed'],
+            cur = {'pictures queued': w['queued'], 'pictures saved in the look': w['inline'], 'pictures failed': w['failed'],
                    'calm looks': n.get('calm', 0), 'whole frames after a match': n.get('quiet_whole', 0),
                    'top parts after a match': n.get('quiet_top', 0), 'bar searches skipped': n.get('search_rest', 0),
                    'area requests': wc.shared.asked, 'for more rows': wc.shared.grown}
@@ -1741,7 +1739,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             self.fight.away += min(1.0, now - getattr(self, 'last_step', now))   # time the fight ran while you were tabbed out
         self.last_step = now
         top_h = max(1, int(self.frame_size[1] * TOP_PART))
-        self.top_sig = self.top_sig_fast(im, top_h, now) if D.on('top-sig-direct') else screen_sig(im.crop((0, 0, im.width, top_h)))
+        self.top_sig = self.top_sig_fast(im, top_h, now)
         if not self.fight and self.bar is None and D.on('busy-half-pace'): self.calm_watch(self.top_sig, now)
         if self.frame_full: self.egg_fade(im, now)        # Egg Heist: hold inputs through the fade to its end screen
         self.sim_check(now)
@@ -1851,9 +1849,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         xn_box = R.box_at(bar, R.XN_BOX)
         top = R.xn_top(self.grades)                            # the counter at full HP (x21)
         box = im.crop(tuple(int(v) for v in xn_box))
-        # digit shapes, every frame. Dev switch fight-skip-unchanged: the last answer again while the box's white shapes
-        # (all read_counter looks at) are the very same as in the last read
-        xn = xn_digits = X.read_counter_same(box, self.xn_tpl, top) if D.on('fight-skip-unchanged') else X.read_counter(box, self.xn_tpl, top=top)
+        # digit shapes, every frame: the last answer again while the box's white shapes (all read_counter looks at) are
+        # the very same as in the last read
+        xn = xn_digits = X.read_counter_same(box, self.xn_tpl, top)
         if not self.fight: self.instant_start(xn, now, low=bar['yc'] > TOP_BAR * self.frame_size[1])
         if self.dud_check(bar, fill, xn, now):
             self.bar = None; self.out('status', 'waiting for a boss bar'); self.snapshot(now); return

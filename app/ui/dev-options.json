@@ -1,77 +1,5 @@
 [
   {
-    "id": "capture-log-once",
-    "plugin": "core",
-    "section": "No known risk",
-    "area": "CPU",
-    "title": "Fewer repeated capture lines in the log",
-    "what": "When the shared picture has no room and the other readers are moved, the log says so the first time, then gives a count at most once a minute. A count still waiting when it stops happening is written once its minute is up, so the lines add up to how often it happened.",
-    "gain": "One log had 1,476 of these lines in 7 hours, up to about 10 a second, each one opening the log file.",
-    "risk": "None found; the log shows a count rather than each moment.",
-    "tested": "Bench tested the counting, including the last count, not tried in a game",
-    "revision": 2
-  },
-  {
-    "id": "updates-wait-fight",
-    "plugin": "core",
-    "section": "No known risk",
-    "area": "Smoothness",
-    "title": "No update check or download during a boss fight",
-    "what": "aLogs checks for an update every 30 minutes and downloads one it finds. With this on, a check that comes due while the DPS meter is following a boss fight waits until 30 seconds after the fight, 20 minutes at most. Check for updates in the app is never delayed.",
-    "gain": "No download and no writing of the installer to disk in the middle of a fight. Unknown until tested in a game; it only matters in a fight during which an update happens to arrive.",
-    "risk": "An update can arrive up to 20 minutes later. Only fights the DPS meter follows count: not Egg Heist, not Lost Sanctum, and not a world boss with the meter off. A download already under way when a fight starts carries on.",
-    "tested": "Bench tested the waiting rules, not tried in a game",
-    "revision": 1
-  },
-  {
-    "id": "photos-wait-fight",
-    "plugin": "core",
-    "section": "No known risk",
-    "area": "Smoothness",
-    "title": "No automatic photo upload during a boss fight",
-    "what": "With automatic upload on, a new in-game photo is shrunk and sent a few seconds after you take it. With this on, a photo taken while the DPS meter is following a boss fight is sent 30 seconds after the fight instead, 10 minutes at most. Uploading by hand in the app is never delayed.",
-    "gain": "No picture shrinking and sending in the middle of a fight. Unknown until tested in a game; it only matters if you take photos during fights.",
-    "risk": "A photo taken in a fight reaches your profile later. If you close aLogs before the fight ends, it is sent the next time aLogs starts, as already happens with photos taken while aLogs is closed. Only fights the DPS meter follows count.",
-    "tested": "Bench tested the waiting rules, not tried in a game",
-    "revision": 1
-  },
-  {
-    "id": "fill-fast",
-    "plugin": "core",
-    "section": "No known risk",
-    "area": "CPU",
-    "title": "Boss bar: measure how full it is in one pass",
-    "what": "On every look at a boss's bar the meter works out how full it is by walking along three rows of the bar, one pixel at a time. With this on it reads those three rows in one go and does the same walk on them, with the same rules. Any bar picture that isn't the usual kind is measured the old way.",
-    "gain": "About half the time of that step: 1.7 ms down to 0.9 ms a look at 4K on one PC, some 2% of a processor core during a fight at 30 looks a second. Small on its own.",
-    "risk": "None known: the answer is the same number. If it ever differed, a boss's HP and the DPS would read wrong, so it is still worth a few fights to see.",
-    "tested": "Bench tested on 4,101 made-up bars (empty, full, flashing, part covered, striped, at the edge of the screen, 1280 and 3840 wide) plus 60 odd pictures: the same answer every time. Nine deliberate mistakes put into the new code were each caught. Not tried in a game.",
-    "revision": 1
-  },
-  {
-    "id": "fight-skip-unchanged",
-    "plugin": "core",
-    "section": "No known risk",
-    "area": "CPU",
-    "title": "Boss bar: don't re-read a bar counter that hasn't changed",
-    "what": "During a fight the meter reads the bar counter (x12, x11...) on every look from the shapes of its white digits. With this on, when those white shapes are exactly the same as on the last look, it takes the last answer instead of working it out again. Whatever moves behind the digits makes no difference to either way of reading.",
-    "gain": "That read drops from 1.3 ms to 0.2 ms on a look where the counter didn't change (one PC, 4K): some 3% of a processor core in a fight at 30 looks a second.",
-    "risk": "None known: the answer comes from the same white shapes either way, so it is the same answer. If it ever differed, the bars left on a boss would read wrong.",
-    "tested": "Bench tested on made-up digits: 700 counters in a row, changing at random, gave the same answer as the full read each time, and the full read ran only when the shapes, the digit shapes compared with or the reading height changed. Not tried in a game.",
-    "revision": 1
-  },
-  {
-    "id": "top-sig-direct",
-    "plugin": "core",
-    "section": "No known risk",
-    "area": "CPU",
-    "title": "Every look: don't copy the top of the screen to compare it",
-    "what": "On every look the meter makes a tiny 48 by 27 thumbnail of the top of the screen to see whether it changed. Until now it first made its own copy of that whole top part (about 8 MB at 4K) and shrank the copy. With this on it picks the same points straight from the picture. It compares the two ways on the first look at each screen size and once a minute after; if they ever differ it says so in the log and uses the old way until the meter restarts.",
-    "gain": "3.5 to 4 ms less per look at 4K on one PC: about a tenth of a processor core at 30 looks a second, less at lower resolutions.",
-    "risk": "None known: the thumbnail is the same, byte for byte. A difference would be caught by its own check within a minute.",
-    "tested": "Bench tested on made-up pictures at 16 screen sizes, 7 kinds each: identical every time, and the built-in check falls back when a difference is forced. Not tried in a game.",
-    "revision": 1
-  },
-  {
     "id": "fight-bar-slide-in",
     "plugin": "core",
     "section": "Low risk",
@@ -261,18 +189,6 @@
     "gain": "About 20 looks a second instead of 66 outside fights: 933 fewer of 5,334 in a made-up 80 seconds. Nothing changes during a fight. How much CPU that saves is unknown until tested in a game; once a minute the log counts both kinds of look.",
     "risk": "Something that begins while nothing is showing can appear up to 50 ms after it began instead of up to 15 (30 ms later was the most in the bench test). A fight's numbers still change 4 times a second, but that rhythm can start a few ms earlier or later, so now and then one number shows a quarter of a second apart from where it would have, as already happens from one fight to the next.",
     "tested": "Bench tested with a made-up fight, tab-outs, a drag and notices (the same pictures in the same order), not tried in a game",
-    "revision": 1
-  },
-  {
-    "id": "proof-encode-once",
-    "plugin": "leaderboards",
-    "section": "No known risk",
-    "area": "CPU",
-    "title": "Don't shrink the same screenshots again on every retry",
-    "what": "Before a record is sent, its screenshots (the result, Battle Data and Party screens) are opened, cut and shrunk to small pictures. While sending fails, all of that is done again on every retry, once a minute. With this on, the small pictures are kept in memory after the first try and sent again as they are. A screenshot that was written again is shrunk afresh, and the kept pictures go once the record is sent or set aside.",
-    "gain": "In a made-up 15 minutes with nine tries, each screenshot was shrunk once instead of nine times, and what was delivered was byte for byte the same. On one PC, shrinking one run's made-up 4K screenshots took about 0.7 seconds per try (about 0.2 at 1080p). It only matters while a record can't be sent; unknown until tested in a game.",
-    "risk": "None found. It uses some memory while records wait: 48 pictures and 24 MB at most, and nothing is written to disk.",
-    "tested": "Bench tested with made-up records and screenshots (the same bytes sent as with it off), not tried in a game",
     "revision": 1
   },
   {

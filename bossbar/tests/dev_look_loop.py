@@ -1,4 +1,5 @@
-"""Beta Menu > Dev: the reading loop's switches, each one off (today's behaviour) and on.
+"""Beta Menu > Dev: the reading loop's switches, each one off (today's behaviour) and on; and the ones made normal
+behaviour (fill-fast, fight-skip-unchanged, top-sig-direct), checked against the old way.
 
     python tests/dev_look_loop.py
 
@@ -123,19 +124,18 @@ for _ in range(60):
     elif how == 'above': bar = {**bar, 'yc': 0, 'thickness': 8}
     else: bar = {**bar, 'track_left': -rng.randint(1, 4)}
     odd.append((im, bar, jump))
-before = dict(R.DEV)
+real_fast = R._fill_fast; R._fill_fast = lambda *a: None                      # the old way, for comparison
 old = [fill_of(c) for c in plain + odd]
-check('fill-fast off: nothing of it runs', R.DEV, before)
-switches('fill-fast')
+R._fill_fast = real_fast
+before = dict(R.DEV)
 new = [fill_of(c) for c in plain + odd]
-D.use(None)
 different = [i for i, (a, b) in enumerate(zip(old, new)) if a != b]
 check(f'fill-fast: the same answer on {len(old)} made-up bars', [(i, old[i], new[i]) for i in different[:3]], [])
 check('fill-fast: every plain bar went the fast way', R.DEV['fill_fast'] - before['fill_fast'], len(plain))
 check('fill-fast: the others went the old way', R.DEV['fill_old'] - before['fill_old'], len(odd))
 check('fill-fast: the made-up bars read as bars', len({o for o in old[:len(plain)]}) > len(plain) // 2, True)
 check('fill-fast: and some have nothing to read', sum(not o.startswith('(') for o in old) > 0, True)
-check('fill-fast: guarded', "if D.on('fill-fast'):" in source('reader.py'), True)
+check('fill-fast: always used now', "r = _fill_fast(im, bar, jump)" in source('reader.py') and "D.on('fill-fast')" not in source('reader.py'), True)
 
 # ---------------------------------------------------------------- fight-skip-unchanged
 SEG = {'0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abfgcd'}
@@ -207,7 +207,7 @@ for i in range(700):
 check('fight-skip-unchanged: read_counter\'s answer on 700 boxes in a row', wrong[:3], [])
 check('...with numbers and no answers among them', (None in answers, len(answers) > 15), (True, True))
 check('...many of them from the last read', (X.SAME['reads'], X.SAME['same'] > 150), (700, True))
-check('fight-skip-unchanged: guarded', "if D.on('fight-skip-unchanged') else X.read_counter(box, self.xn_tpl, top=top)" in source('live.py'), True)
+check('fight-skip-unchanged: always used now', "xn = xn_digits = X.read_counter_same(box, self.xn_tpl, top)" in source('live.py'), True)
 
 # ---------------------------------------------------------------- top-sig-direct
 def frame(size):
@@ -241,7 +241,7 @@ check('...said once, with sizes only', [s for s in said[n:]], ['dev top-sig-dire
 live.top_sig_direct = lambda im, top_h: 1 / 0                                    # ...and it's never asked again
 check('...and the old way from then on, every size', (m.top_sig_fast(im, 151, 162.0), m.top_sig_fast(im2, 75, 163.0), m.dev_n['sig_direct']), (want, want2, 59))
 live.top_sig_direct = real_direct
-check('top-sig-direct: guarded', "self.top_sig_fast(im, top_h, now) if D.on('top-sig-direct') else screen_sig(im.crop((0, 0, im.width, top_h)))" in source('live.py'), True)
+check('top-sig-direct: always used now', "self.top_sig = self.top_sig_fast(im, top_h, now)" in source('live.py'), True)
 
 # ---------------------------------------------------------------- proof-off-thread
 W0 = core.WRITER
@@ -579,13 +579,13 @@ check('off again: back to normal, once', ([h.set for h in helpers], said[-1]), (
 check('helpers-below-normal: guarded', "if D.on('helpers-below-normal'): flags |= getattr(subprocess, 'BELOW_NORMAL_PRIORITY_CLASS', 0)" in source('reader.py'), True)
 
 m, _ = line_meter(); m.dev_line(940.0); n = len(said)
-check('the line: the first one says what was done so far', said[-1].startswith('dev: ') and ' fill fast, ' in said[-1], True)
+check('the line: the first one says what was done so far', said[-1].startswith('dev: '), True)
 m.dev_line(1000.0)
 check('the line: nothing done since, nothing said', lines(n), [])
 R.DEV['fill_fast'] += 7; X.SAME['reads'] += 5; X.SAME['same'] += 4; m.dev_count('calm', 3); m.dev_count('quiet_top', 2); m.dev_count('search_rest')
 wc.shared.asked += 9; W0.n['inline'] += 1
 m.dev_line(1060.0)
-check('the line: what was done since the last one', lines(n), ['dev: 7 fill fast, 5 xN read, 4 xN same as last, 1 pictures saved in the look, 3 calm looks, 2 top parts after a match, 1 bar searches skipped'])
+check('the line: what was done since the last one', lines(n), ['dev: 1 pictures saved in the look, 3 calm looks, 2 top parts after a match, 1 bar searches skipped'])
 m.dev_line(1120.0)
 check('the line: a quiet minute says nothing', len(lines(n)), 1)
 switches('area-keep-short', 'proof-off-thread'); wc.shared.asked += 4; wc.shared.grown += 2

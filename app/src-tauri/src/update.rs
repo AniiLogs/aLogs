@@ -398,21 +398,19 @@ fn clean_installer_copies() {
     }
 }
 
-/// The longest the timed check is put off for a fight (Dev switch updates-wait-fight): it then runs whatever the meter says.
+/// The longest the timed check is put off for a fight: it then runs whatever the meter says.
 const FIGHT_WAIT_MAX_S: u64 = 20 * 60;
 
-/// Dev switch updates-wait-fight: the timed check (and the download it may start: the whole installer, fetched and
+/// The timed check (and the download it may start: the whole installer, fetched and
 /// written to disk) waits while the meter says a fight is on, looking again every 5 s, for FIGHT_WAIT_MAX_S at most.
-/// Only the timed check comes through here: Check for updates and the install buttons never wait. Off: returns at once
-/// and reads nothing. app.log says when a wait starts and how long it lasted.
+/// Only the timed check comes through here: Check for updates and the install buttons never wait. app.log says when a wait starts and how long it lasted.
 ///
 /// Not covered: a fight that starts while a download is already under way.
 fn wait_out_a_fight() {
     let mut wait = crate::FightWait::new();
     loop {
-        let on = crate::dev::on("updates-wait-fight");
         let began = wait.waiting();
-        let (hold, ended) = wait.ask(on, on && crate::fight_on(), crate::steady_secs(), FIGHT_WAIT_MAX_S);
+        let (hold, ended) = wait.ask(true, crate::fight_on(), crate::steady_secs(), FIGHT_WAIT_MAX_S);
         if let Some(secs) = ended {
             crate::app_log(&format!("update check put off {secs} s for a fight{}", if secs >= FIGHT_WAIT_MAX_S { " (the longest it waits)" } else { "" }));
         }

@@ -645,22 +645,18 @@ fn place_or_make_room(shared: &Shared, readers: &mut [Reader; SLOTS], active: &[
         shared.write(at + 16, || shared.put_u32(at + 12, 0));
         (readers[i].room, readers[i].request) = (0, 0);
     }
-    if crate::dev::on("capture-log-once") {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-        let said = ROOM_LOG.lock().unwrap().note(now);
-        ROOM_UNSAID.store(said.is_none(), Ordering::Relaxed);
-        match said {
-            Some(0) => crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved (said once a minute from now on)", bytes / 1024)),
-            Some(more) => crate::app_log(&format!("capture: no room: the other readers were moved {more} more times, the last for a {} KB picture (reader {slot})", bytes / 1024)),
-            None => {}
-        }
-    } else {
-        crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved", bytes / 1024));
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    let said = ROOM_LOG.lock().unwrap().note(now);
+    ROOM_UNSAID.store(said.is_none(), Ordering::Relaxed);
+    match said {
+        Some(0) => crate::app_log(&format!("capture: no room for a {} KB picture (reader {slot}): the other readers were moved (said once a minute from now on)", bytes / 1024)),
+        Some(more) => crate::app_log(&format!("capture: no room: the other readers were moved {more} more times, the last for a {} KB picture (reader {slot})", bytes / 1024)),
+        None => {}
     }
     Some(0)
 }
 
-/// Dev switch capture-log-once: one app.log had 1,476 "no room" lines in 7 hours, up to about 10 a second while several
+/// One app.log had 1,476 "no room" lines in 7 hours, up to about 10 a second while several
 /// whole-frame readers were asking. The first is said, then a count at most once a minute; a count left when they
 /// stop is said once its minute is over (room_log_rest), so the lines add up to how often it happened.
 struct RoomLog {
@@ -668,7 +664,7 @@ struct RoomLog {
     since: u32,           // times since it was last said
 }
 static ROOM_LOG: std::sync::Mutex<RoomLog> = std::sync::Mutex::new(RoomLog { said_at: None, since: 0 });
-/// A count is waiting to be said: only ever set with the switch on, so off costs each round one plain read.
+/// A count is waiting to be said: while none is, each round costs one plain read.
 static ROOM_UNSAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Each round: the count the switch held back, when no further time came to say it at.

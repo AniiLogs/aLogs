@@ -228,6 +228,7 @@ def stub_readers():
     R.measure_break = gauge
     # the digit matcher reads every counter but those with an 8 (xn_templates.json has no 8): those fall back to OCR
     X.read_counter = lambda crop, tpl, top=None: (GAME.state()['xn'] if GAME.state()['xn'] and '8' not in str(GAME.state()['xn']) else None)
+    X.read_counter_same = lambda crop, tpl, top: X.read_counter(crop, tpl, top=top)   # (the stub's answer follows the game, not the picture)
     X.load_templates = lambda: None
     live.load_korean_names = lambda *a, **k: None
     R.Ocr = FakeOcr

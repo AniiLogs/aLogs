@@ -886,7 +886,7 @@
     }
     if (!photoPending) return;
     photoPending = false;
-    // Dev switch photos-wait-fight: not during a fight (photos.rs photos_wait: always false with the switch off); it
+    // not during a fight (photos.rs photos_wait); it
     // stays pending and this asks again in 3 s. Asked there because `status` here stops refreshing while the window is hidden
     let wait = false;
     try { wait = await invoke("photos_wait"); } catch { /* upload as always */ }
