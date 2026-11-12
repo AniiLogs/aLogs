@@ -182,15 +182,19 @@ class LeaderboardsMixin:
         if ctl: return ctl
         r = self.args.cfg['results']
         seconds = max(HOLD_MIN, min(120, int(r.get('hold_seconds') or 60)))
-        self.sim_ctl = ctl = {'until': now + seconds, 'why': why, 'held': bool(r.get('hold_inputs'))}
-        if ctl['held']: self.hold.start(seconds)
+        self.sim_ctl = ctl = {'until': now + seconds, 'why': why, 'held': bool(r.get('hold_inputs')), 'space': self.space}
+        if ctl['held']:
+            self.hold.start(seconds)
+            # the controller too: the game in the background reads none (HidHide's hide can't reach a controller the
+            # game already has open; 11 Nov, a Sim end skipped with it)
+            if self.hwnd and self.args.replay is None: self.focus_guard.take(self.hwnd, seconds)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Holo-Battle Sim: aLogs has control ({why}), for at most {seconds} s')
         return ctl
 
     def sim_release(self, why):
         if not getattr(self, 'sim_ctl', None): return
-        self.sim_ctl = None; self.hold.stop()
+        self.sim_ctl = None; self.hold.stop(); self.focus_guard.stop()
         if CT.hidden: CT.hide_controllers(False)
         log.info(f'Holo-Battle Sim: control given back ({why})')
 
@@ -339,6 +343,8 @@ class LeaderboardsMixin:
         if ctl['held'] and not self.hold.active:                  # Ctrl+Shift/Alt+F12: the tour stops clicking too
             self.sim_tour_end('you took control back (Ctrl+F12)'); return False
         if not wc.is_foreground(self.hwnd): self.sim_tour_end('game is not the active window'); return False
+        if ctl.get('space') and self.space != ctl['space']:    # the game left the Sim: no more clicks into the next place
+            self.sim_tour_end('the game left the Victory screen'); return False
         if now < tour['next'] or im is None: return True
         W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; k = u / 2000
         at = lambda x, y: (self.origin[0] + ux + u * x, self.origin[1] + H * y)

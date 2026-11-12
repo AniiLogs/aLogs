@@ -490,8 +490,21 @@ def hide_from_capture(hwnd, on=True):
     """Keep our own overlay window out of screen captures (Windows 10 2004+); on=False shows it in them again."""
     return bool(user32.SetWindowDisplayAffinity(W.HWND(hwnd), WDA_EXCLUDEFROMCAPTURE if on else 0))
 
+# While aLogs has control of an end screen, its focus guard (focusguard.py) holds the focus in the game's place so the
+# game reads no controller: that window counts as the game here, and our own inputs lend the game the focus for a moment.
+STANDIN = {'hwnd': None, 'guard': None}
+
 def is_foreground(hwnd):
-    return user32.GetForegroundWindow() == hwnd
+    fg = user32.GetForegroundWindow()
+    return fg == hwnd or bool(hwnd and STANDIN['hwnd'] and fg == STANDIN['hwnd'])
+
+class _game_moment:
+    """Around one of our own clicks/keys/scrolls: the game in front for it when the focus guard holds the focus."""
+    def __enter__(self):
+        self.g = STANDIN['guard']
+        if self.g: self.g.lend()
+    def __exit__(self, *a):
+        if self.g: self.g.back()
 
 MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x2, 0x4
 def click_at(x, y):
@@ -499,28 +512,31 @@ def click_at(x, y):
     mouse_event presses wherever the cursor is, so the cursor is put on the point again right before the press and the
     release: a player moving the mouse meanwhile can't pull the click off the button (6 Nov, it missed that way)."""
     import time
-    p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
-    x, y = int(x), int(y)
-    user32.SetCursorPos(x, y); time.sleep(0.12)              # the game sees the cursor arrive before the press
-    user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
-    user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
-    user32.SetCursorPos(p.x, p.y)
+    with _game_moment():
+        p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
+        x, y = int(x), int(y)
+        user32.SetCursorPos(x, y); time.sleep(0.12)              # the game sees the cursor arrive before the press
+        user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
+        user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
+        user32.SetCursorPos(p.x, p.y)
 
 KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B
 def press_key(vk):
     """One key press (down, then up) to the window in front, with the key's scan code: the game reads keys by it (raw
     input), and a press without one never reached it (1 Nov: F at the Holo-Battle Sim's exit gate did nothing)."""
     import time
-    scan = user32.MapVirtualKeyW(vk, 0)                       # MAPVK_VK_TO_VSC
-    user32.keybd_event(vk, scan, 0, 0); time.sleep(0.06); user32.keybd_event(vk, scan, KEYEVENTF_KEYUP, 0)
+    with _game_moment():
+        scan = user32.MapVirtualKeyW(vk, 0)                       # MAPVK_VK_TO_VSC
+        user32.keybd_event(vk, scan, 0, 0); time.sleep(0.06); user32.keybd_event(vk, scan, KEYEVENTF_KEYUP, 0)
 
 MOUSEEVENTF_WHEEL = 0x0800
 def scroll_at(x, y, notches):
     """Turn the mouse wheel `notches` at a screen point (negative: down, toward the end of a list), then put the
     cursor back where it was."""
     import time
-    p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
-    user32.SetCursorPos(int(x), int(y)); time.sleep(0.03)
-    for _ in range(abs(int(notches))):
-        user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, 120 if notches > 0 else -120, 0); time.sleep(0.03)
-    user32.SetCursorPos(p.x, p.y)
+    with _game_moment():
+        p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
+        user32.SetCursorPos(int(x), int(y)); time.sleep(0.03)
+        for _ in range(abs(int(notches))):
+            user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, 120 if notches > 0 else -120, 0); time.sleep(0.03)
+        user32.SetCursorPos(p.x, p.y)

@@ -660,7 +660,7 @@ def run_overlay(meter, hide):
         if not ours: ours.update(layered.top_hwnd(w) for w in [dw, aw, ew, tw] + [L['win'] for L in hp.values()])
         if toast['drag']: return True
         fg = ctypes.windll.user32.GetForegroundWindow()
-        return fg == meter.hwnd or fg in ours
+        return fg == meter.hwnd or fg in ours or bool(wc.STANDIN['hwnd'] and fg == wc.STANDIN['hwnd'])   # the focus guard
 
     def show_fight(d):
         dps_at['bossrush'] = d['bossrush']
