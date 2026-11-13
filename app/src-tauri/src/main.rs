@@ -247,6 +247,7 @@ fn release_controllers() {
 fn quit_app(app: &AppHandle) {
     app.state::<Meter>().quitting.store(true, Ordering::SeqCst);
     release_controllers();
+    app_log("window: aLogs quit");
     for (_, window) in app.webview_windows() {
         let _ = window.hide();
     }
@@ -915,12 +916,19 @@ fn install_english_ocr(app: AppHandle) -> Value {
     outcome
 }
 
-fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+/// Brings the main window back (tray click, its Open, or aLogs started again while it runs). app.log says why and how
+/// it went, so a report shows whether a window that "won't open from the tray" was ever asked to (12 Nov report).
+fn show_main(app: &AppHandle, why: &str) {
+    let Some(window) = app.get_webview_window("main") else {
+        app_log(&format!("window: open asked ({why}), but there is no main window"));
+        return;
+    };
+    let errors: Vec<String> = [("show", window.show()), ("unminimize", window.unminimize()), ("focus", window.set_focus())]
+        .into_iter()
+        .filter_map(|(step, r)| r.err().map(|e| format!("{step}: {e}")))
+        .collect();
+    let visible = window.is_visible().map_or("unknown".to_string(), |v| v.to_string());
+    app_log(&format!("window: opened ({why}); visible {visible}{}", if errors.is_empty() { String::new() } else { format!("; failed: {}", errors.join(", ")) }));
 }
 
 fn main() {
@@ -944,7 +952,7 @@ fn main() {
     tauri::Builder::default()
         // opening aLogs while it runs (hidden in the tray, say) shows that window instead of nothing happening (1 Nov:
         // "I can't get aLogs to appear again even though it's running"); registered first, as the plugin asks
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app, "aLogs started again")))
         .manage(Meter { child: Mutex::new(None), quitting: AtomicBool::new(false) })
         .manage(sanctum::Sanctum::new())
         .manage(update::Pending::default())
@@ -962,6 +970,7 @@ fn main() {
             update::build_number, update::build_label
         ])
         .setup(move |app| {
+            app_log(&format!("window: aLogs started{}", if minimized { " (in the tray)" } else { "" }));
             let show = MenuItem::with_id(app, "show", "Open", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit (stops the meter)", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -971,13 +980,13 @@ fn main() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => show_main(app),
+                    "show" => show_main(app, "tray menu Open"),
                     "quit" => quit_app(app),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                        show_main(tray.app_handle());
+                        show_main(tray.app_handle(), "tray icon click");
                     }
                 })
                 .build(app)?;
@@ -1014,6 +1023,7 @@ fn main() {
             if minimized {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
+                    app_log("window: started in the tray (with Windows)");
                 }
             }
             Ok(())
@@ -1023,7 +1033,8 @@ fn main() {
                 let to_tray = read_settings().pointer("/app/close_to_tray").and_then(Value::as_bool).unwrap_or(true);
                 if to_tray {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let hidden = window.hide();
+                    app_log(&format!("window: closed to the tray{}", hidden.err().map_or(String::new(), |e| format!("; hide failed: {e}"))));
                 } else {
                     api.prevent_close();
                     quit_app(window.app_handle());
