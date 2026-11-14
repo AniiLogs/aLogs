@@ -570,6 +570,7 @@ class ResultsMixin:
             if agreed and bd_complete(cards, party):               # read twice the same: send, stop (below)
                 if self.pending_run: self.pending_run = (self.pending_run[0], now)
                 if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
+                if lf and self.submitter and hasattr(self, 'send_late_battle_data'): self.send_late_battle_data(lf[0])   # its run went already
             return
         stamp = self.bd_stamp = time.strftime('%Y%m%d_%H%M%S'); os.makedirs(os.path.join(HERE, 'logs', 'battle_data'), exist_ok=True)
         shot = self.picture(im, 'battle_data', stamp, proof=bool(lf and self.run_to_send(lf[0]))); self.bd_shot = os.path.relpath(shot, HERE) if shot else None
@@ -588,6 +589,7 @@ class ResultsMixin:
         if agreed and bd_complete(cards, party):
             if self.pending_run: self.pending_run = (self.pending_run[0], now)
             if getattr(self, 'auto_until', 0): self.end_auto('Battle Data read')
+            if lf and self.submitter and hasattr(self, 'send_late_battle_data'): self.send_late_battle_data(lf[0])
         self.bd_note(stamp, msg, cards, text, f)
 
     @staticmethod

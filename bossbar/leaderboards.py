@@ -5,6 +5,9 @@ from core import *
 from results import *
 import logging
 import devflags as D
+import shutil
+
+LATE_BATTLE_DATA_S = 180            # after a run went without Battle Data: how long a Battle Data opened later still follows it
 
 log = logging.getLogger('meter.leaderboards')   # its lines in meter.log are tagged [leaderboards]
 
@@ -468,14 +471,52 @@ class LeaderboardsMixin:
         if self.hold.active: self.hold.freeze_moves(0.4)          # the player's mouse can't pull the click away
         wc.click_at(x, y)
 
+    @staticmethod
+    def run_path(f):
+        """The fight's logs/fights/<fight>.json."""
+        return os.path.join(HERE, 'logs', 'fights', os.path.splitext(os.path.basename(f.log.name))[0] + '.json')
+
     def run_to_send(self, f):
-        """Is this fight's run waiting for its Battle Data, or going to the leaderboard and not sent yet? (Then its
-        Battle Data screenshot is kept as proof.)"""
-        path = os.path.join(HERE, 'logs', 'fights', os.path.splitext(os.path.basename(f.log.name))[0] + '.json')
+        """Is this fight's run waiting for its Battle Data, going to the leaderboard and not sent yet, or sent without
+        Battle Data inside its late window (LATE_BATTLE_DATA_S)? (Then its Battle Data screenshot is kept as proof.)"""
+        try:
+            with open(self.run_path(f), encoding='utf-8') as fh: s = json.load(fh)
+        except (OSError, ValueError): return False
+        return (s.get('submit', True) is not False and not s.get('sent')) or self.late_open(s)
+
+    @staticmethod
+    def late_open(s):
+        """A sent run whose Battle Data can still follow it (send_late_battle_data)."""
+        return bool(s.get('sent') and s.get('late_result') and not s.get('late_sent') and time.time() <= s.get('late_until', 0))
+
+    def send_late_battle_data(self, f):
+        """Battle Data opened after its run went without it (the run waits BATTLE_DATA_WAIT, then goes with the result
+        screen alone; with Automation off nothing presses View Battle Data, and a player who stays on the result screen
+        longer opens it late): send the run again, once, with its Battle Data and the result picture kept for it. The site
+        updates the run it has (the same run id). Up to LATE_BATTLE_DATA_S after the first send."""
+        path = self.run_path(f)
         try:
             with open(path, encoding='utf-8') as fh: s = json.load(fh)
-        except (OSError, ValueError): return False
-        return s.get('submit', True) is not False and not s.get('sent')
+        except (OSError, ValueError): return
+        bd = s.get('battle_data') or {}
+        if not self.late_open(s) or not bd.get('players'): return
+        better = self.beats_best(s)                               # Battle Data's own bests (dps, break, taken, heal)
+        s['new_bests'] = sorted(set(s.get('new_bests') or []) | set(better)); s['late_sent'] = True
+        S.write_json(path, s, indent=1, ensure_ascii=False)
+        log.info(f"leaderboard: Battle Data opened after the run was sent - sending it again with its Battle Data"
+                 f"{' (a new best: ' + ', '.join(better) + ')' if better else ''}")
+        self.send_result(S.run_payload(s, self.uid), s['late_result'], battle=bd.get('screenshot'), party=s.get('party_screenshot'))
+
+    @staticmethod
+    def sweep_late_results(now=None):
+        """The result pictures kept for a late Battle Data (logs/screens/late_*): gone once their window is over."""
+        d = os.path.join(HERE, 'logs', 'screens'); now = now or time.time()
+        try: names = [n for n in os.listdir(d) if n.startswith('late_')]
+        except OSError: return
+        for n in names:
+            try:
+                if now - os.path.getmtime(os.path.join(d, n)) > LATE_BATTLE_DATA_S + 60: os.remove(os.path.join(d, n))
+            except OSError: pass
 
     def beats_best(self, s):
         """Which of your bests on this boss this week this run beats: 'score' (most stars, then highest score), 'clear'
@@ -528,6 +569,16 @@ class LeaderboardsMixin:
         except (OSError, ValueError): return
         if s.get('sent'): return
         s['sent'] = True
+        self.sweep_late_results()
+        # going without Battle Data: a copy of the result picture is kept LATE_BATTLE_DATA_S, so a Battle Data opened
+        # later can still follow the run (the site takes Battle Data only with a result picture; the sent one is deleted)
+        shot = (s.get('result') or {}).get('screenshot')
+        if shot and not (s.get('battle_data') or {}).get('screenshot') and self.submitter and (self.submitter.config or {}).get('screenshots'):
+            late = os.path.join('logs', 'screens', 'late_' + os.path.basename(shot))
+            try:
+                shutil.copyfile(os.path.join(HERE, shot), os.path.join(HERE, late))
+                s['late_result'] = late; s['late_until'] = time.time() + LATE_BATTLE_DATA_S
+            except OSError: pass
         S.write_json(path, s, indent=1, ensure_ascii=False)
         self.send_result(S.run_payload(s, self.uid), (s.get('result') or {}).get('screenshot'),
                                battle=(s.get('battle_data') or {}).get('screenshot'), party=s.get('party_screenshot'))
@@ -642,7 +693,7 @@ class LeaderboardsMixin:
 ENTRY = {'auto_active': False, 'check_pending_run': None, 'egg_fade': None, 'egg_hold_end': None, 'end_auto': None,
          'link_poll': None, 'link_read': None, 'open_battle_data': None, 'presence_tick': None, 'proof_crop': None,
          'prove_name': None, 'sent_notice': None, 'sim_check': None, 'sim_gate': None, 'sim_tour_step': False,
-         'start_auto': None, 'proof_with_overlay': None, 'run_to_send': False, 'sim_release': None, 'sim_send': None,
+         'start_auto': None, 'proof_with_overlay': None, 'run_to_send': False, 'send_late_battle_data': None, 'sim_release': None, 'sim_send': None,
          'sim_tour_start': False}
 for _name, _fallback in ENTRY.items():
     setattr(LeaderboardsMixin, _name, guarded('leaderboards', _fallback)(getattr(LeaderboardsMixin, _name)))
