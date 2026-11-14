@@ -507,6 +507,16 @@ class _game_moment:
         if self.g: self.g.back()
 
 MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x2, 0x4
+MOUSEEVENTF_MOVE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_VIRTUALDESK = 0x1, 0x8000, 0x4000
+def move_to(x, y):
+    """Put the cursor on a screen point by a real mouse movement (mouse_event, absolute over all monitors), not only
+    SetCursorPos: a game that tracks its pointer from mouse input sees it arrive there (13 Nov: the Holo-Battle Sim's
+    Victory screen, in mouse mode after a wiggle, took three clicks at the gizmo row with its pointer elsewhere)."""
+    vx, vy, vw, vh = (user32.GetSystemMetrics(i) for i in (76, 77, 78, 79))
+    nx = int(round((int(x) - vx) * 65535 / max(1, vw - 1))); ny = int(round((int(y) - vy) * 65535 / max(1, vh - 1)))
+    user32.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0, 0)
+    user32.SetCursorPos(int(x), int(y))
+
 def click_at(x, y):
     """One left click at a screen point, then put the cursor back where it was (built-in SetCursorPos/mouse_event).
     mouse_event presses wherever the cursor is, so the cursor is put on the point again right before the press and the
@@ -515,23 +525,23 @@ def click_at(x, y):
     with _game_moment():
         p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
         x, y = int(x), int(y)
-        user32.SetCursorPos(x, y); time.sleep(0.12)              # the game sees the cursor arrive before the press
-        user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
-        user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
+        move_to(x, y); time.sleep(0.12)                          # the game sees the cursor arrive before the press
+        move_to(x, y); user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
+        move_to(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
         user32.SetCursorPos(p.x, p.y)
 
-MOUSEEVENTF_MOVE = 0x1
 def wiggle_at(x, y):
-    """Move the mouse a little around a screen point, then put the cursor back: real mouse movement (mouse_event, which
+    """Move the mouse a little around a screen point: real mouse movement (mouse_event, which
     the game reads as raw input; SetCursorPos alone isn't), so a game in controller mode switches to mouse mode, its
-    prompts with it (13 Nov: the Holo-Battle Sim's Victory screen opens Data Collection with RS until then)."""
+    prompts with it (13 Nov: the Holo-Battle Sim's Victory screen opens Data Collection with RS until then). The cursor is
+    left on the point.
+    """
     import time
     with _game_moment():
-        p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
-        user32.SetCursorPos(int(x), int(y))
+        move_to(x, y); time.sleep(0.03)
         for dx, dy in ((12, 0), (0, 12), (-12, 0), (0, -12)):
             user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0); time.sleep(0.03)
-        user32.SetCursorPos(p.x, p.y)
+        move_to(x, y)              # left on the point (the click comes there next), not put back
 
 KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B
 def press_key(vk):

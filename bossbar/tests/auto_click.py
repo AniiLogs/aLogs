@@ -32,7 +32,10 @@ class FakeUser32:
     def __init__(self): self.calls = []; self.pos = (100, 100)
     def GetCursorPos(self, ref): ref._obj.x, ref._obj.y = self.pos
     def SetCursorPos(self, x, y): self.calls.append(('at', x, y)); self.pos = (x, y)
+    def GetSystemMetrics(self, i): return {76: 0, 77: 0, 78: 3840, 79: 2160}[i]
     def mouse_event(self, flags, *a):
+        if flags & wc.MOUSEEVENTF_MOVE:                           # aLogs' own real move onto the point (move_to)
+            self.pos = (round(a[0] * 3839 / 65535), round(a[1] * 2159 / 65535)); self.calls.append(('move', *self.pos)); return
         self.calls.append(('down' if flags == wc.MOUSEEVENTF_LEFTDOWN else 'up', *self.pos))
         self.pos = (self.pos[0] + 37, self.pos[1] + 21)          # the player moves the mouse after every event
 real, fake = wc.user32, FakeUser32()
@@ -42,6 +45,7 @@ finally: wc.user32 = real
 presses = [c for c in fake.calls if c[0] in ('down', 'up')]
 check('press and release on the button', presses, [('down', 2304, 1944), ('up', 2304, 1944)])
 check('cursor put back where it was', fake.calls[-1], ('at', 100, 100))
+check('a real move onto the button before the press', [c for c in fake.calls if c[0] == 'move'][:1], [('move', 2304, 1944)])
 
 # -- freeze_moves: only for a moment ----------------------------------------------------------------------------------
 hold = inputblock.InputBlock()
