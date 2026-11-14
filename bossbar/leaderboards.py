@@ -399,11 +399,11 @@ class LeaderboardsMixin:
         on_page = 'gizmo' in re.sub(r'[^a-z]', '', title.lower())
         if stage == 'wait':
             tour['title'] = title
-            # looked at about every 0.25 s; clicked again only when the screen hasn't come after 1.5 s
+            # looked at about every 0.15 s; clicked again only when the screen hasn't come after 1.5 s
             if on_page: tour.update(stage='all', next=now)
             else:
                 tour['waited'] += 1
-                tour.update(stage='open' if tour['waited'] >= 6 else 'wait', next=now + 0.25)
+                tour.update(stage='open' if tour['waited'] >= 10 else 'wait', next=now + 0.15)
             return True
         if stage == 'back':           # the back arrow didn't always take (the tour was left on the Gizmo screen): Esc
             if not on_page: self.sim_tour_end('done'); return True
@@ -415,6 +415,12 @@ class LeaderboardsMixin:
             return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
         if stage == 'all':
+            # "All 14" at the top of the series: how many picks there are, so the list is read to the last (13 Nov: the
+            # Victory row's counts weren't all read, the click on All didn't take, and the screen's first series, Energy's
+            # 6 of 14, went as all of them)
+            t = self.ocr.read({'a': R.prep_bright(im, (ux + u * 0.065, H * 0.14, ux + u * 0.135, H * 0.185), k)}).get('a') or ''   # 'All / 14'
+            m = re.search(r'(\d{1,3})', t)
+            if m and 'all' in t.lower(): tour['all_n'] = int(m.group(1)); tour['want'] = tour['want'] or tour['all_n']
             wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.35)
             return True
         # 'read': once the list stands still (its text the same two looks running, at most 1.5 s), the names in view;
@@ -445,6 +451,12 @@ class LeaderboardsMixin:
         if (tour['want'] is None or self.sim_count(rows) < tour['want']) and not at_end and tour['idle'] < 2 and tour['scrolls'] < 20:
             tour['scrolls'] += 1; tour['next'] = now + 0.12
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3)
+            return True
+        # fewer than "All N" says: the click on All didn't take (the list was one series) - click it again, read again
+        if tour.get('all_n') and self.sim_count(rows) < tour['all_n'] and tour.get('all_again', 0) < 2:
+            tour['all_again'] = tour.get('all_again', 0) + 1
+            log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} of All {tour['all_n']} read - clicking All again")
+            tour.update(rows=[], scrolls=0, idle=0, sig=None, read_sig=None, backups=0, stage='all', next=now + 0.1)
             return True
         for n in rows:                                          # each row under its series (game data)
             g = self.icons.sim_gizmos.get(n.split(':')[0].strip())
