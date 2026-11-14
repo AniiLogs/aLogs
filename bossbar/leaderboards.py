@@ -16,6 +16,7 @@ EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to it
 RESULT_PAUSE = 5                    # seconds the automatic Battle Data session stays on the result screen before clicking,
 SIM_GATE_GONE = 3           # s with the exit gate's button gone before a press no longer counts as ending the run
 SIM_PRESS_EARLY = 1.0       # s before the exit gate's button was first seen that a press still counts (it shows first)
+SIM_GATE_PRESSED = 0.5      # s with the exit gate's button gone (after it was up) that count as your press of it
 SIM_VICTORY_WAIT = 8        # s after your press at the exit gate for the Victory screen (it comes in ~1 s) before control comes back
 HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 
@@ -60,17 +61,24 @@ def sim_gate_pill(im, box, u):
     measured on nine frames at the gate (1 Nov): rows with that color over at least 0.04 of the 16:9 width, for a band
     about as tall as the pill (0.012 of the width). Counted, not one unbroken run, since the white letters cut its
     middle rows into pieces. Only that color: dark in general also matched a fade, a dimmed menu and the player's own
-    dark armor beside the button."""
+    dark armor beside the button. The white letters' rows across the middle have too little of it and are bridged
+    (up to 0.008 of the width): 13 Nov, at 4K on a brown ground, they split the pill into two bands of about 0.008 each,
+    and with the band counted only unbroken the button was never seen."""
     band = im.crop(tuple(int(v) for v in box)).convert('RGB')
     w = 400; h = max(1, round(band.height * w / band.width)); band = band.resize((w, h), Image.BOX)
-    need = 0.04 * u * w / (box[2] - box[0]); px = band.load(); rows = 0; best = 0   # (lettered rows: 0.053+)
+    scale = w / (box[2] - box[0])
+    need = 0.04 * u * scale; px = band.load(); rows = 0; gap = 0; best = 0   # (lettered rows: 0.053+)
     for y in range(h):
         n = 0
         for x in range(w):
             r, g, b = px[x, y]
             if 55 <= r <= 100 and 55 <= g <= 100 and b <= 125 and b - r >= 8 and b - g >= 8: n += 1
-        rows = rows + 1 if n >= need else 0; best = max(best, rows)
-    return best >= 0.012 * u * w / (box[2] - box[0])
+        if n >= need: rows += 1; gap = 0
+        else:
+            gap += 1
+            if gap > 0.008 * u * scale: rows = 0
+        best = max(best, rows)
+    return best >= 0.012 * u * scale
 
 
 class LeaderboardsMixin:
@@ -258,9 +266,17 @@ class LeaderboardsMixin:
         if up:
             if not gate.get('first_up'):
                 gate['first_up'] = now; log.info('Holo-Battle Sim: the exit gate button is up; watching for your Y or F')
-            gate['up_at'] = now
-        elif gate.get('first_up') and now - gate['up_at'] > SIM_GATE_GONE:
-            gate['first_up'] = gate['up_at'] = None               # walked away from the gate: no press counts now
+            gate['up_at'] = now; gate['gone'] = None
+        elif gate.get('first_up'):
+            # the button gone after it was up: you pressed it (the owner, 13 Nov: take control as soon as it goes away;
+            # a press the watch missed counts too). Gone for SIM_GATE_PRESSED, so one look that misses it isn't one.
+            # Walking away hides it too: then no Victory screen comes and control comes back after SIM_VICTORY_WAIT.
+            gate['gone'] = gate.get('gone') or now
+            if now - gate['gone'] >= SIM_GATE_PRESSED:
+                watch.stop(); gate['used'] = now
+                ctl = self.sim_control(now, 'the exit gate button went away (your press)')
+                ctl.update(stage='gate', done=now); gate['first_up'] = gate['up_at'] = gate['gone'] = None
+                log.info('Holo-Battle Sim: waiting for the Victory screen')
 
     def sim_tour_start(self, now):
         """After a Holo-Battle Sim win, open the Gizmo screen and read every gizmo picked (All), keeping pictures of
