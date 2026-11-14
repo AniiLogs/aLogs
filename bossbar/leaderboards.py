@@ -16,6 +16,7 @@ EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to it
 RESULT_PAUSE = 5                    # seconds the automatic Battle Data session stays on the result screen before clicking,
 SIM_GATE_GONE = 3           # s with the exit gate's button gone before a press no longer counts as ending the run
 SIM_PRESS_EARLY = 1.0       # s before the exit gate's button was first seen that a press still counts (it shows first)
+SIM_MOUSE_WAIT = 3.0        # s the Victory screen gets to switch to mouse mode (the mouse moved) before the Gizmo tour gives up
 SIM_VICTORY_WAIT = 8        # s after your press at the exit gate for the Victory screen (it comes in ~1 s) before control comes back
 HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 
@@ -278,11 +279,12 @@ class LeaderboardsMixin:
         if (not C.automation(self.args.cfg, 'sim_gizmos') or self.args.replay is not None or not self.hwnd
                 or not wc.is_foreground(self.hwnd) or not self.icons or not self.icons.sim_gizmos):
             return False
+        # The gizmo row's icons don't have to be recognised: the Gizmo screen lists every pick by name, and the game data
+        # says each name's series (13 Nov: the row read while it faded in matched no icon, and the screen never opened)
         gizmos = self.sim_pending[0]['setup'].get('gizmos') or []
-        if not gizmos or not all(g.get('sid') for g in gizmos): return False
         self.sim_control(now, 'the Victory screen')
         self.sim_tour = {'stage': 'open', 'next': now + 0.3, 'tries': 0, 'rows': [], 'read': {}, 'idle': 0, 'scrolls': 0,
-                         'shots': [], 'want': sum(g['count'] for g in gizmos) if all(g.get('count') is not None for g in gizmos) else None}
+                         'shots': [], 'want': sum(g['count'] for g in gizmos) if gizmos and all(g.get('count') is not None for g in gizmos) else None}
         log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want'] if self.sim_tour['want'] is not None else 'all its'} gizmos")
         return True
 
@@ -294,8 +296,16 @@ class LeaderboardsMixin:
         got = 0
         if pending:
             setup = pending[0]['setup']
+            known = setup.get('gizmos') or []
+            if tour['read'] and (not known or not all(g.get('sid') for g in known)):
+                # the row's icons weren't recognised: its series are the ones the Gizmo screen's names belong to, in
+                # series order like the row; the counts read under the icons go with them when there are as many
+                counts = [g.get('count') for g in known]
+                sids = sorted(tour['read'], key=lambda s: int(s) if str(s).isdigit() else 0)
+                setup['gizmos'] = [{'series': self.icons.sim.get(s, {}).get('name'), 'sid': s,
+                                    'count': counts[i] if len(counts) == len(sids) else None} for i, s in enumerate(sids)]
             for g in setup.get('gizmos') or []:
-                rows = tour['read'].get(g['sid'])
+                rows = tour['read'].get(g.get('sid'))
                 if rows is not None:
                     g['picked'] = [{'name': n, 'rarity': self.sim_rarity(n)} for n in rows]
                     g['complete'] = self.sim_count(rows) == g.get('count'); got += self.sim_count(rows)
@@ -362,10 +372,26 @@ class LeaderboardsMixin:
         at = lambda x, y: (self.origin[0] + ux + u * x, self.origin[1] + H * y)
         stage = tour['stage']
         if stage == 'open':                                     # the first icon of the Victory screen's gizmo row
+            # The Victory screen's prompt at the bottom says which mode the game is in: "A Confirm" with a controller
+            # (Data Collection opens with RS, a click there does nothing), "press anywhere to close" with the mouse (a
+            # click on the row opens it; anywhere else closes the screen). With a controller, the mouse is moved first,
+            # which the game takes for mouse mode (the owner, 13 Nov); the click comes only once the prompt says so,
+            # and only on the row's first icon. No mouse mode within SIM_MOUSE_WAIT: no click (it could close the screen).
+            spot = at(SIM_GIZMO_X, 0.545 + (SIM_LOW if getattr(self, 'sim_low', False) else 0.0))
+            prompt = re.sub(r'[^a-z]', '', (self.ocr.read({'p': R.prep_bright(im, (ux + u * 0.38, H * 0.93, ux + u * 0.62, H * 0.98), k)})
+                                           .get('p') or '').lower())
+            if 'anywhere' not in prompt and 'close' not in prompt:
+                tour.setdefault('mouse_from', now)
+                if now - tour['mouse_from'] > SIM_MOUSE_WAIT:
+                    self.sim_tour_end(f"the game didn't switch to mouse mode (prompt read {prompt!r})"); return False
+                if not tour.get('wiggled') or now - tour['wiggled'] > 0.8:
+                    log.info(f"Holo-Battle Sim: the Victory screen is in controller mode ({prompt!r}): moving the mouse for mouse mode")
+                    wc.wiggle_at(*spot); tour['wiggled'] = now
+                tour['next'] = now + 0.25
+                return True
             tour['tries'] += 1
             if tour['tries'] > 3: self.sim_tour_end(f"the Gizmo screen did not open (title read {tour.get('title', '')!r})"); return False
-            spot = at(SIM_GIZMO_X, 0.545 + (SIM_LOW if getattr(self, 'sim_low', False) else 0.0))
-            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']})")
+            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']}, mouse mode)")
             wc.click_at(*spot); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
         title = self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0], H * self.GIZMO_TITLE[1],

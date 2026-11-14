@@ -520,6 +520,19 @@ def click_at(x, y):
         user32.SetCursorPos(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
         user32.SetCursorPos(p.x, p.y)
 
+MOUSEEVENTF_MOVE = 0x1
+def wiggle_at(x, y):
+    """Move the mouse a little around a screen point, then put the cursor back: real mouse movement (mouse_event, which
+    the game reads as raw input; SetCursorPos alone isn't), so a game in controller mode switches to mouse mode, its
+    prompts with it (13 Nov: the Holo-Battle Sim's Victory screen opens Data Collection with RS until then)."""
+    import time
+    with _game_moment():
+        p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
+        user32.SetCursorPos(int(x), int(y))
+        for dx, dy in ((12, 0), (0, 12), (-12, 0), (0, -12)):
+            user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0); time.sleep(0.03)
+        user32.SetCursorPos(p.x, p.y)
+
 KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B
 def press_key(vk):
     """One key press (down, then up) to the window in front, with the key's scan code: the game reads keys by it (raw
