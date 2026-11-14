@@ -63,7 +63,7 @@
         on: state.status?.devOn || [],
         persistent: state.status?.devPersistent || [],
         changed: state.status?.devChanged || [],
-        waiting: !state.running ? "Sanctum Helper's switches need it running." : options.length ? null : "Loading the switches…",
+        waiting: !state.running ? (state.waitingForGame ? "Sanctum Helper's switches need it running: it starts with the game." : "Sanctum Helper's switches need it running.") : options.length ? null : "Loading the switches…",
         set: (option, on) => act("sanctum_command", { command: "dev-set", args: { id: option, on } }),
         keep: (option, persistent) => act("sanctum_command", { command: "dev-persistent", args: { id: option, persistent } }),
       };

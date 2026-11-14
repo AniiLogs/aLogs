@@ -183,7 +183,7 @@
           <label class="toggle"><input type="checkbox" data-k="capture.test_frames"><span></span>
             <div><strong>Save test pictures</strong><small>Full-size pictures at your screen's resolution, for checking that aLogs reads everything right on every screen size: one every 5 seconds during a boss fight, and each screen the meter reads (results, Battle Data, battle prep, Challenge Stats, Profile, Egg Heist). Up to 300 a day, for 3 hours after you turn it on. At 4K they take about 2 GB; each day's are kept for 7 days (3 GB in all at most).</small></div></label>
           <div class="row"><button type="button" data-open="test_frames">Open the test pictures folder</button></div>
-          <p class="hint">The same folder also gets a copy of each leaderboard proof with the DPS window drawn on it, as you saw it (proof_overlay), whether or not this is on. The proof that's sent is the game alone.</p>
+          <p class="hint">The same folder also gets a copy of each leaderboard proof with the DPS window drawn on it, as you saw it (proof_overlay), but only while Save test pictures is on. The proof that's sent is the game alone either way.</p><!-- 14 Nov, the owner's call: proof copies with the overlay only with test pictures on -->
           <p class="hint">They show your screen as it is, with your name, UID and teammates, and stay on this PC (for 7 days) unless you share them. Zip the folder and send it to the AniiLogs developers on Discord; they're used only to test the readers.</p>
         </div>
         <div class="group">
@@ -314,7 +314,7 @@
             <div><strong>Press Next after the end screen</strong><small>Once the end screen is read, aLogs presses Next for you, on to the rank screen, which is read and sent too. A notice shows each time something is sent.</small></div>
           </label>
           <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
-            <div><strong>Block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Needs Leaderboards › Automation on; how long it may block is set there. Experimental.</small></div></label>
+            <div><strong>Block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Needs Leaderboards › Automation on; how long it may block is set there. Experimental, off unless you turn it on.</small></div></label>
         </div>
       </section>
 
