@@ -29,6 +29,7 @@ def meter(gizmos):
     m.sim_count = lambda rows: len(rows)
     m.sent = []; m.sim_send = lambda note=None: m.sent.append(note)
     m.sim_release = lambda why: None
+    m.out = lambda *a: None                                  # (the notices over the game)
     return m
 LB.wc.is_foreground = lambda hwnd: True
 

@@ -6,6 +6,7 @@ from results import *
 import logging
 import devflags as D
 import shutil
+import rewasd as RW
 
 LATE_BATTLE_DATA_S = 180            # after a run went without Battle Data: how long a Battle Data opened later still follows it
 
@@ -50,6 +51,10 @@ def gizmo_list_sig(im):
     W, H = im.size; u = min(W, H * 16 / 9); ux = (W - u) / 2; b = GIZMO_LIST_BOX
     c = im.crop((int(ux + u * b[0]), int(H * b[1]), int(ux + u * b[2]), int(H * b[3]))).convert('L')
     return c.point(lambda v: 255 if v < 130 else 0).resize((64, 72), Image.BOX)
+
+def gizmo_list_diff(a, b):
+    """How far apart two Gizmo list signatures are (mean pixel difference): 0 the same view, 9.9+ a scroll apart."""
+    return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
 
 def gizmo_list_same(a, b):
     """The list hasn't moved between two signatures (a few pixels' worth of difference allowed)."""
@@ -168,6 +173,14 @@ class LeaderboardsMixin:
         Gizmo screen's pictures as more proof; the notice on the Victory screen says it's saved."""
         pending, self.sim_pending = getattr(self, 'sim_pending', None), None
         if not pending: return
+        if getattr(self, 'sim_test', False):
+            # Ctrl+Shift+F11 (sim_test_key): a dry run of the Victory screen and the Gizmo screen, nothing kept or sent
+            self.sim_test = False
+            self.out('toast', {'head': 'Holo-Battle Sim test done', 'detail': f"{note or 'no Gizmo screen read'} · nothing sent",
+                               'accent': '#9be27a', 'screen': None, 'kind': 'notice'})
+            log.info(f"Holo-Battle Sim test (Ctrl+Shift+F11): done, nothing sent - {note or 'no Gizmo screen read'}; setup "
+                     f"{[(g.get('series'), g.get('count'), [p['name'] for p in g.get('picked') or []]) for g in pending[0]['setup'].get('gizmos') or []]}")
+            self.sim_release('the test is done'); return
         sim, shot = pending[:2]
         shots = [os.path.relpath(p, HERE) for p in (sim.pop('gizmo_shots', None) or []) if p]
         for g in sim['setup'].get('gizmos') or []: g.pop('sid', None)
@@ -196,18 +209,39 @@ class LeaderboardsMixin:
         self.sim_ctl = ctl = {'until': now + seconds, 'why': why, 'held': bool(r.get('hold_inputs')), 'space': self.space}
         if ctl['held']:
             self.hold.start(seconds)
-            # the controller too: the game in the background reads none (HidHide's hide can't reach a controller the
-            # game already has open; 11 Nov, a Sim end skipped with it)
-            if self.hwnd and self.args.replay is None: self.focus_guard.take(self.hwnd, seconds)
+            # your mouse movement too, not only its buttons: aLogs' own moves and clicks go on (they're marked injected),
+            # yours wait (14 Nov, the owner: "my own inputs shouldn't control the mouse/clicks/game" while it has control)
+            self.hold.freeze_moves(seconds)
+            # The controller: HidHide can't reach one the game already has open (nor reWASD's virtual one), and it still
+            # steered the game (14 Nov). With reWASD set up (rewasd.py), it's switched to an empty slot; otherwise the
+            # game goes behind aLogs' focus guard, where it reads no controller, and comes forward for aLogs' own clicks.
+            ctl['rewasd'] = RW.hold(RW.config(HERE), True)
+            if not ctl['rewasd'] and self.hwnd and self.args.replay is None: self.focus_guard.take(self.hwnd, seconds)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Holo-Battle Sim: aLogs has control ({why}), for at most {seconds} s')
         return ctl
 
     def sim_release(self, why):
-        if not getattr(self, 'sim_ctl', None): return
+        ctl = getattr(self, 'sim_ctl', None)
+        if not ctl: return
         self.sim_ctl = None; self.hold.stop(); self.focus_guard.stop()
+        if ctl.get('rewasd'): RW.hold(RW.config(HERE), False)
         if CT.hidden: CT.hide_controllers(False)
         log.info(f'Holo-Battle Sim: control given back ({why})')
+
+    def sim_test_key(self, now):
+        """Ctrl+Shift+F11 on a Holo-Battle Sim Victory screen (the owner, 14 Nov: testing the end over and over without a
+        new run): the Victory screen is read again as a new win and the Gizmo screen toured, as after a run, but nothing is
+        sent. Read from the key's state (no hook), once per press."""
+        # held now, or pressed since the last look (the low bit): a quick press between two looks was missed, and it seemed
+        # to work only on a second try (14 Nov)
+        key = lambda vk: ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8001
+        down = bool(key(0x7A) and key(0x11) and key(0x10))
+        was, self.sim_test_down = getattr(self, 'sim_test_down', False), down
+        if not down or was or getattr(self, 'sim_tour', None) or getattr(self, 'sim_ctl', None): return
+        self.sim_test = True; self.sim_seen = 0; self.sim_last = None; self.sim_first = None
+        if self.fight: self.end_fight('Holo-Battle Sim test')
+        log.info('Holo-Battle Sim test (Ctrl+Shift+F11): reading the Victory screen again and touring the Gizmo screen; nothing is sent')
 
     def sim_check(self, now):
         """Every frame while aLogs has the Holo-Battle Sim's end: control comes back the moment it isn't going as
@@ -283,6 +317,10 @@ class LeaderboardsMixin:
         # says each name's series (13 Nov: the row read while it faded in matched no icon, and the screen never opened)
         gizmos = self.sim_pending[0]['setup'].get('gizmos') or []
         self.sim_control(now, 'the Victory screen')
+        test = getattr(self, 'sim_test', False)
+        self.out('toast', {'head': 'Scanning the Holo-Battle Sim results' + (' (test)' if test else ''),
+                           'detail': 'aLogs has control for a moment: reading your gizmos', 'accent': '#9be27a',
+                           'screen': None, 'kind': 'notice'})
         self.sim_tour = {'stage': 'open', 'next': now + 0.3, 'tries': 0, 'rows': [], 'read': {}, 'idle': 0, 'scrolls': 0,
                          'shots': [], 'want': sum(g['count'] for g in gizmos) if gizmos and all(g.get('count') is not None for g in gizmos) else None}
         log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want'] if self.sim_tour['want'] is not None else 'all its'} gizmos")
@@ -291,6 +329,9 @@ class LeaderboardsMixin:
     def sim_tour_end(self, why):
         tour, self.sim_tour = getattr(self, 'sim_tour', None), None
         if not tour: return
+        if tour.get('views'):                                  # captured: control back first, then the names read
+            self.sim_release('the Gizmo screen is captured')
+            self.sim_tour_names(tour)
         self.sim_seen = time.time()                            # back on the Victory screen: not a new win
         pending = getattr(self, 'sim_pending', None)
         got = 0
@@ -334,16 +375,19 @@ class LeaderboardsMixin:
             final = norm(line).endswith('final')                   # "Predictive Dice: Final" (the colon isn't always read)
             head = re.sub(r':?\s*final\s*$', '', line, flags=re.I) if final else line.partition(':')[0]
             if len(norm(head)) < 4 or not names: continue
+            # a Core upgraded once shows as "Fervor Mask α" (OCR: "Fervor Mask a"): its α kept, it counts 2 (14 Nov)
+            alpha = not final and re.search(r'\s(?:α|a)\s*$', head) is not None
+            if alpha: head = re.sub(r'\s(?:α|a)\s*$', '', head)
             score, name = max((difflib.SequenceMatcher(None, norm(head), norm(n)).ratio(), n) for n in names)
             if score < 0.85: continue
-            out.append(name + ': Final' if final and not norm(name).endswith('final') else name)
+            out.append(name + ': Final' if final and not norm(name).endswith('final') else name + ' α' if alpha else name)
         return out
 
     @staticmethod
     def sim_stitch(rows, view):
         """Add one view's names to the list read so far: the longest end of `rows` the view starts with is the overlap
         (a scroll keeps a few rows in view), the rest is new. A gizmo picked twice stays twice."""
-        base = lambda names: [n.split(':')[0] for n in names]      # a Final read without its suffix is still the same row
+        base = lambda names: [n.split(':')[0].removesuffix(' α') for n in names]   # a Final or α read without it: the same row
         for k in range(min(len(rows), len(view)), 0, -1):
             if base(rows[-k:]) == base(view[:k]): return rows + view[k:]
         return rows + view
@@ -352,7 +396,7 @@ class LeaderboardsMixin:
     def sim_count(rows):
         """The picks a series' rows stand for: an upgraded Core ("...: Final") counts 3, the gizmo and its two upgrades
         (1 Nov: 41 rows for the 43 the Victory screen counts, one of them Predictive Dice: Final)."""
-        return sum(3 if n.endswith(': Final') else 1 for n in rows)
+        return sum(3 if n.endswith(': Final') else 2 if n.endswith(' α') else 1 for n in rows)
 
     def sim_tour_step(self, im, now):
         """One step of the Gizmo tour, on each new frame while it runs. True while the tour has the screen.
@@ -392,7 +436,9 @@ class LeaderboardsMixin:
             tour['tries'] += 1
             if tour['tries'] > 3: self.sim_tour_end(f"the Gizmo screen did not open (title read {tour.get('title', '')!r})"); return False
             log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']}, mouse mode)")
-            wc.click_at(*spot); tour.update(stage='wait', next=now + 0.3, waited=0)
+            # the mouse moved around the icon first, every time: both clicks that opened the screen came right after a
+            # wiggle; with the game already in mouse mode and no wiggle, three clicks did nothing (13 Nov 23:11)
+            wc.wiggle_at(*spot); wc.click_at(*spot, keep=True); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
         title = self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0], H * self.GIZMO_TITLE[1],
                                                      ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or ''
@@ -410,7 +456,7 @@ class LeaderboardsMixin:
             tour['backs'] += 1
             if tour['backs'] > 4: self.sim_tour_end('the Gizmo screen did not close'); return False
             if tour['backs'] % 2: wc.press_key(wc.VK_ESCAPE)
-            else: wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK))
+            else: wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK), keep=True)
             tour['next'] = now + 0.4
             return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
@@ -421,7 +467,7 @@ class LeaderboardsMixin:
             # All first, before anything is read (the owner, 13 Nov); the count once two reads agree (13 Nov: 'All 14'
             # read once as 74, and the tour looked for 60 picks that weren't there)
             if not tour.get('all_clicked'):
-                wc.wiggle_at(*at(*self.GIZMO_ALL)); wc.click_at(*at(*self.GIZMO_ALL))
+                wc.wiggle_at(*at(*self.GIZMO_ALL)); wc.click_at(*at(*self.GIZMO_ALL), keep=True)
                 tour.update(all_clicked=True, next=now + 0.3); return True
             t = self.ocr.read({'a': R.prep_bright(im, (ux + u * 0.065, H * 0.14, ux + u * 0.135, H * 0.185), k)}).get('a') or ''   # 'All / 14'
             m = re.search(r'(\d{1,3})', t)
@@ -433,52 +479,52 @@ class LeaderboardsMixin:
             if agreed is not None: tour['all_n'] = agreed; tour['want'] = agreed
             tour.update(stage='read', next=now)
             return True
-        # 'read': once the list stands still (its text the same two looks running, at most 1.5 s), the names in view;
-        # scroll on about 3 rows a time (each view shares rows with the last) until every pick is read or a scroll
-        # doesn't move the list (its end). Each view with new rows is kept as proof, as it was on screen.
+        # 'read': capture now, read later (the owner, 14 Nov: click All, then capture the list as it scrolls down; reading
+        # each view's names on the spot made the tour slow and stop-start). Once the list stands still (at most 0.6 s), its
+        # view is kept (and a proof picture of it), then the list scrolls on about 3 rows, until two scrolls running don't
+        # move it (its end; one that didn't take isn't the end). The names are read after control is given back
+        # (sim_tour_end). Each view shares rows with the last, so they are stitched in order.
         x0, y0, x1, y1 = self.GIZMO_LIST
         sig = gizmo_list_sig(im)
-        if not gizmo_list_same(sig, tour.get('sig')) and now - tour.get('moved', now) < 1.5:
+        if not gizmo_list_same(sig, tour.get('sig')) and now - tour.get('moved', now) < 0.6:
             if 'moved' not in tour: tour['moved'] = now
-            tour['sig'] = sig; tour['next'] = now + 0.08
+            tour['sig'] = sig; tour['next'] = now + 0.05
             return True
         tour.pop('moved', None); tour['sig'] = sig
-        at_end = gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0
-        tour['read_sig'] = sig
-        text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k, size=2)}).get('n') or ''
-        view = self.sim_names(text)
-        rows = self.sim_stitch(tour['rows'], view)
-        if tour['rows'] and view and len(rows) == len(tour['rows']) + len(view) and tour.get('backups', 0) < 3:
-            # no row in common with the last view: the scroll went too far, so back up a little and read again
-            tour['backups'] = tour.get('backups', 0) + 1; tour['next'] = now + 0.12
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 2)
-            return True
-        if len(rows) > len(tour['rows']):
+        # the list's end: a view that matches one already kept. At the end each scroll bounces the list a little, so two
+        # looks at the end were never quite alike and the tour scrolled on to its limit, a 4K picture each time (14 Nov:
+        # 7 s at the end, 15 pictures); every repeat there was within 3.5 of an earlier view, every real scroll 9.9+ away
+        kept = tour.setdefault('sigs', [])
+        same = any(gizmo_list_diff(sig, old) < 3.5 for old in kept)
+        tour['stuck'] = tour.get('stuck', 0) + 1 if same else 0
+        if not same:
+            kept.append(sig)
+            tour.setdefault('views', []).append(im.crop((int(ux + u * x0), int(H * y0), int(ux + u * x1), int(H * y1))).copy())
+            tour['view_k'] = k
             shot = self.sim_tour_shot(im, f"all_{tour['scrolls']:02d}")
             if shot: tour['shots'].append(shot)
-        tour['idle'] = 0 if len(rows) > len(tour['rows']) else tour['idle'] + 1
-        tour['rows'] = rows
-        if (tour['want'] is None or self.sim_count(rows) < tour['want']) and not at_end and tour['idle'] < 2 and tour['scrolls'] < 20:
-            tour['scrolls'] += 1; tour['next'] = now + 0.12
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3)
+        if not tour['stuck'] and tour['scrolls'] < 25:
+            tour['scrolls'] += 1; tour['next'] = now + 0.1
+            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3, keep=True)
             return True
-        # the best pass so far is kept (13 Nov: 12 of 14, then a fresh pass ended on 6); the same gizmo can be picked twice,
-        # so passes aren't merged by name
-        if self.sim_count(tour.get('kept') or []) > self.sim_count(rows): rows = tour['kept']
-        # fewer than "All N" says: the click on All didn't take (the list was one series) - click it again, read again
-        if tour.get('all_n') and self.sim_count(rows) < tour['all_n'] and tour.get('all_again', 0) < 2:
-            tour['all_again'] = tour.get('all_again', 0) + 1
-            log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} of All {tour['all_n']} read - clicking All again")
-            tour['kept'] = rows
-            tour.update(rows=[], scrolls=0, idle=0, sig=None, read_sig=None, backups=0, stage='all', all_clicked=False, next=now + 0.1)
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 20)        # back to the top of the list
-            return True
-        for n in rows:                                          # each row under its series (game data)
-            g = self.icons.sim_gizmos.get(n.split(':')[0].strip())
-            if g: tour['read'].setdefault(g[0], []).append(n)
         # the mouse moved first: the game falls back to controller mode, and its back arrow then took no click (13 Nov)
-        wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK)); tour.update(stage='back', backs=0, next=now + 0.4)
+        wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK), keep=True); tour.update(stage='back', backs=0, next=now + 0.4)
         return True
+
+    def sim_tour_names(self, tour):
+        """The names in the Gizmo list's views kept by the tour, read now (after control is given back), stitched in order
+        and filed under their series (game data): tour['rows'] and tour['read']."""
+        rows = []
+        for view in tour.get('views') or []:
+            w, h = view.size
+            text = self.ocr.read({'n': R.prep_grey(view, (0, 0, w, h), tour.get('view_k', 1), size=2)}).get('n') or ''
+            rows = self.sim_stitch(rows, self.sim_names(text))
+        tour['rows'] = rows
+        for n in rows:
+            g = self.icons.sim_gizmos.get(n.split(':')[0].removesuffix(' α').strip())
+            if g: tour['read'].setdefault(g[0], []).append(n)
+        if tour.get('all_n') and self.sim_count(rows) != tour['all_n']:
+            log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} picks read in {len(tour.get('views') or [])} views, but All says {tour['all_n']}")
 
     def sim_tour_shot(self, im, what):
         """A view of the Gizmo list for the run's proof (logs/screens, sent with the run, then deleted like the others):
@@ -755,10 +801,10 @@ class LeaderboardsMixin:
 # in a minute stop the plug-in until its switch is turned off and on), not the reading loop's.
 ENTRY = {'auto_active': False, 'check_pending_run': None, 'egg_fade': None, 'egg_hold_end': None, 'end_auto': None,
          'link_poll': None, 'link_read': None, 'open_battle_data': None, 'presence_tick': None, 'proof_crop': None,
-         'prove_name': None, 'sent_notice': None, 'sim_check': None, 'sim_gate': None, 'sim_tour_step': False,
+         'prove_name': None, 'sent_notice': None, 'sim_check': None, 'sim_test_key': None, 'sim_gate': None, 'sim_tour_step': False,
          'start_auto': None, 'proof_with_overlay': None, 'run_to_send': False, 'send_late_battle_data': None, 'sim_release': None, 'sim_send': None,
          'sim_tour_start': False}
 for _name, _fallback in ENTRY.items():
     setattr(LeaderboardsMixin, _name, guarded('leaderboards', _fallback)(getattr(LeaderboardsMixin, _name)))
 
-__all__ = ['EGG_BLACK', 'GIZMO_LIST_BOX', 'HOLD_MIN', 'PROOF_BYTES', 'RESULT_PAUSE', 'SIM_GATE_GONE', 'SIM_PRESS_EARLY', 'SIM_VICTORY_WAIT', 'gizmo_list_same', 'gizmo_list_sig', 'save_proof', 'sim_gate_pill', 'LeaderboardsMixin']
+__all__ = ['EGG_BLACK', 'GIZMO_LIST_BOX', 'gizmo_list_diff', 'HOLD_MIN', 'PROOF_BYTES', 'RESULT_PAUSE', 'SIM_GATE_GONE', 'SIM_PRESS_EARLY', 'SIM_VICTORY_WAIT', 'gizmo_list_same', 'gizmo_list_sig', 'save_proof', 'sim_gate_pill', 'LeaderboardsMixin']

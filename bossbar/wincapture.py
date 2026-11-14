@@ -517,7 +517,7 @@ def move_to(x, y):
     user32.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0, 0)
     user32.SetCursorPos(int(x), int(y))
 
-def click_at(x, y):
+def click_at(x, y, keep=False):
     """One left click at a screen point, then put the cursor back where it was (built-in SetCursorPos/mouse_event).
     mouse_event presses wherever the cursor is, so the cursor is put on the point again right before the press and the
     release: a player moving the mouse meanwhile can't pull the click off the button (6 Nov, it missed that way)."""
@@ -528,7 +528,7 @@ def click_at(x, y):
         move_to(x, y); time.sleep(0.12)                          # the game sees the cursor arrive before the press
         move_to(x, y); user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); time.sleep(0.05)
         move_to(x, y); user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); time.sleep(0.03)
-        user32.SetCursorPos(p.x, p.y)
+        if not keep: user32.SetCursorPos(p.x, p.y)                # (keep: left there, for the next click nearby)
 
 def wiggle_at(x, y):
     """Move the mouse a little around a screen point: real mouse movement (mouse_event, which
@@ -539,8 +539,10 @@ def wiggle_at(x, y):
     import time
     with _game_moment():
         move_to(x, y); time.sleep(0.03)
-        for dx, dy in ((12, 0), (0, 12), (-12, 0), (0, -12)):
-            user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0); time.sleep(0.03)
+        # a pixel or two is enough: the Victory screen's gizmo icons sit in the same spots with a controller or the mouse
+        # (the owner, 13 Nov); the move itself is what switches the game to mouse mode
+        for dx in (2, -2):
+            user32.mouse_event(MOUSEEVENTF_MOVE, dx, 0, 0, 0); time.sleep(0.03)
         move_to(x, y)              # left on the point (the click comes there next), not put back
 
 KEYEVENTF_KEYUP, VK_ESCAPE = 0x2, 0x1B
@@ -553,13 +555,16 @@ def press_key(vk):
         user32.keybd_event(vk, scan, 0, 0); time.sleep(0.06); user32.keybd_event(vk, scan, KEYEVENTF_KEYUP, 0)
 
 MOUSEEVENTF_WHEEL = 0x0800
-def scroll_at(x, y, notches):
+def scroll_at(x, y, notches, keep=False):
     """Turn the mouse wheel `notches` at a screen point (negative: down, toward the end of a list), then put the
-    cursor back where it was."""
+    cursor back where it was (keep: leave it there). The mouse is moved onto the point for real and nudged first: a
+    game that fell back to controller mode takes no wheel until the mouse moves (13 Nov: the Holo-Battle Sim's Gizmo
+    list didn't move, and the tour took that for its end)."""
     import time
     with _game_moment():
         p = W.POINT(); user32.GetCursorPos(ctypes.byref(p))
-        user32.SetCursorPos(int(x), int(y)); time.sleep(0.03)
+        move_to(x, y); user32.mouse_event(MOUSEEVENTF_MOVE, 6, 0, 0, 0); time.sleep(0.02)
+        user32.mouse_event(MOUSEEVENTF_MOVE, -6, 0, 0, 0); time.sleep(0.03)
         for _ in range(abs(int(notches))):
             user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, 120 if notches > 0 else -120, 0); time.sleep(0.03)
-        user32.SetCursorPos(p.x, p.y)
+        if not keep: user32.SetCursorPos(p.x, p.y)

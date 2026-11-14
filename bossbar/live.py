@@ -1729,6 +1729,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             partial = False; self.test_try = time.time()
         due = (not partial and self.fight is None and self.bar is None and self.args.replay is None) and self.full_frame_due(time.time())
         top_only = not partial and self.fight is None and self.bar is None and self.args.replay is None and not due
+        if getattr(self, 'sim_tour', None): partial = top_only = False; due = False      # the Gizmo tour reads whole frames
         im = self.grab(partial, top_only, self.screen_parts(time.time()) if due == 'screen' else None)
         self.away_note(im)
         if not getattr(self, 'quiet', False): self.hit_watch(time.time())   # "You're being attacked": the DPS meter's
@@ -1743,6 +1744,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if not self.fight and self.bar is None and D.on('busy-half-pace'): self.calm_watch(self.top_sig, now)
         if self.frame_full: self.egg_fade(im, now)        # Egg Heist: hold inputs through the fade to its end screen
         self.sim_check(now)
+        if self.holosim_space and self.args.replay is None: self.sim_test_key(now)    # Ctrl+Shift+F11: test the Sim end
+        # the Gizmo tour first, before any bar search: its list's lines and the Core's gauge looked like boss bars, and the
+        # tour waited 10 s for each to be thrown out (14 Nov: 22 s before its first read)
+        if getattr(self, 'sim_tour', None) and self.frame_full and self.sim_tour_step(im, now): self.snapshot(now); return
         if self.bar is None and self.holosim_space: self.sim_gate(im, now)    # Holo-Battle Sim's exit gate (last level)
         # -- keep the bar locked: re-check its brackets, search again only when they are gone
         if self.bar is None or not R.verify_bar(im, self.bar):
