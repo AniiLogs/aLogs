@@ -278,11 +278,12 @@ class LeaderboardsMixin:
         if (not C.automation(self.args.cfg, 'sim_gizmos') or self.args.replay is not None or not self.hwnd
                 or not wc.is_foreground(self.hwnd) or not self.icons or not self.icons.sim_gizmos):
             return False
+        # The gizmo row's icons don't have to be recognised: the Gizmo screen lists every pick by name, and the game data
+        # says each name's series (13 Nov: the row read while it faded in matched no icon, and the screen never opened)
         gizmos = self.sim_pending[0]['setup'].get('gizmos') or []
-        if not gizmos or not all(g.get('sid') for g in gizmos): return False
         self.sim_control(now, 'the Victory screen')
         self.sim_tour = {'stage': 'open', 'next': now + 0.3, 'tries': 0, 'rows': [], 'read': {}, 'idle': 0, 'scrolls': 0,
-                         'shots': [], 'want': sum(g['count'] for g in gizmos) if all(g.get('count') is not None for g in gizmos) else None}
+                         'shots': [], 'want': sum(g['count'] for g in gizmos) if gizmos and all(g.get('count') is not None for g in gizmos) else None}
         log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want'] if self.sim_tour['want'] is not None else 'all its'} gizmos")
         return True
 
@@ -294,8 +295,16 @@ class LeaderboardsMixin:
         got = 0
         if pending:
             setup = pending[0]['setup']
+            known = setup.get('gizmos') or []
+            if tour['read'] and (not known or not all(g.get('sid') for g in known)):
+                # the row's icons weren't recognised: its series are the ones the Gizmo screen's names belong to, in
+                # series order like the row; the counts read under the icons go with them when there are as many
+                counts = [g.get('count') for g in known]
+                sids = sorted(tour['read'], key=lambda s: int(s) if str(s).isdigit() else 0)
+                setup['gizmos'] = [{'series': self.icons.sim.get(s, {}).get('name'), 'sid': s,
+                                    'count': counts[i] if len(counts) == len(sids) else None} for i, s in enumerate(sids)]
             for g in setup.get('gizmos') or []:
-                rows = tour['read'].get(g['sid'])
+                rows = tour['read'].get(g.get('sid'))
                 if rows is not None:
                     g['picked'] = [{'name': n, 'rarity': self.sim_rarity(n)} for n in rows]
                     g['complete'] = self.sim_count(rows) == g.get('count'); got += self.sim_count(rows)

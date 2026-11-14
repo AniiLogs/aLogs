@@ -637,7 +637,9 @@ class ResultsMixin:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
         # The screen slides in: title and team first, the shares, coins and gizmo row a moment later (1 Nov: read
         # 0.3 s in, those were blank and the Gizmo screen never opened). Give them up to 3 s.
-        if won and not (t.get('share') or t.get('coins') or t.get('coinsL')):
+        # 13 Nov: the shares were in but the right side (coins, gizmo row) still faded in, and its icons matched none:
+        # wait for the coins too, the right side's last part to come in
+        if won and not ((t.get('coins') or t.get('coinsL')) and t.get('share')):
             first = getattr(self, 'sim_first', None)
             if first is None or now - first > 30: self.sim_first = first = now
             if now - first < 3: return
