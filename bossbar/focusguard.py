@@ -61,7 +61,8 @@ def bring_to_front(hwnd, tries=3):
     return user32.GetForegroundWindow() == hwnd
 
 class FocusGuard:
-    LEND_SETTLE = 0.08    # s the game has the focus before our click: it takes a frame or two to read input again
+    LEND_SETTLE = 0.15    # s the game has the focus before our click: it takes a few frames to read input again
+    LEND_AFTER = 0.12     # s it keeps it after: the click's release and the game's reaction to it land first (14 Nov)
 
     def __init__(self, log=None):
         self.log = log or (lambda m: None)
@@ -104,7 +105,8 @@ class FocusGuard:
         with self.lock:
             if not self.lent: return
             self.lent -= 1
-            if not self.lent and self.active and time.time() < self.stop_at: bring_to_front(self.hwnd)
+            if not self.lent and self.active and time.time() < self.stop_at:
+                time.sleep(self.LEND_AFTER); bring_to_front(self.hwnd)
 
     def _run(self):
         import wincapture as wc

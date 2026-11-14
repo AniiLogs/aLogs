@@ -6,6 +6,7 @@ from results import *
 import logging
 import devflags as D
 import shutil
+import rewasd as RW
 
 LATE_BATTLE_DATA_S = 180            # after a run went without Battle Data: how long a Battle Data opened later still follows it
 
@@ -175,6 +176,8 @@ class LeaderboardsMixin:
         if getattr(self, 'sim_test', False):
             # Ctrl+Shift+F11 (sim_test_key): a dry run of the Victory screen and the Gizmo screen, nothing kept or sent
             self.sim_test = False
+            self.out('toast', {'head': 'Holo-Battle Sim test done', 'detail': f"{note or 'no Gizmo screen read'} · nothing sent",
+                               'accent': '#9be27a', 'screen': None, 'kind': 'notice'})
             log.info(f"Holo-Battle Sim test (Ctrl+Shift+F11): done, nothing sent - {note or 'no Gizmo screen read'}; setup "
                      f"{[(g.get('series'), g.get('count'), [p['name'] for p in g.get('picked') or []]) for g in pending[0]['setup'].get('gizmos') or []]}")
             self.sim_release('the test is done'); return
@@ -206,17 +209,23 @@ class LeaderboardsMixin:
         self.sim_ctl = ctl = {'until': now + seconds, 'why': why, 'held': bool(r.get('hold_inputs')), 'space': self.space}
         if ctl['held']:
             self.hold.start(seconds)
-            # (No focus taking any more: from 11 Nov the game was pushed to the background so it read no controller, for
-            # issue 68 - the Victory screen left 1.4 s after it came up. On 13 Nov that turned out to be aLogs' own click on
-            # a Victory screen in mouse mode, "press anywhere to close"; and the switching stuttered, put the game back in
-            # controller mode and lost clicks and scrolls. The controller is hidden as before, keyboard and mouse held.)
+            # your mouse movement too, not only its buttons: aLogs' own moves and clicks go on (they're marked injected),
+            # yours wait (14 Nov, the owner: "my own inputs shouldn't control the mouse/clicks/game" while it has control)
+            self.hold.freeze_moves(seconds)
+            # The controller: HidHide can't reach one the game already has open (nor reWASD's virtual one), and it still
+            # steered the game (14 Nov). With reWASD set up (rewasd.py), it's switched to an empty slot; otherwise the
+            # game goes behind aLogs' focus guard, where it reads no controller, and comes forward for aLogs' own clicks.
+            ctl['rewasd'] = RW.hold(RW.config(HERE), True)
+            if not ctl['rewasd'] and self.hwnd and self.args.replay is None: self.focus_guard.take(self.hwnd, seconds)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Holo-Battle Sim: aLogs has control ({why}), for at most {seconds} s')
         return ctl
 
     def sim_release(self, why):
-        if not getattr(self, 'sim_ctl', None): return
+        ctl = getattr(self, 'sim_ctl', None)
+        if not ctl: return
         self.sim_ctl = None; self.hold.stop(); self.focus_guard.stop()
+        if ctl.get('rewasd'): RW.hold(RW.config(HERE), False)
         if CT.hidden: CT.hide_controllers(False)
         log.info(f'Holo-Battle Sim: control given back ({why})')
 
@@ -308,6 +317,10 @@ class LeaderboardsMixin:
         # says each name's series (13 Nov: the row read while it faded in matched no icon, and the screen never opened)
         gizmos = self.sim_pending[0]['setup'].get('gizmos') or []
         self.sim_control(now, 'the Victory screen')
+        test = getattr(self, 'sim_test', False)
+        self.out('toast', {'head': 'Scanning the Holo-Battle Sim results' + (' (test)' if test else ''),
+                           'detail': 'aLogs has control for a moment: reading your gizmos', 'accent': '#9be27a',
+                           'screen': None, 'kind': 'notice'})
         self.sim_tour = {'stage': 'open', 'next': now + 0.3, 'tries': 0, 'rows': [], 'read': {}, 'idle': 0, 'scrolls': 0,
                          'shots': [], 'want': sum(g['count'] for g in gizmos) if gizmos and all(g.get('count') is not None for g in gizmos) else None}
         log.info(f"Holo-Battle Sim: opening the Gizmo screen for {self.sim_tour['want'] if self.sim_tour['want'] is not None else 'all its'} gizmos")
