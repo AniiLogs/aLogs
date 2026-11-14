@@ -97,6 +97,16 @@ fn texture_desc(width: u32, height: u32, staging: bool) -> D3D11_TEXTURE2D_DESC 
     }
 }
 
+/// General Settings › Performance › Screen capture on the graphics card: Lowest (capture.gpu_priority "lowest", which the
+/// page writes only while Performance toggles is on). Set at start and on every settings save (apply_settings);
+/// it was the Dev switch capture-low-priority.
+pub static LOW_PRIORITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn apply_settings(settings: &serde_json::Value) {
+    let low = settings.pointer("/capture/gpu_priority").and_then(serde_json::Value::as_str) == Some("lowest");
+    LOW_PRIORITY.store(low, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The device, the newest image (on the card) and the small textures areas are read through.
 pub struct Gpu {
     device: ID3D11Device,
@@ -123,7 +133,8 @@ pub struct Gpu {
     lost: bool,
     /// Since when a reader has been asking for an area that can't be copied (`lost`).
     starved: Option<std::time::Instant>,
-    /// Dev switch capture-low-priority: this device's work on the card goes behind the game's.
+    /// General Settings › Performance › Screen capture on the graphics card = Lowest: this device's work on the card
+    /// goes behind the game's (LOW_PRIORITY).
     low: bool,
 }
 
@@ -146,7 +157,7 @@ impl Gpu {
         }
     }
 
-    /// Dev switch capture-low-priority, on or off: the copies this device asks of the graphics card are done after
+    /// Lowest (LOW_PRIORITY) or not: the copies this device asks of the graphics card are done after
     /// the game's own work (the lowest of the priorities a program may give itself), or as before.
     fn low_priority(&mut self, low: bool) {
         if low == self.low {
@@ -155,7 +166,7 @@ impl Gpu {
         self.low = low;
         let set = self.device.cast::<IDXGIDevice>().and_then(|d| unsafe { d.SetGPUThreadPriority(if low { -7 } else { 0 }) });
         match set {
-            Ok(()) => crate::app_log(&format!("capture: graphics card priority {}", if low { "lowest (capture-low-priority)" } else { "normal again" })),
+            Ok(()) => crate::app_log(&format!("capture: graphics card priority {}", if low { "lowest (Performance)" } else { "normal again" })),
             Err(e) => crate::app_log(&format!("capture: graphics card priority not changed ({e})")),
         }
     }
@@ -428,7 +439,7 @@ impl Duplication {
     /// Takes the newest screen image if it changed. Ok(false): nothing new (or no image yet). An error means
     /// the duplication is lost (resolution or fullscreen change, a UAC prompt): make a new one.
     pub fn update(&mut self) -> Result<bool> {
-        self.gpu.low_priority(crate::dev::on("capture-low-priority"));
+        self.gpu.low_priority(LOW_PRIORITY.load(std::sync::atomic::Ordering::Relaxed));
         self.update_as(crate::dev::on("capture-hold-frame"))
     }
 
@@ -576,7 +587,7 @@ impl WindowCapture {
             }
         }
         let Some(frame) = newest else { return Ok(false) };
-        self.gpu.low_priority(crate::dev::on("capture-low-priority"));
+        self.gpu.low_priority(LOW_PRIORITY.load(std::sync::atomic::Ordering::Relaxed));
         // when Windows captured it (its QPC time, 100 ns units), as a moment on this clock: readers then time a fight
         // by when the game showed a frame, not by when they got around to reading it (B8)
         self.gpu.captured_at = frame.SystemRelativeTime().ok().and_then(|t| {

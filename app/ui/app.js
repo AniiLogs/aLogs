@@ -3,17 +3,20 @@
   // Same defaults as bossbar/settings.py (the meter fills in anything missing the same way).
   const DEFAULTS = {
     app: { welcome_done: false, show_guide: true, start_with_windows: false, close_to_tray: true, priority: "low", auto_download: true, beta_updates: false,
-      photos_auto: false, photos_auto_since: 0 },
+      photos_auto: false, photos_auto_since: 0, load_details: false },
     meter: { enabled: true },
+    sanctum: { enabled: true, map_redraw: "every" },
     audio_cues: { boss_kill: true },
     game: { window_title: "Aniimo", player_log: "" },
     overlay: { show: true, dps_window: true, hp_labels: true, in_recordings: true, backdrop: 0, world_position: "map", dps_locked: true, dps_example: false, dps_reset: 0,
       rush_position: "corner", result_seconds: 10 },
-    capture: { game_window_only: false, look_interval: 0.05, fight_rate: 30, test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
+    capture: { game_window_only: false, look_interval: 0.05, fight_rate: 30, gpu_priority: "normal", test_frames: false, damage_numbers: false, debug_frames: false, end_screens: false, nobar_frames: false, keep_hours: 0 },
     results: { auto_open_battle_data: true, sim_gizmos: true, sim_gate: false, hold_inputs: true, hold_controller: false, hold_seconds: 60, egg_fade_hold: false, egg_auto_next: true },
     leaderboard: { submit: false, automation: false, api_url: "https://aniilogs-api.pages.dev/api", token: "", link_character: true, include_screenshots: true, notify_sent: true },
     // every plug-in's notices over the game: where and how (each plug-in's own on/off is on its page), and the button's
     notifications: { place: "top-right", motion: "fade", locked: true, button: true },
+    // General Settings › Performance (perf.js): the main switch (off) and each option's choice
+    perf: window.alogsPerf?.defaults() || { on: false },
     // the settings the player changed themselves ("capture.keep_hours", ...): a default that changes in a later version
     // only moves the ones not listed, so a choice is never overwritten
     user_set: [],
@@ -52,6 +55,7 @@
   // file, so a choice only moved in memory would be lost). Where notices show was the leaderboards'
   // (leaderboard.notify_place, notify_motion, notify_locked) until they became every plug-in's (notifications.*).
   function migrateStored(stored) {
+    window.alogsPerf?.migrate(stored);           // options that moved to General › Performance come with what was picked
     const old = stored?.leaderboard;
     if (!old) return stored;
     for (const key of ["place", "motion", "locked"]) {
@@ -69,6 +73,7 @@
       const last = keys.pop();
       keys.reduce((value, key) => (value[key] ??= {}), fresh)[last] = get(path);
     }
+    window.alogsPerf?.apply(fresh);               // each Performance option's own setting: the choice, or its default with the main switch off
     await invoke("save_settings", { settings: fresh });
     changed.clear();
     settings = fresh;
@@ -507,6 +512,7 @@
   // Settings that only do something with another one on: greyed out while it's off. The automation needs sending on
   // (it only collects proof for the leaderboards), and everything it does needs the automation on.
   function dependents() {
+    window.alogsPerf?.sync(get);
     const sending = Boolean(get("leaderboard.submit"));
     const auto = sending && Boolean(get("leaderboard.automation"));
     $('[data-nav-switch="leaderboards"]').setAttribute("aria-checked", String(sending));

@@ -1,6 +1,7 @@
 """What the PC is doing, for the meter's once-a-minute "load:" line and a one-time "PC:" line - so a lag report shows
 where the time went. Windows' own counters and a few kernel calls only (no installs, nothing sent anywhere else).
-Never other programs' names: only the game, aLogs' own programs (meter, app, Sanctum Helper) and the totals.
+Never other programs' names: only the game, aLogs' own programs (meter, app, its windows, Sanctum Helper, leftovers),
+everything else as one share, and the totals.
 
 - GpuLoad: graphics card use per program, as Task Manager shows it (its busiest engine), from the
   "GPU Engine(*)\\Utilization Percentage" counters; read once a minute (the counter averages since the last read).
@@ -95,6 +96,65 @@ def process_mb(pid):
         return m.WorkingSetSize / 2**20 if ok else None
     finally:
         kernel32.CloseHandle(h)
+
+# ---------------------------------------------------------------- aLogs' processes
+class _ProcEntry(ctypes.Structure):
+    _fields_ = [('dwSize', W.DWORD), ('cntUsage', W.DWORD), ('th32ProcessID', W.DWORD), ('th32DefaultHeapID', ctypes.c_size_t),
+                ('th32ModuleID', W.DWORD), ('cntThreads', W.DWORD), ('th32ParentProcessID', W.DWORD),
+                ('pcPriClassBase', ctypes.c_long), ('dwFlags', W.DWORD), ('szExeFile', ctypes.c_wchar * 260)]
+
+kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+kernel32.CreateToolhelp32Snapshot.argtypes = [W.DWORD, W.DWORD]
+kernel32.Process32FirstW.argtypes = kernel32.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcEntry)]
+
+def process_table():
+    """{pid: (parent pid, program file name, lower case)} of every running process, or {}. The names are only
+    compared with aLogs' own programs' (alogs_groups); none is ever written down."""
+    snap = kernel32.CreateToolhelp32Snapshot(0x2, 0)                   # TH32CS_SNAPPROCESS
+    if not snap or snap == ctypes.c_void_p(-1).value: return {}
+    try:
+        e = _ProcEntry(); e.dwSize = ctypes.sizeof(e); table = {}
+        ok = kernel32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            table[e.th32ProcessID] = (e.th32ParentProcessID, e.szExeFile.lower())
+            ok = kernel32.Process32NextW(snap, ctypes.byref(e))
+        return table
+    finally:
+        kernel32.CloseHandle(snap)
+
+WEBVIEW = 'msedgewebview2.exe'
+LEFTOVER = ('alogs-updating.exe', 'alogs-installing.exe')               # the updating / installing windows' copies
+
+def alogs_groups(table, app, meter, sanctum=0, helpers=(), started=None):
+    """Every process of aLogs', by part: {'meter': the meter and its OCR helpers, 'app': the aLogs app (and anything
+    else it started), 'windows': its WebView2 processes (the window, the Site tab, overlays), 'sanctum': Sanctum Helper
+    and what it started, 'leftover': an updating / installing window's copy or a second aLogs app still running}, each
+    a set of pids. `table` is process_table(); `started(pid)` a process's start time (or None), so a process whose
+    parent quit and whose parent's pid went to another program isn't counted as that program's child. A lag report
+    (14 Nov, B9) had the meter, the app and the game as light as on B7 while the whole PC was 15 points busier, and
+    couldn't say where: the WebView2 processes and Sanctum Helper's CPU were counted nowhere."""
+    kids = {}
+    for pid, (parent, _) in table.items():
+        if parent and parent != pid: kids.setdefault(parent, []).append(pid)
+    def tree(roots):
+        seen, todo = set(), [r for r in roots if r in table]
+        while todo:
+            p = todo.pop()
+            if p in seen: continue
+            seen.add(p)
+            for k in kids.get(p, ()):
+                a, b = (started(k), started(p)) if started else (None, None)
+                if a is None or b is None or a >= b: todo.append(k)
+        return seen
+    meter_ = tree([meter]) | {h for h in helpers if h in table}
+    sanctum_ = tree([sanctum]) - meter_ if sanctum else set()
+    under_app = tree([app]) - meter_ - sanctum_ if app else set()
+    windows = {p for p in under_app if table[p][1] == WEBVIEW}
+    app_ = under_app - windows
+    ours = meter_ | sanctum_ | under_app
+    roots = [p for p, (_, name) in table.items() if p not in ours and (name in LEFTOVER or name == 'alogs-app.exe')]
+    leftover = tree(roots) - ours
+    return {'meter': meter_, 'app': app_, 'windows': windows, 'sanctum': sanctum_, 'leftover': leftover}
 
 def sanctum_pid():
     """Sanctum Helper's process id from its status file (hosted by the aLogs app), or 0."""

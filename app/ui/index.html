@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="app.css">
     <script src="patch-notes.js" defer></script>
     <script src="combobox.js" defer></script>
+    <script src="perf-options.js" defer></script>
+    <script src="perf.js" defer></script>
     <script src="app.js" defer></script>
     <script src="sanctum.js" defer></script>
     <script src="dev-menu.js" defer></script>
@@ -105,15 +107,7 @@
             <div><strong>Run the DPS meter</strong><small>Also in the sidebar. When off, nothing of the meter shows over the game. Sanctum Helper and the leaderboards have their own switches and keep working either way.</small></div></label>
         </div>
         <div class="group">
-          <label class="field"><span>How often the meter looks for a boss bar in Interlink and around a fight</span>
-            <select data-k="capture.look_interval" data-type="number">
-              <option value="0.05">20 times a second (default)</option><option value="0.1">10 times a second</option><option value="0.25">4 times a second (lightest)</option>
-            </select></label>
-          <label class="field"><span>How often the meter reads the boss bar during a fight</span>
-            <select data-k="capture.fight_rate" data-type="number">
-              <option value="30">30 times a second (default)</option><option value="60">60 times a second (finest timing, heavier)</option>
-            </select></label>
-          <p class="hint">Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s. Out in the world with no boss around, the meter looks 4 times a second whatever you pick here. Sanctum Helper keeps its own pace, so these only affect the meter.</p>
+          <p class="hint">How often the meter looks at the game (in Interlink, around a fight and during one) is in <strong>General Settings › Performance</strong>.</p>
           <!-- Read my damage numbers (experimental, bossbar/dmgnumbers.py): paused 2026-10-28, see the meter's DAMAGE_NUMBERS -->
         </div>
         <div class="group">
@@ -361,6 +355,7 @@
         <header class="page-head"><h1>General Settings</h1></header>
         <div class="tabs" role="tablist" aria-label="General Settings">
           <button type="button" role="tab" data-tab="general" aria-selected="true">General</button>
+          <button type="button" role="tab" data-tab="performance" aria-selected="false">Performance</button>
           <button type="button" role="tab" data-tab="notifications" aria-selected="false">Notifications</button>
           <button type="button" role="tab" data-tab="themes" aria-selected="false">Themes</button>
         </div>
@@ -399,15 +394,6 @@
           <div class="row"><button type="button" data-capture-reset>Put the button back in the game's icon row</button><button type="button" data-capture-choose-icon>Use your own picture…</button><button type="button" data-capture-default-icon>Use the aLogs icon again</button></div>
         </div>
         <div class="group">
-          <h2>Performance</h2>
-          <label class="field"><span>Priority when your PC is busy (aLogs, the meter and Sanctum Helper)</span>
-            <select data-k="app.priority">
-              <option value="low">Lower (default): the game and OBS always come first</option>
-              <option value="normal">Normal</option>
-              <option value="high">Higher: the meter keeps up even when the PC is very busy</option>
-            </select></label>
-        </div>
-        <div class="group">
           <h2>Setup guide</h2>
           <label class="toggle"><input type="checkbox" data-k="app.show_guide"><span></span>
             <div><strong>Show the setup guide when aLogs starts</strong><small>Signing in, leaderboards and result screens, step by step. Turns itself off once you finish or skip it.</small></div></label>
@@ -423,6 +409,15 @@
       </div>
 
       <!-- Themes: the AniiLogs site's themes, for this window only -->
+      <div class="dps-panel" data-panel="performance">
+        <p class="lead">Options that make aLogs lighter on your PC, or heavier for finer readings, for each add-on. They only apply with <strong>Performance toggles</strong> on.</p>
+        <div data-perf-menu></div>
+        <div class="group">
+          <h2>Diagnostics</h2>
+          <label class="toggle"><input type="checkbox" data-k="app.load_details"><span></span>
+            <div><strong>What each part of aLogs uses</strong><small>Once a minute, meter.log says how much of your processor each part of aLogs takes (the meter, the app, its windows, Sanctum Helper), next to the game and all your other programs together. Turn it on if aLogs seems to slow your PC, then report the problem. No other program is named. Works whether Performance toggles is on or off.</small></div></label>
+        </div>
+      </div>
       <div class="dps-panel" data-panel="notifications">
         <p class="lead">Small notices over the game, one at a time, while the game is in front. Every plug-in's show here the same way. Each plug-in turns its own on or off on its page: the leaderboards' on Leaderboards › Sending, Sanctum Helper's on its page.</p>
         <div class="group">
