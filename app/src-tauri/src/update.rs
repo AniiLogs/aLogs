@@ -313,6 +313,9 @@ pub fn splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
             let url = format!("updating.html?to={}", to.replace(' ', "%20"));
             tauri::WebviewWindowBuilder::new(app, "updating", tauri::WebviewUrl::App(url.into()))
                 .title("Updating aLogs")
+                // its own WebView2 folder: sharing aLogs' (still open, or closing) put this window inside the other
+                // aLogs' browser, where it went white and Install did nothing
+                .data_directory(std::env::temp_dir().join("aLogs-updating").join("webview"))
                 .inner_size(340.0, 400.0)
                 .resizable(false)
                 .decorations(false)
@@ -385,14 +388,14 @@ pub fn at_start(app: &AppHandle) {
 }
 
 /// Installer copies the updater plugin itself may leave in %TEMP% (aLogs-<version>-updater-*), and the updating
-/// window's copy of aLogs (aLogs-updating): gone after 10 minutes.
+/// and installing windows' copies of aLogs (aLogs-updating, aLogs-installing): gone after 10 minutes.
 fn clean_installer_copies() {
     let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let old = entry.metadata().and_then(|m| m.modified()).map_or(false, |t| t < cutoff);
-        if (name == "aLogs-updating" || name.starts_with("aLogs-") && name.contains("-updater-")) && entry.path().is_dir() && old {
+        if (name == "aLogs-updating" || name == "aLogs-installing" || name.starts_with("aLogs-") && name.contains("-updater-")) && entry.path().is_dir() && old {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
@@ -532,4 +535,96 @@ mod beta_feed_tests {
         assert!(!use_beta_feed(false, true, false, false));    // the release caught up: follow releases
         assert!(use_beta_feed(true, false, false, false));     // opted in
     }
+}
+
+/// The installer and the install folder for the "Installing aLogs" window.
+pub struct InstallJob {
+    installer: String,
+    dir: PathBuf,
+}
+
+/// The "Installing aLogs" window (main.rs --install-splash <installer> <install folder>): an installer run by hand
+/// (installer-template.nsi .onInit) starts its own copy of aLogs with this instead of showing Windows' installer pages.
+/// It offers the two choices (desktop shortcut, start with Windows) and Install; the installer then runs silently behind
+/// it (/S) and opens aLogs when it's done (/R). If the silent install fails, the installer's own pages take over
+/// (/CLASSIC), so a downgrade, a locked file or anything else still gets the full installer.
+pub fn install_splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
+    let installer = args.first().cloned().unwrap_or_default();
+    let dir = PathBuf::from(args.get(1).cloned().unwrap_or_default());
+    let v = &context.package_info().version;
+    let label = match build_name() {
+        n if n.is_empty() => format!("{}.{}.{}", v.major, v.minor, v.patch),
+        n => format!("{}.{}.{} {n}", v.major, v.minor, v.patch),
+    };
+    let fallback = installer.clone();
+    let result = tauri::Builder::default()
+        .manage(InstallJob { installer, dir })
+        .invoke_handler(tauri::generate_handler![install_go, install_cancel])
+        .setup(move |app| {
+            let url = format!("installing.html?to={}", label.replace(' ', "%20"));
+            tauri::WebviewWindowBuilder::new(app, "updating", tauri::WebviewUrl::App(url.into()))
+                .title("Installing aLogs")
+                // its own WebView2 folder: sharing aLogs' (still open, or closing) put this window inside the other
+                // aLogs' browser, where it went white and Install did nothing
+                .data_directory(std::env::temp_dir().join("aLogs-installing").join("webview"))
+                .inner_size(340.0, 400.0)
+                .resizable(false)
+                .decorations(false)
+                .transparent(false)
+                .center()
+                .build()?;
+            Ok(())
+        })
+        .run(context);
+    if let Err(e) = result {
+        eprintln!("installing window: {e}");
+        let _ = std::process::Command::new(&fallback).arg("/CLASSIC").spawn();
+    }
+}
+
+/// Install pressed: runs the installer silently with the choices made, then "Starting aLogs…" and the window closes.
+#[tauri::command]
+pub fn install_go(app: AppHandle, desktop: bool, autostart: bool) {
+    let job = app.state::<InstallJob>();
+    let (installer, dir) = (job.installer.clone(), job.dir.clone());
+    std::thread::spawn(move || {
+        use std::os::windows::process::CommandExt;
+        let started = std::time::Instant::now();
+        let _ = app.emit("update-step", "installing");
+        let run_key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+        if autostart {
+            // set before the installer opens aLogs, so aLogs starts with it on (Settings shows it switched on)
+            super::write_setting("/app/start_with_windows", json!(true));
+            let _ = std::process::Command::new("reg")
+                .args(["add", run_key, "/v", super::APP_DIR, "/t", "REG_SZ", "/d"])
+                .arg(format!("\"{}\" --minimized", dir.join("alogs-app.exe").display()))
+                .arg("/f")
+                .creation_flags(0x0800_0000)
+                .status();
+        }
+        let mut cmd = std::process::Command::new(&installer);
+        cmd.args(["/S", "/R"]);
+        if !desktop {
+            cmd.arg("/NS");
+        }
+        let ok = cmd.status().is_ok_and(|s| s.success()) && dir.join("alogs-app.exe").exists();
+        let _ = app.emit("update-step", if ok { "starting" } else { "failed" });
+        let shown = started.elapsed().as_millis() as u64;
+        std::thread::sleep(std::time::Duration::from_millis(if ok { 2500u64.saturating_sub(shown).max(1200) } else { 3500 }));
+        if !ok {
+            if autostart {
+                super::write_setting("/app/start_with_windows", json!(false));
+                let _ = std::process::Command::new("reg").args(["delete", run_key, "/v", super::APP_DIR, "/f"])
+                    .creation_flags(0x0800_0000).status();
+            }
+            let _ = std::process::Command::new(&installer).arg("/CLASSIC").spawn();   // the installer's own pages
+        }
+        app.exit(0);
+    });
+}
+
+/// Cancel (or the window closed) before Install: nothing was installed.
+#[tauri::command]
+pub fn install_cancel(app: AppHandle) {
+    app.exit(0);
 }

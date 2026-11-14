@@ -538,20 +538,90 @@ def _screen_checks(result, battle_data):
     checks = {k: v for k, v in (('result', result.get('screen_check')), ('battleData', battle_data.get('screen_check'))) if v}
     return {'screenCheck': checks} if checks else {}
 
+def _fold(name):
+    """A name as look-alike letters fold together (core.Teammates.fold: accents dropped, 0/O/o, 1/l/I/|)."""
+    import unicodedata
+    plain = ''.join(c for c in unicodedata.normalize('NFKD', name or '') if not unicodedata.combining(c))
+    return plain.casefold().translate(str.maketrans({'0': 'o', '1': 'l', 'i': 'l', '|': 'l'}))
+
+LINEUP_ALIKE = 0.5     # a Party read this like a result-screen name (folded) is that player, in any slot
+LINEUP_WEAK = 0.35     # ...or this like with a stretch of 2 letters the same, when no other free name on either side
+                       # comes within LINEUP_CLEAR of it
+LINEUP_CLEAR = 0.15
+
+def lineup_names(party, players):
+    """{id(member): the name its lineup card goes by}, each Party screen member paired with the run's result-screen
+    player it is. The result screen reads names on clean dark tabs, the Party screen over a moving scene (14 Nov: one
+    lineup went with 'ZzPnynru' and 'Su_JlduwAD' for names the result screen read right, and 'TUN' for a one-character
+    name), and the two can list players in another order, so they are paired by name, never twice: your row with your
+    card, then the closest names first (LINEUP_ALIKE, folded), then weaker likenesses that share a stretch of letters
+    and where neither name has another near it (LINEUP_WEAK), then a one-character name the result screen was sure of (the Party
+    screen never reads one: core.party_pill) with its own slot. A paired card takes the result's name; one paired with
+    nobody is someone else (the site tells a stale Party screen) and keeps its own read. One player is on one card:
+    a name that ends up on two cards stays on the paired one, or the one in its own pill, and the other goes blank."""
+    sim = lambda a, b: difflib.SequenceMatcher(None, _fold(a), _fold(b)).ratio()
+    # the longest run of letters two names share, folded: a misread keeps a stretch of the name ('ZzPnynru' has Kyhru's
+    # 'ru'), two other names a weak likeness has only letters here and there ('Zarvok' and 'Ashgrove')
+    run = lambda a, b: max((x.size for x in difflib.SequenceMatcher(None, _fold(a), _fold(b)).get_matching_blocks()), default=0)
+    cards = [m for m in party if isinstance(m, dict)]
+    rows = [p for p in players if isinstance(p, dict) and p.get('name')]
+    pair, used = {}, set()                       # id(card) -> its result row; ids of rows given to a card
+    def give(m, p):
+        pair[id(m)] = p; used.add(id(p))
+    free_cards = lambda: [m for m in cards if id(m) not in pair and m.get('name')]
+    free_rows = lambda: [p for p in rows if id(p) not in used]
+    me = next((p for p in rows if p.get('self')), None); mine = next((m for m in cards if m.get('self')), None)
+    if me and mine: give(mine, me)
+    while True:                                  # the clearest pair first; on a tie, the same slot
+        best = max(((sim(m['name'], p['name']), m.get('slot') == p.get('slot'), m, p) for m in free_cards() for p in free_rows()),
+                   key=lambda x: x[:2], default=None)
+        if not best or best[0] < LINEUP_ALIKE: break
+        give(best[2], best[3])
+    while True:                                  # a weaker likeness, when neither side has another near it
+        found = None
+        for m in free_cards():
+            for p in free_rows():
+                s = sim(m['name'], p['name'])
+                near = ([sim(m['name'], q['name']) for q in free_rows() if q is not p] +
+                        [sim(o['name'], p['name']) for o in free_cards() if o is not m])
+                if s >= LINEUP_WEAK and run(m['name'], p['name']) >= 2 and all(s >= o + LINEUP_CLEAR for o in near) and (not found or s > found[0]): found = (s, m, p)
+        if not found: break
+        give(found[1], found[2])
+    for m in cards:
+        p = next((p for p in free_rows() if p.get('slot') == m.get('slot')), None)
+        if id(m) not in pair and p and p.get('sure') and len(p['name']) == 1: give(m, p)
+    out = {}
+    for m in cards:
+        name = m.get('name') or ''
+        if id(m) in pair:
+            got = pair[id(m)]['name']
+            if got != name: log.info(f"lineup: slot {(m.get('slot') or 0) + 1}'s {name!r} sent as the result screen's {got!r}")
+            name = got
+        out[id(m)] = name
+    seen = {}
+    for m in sorted(cards, key=lambda m: (id(m) not in pair, m.get('pill', m.get('slot')) != m.get('slot'))):
+        key = _fold(out[id(m)])
+        if not key: continue
+        if key in seen:
+            log.info(f"lineup: {out[id(m)]!r} is slot {seen[key] + 1}'s already: slot {(m.get('slot') or 0) + 1} sent unnamed")
+            out[id(m)] = ''
+        else: seen[key] = m.get('slot') or 0
+    return out
+
 def _lineup(summary):
     """{'lineup': each slot's player and lead Aniimo from the Party screen, 'title': your title} for a run's extra."""
     # every player's card: lead Aniimo, level and CP (shown on the site, the user's call 2026-10-31), and the rest of
     # the team from the pictures in the card's team row (icons.py; unread ones left out)
     teams = summary.get('teams') or []
-    # a card goes by the name the run settled on for its slot (party_slots): the Party screen's own read can be off. A
-    # name nothing like the card's is someone else in that slot: the card, read before the fight, stays as it was read
-    settled = {p.get('slot'): p.get('name') for p in (summary.get('result') or {}).get('players') or [] if p.get('name')}
-    def card_name(m):
-        name, got = m.get('name') or '', settled.get(m.get('slot'))
-        return got if got and difflib.SequenceMatcher(None, got.casefold(), name.casefold()).ratio() >= 0.6 else name
+    names = lineup_names(summary.get('party') or [], (summary.get('result') or {}).get('players') or [])
+    card_name = lambda m: names.get(id(m), m.get('name') or '')
     def entry(m):
         e = {'slot': m.get('slot'), 'name': card_name(m)[:40] or None, 'ai': m.get('ai'), 'self': True if m.get('self') else None}
+        # the lead's species is its portrait's (None when that didn't read: never the name on the card, which players can
+        # change since the affinity update, 14 Nov); the name it goes by rides along as its nickname, which the site's
+        # public lineup leaves out
         lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
+        e['nickname'] = (m.get('nickname') or '')[:40] or None
         lead = {k: v for k, v in lead.items() if v is not None}
         slot = m.get('slot')
         team = teams[slot] if isinstance(slot, int) and slot < len(teams) and teams[slot] else             summary.get('team') if m.get('self') else None          # a run saved before every card was read

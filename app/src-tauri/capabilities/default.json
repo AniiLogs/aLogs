@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window may call the app's own commands and core APIs.",
-  "windows": ["main"],
+  "description": "The main window (and the updating / installing window) may call the app's own commands and core APIs.",
+  "windows": ["main", "updating"],
   "permissions": ["core:default"]
 }

@@ -43,7 +43,7 @@ class Icons:
 m = Meter.__new__(Meter)
 m.icons = Icons(); m.screen_settled = lambda kind, now: None
 rest = {'on': False}; m.panel_at_rest = lambda im, u, ux, H: rest['on']
-m.team_tile = lambda *a, **k: None
+m.team_tile = lambda *a, **k: None; m.lead_tile = lambda *a, **k: None
 def screen(cards_dy, panel_dy, offering='glass', season=('guard', 'strike'), wobble=0):
     m.card_shift = lambda ic, im, a, b, u_, ux_, H_: (0, cards_dy + (wobble if a == Meter.PARTY_CARDS[0][0] else 0))
     return {'panel': panel_dy, 'offering': offering, 'season': list(season)}

@@ -1,6 +1,6 @@
 ; aLogs copy of Tauri's NSIS installer template (tauri-cli v2.12.4, crates/tauri-bundler/src/bundle/
-; windows/nsis/installer.nsi). The only change is marked "aLogs:" in PageReinstall. When upgrading the
-; Tauri CLI, re-fetch the template for that version and re-apply the change.
+; windows/nsis/installer.nsi). The changes are marked "aLogs:" (in PageReinstall, and the "Installing aLogs" window
+; at the end of .onInit). When upgrading the Tauri CLI, re-fetch the template for that version and re-apply them.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
@@ -597,6 +597,39 @@ Function .onInit
     ${EndIf}
   ${EndIf}
   !endif
+
+  ; aLogs: run by hand (the first install, or a download over an installed aLogs), this shows aLogs' own "Installing
+  ; aLogs" window instead of these pages: this installer's copy of aLogs, run with --install-splash, which runs the
+  ; installer again silently behind it (update.rs install_splash). /CLASSIC keeps these pages, and so does a PC
+  ; without WebView2 yet (the window couldn't draw; the install below sets it up).
+  ${IfNot} ${Silent}
+  ${AndIf} $PassiveMode <> 1
+  ${AndIf} $UpdateMode <> 1
+    ClearErrors
+    ${GetOptions} $CMDLINE "/CLASSIC" $R0
+    ${If} ${Errors}
+      ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
+      ${If} $4 == ""
+        ReadRegStr $4 HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
+      ${EndIf}
+      ${If} $4 == ""
+        ReadRegStr $4 HKCU "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
+      ${EndIf}
+      ${If} $4 != ""
+      ${AndIf} $4 != "0.0.0.0"
+        RMDir /r "$TEMP\aLogs-installing"
+        CreateDirectory "$TEMP\aLogs-installing"
+        ClearErrors
+        File "/oname=$TEMP\aLogs-installing\aLogs-installing.exe" "${MAINBINARYSRCPATH}"
+        ${IfNot} ${Errors}
+          Exec '"$TEMP\aLogs-installing\aLogs-installing.exe" --install-splash "$EXEPATH" "$INSTDIR"'
+          ${IfNot} ${Errors}
+            Quit
+          ${EndIf}
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
 FunctionEnd
 
 Section WebView2

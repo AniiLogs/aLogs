@@ -68,6 +68,34 @@ SIM_GIZMOS = 7
 # shares on the left don't move. Both heights are read; the one that reads is kept (parse_sim_team 'low').
 SIM_LOW = 0.0417
 
+# The team cards' art (UI_Pb_Tower_Settlement > WidgetPanel > WidgetPetBase1-5, in UI units from the screen's centre,
+# y up; 4800 units the 16:9 width): each card, its Mask (what shows of the art) and the art's whole rect (Pet, the
+# game's 512x840 card art stretched to it). MvpBg runs over the MVP card's top (from 152 up) and each card's name label
+# over its bottom left, so only the art between them is compared.
+SIM_CARD_ART = (
+    # card centre, the window compared (x0, x1, y0, y1 around it), art centre around it, art size. The windows are
+    # each mask (MVP: -680..96 x -304..304; the others their card) without its edges, name label and MVP banner;
+    # the MVP's also stops short of its shares' dark panel, which made Ignitis score near Irisalis (14 Nov, 3 shots)
+    ((-1083, 384), (-520, -120, -40, 140), (-394, -193), (1024, 1680)),
+    ((-1411, -111), (-246, 246, -85, 198), (-3, -51), (710, 1165)),
+    ((-803, -111), (-232, 232, -102, 239), (-28, 24), (710, 1165)),
+    ((-1455, -571), (-216, 216, -94, 218), (-38, -138), (710, 1165)),
+    ((-888, -595), (-235, 235, -84, 195), (19, -180), (710, 1165)),
+)
+SIM_CARD_SCORE, SIM_CARD_MARGIN = 0.6, 0.08   # 20 saved Victory screens (14 Nov): all 96 cards right at 0.76+ / 0.19+;
+                                              # the 4 empty slots' best 0.49 / 0.02
+
+def sim_card_boxes(u, ux, H):
+    """Each team card's (window, art) in screen px for Icons.card: the window its art is compared in, the art's whole
+    rect (x, y, w, h)."""
+    k, cx, cy = u / 4800, ux + u / 2, H / 2
+    out = []
+    for (wx, wy), (x0, x1, y0, y1), (ax, ay), (aw, ah) in SIM_CARD_ART:
+        window = (cx + (wx + x0) * k, cy - (wy + y1) * k, cx + (wx + x1) * k, cy - (wy + y0) * k)
+        art = (cx + (wx + ax - aw / 2) * k, cy - (wy + ay + ah / 2) * k, aw * k, ah * k)
+        out.append((window, art))
+    return out
+
 def sim_badges(im, u, ux, H, dy=0.0):
     """The digits on the Holo-gizmo badges (dark on light grey, too small for Windows OCR on their own), pasted in
     one line after a drawn label: 'n: / 6 / 6 / 2 / 2 / 4 / 5'. Empty slots (an X) give nothing."""
@@ -81,6 +109,20 @@ def sim_badges(im, u, ux, H, dy=0.0):
         c = im.crop((int(ux + u * (cx - 0.0075)), int(H * (SIM_GIZMO_Y[0] + dy)), int(ux + u * (cx + 0.0075)), int(H * (SIM_GIZMO_Y[1] + dy)))).convert('L')
         c = c.resize((max(1, int(c.width * 4 / k)), max(1, int(c.height * 4 / k))), Image.LANCZOS).point(lambda v: 0 if v < 120 else 255)
         c.thumbnail((90, 90)); out.paste(c, (120 + i * 110, 15))
+    return out
+
+def sim_badge_counts(im, u, ux, H, reader, dy=0.0, n=SIM_GIZMOS):
+    """The Holo-gizmo row's counts, each badge read on its own against the game's digits (namereader, dark text on the
+    light badge): [7, 2, 3, 1, None, ...], None where there's no badge (an empty slot) or a digit isn't clear. One
+    OCR line of all the badges dropped a lone 1 and ran neighbours together (14 Nov: 7 2 3 1 read as [7, 2, 3];
+    7 1 2 4 1 as [71, 24, 11]; 13 runs sent without counts)."""
+    out = []
+    for i in range(n):
+        cx = SIM_GIZMO_X + SIM_GIZMO_PITCH * i
+        box = (ux + u * (cx - 0.0075), H * (SIM_GIZMO_Y[0] + dy), ux + u * (cx + 0.0075), H * (SIM_GIZMO_Y[1] + dy))
+        try: v = reader.number(im, box, dark=True)
+        except Exception: v = None
+        out.append(v if v is not None and 0 < v < 100 else None)
     return out
 
 def sim_team_crops(im, u, ux, H):
@@ -97,23 +139,36 @@ def sim_team_crops(im, u, ux, H):
     crops['gizmosL'] = sim_badges(im, u, ux, H, SIM_LOW)
     return crops
 
-def parse_sim_team(t, names=()):
-    """What sim_team_crops() read -> {'team': [{'name', 'level', 'mvp'}], 'mvpShares': {'damage', 'taken', 'healing'},
-    'gizmoCounts': [6, 6, 2, ...], 'coins': 8550}. A card's name is matched to the game's Aniimo names when given
-    ('Ir?sahs' -> 'Irisalis'); a card that doesn't read is left out, so the team may be short but never wrong."""
+def parse_sim_team(t, names=(), species=()):
+    """What sim_team_crops() read -> {'team': [{'name', 'level', 'mvp', 'nickname'?}], 'mvpShares': {'damage', 'taken',
+    'healing'}, 'gizmoCounts': [6, 6, 2, ...], 'coins': 8550}. `species`: each card's Aniimo from its art (Icons.card,
+    None where unsure): the card's name text can be the player's own nickname for it (14 Nov), so the art names it,
+    and a text that isn't that name rides along as its nickname. A card without art read is matched to the game's
+    Aniimo names by its text ('Ir?sahs' -> 'Irisalis'); a card read neither way is left out, so the team may be short
+    but never wrong."""
     team = []
+    norm = lambda x: re.sub(r'[^a-z]', '', x.lower())
     for i in range(len(SIM_CARDS)):
         reads = []
         for v in (t.get(f'c{i}w'), t.get(f'c{i}b')):
             m = re.search(r'L\W?v\W*(\d{1,3})\W+(\S.{1,24})', v or '')
             if m and 1 <= int(m.group(1)) <= 100: reads.append((int(m.group(1)), m.group(2).strip()))
+        art = species[i] if i < len(species) else None
+        if art:
+            entry = {'name': art, 'level': reads[0][0] if reads else None, 'mvp': i == 0}
+            # a nickname: the text, unless it reads as the species' name (a misread of it included)
+            if reads and all(difflib.SequenceMatcher(None, norm(r), norm(art)).ratio() < 0.7 for _, r in reads):
+                entry['nickname'] = reads[0][1][:24]
+            team.append(entry); continue
         if not reads: continue
         # the game name the card's reads come closest to (one read can be 'Ir?sahs', the other 'Irisalis'); else,
         # as the names come from the head portraits and a few Aniimo have none (Leafy), a read that is a plain name
-        norm = lambda x: re.sub(r'[^a-z]', '', x.lower())
         score, name = max(((difflib.SequenceMatcher(None, norm(r), norm(n)).ratio(), n) for _, r in reads for n in names),
                           default=(0, None))
         if score < 0.7:
+            # with the art read, a card it didn't name and whose text isn't an Aniimo's name isn't one (a run's
+            # equipment card, "Repair Matrix", 3 Nov shot); without it, a plain name is kept as before
+            if any(species): continue
             plain = [r for _, r in reads if re.fullmatch(r"[A-Z][a-z]+(?:[ '-][A-Z][a-z]+)?", r)]
             if not plain: continue
             name = plain[0]
@@ -237,7 +292,9 @@ def party_slots(players, party, sure=(), you=None, agreed=()):
         for p in players:
             if p.get('name') and not p.get('self'): p['name'] = TEAM.steady(p['name'])
         return
-    by_slot = {m['slot']: m for m in party}
+    # a slot the Party screen left blank (its name was another slot's too: Meter.set_party) gives no name
+    by_slot = {m['slot']: m for m in party if m.get('name')}
+    party = list(by_slot.values())
     sim = lambda a, b: difflib.SequenceMatcher(None, TEAM.fold(a), TEAM.fold(b)).ratio()
     taken, rest = set(), []                      # members (by slot) given to a column; the columns left to settle
     # the Party screen's you: its mark, or your name. Its vote keeps a slot's commonest name but the last read's mark,
@@ -263,7 +320,7 @@ def party_slots(players, party, sure=(), you=None, agreed=()):
             p.update(name=you, ai=False, self=True); taken.update(mine)
         elif p['slot'] in sure and len(own) == 1 and own.isascii() and own.isalnum():
             if m and m['name'] != own: log.info(f"result: column {p['slot'] + 1} reads {own!r} (sure), not the Party screen's {m['name']!r}")
-            p.setdefault('ai', False)
+            p.setdefault('ai', False); p['sure'] = True          # (the lineup takes this name for its slot: submit._lineup)
         else: rest.append(p)
     def named(p):                                # the free member this column clearly reads, when not its slot's
         m = by_slot.get(p['slot'])
@@ -630,8 +687,11 @@ class ResultsMixin:
         # the pale gold title over a light background often doesn't read ('Victor', 'Vi<ory', nothing): a win is a
         # title that looks like Victory, or no 'Defeat' read and the team's cards reading as they do on a Victory
         title = f"{t.get('title') or ''} {t.get('title2') or ''}".lower()
-        names = sorted({n for n, _ in self.icons.heads.values()}) if self.icons else ()
+        names = sorted({n for n, _ in [*self.icons.heads.values(), *getattr(self.icons, 'cards', {}).values()]}) if self.icons else ()
         team = parse_sim_team(t, names)
+        # each card's Aniimo by its art: ~1.5 s, so it runs beside the Gizmo tour (which waits for nothing) and the
+        # team is named from it as the win is sent (sim_species_team)
+        self.sim_species_job = None
         won = bool(re.search(r'victo|v[il1]\W?[c<(]?t?ory', title)) or ('defe' not in title and len(team['team']) >= 3)
         if not sim:
             log.info(f"Holo-Battle Sim end screen not read: {t!r}"); return
@@ -662,7 +722,16 @@ class ResultsMixin:
             if 'gizmos' in other: pictures, low = other, not low
         self.sim_low = low                                        # the tour clicks the gizmo row at that height
         sim['setup'] = {**team, **pictures, **self.sim_prep_for(sim)}
+        self.sim_species_job = self.sim_species_start(im.copy(), u, ux, H, t, names)
         counts = sim['setup'].pop('gizmoCounts')
+        # each badge by the game's own digits; the OCR line above only where one of them isn't clear
+        reader = self.name_reader() if hasattr(self, 'name_reader') else None
+        if reader:
+            shaped = sim_badge_counts(im, u, ux, H, reader, SIM_LOW if low else 0.0)
+            n = len(sim['setup'].get('gizmos') or []) or next((i for i, v in enumerate(shaped) if v is None), len(shaped))
+            if n and all(v is not None for v in shaped[:n]):
+                if shaped[:n] != counts: log.info(f"Holo-Battle Sim counts by the game's digits {shaped[:n]} (OCR line {counts})")
+                counts = shaped[:n]
         if sim['setup'].get('gizmos') and len(sim['setup']['gizmos']) == len(counts):
             sim['setup']['gizmos'] = [{**g, 'count': n} for g, n in zip(sim['setup']['gizmos'], counts)]
         elif sim['setup'].get('gizmos'):
@@ -675,6 +744,36 @@ class ResultsMixin:
         shot = self.picture(im, 'screens', 'sim_' + time.strftime('%Y%m%d_%H%M%S'), proof=True)
         self.sim_pending = (sim, shot)
         if not self.sim_tour_start(now): self.sim_send()           # (gives control back too, if the gate took it)
+
+    def sim_species_start(self, im, u, ux, H, t, names):
+        """sim_species in its own thread: {'thread', 'team'} - 'team' the cards named from their art when it's done."""
+        job = {'team': None}
+        def run():
+            try: job['team'] = parse_sim_team(t, names, self.sim_species(im, u, ux, H))['team']
+            except Exception as e: log.info(f'Holo-Battle Sim team by card art: not read ({e!r})')
+        job['thread'] = threading.Thread(target=run, daemon=True, name='sim-cards'); job['thread'].start()
+        return job
+
+    def sim_species_team(self, sim, wait=6.0):
+        """The win about to be sent gets its team named from the cards' art (waiting for it up to `wait` s); as read
+        from the text when that didn't finish or found none."""
+        job, self.sim_species_job = getattr(self, 'sim_species_job', None), None
+        if not job: return
+        job['thread'].join(wait)
+        if job['team']: sim['setup']['team'] = job['team']
+
+    def sim_species(self, im, u, ux, H):
+        """Each team card's Aniimo by its art (Icons.card), None where it isn't clear (an empty slot, no icon cache).
+        Read once per Victory screen: the 30 s between reads of one screen (sim_seen) keep it to one."""
+        ic = self.icons
+        if not ic or not getattr(ic, 'cards', None): return []
+        out, got = [], []
+        for window, art in sim_card_boxes(u, ux, H):
+            r = ic.card(im, window, art)
+            sure = r and r[1] >= SIM_CARD_SCORE and r[2] >= SIM_CARD_MARGIN
+            out.append(r[0] if sure else None); got.append(r and (r[0], round(r[1], 2), round(r[2], 2)))
+        log.info(f'Holo-Battle Sim team by card art: {got}')
+        return out
 
     def sim_pictures(self, im, u, ux, H, dy=0.0):
         """The Victory screen's pictures, matched to the game's own (icons.py): the Training Style, from the Core
@@ -1446,4 +1545,4 @@ class ResultsMixin:
             sig = fsig
         return last
 
-__all__ = ['INTERLINK_NPCS', 'SCREEN_MOVED_ON', 'screen_difference', 'BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']
+__all__ = ['INTERLINK_NPCS', 'SCREEN_MOVED_ON', 'screen_difference', 'BATTLE_DATA_SETTLE', 'bd_complete', 'BATTLE_DATA_WAIT', 'EGG_MODES', 'RESULT_STATS', 'SCREEN_READS', 'SETTLE_S', 'SIM_CARDS', 'SIM_CARD_ART', 'SIM_CARD_SCORE', 'SIM_CARD_MARGIN', 'sim_card_boxes', 'sim_badge_counts', 'SIM_COINS', 'SIM_DIFF', 'SIM_GIZMOS', 'SIM_GIZMO_PITCH', 'SIM_GIZMO_X', 'SIM_GIZMO_Y', 'SIM_LOW', 'SIM_SHARES', 'SIM_STAGE', 'SIM_STAGE_OF', 'canon', 'first_num', 'mark_you', 'own_name', 'parse_battle_data', 'parse_sim', 'parse_sim_team', 'party_slots', 'remember_character', 'sim_badges', 'sim_team_crops', 'sure_read', 'vote', 'ResultsMixin']

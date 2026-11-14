@@ -919,7 +919,10 @@ fn install_english_ocr(app: AppHandle) -> Value {
 /// Brings the main window back (tray click, its Open, or aLogs started again while it runs). app.log says why and how
 /// it went, so a report shows whether a window that "won't open from the tray" was ever asked to (12 Nov report).
 fn show_main(app: &AppHandle, why: &str) {
-    let Some(window) = app.get_webview_window("main") else {
+    // the window, not the webview window: once the Site tab adds its view (site.rs, add_child) the main window holds two
+    // webviews, and get_webview_window("main") no longer finds it - Open from the tray then did nothing at all (12 and
+    // 14 Nov: "open asked (tray icon click), but there is no main window", after closing to the tray)
+    let Some(window) = app.get_window("main") else {
         app_log(&format!("window: open asked ({why}), but there is no main window"));
         return;
     };
@@ -946,6 +949,11 @@ fn main() {
     if let Some(at) = args.iter().position(|a| a == "--update-splash") {
         context.config_mut().app.windows.clear();
         update::splash(context, args[at + 1..].to_vec());
+        return;
+    }
+    if let Some(at) = args.iter().position(|a| a == "--install-splash") {
+        context.config_mut().app.windows.clear();
+        update::install_splash(context, args[at + 1..].to_vec());
         return;
     }
     let minimized = std::env::args().any(|a| a == "--minimized");
@@ -1021,7 +1029,7 @@ fn main() {
                 }
             });
             if minimized {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_window("main") {
                     let _ = window.hide();
                     app_log("window: started in the tray (with Windows)");
                 }

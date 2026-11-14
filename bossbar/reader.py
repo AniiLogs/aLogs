@@ -3,7 +3,7 @@
 Resolution-independent: the white [ ] brackets at the ends of the boss bar are the ruler. Every position is a
 fraction of the bracket span, measured once on a 2000x1125 screenshot (span 789 px) and checked on a 4K crop.
 """
-import csv, difflib, json, os, re, struct, subprocess, tempfile, threading, time
+import csv, logging, difflib, json, os, re, struct, subprocess, tempfile, threading, time
 from PIL import Image, ImageChops, ImageOps
 from hpcalc import max_hp, break_points
 
@@ -679,8 +679,10 @@ class Ocr:
         if not images: return known
         keys = list(images)
         grey = [k for k in keys if k in names and k in (raws or {})]
+        # each name box tidied for the Korean model, which the helper always has (ocr-helper.exe): with the game's fonts
+        # off (KoreanNames: the game install not found) its read still tells a Hangul name, which no Latin read can be
         tidy = {}
-        if names and self.korean:
+        if names:
             tidy = {k: t for k in keys if k in names for t in [K.tidy(images[k], names[k])] if t is not None}
         work = [(k, 4 if k in names and k not in grey else 0, images[k]) for k in keys] + \
                [(k, 6, raws[k]) for k in grey] + [(k, 3, t) for k, t in tidy.items()]
@@ -735,6 +737,18 @@ class Ocr:
         for k in found:
             name = settled[k] if k in settled else korean(k, out[k])
             if name: out[k] = name; vouched.add(k)
+        for k in found:
+            if k in vouched: continue
+            # no game fonts to settle it, and the Korean model reads Hangul: the Latin read is a look-alike of a Korean
+            # name ('L' for ㄴㄱ, or a 4-letter Latin word, 14 Nov on a PC with Korean names off), so the box is left
+            # blank (unsure: read again later) rather than sent as someone else's name
+            if self.korean is None and K.looks_hangul(found[k][1]):
+                if out[k]: logging.getLogger('meter').info(f'name box {k}: {out[k]!r} read in Latin, but the Korean model reads Hangul there (no game font to settle it): left blank')
+                out[k] = ''
+            # one Latin character where the box holds more than one piece of ink is part of a longer name (ㄴㄱ as 'L')
+            elif len(out[k].replace(' ', '')) == 1 and K.ink_pieces(found[k][0]) > 1:
+                logging.getLogger('meter').info(f'name box {k}: {out[k]!r} read, but its ink is {K.ink_pieces(found[k][0])} pieces: left blank')
+                out[k] = ''
         # not stored when the helper was restarted since this read's first ask() (live.py ocr_look: English found):
         # its reads are the old helper's, and restart's clear may have come first, so they'd be kept and answer this
         # box from then on (22 of 24 such reads on real result screens did). Checked under cache_lock: the clear
