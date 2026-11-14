@@ -410,7 +410,7 @@ class LeaderboardsMixin:
             tour['backs'] += 1
             if tour['backs'] > 4: self.sim_tour_end('the Gizmo screen did not close'); return False
             if tour['backs'] % 2: wc.press_key(wc.VK_ESCAPE)
-            else: wc.click_at(*at(*self.GIZMO_BACK))
+            else: wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK))
             tour['next'] = now + 0.4
             return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
@@ -418,10 +418,20 @@ class LeaderboardsMixin:
             # "All 14" at the top of the series: how many picks there are, so the list is read to the last (13 Nov: the
             # Victory row's counts weren't all read, the click on All didn't take, and the screen's first series, Energy's
             # 6 of 14, went as all of them)
+            # All first, before anything is read (the owner, 13 Nov); the count once two reads agree (13 Nov: 'All 14'
+            # read once as 74, and the tour looked for 60 picks that weren't there)
+            if not tour.get('all_clicked'):
+                wc.wiggle_at(*at(*self.GIZMO_ALL)); wc.click_at(*at(*self.GIZMO_ALL))
+                tour.update(all_clicked=True, next=now + 0.3); return True
             t = self.ocr.read({'a': R.prep_bright(im, (ux + u * 0.065, H * 0.14, ux + u * 0.135, H * 0.185), k)}).get('a') or ''   # 'All / 14'
             m = re.search(r'(\d{1,3})', t)
-            if m and 'all' in t.lower(): tour['all_n'] = int(m.group(1)); tour['want'] = tour['want'] or tour['all_n']
-            wc.click_at(*at(*self.GIZMO_ALL)); tour.update(stage='read', next=now + 0.35)
+            reads = tour.setdefault('all_reads', [])
+            if m and 'all' in t.lower(): reads.append(int(m.group(1)))
+            agreed = next((n for n in reads if reads.count(n) >= 2), None)
+            if agreed is None and len(reads) < 4 and tour.get('all_looks', 0) < 6:
+                tour['all_looks'] = tour.get('all_looks', 0) + 1; tour['next'] = now + 0.1; return True
+            if agreed is not None: tour['all_n'] = agreed; tour['want'] = agreed
+            tour.update(stage='read', next=now)
             return True
         # 'read': once the list stands still (its text the same two looks running, at most 1.5 s), the names in view;
         # scroll on about 3 rows a time (each view shares rows with the last) until every pick is read or a scroll
@@ -452,16 +462,22 @@ class LeaderboardsMixin:
             tour['scrolls'] += 1; tour['next'] = now + 0.12
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3)
             return True
+        # the best pass so far is kept (13 Nov: 12 of 14, then a fresh pass ended on 6); the same gizmo can be picked twice,
+        # so passes aren't merged by name
+        if self.sim_count(tour.get('kept') or []) > self.sim_count(rows): rows = tour['kept']
         # fewer than "All N" says: the click on All didn't take (the list was one series) - click it again, read again
         if tour.get('all_n') and self.sim_count(rows) < tour['all_n'] and tour.get('all_again', 0) < 2:
             tour['all_again'] = tour.get('all_again', 0) + 1
             log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} of All {tour['all_n']} read - clicking All again")
-            tour.update(rows=[], scrolls=0, idle=0, sig=None, read_sig=None, backups=0, stage='all', next=now + 0.1)
+            tour['kept'] = rows
+            tour.update(rows=[], scrolls=0, idle=0, sig=None, read_sig=None, backups=0, stage='all', all_clicked=False, next=now + 0.1)
+            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 20)        # back to the top of the list
             return True
         for n in rows:                                          # each row under its series (game data)
             g = self.icons.sim_gizmos.get(n.split(':')[0].strip())
             if g: tour['read'].setdefault(g[0], []).append(n)
-        wc.click_at(*at(*self.GIZMO_BACK)); tour.update(stage='back', backs=0, next=now + 0.4)
+        # the mouse moved first: the game falls back to controller mode, and its back arrow then took no click (13 Nov)
+        wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK)); tour.update(stage='back', backs=0, next=now + 0.4)
         return True
 
     def sim_tour_shot(self, im, what):
