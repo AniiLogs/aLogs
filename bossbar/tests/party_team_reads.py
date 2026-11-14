@@ -40,6 +40,7 @@ def team_tile(ic, im, t, b, u, ux, H, shift, memo=None):
     name = im[card][i]
     return (name, 0.9, 0.3, 'k') if name else ('Someone', 0.4, 0.01, 'k')
 m.team_tile = team_tile
+m.lead_tile = lambda *a, **k: None               # (the lead's portrait: tests/party_lead_portrait.py)
 
 def member(slot, name, lead, me=False):
     return {'slot': slot, 'name': name, 'self': me, 'ai': False, 'pill': slot, 'aniimo': lead, 'cp': 3000}

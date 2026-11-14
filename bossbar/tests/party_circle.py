@@ -75,7 +75,7 @@ m = meter(); show(m, screen((90, 90, 90)), 2); n = len(reads)
 show(m, screen((90, 90, 90)), 2); check("a picture that doesn't read isn't tried on every look", len(reads), n)
 show(m, screen((90, 90, 90)), 8); check('...but is tried again in a while', len(reads) > n, True)
 
-m = meter(); show(m, screen((0, 200, 0)), 2); m.team_tile = lambda *a, **k: None; m.card_shift = lambda *a, **k: (0, 0)
+m = meter(); show(m, screen((0, 200, 0)), 2); m.team_tile = lambda *a, **k: None; m.lead_tile = lambda *a, **k: None; m.card_shift = lambda *a, **k: (0, 0)
 m.party['buff_reads']['offering'] = {'name': 'Fan'}
 m.read_party_job(screen((200, 0, 0)), [(0, 0)], W, 0, H, {0: m.who(m.party['members'][0])})
 check("a whole read's older frame doesn't change it", offering(m), 'Fan')

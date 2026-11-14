@@ -77,12 +77,12 @@ def read(now, n0, a0, n2='3P Moonpeta1'):
     m.party_screen(im, now, 1280, 0, 720)
     return next(x for x in m.party['members'] if x['slot'] == 0), next(x for x in m.party['members'] if x['slot'] == 2)
 first, me = read(100, '1P Brannoch', 'Blazen / Lv.70 CP:3327')
-check('first read', first['aniimo'], 'Blazen')
+check('first read: the name on the card, as its nickname', (first['nickname'], first['aniimo']), ('Blazen', None))
 check('your card has your name', (me['name'], me['self']), ('Moonpetal', True))
 kept, _ = read(103, '1P rrannocn', 'Lv.70 CP:3327')
-check('another name, same CP: lead kept', kept['aniimo'], 'Blazen')
+check('another name, same CP: lead kept', kept['nickname'], 'Blazen')
 gone, _ = read(106, '1P Brannoch', 'Lv.70 CP:2000')
-check('a new CP: a new lead', gone['aniimo'], None)
+check('a new CP: a new lead', gone['nickname'], None)
 
 if fails:
     print('\n'.join(fails)); sys.exit(1)

@@ -966,15 +966,21 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             lv = re.search(r'L\s*v\s*\.?\s*(\d{1,2})', card); cp = re.search(r'CP\W{0,3}(\d{3,6})', card)
             mine = bool(known and same_name(known, name)) or (not known and yellow(i))
             if mine and known: name = known                 # your own name is known: no misread of it on your card
+            nick = pet.group(1).strip() if pet else None
             # a card read that missed (an effect over it) keeps the last read of that slot, for the same lead: by its CP,
             # which a name that reads differently each time doesn't change (8 Nov: the lead's name came through on 1 read of
-            # 11, and all four cards went without it), and a new CP is a new lead. No CP read: by the player's name
+            # 11, and all four cards went without it), or by the lead's name read the same again; a new CP under another
+            # name is a new lead. No CP read: by the player's name
+            fold = lambda v: re.sub(r'\W', '', v or '').casefold()
             old = next((m for m in (self.party or {}).get('members', []) if m['slot'] == slot and
-                        (m.get('cp') == int(cp.group(1)) if cp and m.get('cp') else m['name'] == name)), {})
+                        ((cp and m.get('cp') == int(cp.group(1))) or (nick and fold(m.get('nickname')) == fold(nick)) or
+                         (not (cp and m.get('cp')) and m['name'] == name))), {})
             members.append({'slot': slot, 'name': name, 'self': mine, 'pill': i,
                             # AI: no CP on the card (a card that didn't read falls back to the NPCs' names)
                             'ai': not mine and (not cp if card.strip() else name.casefold() in INTERLINK_NPCS),
-                            'aniimo': pet.group(1).strip() if pet else old.get('aniimo'),
+                            # the lead's species comes from its portrait (read_party_job), never from the name on the card:
+                            # players can rename their Aniimo (14 Nov, the affinity update), so that's only its nickname
+                            'aniimo': old.get('aniimo'), 'nickname': nick or old.get('nickname'),
                             'aniimo_level': int(lv.group(1)) if lv else old.get('aniimo_level'),
                             'cp': int(cp.group(1)) if cp else old.get('cp')})
         boss = self.cycle_boss((t.get('boss') or '').strip(' /|'))
@@ -1006,6 +1012,17 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     # ...or, with the tile's own fade drawn in (icons.TEAM_FADE, read from the install), the whole tile left of the
     # badge: on 26 saved Party screens 299 of 312 tiles read, up from 264, and 7 wrong answers gone (6 Nov)
     TEAM_COMPARE_FADED = (-72, -56, 28, 56)
+    # The card's lead Aniimo, by its head portrait: since the affinity update players can rename their Aniimo, so the name
+    # on the card says nothing about the species (14 Nov). As the game lays the card out (UI_Node_TeamRoom_CenterItem >
+    # PanelPetInfo > PetPrimary > Mask), in the team row's units: the portrait, 256 square, is centred 96 in from the
+    # card's left and 80 down from its top, and the first team tile's 102 in and 232 down, so the lead sits 6 left of and
+    # 152 above that tile. Its own mask (icons.LEAD_FADE, 256 square on the portrait) fades it into the card towards the
+    # name and the card's bottom. Compared from 100 above the centre (20 over the card's top) to 90 below, and from 90
+    # left to 86 right (the name starts 90 right): on the 4 saved Party screens all 16 leads read right and sure, the
+    # weakest 0.60 ahead by 0.21 (the whole square, or no fade drawn in, put the weakest under tile_sure's bar)
+    LEAD_OFFSET = (-6, -152)                        # the lead's centre from the first team tile's
+    LEAD_PORTRAIT = 256
+    LEAD_COMPARE = (-90, -100, 86, 90)
     # The Season Buffs (bottom center): each icon's blue square, and the N of the "Lv. N" under it
     SEASON_BUFFS = ((0.525, 0.867, 0.550, 0.911), (0.5595, 0.867, 0.5845, 0.911))
     SEASON_LEVEL = (0.0153, 0.900, 0.0273, 0.923)   # x from the square's left
@@ -1055,6 +1072,22 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         fade = getattr(ic, 'fade', None) is not None
         x0, y0, x1, y1 = self.TEAM_COMPARE_FADED if fade else self.TEAM_COMPARE; half = self.TEAM_PORTRAIT * unit / 2
         window = (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit)
+        return self.portrait_read(ic, im, window, (px - half, py - half, 2 * half), fade, memo)
+
+    def lead_tile(self, ic, im, a, b, u, ux, H, shift=(0, 0), memo=None):
+        """A card's lead Aniimo by its portrait (icons.head's answer, or None): a, b the card box's left and top, shift
+        the card's (card_shift). Placed from the first team tile (LEAD_OFFSET), with the lead's own fade drawn in when
+        the cache has it."""
+        unit = self.TEAM_PITCH * u / 240
+        px, py = self.tile_centre(a, b, u, ux, H)
+        px, py = px + shift[0] + self.LEAD_OFFSET[0] * unit, py + shift[1] + self.LEAD_OFFSET[1] * unit
+        fade = 'lead' if 'lead' in (getattr(ic, 'fades', None) or {}) else False
+        x0, y0, x1, y1 = self.LEAD_COMPARE; half = self.LEAD_PORTRAIT * unit / 2
+        window = (px + x0 * unit, py + y0 * unit, px + x1 * unit, py + y1 * unit)
+        return self.portrait_read(ic, im, window, (px - half, py - half, 2 * half), fade, memo)
+
+    def portrait_read(self, ic, im, window, square, fade, memo):
+        """icons.head over one portrait of the Party screen, memoised by `memo` (each tile's and lead's own key)."""
         # a tile that looks as it did at the last read (same place, the picture within a few levels) keeps that read's
         # answer: between reads of one Party screen nothing moves, and matching a tile costs about half a second
         thumb = im.crop(tuple(int(v) for v in window)).convert('RGB').resize((self.TILE_THUMB, self.TILE_THUMB), Image.BILINEAR)
@@ -1063,7 +1096,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         if last and last[0] == tuple(int(v) for v in window) and \
                 max(ImageStat.Stat(ImageChops.difference(thumb, last[1])).mean) <= self.TILE_SAME:
             return last[2]
-        r = ic.head(im, window, (px - half, py - half, 2 * half), fade=fade)
+        r = ic.head(im, window, square, fade=fade)
         # only a read that counts is kept: a tile's margin moves from frame to frame around the mark (8 Nov: 0.05 to 0.21 on
         # one portrait), and a rejected read kept here stood for the same picture, its tile blank for 50 s
         if memo is not None:
@@ -1103,7 +1136,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 if team[i]: continue
                 y = H * row
                 r = self.icons.head(im, (x + u * x0, y + H * y0, x + u * x1, y + H * y1), (x - side / 2, y - side / 2, side))
-                # a team has no Aniimo twice, and your lead isn't one of the three
+                # a team has no Aniimo twice, and your lead (its portrait's species) isn't one of the three
                 if not self.tile_sure(r) or r[0] in team or r[0] == mine.get('aniimo'): continue
                 n = votes[(i, r[0])] = votes.get((i, r[0]), 0) + 1
                 if n < self.HUD_AGREE: continue
@@ -1142,13 +1175,14 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
 
     @staticmethod
     def who(m):
-        """Who a Party screen card is, as far as its team goes: the player's name and lead Aniimo (casefolded)."""
+        """Who a Party screen card is, as far as its team goes: the player's name and their lead's species, from its
+        portrait (casefolded). Not the name on the card: a renamed or misread lead is the same lead."""
         return tuple(re.sub(r'\W', '', str(m.get(k) or '')).casefold() for k in ('name', 'aniimo'))
 
     def read_party_job(self, im, cards, u, ux, H, who):
         """read_party_icons' read of one frame; who: each slot's who() when the frame came."""
         box = lambda x0, y0, x1, y1: (ux + u * x0, H * y0, ux + u * x1, H * y1)
-        ic, teams, shifts = self.icons, {}, []
+        ic, teams, leads, shifts = self.icons, {}, {}, []
         def read_card(slot, card):                      # every player's card has the same team row
             a, b = self.PARTY_CARDS[card][:2]; team = []
             shift = self.card_shift(ic, im, a, b, u, ux, H)     # each read: the cards move when all are ready
@@ -1158,17 +1192,19 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 # portrait isn't cached scores low against everything and stays unread (Leafy, 30 Oct, until
                 # icons.py read the patch sets' heads), and so does a tile under something drawn over the card
                 team.append(r[0] if self.tile_sure(r) else None)
-            return team, shift
+            # the lead by its portrait, on the same bar as the tiles (unsure: None, and the last sure read stands)
+            r = self.lead_tile(ic, im, a, b, u, ux, H, shift, memo=(card, 'lead'))
+            return team, shift, r[0] if self.tile_sure(r) else None
         # (one card after another: reading them on threads side by side was no faster, the matching being Python, 8 Nov)
         for slot, card in cards:
-            teams[slot], shift = read_card(slot, card); shifts.append(shift)
+            teams[slot], shift, leads[slot] = read_card(slot, card); shifts.append(shift)
         # the buffs panel moves when the whole screen is drawn higher (at times ~40 px at 4K: 6 of 39 saved screens,
         # none of them read with its Special Offering): about 1.9 times the cards' shift, as it sits lower; the panel's
         # offset is picked by the first Season Buff's fit (always there). Only a clear shift of every card counts: the
         # few px each card's fit wanders don't (the buff squares mind even 3 px)
         # A panel that doesn't fit where expected is looked for a little around it (3 saved screens had it 0.5-1% of
         # the height lower, the cards where measured).
-        if self.egg_party: return self.party_teams(teams, who)    # no buffs on this screen
+        if self.egg_party: return self.party_teams(teams, who, leads)    # no buffs on this screen
         dys = sorted(s[1] for s in shifts); dy = dys[len(dys) // 2] if dys else 0
         at = lambda off: (lambda x0, y0, x1, y1: (ux + u * x0, H * y0 + off, ux + u * x1, H * y1 + off))
         fits = {}
@@ -1195,7 +1231,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.panel_sy = sy
         # (the Special Offering: party_circle's, as soon as it changes; this read is older by the time it's done)
         offering = None if self.circle_on else self.read_offering(ic, im, box(*self.OFFERING))
-        party = self.party_teams(teams, who)
+        party = self.party_teams(teams, who, leads)
         if not party: return
         out = party.get('teams')
         # each buff square keeps its last read when this one couldn't make it out (a read that caught the Season Buffs
@@ -1206,20 +1242,30 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             # (8 Nov: a run went with the player's own lobby's)
             kept = [None] * len(season) if not any(season) and self.panel_at_rest(im, u, ux, H) else last['season']
             self.set_buffs(party, [n or o for n, o in zip(season, kept)], offering or last['offering'])
-        log.info(f"Party screen icons: teams {out}, buffs {party.get('buffs')}")
+        log.info(f"Party screen icons: leads {[m.get('aniimo') for m in party['members']]}, teams {out}, buffs {party.get('buffs')}")
 
-    def party_teams(self, teams, who):
-        """Each card's team reads into the party (by slot, 1P..4P), the newest of each tile standing."""
+    def party_teams(self, teams, who, leads=None):
+        """Each card's team reads into the party (by slot, 1P..4P), the newest of each tile standing, and its lead's
+        species from its portrait (leads: slot -> species or None; a read that wasn't sure keeps the last one)."""
         party = self.party
         if not party: return None
-        now_who = {m['slot']: self.who(m) for m in party['members']}
+        members = {m['slot']: m for m in party['members']}
+        now_who = {s: self.who(m) for s, m in members.items()}
         out = party.setdefault('teams', [None] * 4)
         had = party.setdefault('team_who', {})          # whose team each slot's reads are
         for slot, team in teams.items():
-            if now_who.get(slot) != who.get(slot): continue        # the card changed hands while it was read
-            last = out[slot] if had.get(slot) == who[slot] and out[slot] else [None] * 3
+            # the card changed hands while it was read (or its lead: a new CP clears the species). A species learnt by
+            # the read before this one, which came while this frame waited, is the same card
+            then, now = who.get(slot), now_who.get(slot)
+            if now != then and not (then and now and then[0] == now[0] and not then[1]): continue
+            m, lead = members.get(slot), (leads or {}).get(slot)
+            # a lead read for the first time keeps the team read so far; another species than the one known is another
+            # lead, and its team starts over
+            other = bool(m is not None and lead and m.get('aniimo') and lead != m['aniimo'])
+            if m is not None and lead: m['aniimo'] = lead
+            last = out[slot] if not other and had.get(slot) == now and out[slot] else [None] * 3
             out[slot] = [n or o for n, o in zip(team, last)]
-            had[slot] = who[slot]
+            had[slot] = self.who(m) if m is not None else who[slot]
         mine = next((m['slot'] for m in party['members'] if m['self']), None)
         if mine is not None: party['team'] = out[mine]
         if self.egg_party: log.info(f'Egg Heist party: teams {out}')
@@ -1344,7 +1390,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                       'missed': getattr(self, 'missed_now', {})}
         if changed:
             log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
-                                           + (f" [{m['aniimo']} Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]" if m.get('aniimo') else '')
+                                           + (f" [{m.get('aniimo') or '?'}{' as ' + repr(m['nickname']) if m.get('nickname') and m['nickname'] != m.get('aniimo') else ''}"
+                                              f" Lv {m.get('aniimo_level')}{', CP ' + str(m['cp']) if m.get('cp') else ''}]"
+                                              if m.get('aniimo') or m.get('nickname') else '')
                                            for m in members))
 
     def game_events(self):

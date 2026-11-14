@@ -114,7 +114,7 @@ class Cards:
 def lead(again):
     m = live.Meter.__new__(live.Meter); m.ocr = Cards(again); m.character_name = YOU; m.party = None; m.catalog = []; m.icons_state = 'failed'; m.prep_boss = None
     m.party_screen(Image.new('RGB', (1920, 1080), (30, 30, 40)), 1000.0, 1920, 0, 1080)
-    return m.party['members'][0].get('aniimo'), m.ocr.asked
+    return m.party['members'][0].get('nickname'), m.ocr.asked     # (the card's name: its species goes by the portrait)
 check('the name comes from the taller read', lambda: lead('Budling / Lv.70 CP:4234'), ('Budling', 1))
 check('another CP in it: not taken', lambda: lead('Budling / Lv.70 CP:9999'), (None, 1))
 check('nothing new in it: stays blank', lambda: lead('Lv.70 CP:4234'), (None, 1))

@@ -13,6 +13,8 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Sanctum Helper says the difficulty you chose each time you open the party screen** ("Normal Mode chosen."), not only when it changes.
 
 ### Fixed
+- **Your Aniimo are known by their picture, not their name:** now that Aniimo can be given their own names, the lead Aniimo on each Party screen card is read from its head portrait, like the team below it, so the right species goes with your runs and Egg Heist matches whatever you called them.
+- **Sanctum Helper keeps your place on the map:** after you close the in-game map it no longer moves you to a spot it only guessed, and when you leave a Sanctum it looks at all ten island doors and puts you at the one you went in by, not at some other blue door.
 - **A record no longer gets lost when you quit or restart aLogs right after a run:** a best run waits up to 45 s for its Battle Data before it is sent; quitting during that wait used to drop it. It is now sent (or queued for the next start) as aLogs closes.
 - **Battle Data you open late still goes with your run:** if you open Battle Data yourself more than 45 s after the result screen (for example with Leaderboards › Automation off), your run, already sent without it, is sent again with its Battle Data, up to 3 minutes later.
 - **The button over the game blinks less on older installs:** if it was still set to hide after 0.3 s, the old default, it now waits 0.75 s like new installs. If you want 0.3 s, pick it again in General Settings › The button over the game and it stays.

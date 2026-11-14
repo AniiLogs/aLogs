@@ -13,10 +13,11 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 7          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
+CACHE_VERSION = 8          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
                            # 4: portraits back in their whole square (the atlas trims them); 5: the team tiles' fade;
                            # 6: heads from the patch sets, form portraits no row names (by species), Male and Female
-                           # heads each kept; 7: buff icons at their true shape, not their trimmed part stretched square
+                           # heads each kept; 7: buff icons at their true shape, not their trimmed part stretched square;
+                           # 8: the lead portrait's fade
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
@@ -29,6 +30,10 @@ PATCH_PNG = re.compile(r'xpt\d+_m(res|exp)_expng_')
 # The Party screen's team tiles fade each portrait into the card with this soft mask (UI_Node_TeamRoom_CenterItem >
 # PetMinorN > Mask: 208 units square over the 204 portrait, centred on it): bright left of centre, gone at the badge
 TEAM_FADE, FADE_PREFIXES = 'ui_img_grabeggs_centeritem_mask2', ('mres_xgui_rpanel_expng_',)
+# ...and the card's lead portrait with its own (UI_Node_TeamRoom_CenterItem > PetPrimary > Mask: 256 units square over
+# the 256 portrait): bright over the top left, fading out towards the name and the card's bottom (14 Nov)
+LEAD_FADE = 'ui_img_grabeggs_centeritem_mask1'
+FADES = {'team': (TEAM_FADE, 208 / 204), 'lead': (LEAD_FADE, 1.0)}     # the mask's side over the portrait's
 KIND = {'General': 'season', 'Special': 'offering'}
 
 
@@ -114,8 +119,9 @@ def extract(cache_dir, player_log=None):
             if o.type.name != 'Sprite': continue
             name = o.peek_name() or ''
             low = name.lower()
-            if (low in wanted or low == TEAM_FADE or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
-                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or low == TEAM_FADE or low in buff_icons else o.read().image.convert('RGBA')), stamp)
+            fade = low in (TEAM_FADE, LEAD_FADE)
+            if (low in wanted or fade or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
+                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or fade or low in buff_icons else o.read().image.convert('RGBA')), stamp)
                 except Exception: pass
     for sub in ('heads', 'buffs'): os.makedirs(os.path.join(cache_dir, sub), exist_ok=True)
     # heads: named by the game's own tables only (a portrait the tables don't name is left out)
@@ -144,7 +150,8 @@ def extract(cache_dir, player_log=None):
         art[low][0].resize((BUFF_SIZE, BUFF_SIZE), Image.LANCZOS).save(os.path.join(cache_dir, 'buffs', low + '.png'))
         buffs[str(k)] = {'name': en(r.get('buffName')), 'kind': KIND[r['buffType']], 'icon': low,
                          **({'level': int(r['Bufflevel'])} if r.get('Bufflevel') else {})}
-    if TEAM_FADE in art: art[TEAM_FADE][0].getchannel('A').save(os.path.join(cache_dir, 'team_fade.png'))
+    for kind, (low, _) in FADES.items():
+        if low in art: art[low][0].getchannel('A').save(os.path.join(cache_dir, kind + '_fade.png'))
     os.makedirs(os.path.join(cache_dir, 'sim'), exist_ok=True)
     sim_out = {}
     for sid, s in sim.items():
@@ -159,7 +166,7 @@ def extract(cache_dir, player_log=None):
         sim_out[sid] = entry
     with open(os.path.join(cache_dir, 'icons.json'), 'w', encoding='utf-8') as f:
         json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs, 'sim': sim_out,
-                   'team_fade': TEAM_FADE in art,
+                   'team_fade': TEAM_FADE in art, 'lead_fade': LEAD_FADE in art,
                    'sim_gizmos': sim_gizmos}, f, ensure_ascii=False)
     return bool(heads and buffs)
 
@@ -235,8 +242,10 @@ class Icons:
             for part in ('series', 'core', 'transform'):
                 if s.get(part + '_art'):
                     self.sim_art[(part, sid)] = Image.open(os.path.join(cache_dir, 'sim', f'{part}_{sid}.png')).convert('RGBA')
-        # the team tiles' fade (a square 'L' picture), when the install has it: head(fade=True) draws it in
-        self.fade = Image.open(os.path.join(cache_dir, 'team_fade.png')).convert('L') if meta.get('team_fade') else None
+        # the team tiles' and the lead portrait's fades (square 'L' pictures), when the install has them: head(fade=True)
+        # draws the team one in, head(fade='lead') the lead one
+        self.fades = {k: Image.open(os.path.join(cache_dir, k + '_fade.png')).convert('L') for k in FADES if meta.get(k + '_fade')}
+        self.fade = self.fades.get('team')
         self._sized = {}
         self._faded = {}
         self._cuts = {}
@@ -268,12 +277,13 @@ class Icons:
         if k not in self._sized: self._sized[k] = self.heads[key][1].resize((side, side), Image.BILINEAR)
         return self._sized[k]
 
-    def _fade(self, side):
-        """The team tiles' fade over a portrait square of `side` px (the mask is 208/204 of it, on the same centre)."""
-        if side not in self._faded:
-            big = round(side * 208 / 204); o = (big - side) // 2
-            self._faded[side] = self.fade.resize((big, big), Image.BILINEAR).crop((o, o, o + side, o + side))
-        return self._faded[side]
+    def _fade(self, side, kind='team'):
+        """A fade over a portrait square of `side` px: the team tiles' (the mask is 208/204 of it, on the same centre) or
+        the lead portrait's (the same size as it)."""
+        if (side, kind) not in self._faded:
+            big = round(side * FADES[kind][1]); o = (big - side) // 2
+            self._faded[(side, kind)] = self.fades[kind].resize((big, big), Image.BILINEAR).crop((o, o, o + side, o + side))
+        return self._faded[(side, kind)]
 
     _CUTS = 6000          # cut portraits kept (~5 KB each): the same few dozen offsets recur on every tile and read
 
@@ -284,7 +294,7 @@ class Icons:
         if k in self._cuts: return self._cuts[k]
         part = self._head(key, side).crop(box)
         if fade:
-            shown = ImageChops.multiply(part.getchannel('A'), self._fade(side).crop(box))
+            shown = ImageChops.multiply(part.getchannel('A'), self._fade(side, fade).crop(box))
             mask = shown.point(_ABOVE_64)
             least = 0.15
         else:
@@ -301,11 +311,13 @@ class Icons:
         A first pass with the square as placed picks a dozen candidates, a second fits each a few px and % around.
         `fade`: drawn as the Party screen's team tiles draw it (when the cache has the fade): faded by the tile's mask
         into the card (the tile's own mean colour stands in for the card art showing through), and compared where the
-        portrait shows at a quarter or more. Without it, where the portrait is solid."""
+        portrait shows at a quarter or more. 'lead': the same with the card's lead portrait's mask. Without it, where
+        the portrait is solid."""
         X0, Y0, X1, Y1 = window
         h = max(4, round(n * (Y1 - Y0) / (X1 - X0))); k = n / (X1 - X0)
         crop = im.crop(tuple(int(v) for v in window)).convert('RGB').resize((n, h), Image.BILINEAR)
-        fade = fade and self.fade is not None
+        fade = 'team' if fade is True else fade
+        if fade not in self.fades: fade = False
         if fade: card = Image.new('RGB', (n, h), tuple(int(v) for v in ImageStat.Stat(crop).mean))
         side0 = square[2] * k; ox0 = (square[0] - X0) * k; oy0 = (square[1] - Y0) * k
         def score(key, scale, dx, dy):

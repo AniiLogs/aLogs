@@ -551,7 +551,11 @@ def _lineup(summary):
         return got if got and difflib.SequenceMatcher(None, got.casefold(), name.casefold()).ratio() >= 0.6 else name
     def entry(m):
         e = {'slot': m.get('slot'), 'name': card_name(m)[:40] or None, 'ai': m.get('ai'), 'self': True if m.get('self') else None}
+        # the lead's species is its portrait's (None when that didn't read: never the name on the card, which players can
+        # change since the affinity update, 14 Nov); the name it goes by rides along as its nickname, which the site's
+        # public lineup leaves out
         lead = {'aniimo': (m.get('aniimo') or '')[:40] or None, 'aniimoLevel': m.get('aniimo_level'), 'cp': m.get('cp')}
+        e['nickname'] = (m.get('nickname') or '')[:40] or None
         lead = {k: v for k, v in lead.items() if v is not None}
         slot = m.get('slot')
         team = teams[slot] if isinstance(slot, int) and slot < len(teams) and teams[slot] else             summary.get('team') if m.get('self') else None          # a run saved before every card was read
