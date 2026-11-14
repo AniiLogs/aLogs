@@ -13,14 +13,19 @@ doesn't mind the frosted card or the fade over a picture, only its shape and sha
 import glob, json, os, re, time
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
-CACHE_VERSION = 8          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
+CACHE_VERSION = 9          # 2: Holo-Battle Sim's series, Core gizmo and Alpha Transformation pictures; 3: gizmo names;
                            # 4: portraits back in their whole square (the atlas trims them); 5: the team tiles' fade;
                            # 6: heads from the patch sets, form portraits no row names (by species), Male and Female
                            # heads each kept; 7: buff icons at their true shape, not their trimmed part stretched square;
-                           # 8: the lead portrait's fade
+                           # 8: the lead portrait's fade; 9: the Aniimo's card art (Holo-Battle Sim's Victory team)
 HEAD_SIZE = 96              # cached head portraits (px square)
 BUFF_SIZE = 64
 SIM_SIZE = 96               # cached Holo-Battle Sim pictures (longest side)
+CARD_SIZE = (96, 158)       # cached card art (the game's 512x840, whole)
+# The Aniimo's card art (UI_Img_ResearchBook_Enter_<icon>, in the head bundles' set ar_xgui_image_petman_*): Holo-Battle
+# Sim's Victory screen draws each team member's from it (TowerSettlementCtrl: petUImage), so the species shows there
+# even when the card's name is the player's own nickname for it. A shiny one has its own (..._Shiny<n>).
+CARD_PREFIX = 'ui_img_researchbook_enter_'
 BUFF_PREFIXES = ('mres_xgui_texture_expng_', 'mres_xgui_panel_expng_', 'mres_xgui_common_expng_', 'ar_xgui_icon_skilli_',
                  'ar_xgui_icon_item_i_')
 HEAD_PREFIXES = ('ar_xgui_image_pet_he_', 'ar_xgui_image_petman_')
@@ -120,10 +125,11 @@ def extract(cache_dir, player_log=None):
             name = o.peek_name() or ''
             low = name.lower()
             fade = low in (TEAM_FADE, LEAD_FADE)
-            if (low in wanted or fade or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
-                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or fade or low in buff_icons else o.read().image.convert('RGBA')), stamp)
+            card = low.startswith(CARD_PREFIX)
+            if (low in wanted or fade or card or low.startswith('ui_pethead_')) and (low not in art or art[low][1] < stamp):
+                try: art[low] = ((whole(o.read()) if low.startswith('ui_pethead_') or fade or card or low in buff_icons else o.read().image.convert('RGBA')), stamp)
                 except Exception: pass
-    for sub in ('heads', 'buffs'): os.makedirs(os.path.join(cache_dir, sub), exist_ok=True)
+    for sub in ('heads', 'buffs', 'cards'): os.makedirs(os.path.join(cache_dir, sub), exist_ok=True)
     # heads: named by the game's own tables only (a portrait the tables don't name is left out)
     forms = {}
     for table in ('pet_prototype_data', 'pet_data'):
@@ -143,6 +149,15 @@ def extract(cache_dir, player_log=None):
         sq.paste(img, ((sq.width - img.width) // 2, sq.height - img.height))
         sq.resize((HEAD_SIZE, HEAD_SIZE), Image.LANCZOS).save(os.path.join(cache_dir, 'heads', key + '.png'))
         heads[key] = name
+    # card art: named as the head portraits are ('10203', '1020302' a form, '10161_female', '10213_shiny1')
+    cards = {}
+    for low, (img, _) in art.items():
+        if not low.startswith(CARD_PREFIX): continue
+        key = low[len(CARD_PREFIX):]
+        name = head_name(key, by_icon)
+        if not name: continue
+        img.resize(CARD_SIZE, Image.LANCZOS).save(os.path.join(cache_dir, 'cards', key + '.png'))
+        cards[key] = name
     buffs = {}
     for k, r in buff_rows.items():
         low = icon_of(r).lower()
@@ -165,7 +180,7 @@ def extract(cache_dir, player_log=None):
                 img.save(os.path.join(cache_dir, 'sim', f'{part}_{sid}.png')); entry[part + '_art'] = True
         sim_out[sid] = entry
     with open(os.path.join(cache_dir, 'icons.json'), 'w', encoding='utf-8') as f:
-        json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'buffs': buffs, 'sim': sim_out,
+        json.dump({'version': CACHE_VERSION, 'build': _build(game), 'heads': heads, 'cards': cards, 'buffs': buffs, 'sim': sim_out,
                    'team_fade': TEAM_FADE in art, 'lead_fade': LEAD_FADE in art,
                    'sim_gizmos': sim_gizmos}, f, ensure_ascii=False)
     return bool(heads and buffs)
@@ -230,6 +245,8 @@ class Icons:
         if meta.get('version') != CACHE_VERSION: raise ValueError('old icon cache')
         self.build = meta.get('build')
         self.heads = {k: (n, Image.open(os.path.join(cache_dir, 'heads', k + '.png')).convert('RGBA')) for k, n in meta['heads'].items()}
+        self.cards = {k: (n, Image.open(os.path.join(cache_dir, 'cards', k + '.png')).convert('RGBA')) for k, n in meta.get('cards', {}).items()}
+        self._card_sized = {}
         self.buffs = meta['buffs']
         self.buff_art = {}
         for b in self.buffs.values():
@@ -338,6 +355,42 @@ class Icons:
         ranked = sorted(best.items(), key=lambda kv: -kv[1][0])
         if not ranked: return None
         (name, (s, key)) = ranked[0]
+        return name, s, s - (ranked[1][1][0] if len(ranked) > 1 else -1), key
+
+    # -- Holo-Battle Sim's Victory team: the Aniimo's card art ---------------------------------------------------------
+    def _card(self, key, w, h):
+        k = (key, w, h)
+        if k not in self._card_sized:
+            if len(self._card_sized) > 4000: self._card_sized.clear()
+            self._card_sized[k] = self.cards[key][1].resize((w, h), Image.BILINEAR)
+        return self._card_sized[k]
+
+    def card(self, im, window, art, n=36):
+        """The Aniimo whose card art shows in `window` (a screen box inside one of the Victory screen's team cards),
+        the whole art being drawn over `art` (x, y, w, h in screen px; the card cuts it). (name, score, margin over
+        the next name, key), or None. As head(): every art as placed, then the best dozen fitted a few px and %."""
+        if not self.cards: return None
+        X0, Y0, X1, Y1 = window
+        h = max(4, round(n * (Y1 - Y0) / (X1 - X0))); k = n / (X1 - X0)
+        crop = im.crop(tuple(int(v) for v in window)).convert('RGB').resize((n, h), Image.BILINEAR)
+        w0, h0 = art[2] * k, art[3] * k; ox0 = (art[0] - X0) * k; oy0 = (art[1] - Y0) * k
+        def score(key, scale, dx, dy):
+            w, hh = max(1, int(w0 * scale)), max(1, int(h0 * scale))
+            ox = int(round(ox0 + (w0 - w) / 2)) + dx; oy = int(round(oy0 + (h0 - hh) / 2)) + dy
+            if ox > 0 or oy > 0 or ox + w < n or oy + hh < h: return -1
+            part = self._card(key, w, hh).crop((-ox, -oy, -ox + n, -oy + h))
+            mask = part.getchannel('A').point(_ABOVE_200)
+            if mask.histogram()[255] < 0.3 * n * h: return -1           # mostly the card's own background there
+            return ncc_pooled(crop, part.convert('RGB'), mask)
+        first = sorted(((score(key, 1.0, 0, 0), key) for key in self.cards), reverse=True)[:12]
+        best = {}
+        for _, key in first:
+            s = max(score(key, sc, dx, dy) for sc in (0.96, 1.0, 1.04) for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2))
+            name = self.cards[key][0]
+            if s > best.get(name, (-2,))[0]: best[name] = (s, key)
+        ranked = sorted(best.items(), key=lambda kv: -kv[1][0])
+        if not ranked: return None
+        name, (s, key) = ranked[0]
         return name, s, s - (ranked[1][1][0] if len(ranked) > 1 else -1), key
 
     # -- the Party screen's skill badges ------------------------------------------------------------------------------

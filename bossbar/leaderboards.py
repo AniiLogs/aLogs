@@ -176,12 +176,15 @@ class LeaderboardsMixin:
         if getattr(self, 'sim_test', False):
             # Ctrl+Shift+F11 (sim_test_key): a dry run of the Victory screen and the Gizmo screen, nothing kept or sent
             self.sim_test = False
+            self.sim_species_team(pending[0])
             self.out('toast', {'head': 'Holo-Battle Sim test done', 'detail': f"{note or 'no Gizmo screen read'} · nothing sent",
                                'accent': '#9be27a', 'screen': None, 'kind': 'notice'})
-            log.info(f"Holo-Battle Sim test (Ctrl+Shift+F11): done, nothing sent - {note or 'no Gizmo screen read'}; setup "
+            log.info(f"Holo-Battle Sim test (Ctrl+Shift+F11): done, nothing sent - {note or 'no Gizmo screen read'}; team "
+                     f"{pending[0]['setup'].get('team')}; setup "
                      f"{[(g.get('series'), g.get('count'), [p['name'] for p in g.get('picked') or []]) for g in pending[0]['setup'].get('gizmos') or []]}")
             self.sim_release('the test is done'); return
         sim, shot = pending[:2]
+        self.sim_species_team(sim)
         shots = [os.path.relpath(p, HERE) for p in (sim.pop('gizmo_shots', None) or []) if p]
         for g in sim['setup'].get('gizmos') or []: g.pop('sid', None)
         os.makedirs(os.path.join(HERE, 'logs'), exist_ok=True)
