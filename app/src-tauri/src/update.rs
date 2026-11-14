@@ -313,6 +313,9 @@ pub fn splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
             let url = format!("updating.html?to={}", to.replace(' ', "%20"));
             tauri::WebviewWindowBuilder::new(app, "updating", tauri::WebviewUrl::App(url.into()))
                 .title("Updating aLogs")
+                // its own WebView2 folder: sharing aLogs' (still open, or closing) put this window inside the other
+                // aLogs' browser, where it went white and Install did nothing
+                .data_directory(std::env::temp_dir().join("aLogs-updating").join("webview"))
                 .inner_size(340.0, 400.0)
                 .resizable(false)
                 .decorations(false)
@@ -561,6 +564,9 @@ pub fn install_splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
             let url = format!("installing.html?to={}", label.replace(' ', "%20"));
             tauri::WebviewWindowBuilder::new(app, "updating", tauri::WebviewUrl::App(url.into()))
                 .title("Installing aLogs")
+                // its own WebView2 folder: sharing aLogs' (still open, or closing) put this window inside the other
+                // aLogs' browser, where it went white and Install did nothing
+                .data_directory(std::env::temp_dir().join("aLogs-installing").join("webview"))
                 .inner_size(340.0, 400.0)
                 .resizable(false)
                 .decorations(false)
