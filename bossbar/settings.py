@@ -41,9 +41,12 @@ DEFAULTS = {
         'priority': 'low',                   # (app.priority, capture.*), so the meter reads those; kept here so a save by the
         'look_interval': 0.05,               # meter keeps them (a key missing here is dropped). Add each new option here too.
         'fight_rate': 30,
+        'gpu_priority': 'normal',
+        'map_redraw': 'every',
     },
     'sanctum': {                             # Sanctum Helper module (its own options live in its settings.json)
         'enabled': True,
+        'map_redraw': 'every',               # Performance: 'capped' -> its RedrawCap (the app copies it over, sanctum.rs)
     },
     'game': {
         'window_title': 'Aniimo',
@@ -69,6 +72,7 @@ DEFAULTS = {
         'damage_numbers': False,             # experimental: read your own damage numbers (now: record fights)
         'test_frames': False,                # full-size pictures for the accuracy tests (Captures & logs)
         'fight_rate': 30,                    # frames a second during a fight: 30 (default), or 60 for the finest timing
+        'gpu_priority': 'normal',            # the app's copies on the graphics card: 'normal' or 'lowest' (Performance)
         'debug_frames': False,               # bar crops per fight in logs/<fight>/ (diagnostics)
         'end_screens': False,                # frames after each fight in logs/end_screens/ (diagnostics)
         'nobar_frames': False,               # frames when no bar is found in a dungeon (diagnostics)

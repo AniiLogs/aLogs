@@ -22,6 +22,12 @@ window.ALOGS_PERF = {
                 ["high", "Higher: the meter keeps up even when the PC is very busy"]],
     },
     {
+      id: "gpu_priority", plugin: "core", key: "capture.gpu_priority", default: "normal",
+      title: "Screen capture on the graphics card",
+      hint: "Lowest: the copies aLogs asks of your graphics card wait behind the game's own work and OBS's. On a card that's already full, the meter can get its pictures a little later. (Was the Dev switch capture-low-priority.)",
+      choices: [["normal", "Normal (default)"], ["lowest", "Lowest: the game and OBS go first"]],
+    },
+    {
       id: "look_interval", plugin: "dps", key: "capture.look_interval", default: 0.05, number: true,
       title: "How often the meter looks for a boss bar in Interlink and around a fight",
       hint: "Out in the world with no boss around, the meter looks 4 times a second whatever you pick here.",
@@ -32,6 +38,12 @@ window.ALOGS_PERF = {
       title: "How often the meter reads the boss bar during a fight",
       hint: "Damage totals are the same either way; at 60 times a second, each drop of HP and the kill are timed to 1/60 s.",
       choices: [[30, "30 times a second (default)"], [60, "60 times a second (finest timing, heavier)"]],
+    },
+    {
+      id: "map_redraw", plugin: "sanctum", key: "sanctum.map_redraw", default: "every",
+      title: "Corner map redraws while you move",
+      hint: "On a 120 Hz or faster screen the Corner map is redrawn on every screen frame while you move or turn. Capped, it's at most about 80 times a second: less drawing work, a slightly less smooth glide. Nothing changes on a 60 Hz screen. (Was the Dev switch redraw-cap.)",
+      choices: [["every", "Every screen frame (default)"], ["capped", "At most about 80 times a second (lighter)"]],
     },
   ],
 };

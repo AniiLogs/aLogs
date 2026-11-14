@@ -24,18 +24,6 @@
     "revision": 1
   },
   {
-    "id": "capture-low-priority",
-    "plugin": "core",
-    "section": "Low risk",
-    "area": "Smoothness",
-    "title": "Let the game go first on the graphics card",
-    "what": "aLogs asks Windows to do its copies on the graphics card after the game's own work, at the lowest priority a program may give itself. Off puts it back to normal at once.",
-    "gain": "Unknown until tested in a game. When the card is fully used, aLogs' copies should no longer be done ahead of the game's frames.",
-    "risk": "When the card is very busy, pictures reach the DPS meter and Sanctum Helper later than now, so bars, the map and result screens could be read late. On result screens the card already took up to 0.85 s to hand over a whole picture.",
-    "tested": "Not tested yet",
-    "revision": 1
-  },
-  {
     "id": "button-row-steady",
     "plugin": "core",
     "section": "Low risk",

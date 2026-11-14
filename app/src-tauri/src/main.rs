@@ -421,6 +421,7 @@ fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Re
     }
     ensure_meter(&app)?;
     sanctum::share_settings(&settings);
+    gpu_capture::apply_settings(&settings);
     sanctum::ensure(&app, &settings);
     overlay_button::refresh();   // the button is lit while any plug-in is on
     apply_priority(&app, &settings);
@@ -1008,6 +1009,7 @@ fn main() {
             update::at_start(app.handle());      // an update set for "next time aLogs opens" installs before the meter starts
             let _ = ensure_meter(app.handle());
             sanctum::share_settings(&read_settings());
+            gpu_capture::apply_settings(&read_settings());
             sanctum::ensure(app.handle(), &read_settings());
             update::start(app.handle());
             let handle = app.handle().clone();
