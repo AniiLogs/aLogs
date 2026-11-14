@@ -645,6 +645,9 @@ class ResultsMixin:
         log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
                  f"{sim['difficulty']}, battle time {sim['time_s']} s")
         if not won: self.sim_release('not a victory'); return
+        # the last fight's bar can still be bridged as hidden (BAR_GONE_GRACE): over now, so the Gizmo screen opens at
+        # once - the tour only runs with no fight open (13 Nov: it waited 16 s, and the game left the Victory screen)
+        if self.fight: self.end_fight('Victory screen')
         # The same win still up (the game left on the Victory screen, tabbed out): it was sent once already. The
         # 30 s above only spaces the reads; this run went to the leaderboards four times before (1 Nov).
         key = (self.space, sim['trial'], sim['difficulty'], sim['time_s'])
