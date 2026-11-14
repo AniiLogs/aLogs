@@ -168,6 +168,12 @@ class LeaderboardsMixin:
         Gizmo screen's pictures as more proof; the notice on the Victory screen says it's saved."""
         pending, self.sim_pending = getattr(self, 'sim_pending', None), None
         if not pending: return
+        if getattr(self, 'sim_test', False):
+            # Ctrl+Shift+F11 (sim_test_key): a dry run of the Victory screen and the Gizmo screen, nothing kept or sent
+            self.sim_test = False
+            log.info(f"Holo-Battle Sim test (Ctrl+Shift+F11): done, nothing sent - {note or 'no Gizmo screen read'}; setup "
+                     f"{[(g.get('series'), g.get('count'), [p['name'] for p in g.get('picked') or []]) for g in pending[0]['setup'].get('gizmos') or []]}")
+            self.sim_release('the test is done'); return
         sim, shot = pending[:2]
         shots = [os.path.relpath(p, HERE) for p in (sim.pop('gizmo_shots', None) or []) if p]
         for g in sim['setup'].get('gizmos') or []: g.pop('sid', None)
@@ -209,6 +215,18 @@ class LeaderboardsMixin:
         self.sim_ctl = None; self.hold.stop(); self.focus_guard.stop()
         if CT.hidden: CT.hide_controllers(False)
         log.info(f'Holo-Battle Sim: control given back ({why})')
+
+    def sim_test_key(self, now):
+        """Ctrl+Shift+F11 on a Holo-Battle Sim Victory screen (the owner, 14 Nov: testing the end over and over without a
+        new run): the Victory screen is read again as a new win and the Gizmo screen toured, as after a run, but nothing is
+        sent. Read from the key's state (no hook), once per press."""
+        down = bool(ctypes.windll.user32.GetAsyncKeyState(0x7A) & 0x8000 and ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000
+                    and ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+        was, self.sim_test_down = getattr(self, 'sim_test_down', False), down
+        if not down or was or getattr(self, 'sim_tour', None) or getattr(self, 'sim_ctl', None): return
+        self.sim_test = True; self.sim_seen = 0; self.sim_last = None; self.sim_first = None
+        if self.fight: self.end_fight('Holo-Battle Sim test')
+        log.info('Holo-Battle Sim test (Ctrl+Shift+F11): reading the Victory screen again and touring the Gizmo screen; nothing is sent')
 
     def sim_check(self, now):
         """Every frame while aLogs has the Holo-Battle Sim's end: control comes back the moment it isn't going as
@@ -292,6 +310,9 @@ class LeaderboardsMixin:
     def sim_tour_end(self, why):
         tour, self.sim_tour = getattr(self, 'sim_tour', None), None
         if not tour: return
+        if tour.get('views'):                                  # captured: control back first, then the names read
+            self.sim_release('the Gizmo screen is captured')
+            self.sim_tour_names(tour)
         self.sim_seen = time.time()                            # back on the Victory screen: not a new win
         pending = getattr(self, 'sim_pending', None)
         got = 0
@@ -335,16 +356,19 @@ class LeaderboardsMixin:
             final = norm(line).endswith('final')                   # "Predictive Dice: Final" (the colon isn't always read)
             head = re.sub(r':?\s*final\s*$', '', line, flags=re.I) if final else line.partition(':')[0]
             if len(norm(head)) < 4 or not names: continue
+            # a Core upgraded once shows as "Fervor Mask α" (OCR: "Fervor Mask a"): its α kept, it counts 2 (14 Nov)
+            alpha = not final and re.search(r'\s(?:α|a)\s*$', head) is not None
+            if alpha: head = re.sub(r'\s(?:α|a)\s*$', '', head)
             score, name = max((difflib.SequenceMatcher(None, norm(head), norm(n)).ratio(), n) for n in names)
             if score < 0.85: continue
-            out.append(name + ': Final' if final and not norm(name).endswith('final') else name)
+            out.append(name + ': Final' if final and not norm(name).endswith('final') else name + ' α' if alpha else name)
         return out
 
     @staticmethod
     def sim_stitch(rows, view):
         """Add one view's names to the list read so far: the longest end of `rows` the view starts with is the overlap
         (a scroll keeps a few rows in view), the rest is new. A gizmo picked twice stays twice."""
-        base = lambda names: [n.split(':')[0] for n in names]      # a Final read without its suffix is still the same row
+        base = lambda names: [n.split(':')[0].removesuffix(' α') for n in names]   # a Final or α read without it: the same row
         for k in range(min(len(rows), len(view)), 0, -1):
             if base(rows[-k:]) == base(view[:k]): return rows + view[k:]
         return rows + view
@@ -353,7 +377,7 @@ class LeaderboardsMixin:
     def sim_count(rows):
         """The picks a series' rows stand for: an upgraded Core ("...: Final") counts 3, the gizmo and its two upgrades
         (1 Nov: 41 rows for the 43 the Victory screen counts, one of them Predictive Dice: Final)."""
-        return sum(3 if n.endswith(': Final') else 1 for n in rows)
+        return sum(3 if n.endswith(': Final') else 2 if n.endswith(' α') else 1 for n in rows)
 
     def sim_tour_step(self, im, now):
         """One step of the Gizmo tour, on each new frame while it runs. True while the tour has the screen.
@@ -436,55 +460,48 @@ class LeaderboardsMixin:
             if agreed is not None: tour['all_n'] = agreed; tour['want'] = agreed
             tour.update(stage='read', next=now)
             return True
-        # 'read': once the list stands still (its text the same two looks running, at most 1.5 s), the names in view;
-        # scroll on about 3 rows a time (each view shares rows with the last) until every pick is read or a scroll
-        # doesn't move the list (its end). Each view with new rows is kept as proof, as it was on screen.
+        # 'read': capture now, read later (the owner, 14 Nov: click All, then capture the list as it scrolls down; reading
+        # each view's names on the spot made the tour slow and stop-start). Once the list stands still (at most 0.6 s), its
+        # view is kept (and a proof picture of it), then the list scrolls on about 3 rows, until two scrolls running don't
+        # move it (its end; one that didn't take isn't the end). The names are read after control is given back
+        # (sim_tour_end). Each view shares rows with the last, so they are stitched in order.
         x0, y0, x1, y1 = self.GIZMO_LIST
         sig = gizmo_list_sig(im)
-        if not gizmo_list_same(sig, tour.get('sig')) and now - tour.get('moved', now) < 1.5:
+        if not gizmo_list_same(sig, tour.get('sig')) and now - tour.get('moved', now) < 0.6:
             if 'moved' not in tour: tour['moved'] = now
-            tour['sig'] = sig; tour['next'] = now + 0.08
+            tour['sig'] = sig; tour['next'] = now + 0.05
             return True
         tour.pop('moved', None); tour['sig'] = sig
-        # the list's end: a scroll that didn't move it, twice running (one that didn't take isn't the end; 13 Nov: the
-        # first pass stopped at the top 6 of 15 that way)
-        tour['stuck'] = tour.get('stuck', 0) + 1 if gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0 else 0
-        at_end = tour['stuck'] >= 2
+        same = gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0
+        tour['stuck'] = tour.get('stuck', 0) + 1 if same else 0
         tour['read_sig'] = sig
-        text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k, size=2)}).get('n') or ''
-        view = self.sim_names(text)
-        rows = self.sim_stitch(tour['rows'], view)
-        if tour['rows'] and view and len(rows) == len(tour['rows']) + len(view) and tour.get('backups', 0) < 3:
-            # no row in common with the last view: the scroll went too far, so back up a little and read again
-            tour['backups'] = tour.get('backups', 0) + 1; tour['next'] = now + 0.12
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 2, keep=True)
-            return True
-        if len(rows) > len(tour['rows']):
+        if not same:
+            tour.setdefault('views', []).append(im.crop((int(ux + u * x0), int(H * y0), int(ux + u * x1), int(H * y1))).copy())
+            tour['view_k'] = k
             shot = self.sim_tour_shot(im, f"all_{tour['scrolls']:02d}")
             if shot: tour['shots'].append(shot)
-        tour['idle'] = 0 if len(rows) > len(tour['rows']) else tour['idle'] + 1
-        tour['rows'] = rows
-        if (tour['want'] is None or self.sim_count(rows) < tour['want']) and not at_end and tour['idle'] < 2 and tour['scrolls'] < 20:
-            tour['scrolls'] += 1; tour['next'] = now + 0.12
+        if tour['stuck'] < 2 and tour['scrolls'] < 25:
+            tour['scrolls'] += 1; tour['next'] = now + 0.1
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3, keep=True)
             return True
-        # the best pass so far is kept (13 Nov: 12 of 14, then a fresh pass ended on 6); the same gizmo can be picked twice,
-        # so passes aren't merged by name
-        if self.sim_count(tour.get('kept') or []) > self.sim_count(rows): rows = tour['kept']
-        # fewer than "All N" says: the click on All didn't take (the list was one series) - click it again, read again
-        if tour.get('all_n') and self.sim_count(rows) < tour['all_n'] and tour.get('all_again', 0) < 2:
-            tour['all_again'] = tour.get('all_again', 0) + 1
-            log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} of All {tour['all_n']} read - clicking All again")
-            tour['kept'] = rows
-            tour.update(rows=[], scrolls=0, idle=0, sig=None, read_sig=None, backups=0, stage='all', all_clicked=False, next=now + 0.1)
-            for _ in range(2): wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 15, keep=True)   # back to the top of the list
-            return True
-        for n in rows:                                          # each row under its series (game data)
-            g = self.icons.sim_gizmos.get(n.split(':')[0].strip())
-            if g: tour['read'].setdefault(g[0], []).append(n)
         # the mouse moved first: the game falls back to controller mode, and its back arrow then took no click (13 Nov)
         wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK), keep=True); tour.update(stage='back', backs=0, next=now + 0.4)
         return True
+
+    def sim_tour_names(self, tour):
+        """The names in the Gizmo list's views kept by the tour, read now (after control is given back), stitched in order
+        and filed under their series (game data): tour['rows'] and tour['read']."""
+        rows = []
+        for view in tour.get('views') or []:
+            w, h = view.size
+            text = self.ocr.read({'n': R.prep_grey(view, (0, 0, w, h), tour.get('view_k', 1), size=2)}).get('n') or ''
+            rows = self.sim_stitch(rows, self.sim_names(text))
+        tour['rows'] = rows
+        for n in rows:
+            g = self.icons.sim_gizmos.get(n.split(':')[0].removesuffix(' α').strip())
+            if g: tour['read'].setdefault(g[0], []).append(n)
+        if tour.get('all_n') and self.sim_count(rows) != tour['all_n']:
+            log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} picks read in {len(tour.get('views') or [])} views, but All says {tour['all_n']}")
 
     def sim_tour_shot(self, im, what):
         """A view of the Gizmo list for the run's proof (logs/screens, sent with the run, then deleted like the others):
@@ -761,7 +778,7 @@ class LeaderboardsMixin:
 # in a minute stop the plug-in until its switch is turned off and on), not the reading loop's.
 ENTRY = {'auto_active': False, 'check_pending_run': None, 'egg_fade': None, 'egg_hold_end': None, 'end_auto': None,
          'link_poll': None, 'link_read': None, 'open_battle_data': None, 'presence_tick': None, 'proof_crop': None,
-         'prove_name': None, 'sent_notice': None, 'sim_check': None, 'sim_gate': None, 'sim_tour_step': False,
+         'prove_name': None, 'sent_notice': None, 'sim_check': None, 'sim_test_key': None, 'sim_gate': None, 'sim_tour_step': False,
          'start_auto': None, 'proof_with_overlay': None, 'run_to_send': False, 'send_late_battle_data': None, 'sim_release': None, 'sim_send': None,
          'sim_tour_start': False}
 for _name, _fallback in ENTRY.items():
