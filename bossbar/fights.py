@@ -705,11 +705,11 @@ class FightsMixin:
     def emit_fight(self, im, bar):
         f = self.fight; si = f.seg_info or {}
         # an Interlink fight's HUD a few seconds in (the players' icons top left: how many are real), and the whole
-        # frame mid-fight, for checking readers against real pictures (logs/samples)
+        # frame mid-fight, for checking readers against real pictures (logs/samples; only with Save test pictures on)
         if f.bossrush and im is not None and getattr(self, 'frame_full', True):
             age = time.time() - f.created
-            if 3 <= age < 30: keep_sample(im, 'interlink_start')
-            elif 60 <= age < 120: keep_sample(im, 'interlink_mid')
+            if 3 <= age < 30: keep_sample(im, 'interlink_start', live_cfg(self))
+            elif 60 <= age < 120: keep_sample(im, 'interlink_mid', live_cfg(self))
             W, H = im.size; u = min(W, H * 16 / 9); self.fight_team(im, time.time(), u, (W - u) / 2, H)
         self.last_screen = (self.origin[0], self.origin[1], self.frame_size[0], self.frame_size[1])
         # max_hp and damage are the run's (a two-boss fight's both bosses); boss_hp is the max HP of the boss on the bar

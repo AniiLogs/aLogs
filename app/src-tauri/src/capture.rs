@@ -1111,6 +1111,8 @@ pub fn start() {
                     .filter(|&i| shared.active(i, now) && only.map_or(true, |o| o == i))
                     .map(|i| readers[i].last + shared.interval(i))
                     .min();
+                // Dev switch capture-frame-hold: window capture is told the fastest reader's interval (unused with it off)
+                let fastest = (0..SLOTS).filter(|&i| shared.active(i, now) && only.map_or(true, |o| o == i)).map(|i| shared.interval(i)).min();
                 let Some(due) = due else {
                     source = None; // free the GPU textures while idle
                     std::thread::sleep(Duration::from_millis(50));
@@ -1182,6 +1184,9 @@ pub fn start() {
                                 forget(&shared, &mut readers);
                             }
                         }
+                        if let Some(w) = away_window.as_mut() {
+                            w.fastest_reader(fastest);
+                        }
                         match away_window.as_mut() {
                             Some(w) => match w.update() {
                                 Ok(_) => {
@@ -1239,6 +1244,9 @@ pub fn start() {
                     }
                 }
                 let s = source.as_mut().unwrap();
+                if let Source::Window(w) = s {
+                    w.fastest_reader(fastest);
+                }
                 let result = match s.update() {
                     Err(_) => None,
                     Ok(_) => {

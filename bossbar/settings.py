@@ -89,7 +89,8 @@ DEFAULTS = {
         'egg_auto_next': True,               # Egg Heist: press Next once the end screen is read, on to the rank screen
         'hold_inputs': True,                 # hold keyboard keys/mouse buttons while doing so
         'hold_controller': False,            # also hide the controller (needs HidHide)
-        'egg_fade_hold': True,               # Egg Heist: hold inputs from the fade to black until the end screen is read (experimental)
+        'egg_fade_hold': False,              # Egg Heist: hold inputs from the fade to black until the end screen is read
+                                             # (experimental, opt-in: off like the app's default; 14 Nov, the owner's call)
         'hold_seconds': 60,                  # the longest aLogs keeps control, each time
     },
     'leaderboard': {

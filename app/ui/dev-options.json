@@ -24,6 +24,18 @@
     "revision": 1
   },
   {
+    "id": "capture-frame-hold",
+    "plugin": "core",
+    "section": "Low risk",
+    "area": "Smoothness",
+    "title": "Don't copy the whole game window on the graphics card",
+    "what": "Where aLogs captures the game window itself (Windows 11), each new frame of the game is first copied whole into a picture of aLogs' own on the graphics card, and the spots its readers ask for are copied out of that. With this on aLogs keeps Windows' own frame open and copies the spots straight out of it. A frame goes back to Windows only once a newer one has come and every spot copied from it is finished, so a picture is never half one frame and half the next. Where Windows allows it (Windows 11 24H2 and later) it also asks Windows for new frames no more often than the fastest reader wants them.",
+    "gain": "Unknown until tested in a game. One whole-frame copy less on the graphics card per new frame (33 MB at 4K, up to about 2 GB a second at 60 frames a second), and on Windows 11 24H2 fewer frames captured that nothing reads.",
+    "risk": "While a frame is kept, Windows has one spare buffer for the next one instead of two, so when the readers ask less often than the game draws, a picture can be one game frame older than now (its time stays exact). If the graphics card is slow to finish a copy, the next frame waits for it. Turning it off while aLogs runs starts the window capture again where it had set the frame rate, which takes a moment.",
+    "tested": "Built and checked on the bench only (14 Nov): not yet run on a Windows 11 PC or tried in a game.",
+    "revision": 1
+  },
+  {
     "id": "button-row-steady",
     "plugin": "core",
     "section": "Low risk",
@@ -33,30 +45,6 @@
     "gain": "Half as many small copies of the picture off the graphics card while you play with the icon row showing. How much that helps the game is unknown until tested in a game.",
     "risk": "The button can hide up to a quarter of a second later than now when the icon row goes away (about 0.75 to 1.25 seconds instead of 0.75 to 1.0). It never hides sooner and it shows again exactly as fast as now. Its slide between the keyboard and controller positions can also start up to a quarter of a second later.",
     "tested": "Bench tested the timing rules, not tried in a game",
-    "revision": 1
-  },
-  {
-    "id": "priority-game-first",
-    "plugin": "core",
-    "section": "Low risk",
-    "area": "Smoothness",
-    "title": "Priority High no longer puts aLogs ahead of the game",
-    "what": "General Settings › Priority set to High runs aLogs, the DPS meter and Sanctum Helper above the game when Windows has to choose. With this on, High gives them the same priority as the game, never more. Low and Normal are unchanged, so this does nothing unless your Priority is High. It takes effect within 3 seconds of turning it on or off, no restart needed.",
-    "gain": "When the processor is full, the game is no longer made to wait for aLogs. Unknown until tested in a game.",
-    "risk": "On a PC whose processor is full during fights, the DPS meter may get less time than with High today, which could mean slower or missed reads. Unknown until tested in a game.",
-    "tested": "Bench tested which priority each setting gives, not tried in a game",
-    "revision": 1
-  },
-  {
-    "id": "helpers-below-normal",
-    "plugin": "core",
-    "section": "Low risk",
-    "area": "Smoothness",
-    "title": "Text readers give way to the game",
-    "what": "The meter reads text on screen (names, numbers, result screens) with small helper programs that use Windows' own text reading. With this on they run at Windows' Below Normal priority, so when the processor is full the game goes first. Helpers already running follow the switch within a minute, both when it is turned on and off.",
-    "gain": "Unknown until tested in a game. It can only matter when every processor core is busy; then the game should stutter less while text is read.",
-    "risk": "On a PC with a full processor the text reads take longer, so names, a result screen or the boss's HP number could be read later than now. With a core free nothing changes.",
-    "tested": "Bench tested with a stand-in helper: it starts at Below Normal with the switch on, at Normal with it off, and a running one moves both ways. Not tried in a game.",
     "revision": 1
   },
   {

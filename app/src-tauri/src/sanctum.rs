@@ -16,18 +16,29 @@ use tauri::{AppHandle, Manager, State};
 const NO_WINDOW: u32 = 0x0800_0000;
 /// Exit code Sanctum Helper uses when a standalone copy is already running.
 const EXIT_STANDALONE_RUNNING: i32 = 3;
+/// 14 Nov, the owner's call: Sanctum Helper runs with the game, not whenever aLogs does. It starts once the game's
+/// window is there (the watchdog's ensure, every 3 s) and stops this long after it's gone: room for an alt-tab, a
+/// crash or a restart of the game (a minimized game still has its window, so that never counts as gone).
+const GAME_GONE_GRACE_MS: u64 = 60_000;
 
 pub struct Sanctum {
     child: Mutex<Option<Child>>,
     /// A standalone Sanctum Helper holds its single-instance lock; retried every so often.
     blocked_until: AtomicU64,
     blocked: AtomicBool,
+    /// When the game's window was first seen missing (ms since 1970), 0 while it's there (GAME_GONE_GRACE_MS).
+    game_gone_at: AtomicU64,
 }
 
 impl Sanctum {
     pub fn new() -> Sanctum {
-        Sanctum { child: Mutex::new(None), blocked_until: AtomicU64::new(0), blocked: AtomicBool::new(false) }
+        Sanctum { child: Mutex::new(None), blocked_until: AtomicU64::new(0), blocked: AtomicBool::new(false), game_gone_at: AtomicU64::new(0) }
     }
+}
+
+/// Whether the game's window is there (visible or minimized), found as the shared capture finds it.
+fn game_open() -> bool {
+    !crate::capture::find_game().is_null()
 }
 
 fn now_ms() -> u64 {
@@ -115,7 +126,6 @@ pub fn install_dotnet_desktop() -> Result<(), String> {
     Ok(())
 }
 
-/// Starts Sanctum Helper if it is enabled and not running; stops it when it was turned off.
 /// General › Priority for a running Sanctum Helper.
 pub fn set_priority(app: &AppHandle, settings: &Value) {
     if let Some(child) = app.state::<Sanctum>().child.lock().unwrap().as_ref() {
@@ -123,29 +133,65 @@ pub fn set_priority(app: &AppHandle, settings: &Value) {
     }
 }
 
+/// How long the game's window has been gone (ms), 0 while it's there; the first time it's missed counts from now.
+fn game_gone_for(state: &Sanctum, now: u64) -> u64 {
+    gone_for(game_open(), &state.game_gone_at, now)
+}
+
+fn gone_for(open: bool, gone_at: &AtomicU64, now: u64) -> u64 {
+    if open {
+        gone_at.store(0, Ordering::SeqCst);
+        return 0;
+    }
+    match gone_at.load(Ordering::SeqCst) {
+        0 => {
+            gone_at.store(now, Ordering::SeqCst);
+            1
+        }
+        at => now.saturating_sub(at).max(1),
+    }
+}
+
+/// Starts Sanctum Helper if it is enabled, the game's window is there and it isn't running; stops it when it was
+/// turned off, or GAME_GONE_GRACE_MS after the game's window went (14 Nov, the owner's call: it used to run whenever
+/// aLogs did). app.log says why each time it starts or stops.
 pub fn ensure(app: &AppHandle, settings: &Value) {
     let state = app.state::<Sanctum>();
     let mut guard = state.child.lock().unwrap();
+    let gone_for = game_gone_for(&state, now_ms());
     if let Some(child) = guard.as_mut() {
         match child.try_wait() {
             Ok(None) => {
-                if !enabled(settings) {
+                let why = if !enabled(settings) {
+                    Some("it was turned off".to_string())
+                } else if gone_for >= GAME_GONE_GRACE_MS {
+                    Some(format!("the game's window has been gone for {} s", gone_for / 1000))
+                } else {
+                    None
+                };
+                if let Some(why) = why {
                     stop_child(child);
                     *guard = None;
+                    crate::app_log(&format!("Sanctum Helper: stopped ({why})"));
                 }
                 return;
             }
             Ok(Some(status)) => {
                 if status.code() == Some(EXIT_STANDALONE_RUNNING) {
-                    state.blocked.store(true, Ordering::SeqCst);
                     state.blocked_until.store(now_ms() + 15_000, Ordering::SeqCst);
+                    if !state.blocked.swap(true, Ordering::SeqCst) {
+                        crate::app_log("Sanctum Helper: another copy of it is running on its own; trying again every 15 s");
+                    }
+                } else {
+                    crate::app_log(&format!("Sanctum Helper: it ended by itself (exit code {:?})", status.code()));
                 }
                 *guard = None;
             }
             Err(_) => *guard = None,
         }
     }
-    if !enabled(settings) || now_ms() < state.blocked_until.load(Ordering::SeqCst) {
+    // not until the game's window is there: within the watchdog's 3 s of it appearing
+    if !enabled(settings) || gone_for > 0 || now_ms() < state.blocked_until.load(Ordering::SeqCst) {
         return;
     }
     let Some(path) = exe(app) else { return };
@@ -162,9 +208,10 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
         Ok(child) => {
             state.blocked.store(false, Ordering::SeqCst);
             crate::set_priority(Some(&child), settings);
+            crate::app_log("Sanctum Helper: started (it's on and the game's window is open)");
             *guard = Some(child);
         }
-        Err(e) => eprintln!("could not start Sanctum Helper: {e}"),
+        Err(e) => crate::app_log(&format!("Sanctum Helper: could not start ({e})")),
     }
 }
 
@@ -182,6 +229,7 @@ pub fn restart(app: &AppHandle, settings: &Value) {
         }
         stop_child(child);
         *guard = None;
+        crate::app_log("Sanctum Helper: stopped (restarting it, for the OCR language)");
     }
     ensure(app, settings);
 }
@@ -204,6 +252,7 @@ fn stop_child(child: &mut Child) {
 #[tauri::command]
 pub fn sanctum_state(app: AppHandle, state: State<Sanctum>) -> Value {
     let running = state.child.lock().unwrap().as_mut().map_or(false, |c| matches!(c.try_wait(), Ok(None)));
+    let game = game_open();
     let mut status = read_json(&hosted_dir().join("status.json"));
     // A status file left by an earlier run doesn't count.
     let fresh = status.get("time").and_then(Value::as_u64).map_or(false, |t| now_ms().saturating_sub(t) < 5000);
@@ -216,6 +265,9 @@ pub fn sanctum_state(app: AppHandle, state: State<Sanctum>) -> Value {
         "running": running && fresh,
         "starting": running && !fresh,
         "standaloneRunning": state.blocked.load(Ordering::SeqCst),
+        // 14 Nov: not running because the game isn't open: it starts with the game (the page says so, not "Starting…")
+        "gameOpen": game,
+        "waitingForGame": !running && !game,
         "settings": read_json(&sh_dir().join("settings.json")),
         "info": read_json(&hosted_dir().join("info.json")),
         "status": status,
@@ -272,11 +324,22 @@ pub fn sanctum_save(changes: Value) -> Result<Value, String> {
 
 /// Asks the running Sanctum Helper to do something: new-run, position-map, capture-key, capture-pad,
 /// clear-pad, render-layout { layout, width, height }, open-logs.
+/// 14 Nov: it runs only with the game, so while it's stopped a command would wait for nobody (it clears old ones as it
+/// starts): open-logs opens its folder from here, anything else says it starts with the game.
 #[tauri::command]
-pub fn sanctum_command(command: String, args: Option<Value>) -> Result<(), String> {
+pub fn sanctum_command(state: State<Sanctum>, command: String, args: Option<Value>) -> Result<(), String> {
     const ALLOWED: [&str; 9] = ["dev-set", "dev-persistent", "new-run", "position-map", "capture-key", "capture-pad", "clear-pad", "render-layout", "open-logs"];
     if !ALLOWED.contains(&command.as_str()) {
         return Err("Unknown command.".into());
+    }
+    let running = state.child.lock().unwrap().as_mut().map_or(false, |c| matches!(c.try_wait(), Ok(None)));
+    if !running {
+        if command == "open-logs" {
+            let _ = fs::create_dir_all(sh_dir());
+            Command::new("explorer").arg(sh_dir()).spawn().map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        return Err("Sanctum Helper isn't running: it starts with the game.".into());
     }
     let mut body = match args {
         Some(Value::Object(map)) => map,
@@ -317,4 +380,23 @@ pub fn sanctum_icon(app: AppHandle, name: String) -> Option<String> {
     }
     let dir = exe(&app)?.parent()?.join("Assets").join("icons");
     data_url(&dir.join(format!("{name}.png")))
+}
+
+/// 14 Nov: Sanctum Helper with the game: never started while the game's window is missing, stopped only once it has
+/// been gone for GAME_GONE_GRACE_MS, and a window back in time starts the count again.
+#[cfg(test)]
+mod game_tests {
+    use super::{gone_for, GAME_GONE_GRACE_MS};
+    use std::sync::atomic::AtomicU64;
+
+    #[test]
+    fn the_grace_counts_from_the_first_miss() {
+        let at = AtomicU64::new(0);
+        assert_eq!(gone_for(true, &at, 1_000), 0, "open: not gone");
+        assert!(gone_for(false, &at, 2_000) > 0, "missed once: gone (nothing starts)");
+        assert!(gone_for(false, &at, 2_000 + GAME_GONE_GRACE_MS - 1) < GAME_GONE_GRACE_MS, "an alt-tab or restart: kept");
+        assert!(gone_for(false, &at, 2_000 + GAME_GONE_GRACE_MS) >= GAME_GONE_GRACE_MS, "a minute: stopped");
+        assert_eq!(gone_for(true, &at, 70_000), 0, "back: not gone");
+        assert!(gone_for(false, &at, 80_000) < GAME_GONE_GRACE_MS, "gone again: counted afresh");
+    }
 }

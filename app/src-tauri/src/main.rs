@@ -297,15 +297,13 @@ fn quit_app(app: &AppHandle) {
 /// "low" (below normal: the game and OBS come first), "normal" or "high" (above normal); not set (the default):
 /// left as Windows starts it (normal), so None.
 ///
-/// `game_first` is the Dev switch priority-game-first: "high" then gives normal, never above it. Windows starts a game at normal
-/// unless the game asks for more, so above normal lets aLogs, the meter and Sanctum Helper take the processor from it
-/// whenever they have work.
-fn priority_class(settings: &Value, game_first: bool) -> Option<u32> {
+/// 14 Nov, the owner's call: this is the one control, and does exactly what it says. The Dev switches
+/// priority-game-first (High gave normal) and helpers-below-normal (the meter set its OCR helpers itself) are retired.
+fn priority_class(settings: &Value) -> Option<u32> {
     use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
     match settings.pointer("/app/priority").and_then(Value::as_str) {
         Some("low") => Some(BELOW_NORMAL_PRIORITY_CLASS),
         Some("normal") => Some(NORMAL_PRIORITY_CLASS),
-        Some("high") if game_first => Some(NORMAL_PRIORITY_CLASS),
         Some("high") => Some(ABOVE_NORMAL_PRIORITY_CLASS),
         // not chosen: lower, so the game (and OBS) always come first (B8; was Windows' normal)
         _ => Some(BELOW_NORMAL_PRIORITY_CLASS),
@@ -321,14 +319,14 @@ pub(crate) fn set_priority(child: Option<&Child>, settings: &Value) {
         None => unsafe { GetCurrentProcess() },
     };
     // not set: back to normal (it may have been set earlier this session)
-    let class = priority_class(settings, dev::on("priority-game-first")).unwrap_or(windows_sys::Win32::System::Threading::NORMAL_PRIORITY_CLASS);
+    let class = priority_class(settings).unwrap_or(windows_sys::Win32::System::Threading::NORMAL_PRIORITY_CLASS);
     unsafe { SetPriorityClass(handle, class) };
 }
 
 /// 14 Nov: the meter's running OCR helpers (its child processes) to the class they'd get if the meter started them
 /// now, so a Priority change reaches them too (before, they kept what they inherited when they started). Windows
 /// passes only below normal (and idle) on to a child; anything else starts it at normal, so: below normal for "low",
-/// normal otherwise. Left alone while the meter's Dev switch helpers-below-normal is on: the meter sets them then.
+/// normal otherwise (always: the meter no longer sets them itself, 14 Nov).
 /// Only processes the meter started: their parent is the meter's PID and they started after it (a PID Windows gave
 /// the meter may have been an older, gone process's, whose children still name it as their parent).
 fn set_helpers_priority(meter: &Child, settings: &Value) {
@@ -339,10 +337,7 @@ fn set_helpers_priority(meter: &Child, settings: &Value) {
         GetProcessTimes, OpenProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_SET_INFORMATION,
     };
-    if dev::on("helpers-below-normal") {
-        return;
-    }
-    let class = match priority_class(settings, dev::on("priority-game-first")) {
+    let class = match priority_class(settings) {
         Some(BELOW_NORMAL_PRIORITY_CLASS) => BELOW_NORMAL_PRIORITY_CLASS,
         _ => NORMAL_PRIORITY_CLASS,
     };
@@ -386,28 +381,26 @@ fn priority_name(class: u32) -> &'static str {
     }
 }
 
-/// Dev switch priority-game-first, turned on or off while aLogs runs: the priorities are set again at once (they're
-/// otherwise only set at start, as the meter or Sanctum Helper starts and when the settings are saved), and app.log says
-/// what Windows then reports for aLogs and the meter, so a tester's log shows it took.
-fn priority_switched(app: &AppHandle, game_first: bool) {
+fn apply_priority(app: &AppHandle, settings: &Value) {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetPriorityClass};
-    let settings = read_settings();
-    apply_priority(app, &settings);
-    let own = unsafe { GetPriorityClass(GetCurrentProcess()) };
-    let meter = app.state::<Meter>().child.lock().unwrap().as_ref().map(|c| unsafe { GetPriorityClass(c.as_raw_handle() as _) });
-    let chosen = settings.pointer("/app/priority").and_then(Value::as_str).filter(|p| ["low", "normal", "high"].contains(p)).unwrap_or("not set");
-    app_log(&format!("priority: game first {} (Priority setting: {chosen}): aLogs now {}, the meter {}",
-        if game_first { "on" } else { "off" }, priority_name(own), meter.map_or("not running", priority_name)));
-}
-
-fn apply_priority(app: &AppHandle, settings: &Value) {
     set_priority(None, settings);
-    if let Some(child) = app.state::<Meter>().child.lock().unwrap().as_ref() {
+    let meter = app.state::<Meter>().child.lock().unwrap().as_ref().map(|child| {
         set_priority(Some(child), settings);
         set_helpers_priority(child, settings);
-    }
+        unsafe { GetPriorityClass(child.as_raw_handle() as _) }
+    });
     sanctum::set_priority(app, settings);
+    // 14 Nov: what Windows then reports, once each time the choice changes (it was said when the retired Dev switch
+    // priority-game-first was flipped), so a tester's log shows the Priority setting took
+    static SAID: Mutex<Option<String>> = Mutex::new(None);
+    let chosen = settings.pointer("/app/priority").and_then(Value::as_str).filter(|p| ["low", "normal", "high"].contains(p)).unwrap_or("not set");
+    let mut said = SAID.lock().unwrap();
+    if said.as_deref() != Some(chosen) {
+        *said = Some(chosen.to_string());
+        let own = unsafe { GetPriorityClass(GetCurrentProcess()) };
+        app_log(&format!("priority: {chosen}: aLogs now {}, the meter {}", priority_name(own), meter.map_or("not running", priority_name)));
+    }
 }
 
 #[tauri::command]
@@ -1106,7 +1099,6 @@ fn main() {
             update::start(app.handle());
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                let mut game_first = false;   // Dev switch priority-game-first, as last applied here
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(3));
                     if handle.state::<Meter>().quitting.load(Ordering::SeqCst) {
@@ -1115,11 +1107,6 @@ fn main() {
                     let _ = ensure_meter(&handle);
                     sanctum::ensure(&handle, &read_settings());
                     overlay_button::refresh();
-                    let now = dev::on("priority-game-first");
-                    if now != game_first {
-                        game_first = now;
-                        priority_switched(&handle, now);
-                    }
                 }
             });
             if minimized {
@@ -1269,8 +1256,8 @@ mod ocr_install_tests {
     }
 }
 
-/// Dev switch priority-game-first: "high" gives normal with it on; every other choice, and everything with it off, is
-/// as it was.
+/// General › Priority: Lower, Normal and Higher give what they say; not chosen gives lower (B8). (14 Nov: the Dev
+/// switch priority-game-first is retired, so there's one answer for each.)
 #[cfg(test)]
 mod priority_tests {
     use super::priority_class;
@@ -1278,23 +1265,14 @@ mod priority_tests {
     use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
 
     #[test]
-    fn off_is_as_before() {
-        let class = |p: serde_json::Value| priority_class(&json!({ "app": { "priority": p } }), false);
+    fn each_choice_is_what_it_says() {
+        let class = |p: serde_json::Value| priority_class(&json!({ "app": { "priority": p } }));
         assert_eq!(class(json!("low")), Some(BELOW_NORMAL_PRIORITY_CLASS));
         assert_eq!(class(json!("normal")), Some(NORMAL_PRIORITY_CLASS));
-        assert_eq!(class(json!("high")), Some(ABOVE_NORMAL_PRIORITY_CLASS));
+        assert_eq!(class(json!("high")), Some(ABOVE_NORMAL_PRIORITY_CLASS), "Higher is above normal");
         assert_eq!(class(json!("")), Some(BELOW_NORMAL_PRIORITY_CLASS));
-        assert_eq!(priority_class(&json!({}), false), Some(BELOW_NORMAL_PRIORITY_CLASS));
-        assert_eq!(priority_class(&json!(null), false), Some(BELOW_NORMAL_PRIORITY_CLASS));
-    }
-
-    #[test]
-    fn on_only_changes_high() {
-        let class = |p: serde_json::Value| priority_class(&json!({ "app": { "priority": p } }), true);
-        assert_eq!(class(json!("high")), Some(NORMAL_PRIORITY_CLASS), "never above the game");
-        assert_eq!(class(json!("low")), Some(BELOW_NORMAL_PRIORITY_CLASS));
-        assert_eq!(class(json!("normal")), Some(NORMAL_PRIORITY_CLASS));
-        assert_eq!(priority_class(&json!({}), true), Some(BELOW_NORMAL_PRIORITY_CLASS));
+        assert_eq!(priority_class(&json!({})), Some(BELOW_NORMAL_PRIORITY_CLASS));
+        assert_eq!(priority_class(&json!(null)), Some(BELOW_NORMAL_PRIORITY_CLASS));
     }
 
     #[test]

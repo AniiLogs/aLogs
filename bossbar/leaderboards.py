@@ -744,9 +744,12 @@ class LeaderboardsMixin:
         """Next to each proof (the game alone, which is what's sent), a copy with the DPS window drawn where it was on
         screen a moment later (its result note comes up just after the proof), for the player's own troubleshooting:
         with the test pictures (logs/test_frames/<day>/proof_overlay, Captures & logs › Open the test pictures folder;
-        kept 7 days like them), never sent. Drawn from the overlay's own image, so it matches the screen."""
+        kept 7 days like them), never sent. Drawn from the overlay's own image, so it matches the screen. Only while
+        Save test pictures (capture.test_frames) is on, read from the live settings each time (14 Nov, the owner's
+        call: it used to be saved whether or not that was on); the proof itself, and what's sent, are the same."""
         snap = getattr(self, 'overlay_now', None)
         if snap is None or self.args.replay is not None: return
+        if not (self.args.cfg.get('capture') or {}).get('test_frames'): return
         origin = self.origin
         def later():
             try:

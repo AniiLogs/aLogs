@@ -8,7 +8,6 @@ from PIL import Image, ImageChops, ImageOps
 from hpcalc import max_hp, break_points
 
 import settings as C
-import devflags as D
 HERE = C.RES                      # shipped data files (catalog, OCR helper)
 DEV = {'fill_fast': 0, 'fill_old': 0}             # what the Dev switches here did, for the meter's once-a-minute line
 
@@ -627,9 +626,9 @@ class Ocr:
 
     def launch(self):
         """Starts a helper: (its process, the language it says it reads in). Raises when it doesn't start."""
+        # (its priority is the meter's, as Windows passes it on, and aLogs sets it after: General › Priority. The Dev
+        # switch helpers-below-normal is retired, 14 Nov, the owner's call)
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        # Dev switch: the helper starts below normal priority, so its reading gives way to the game on a busy PC
-        if D.on('helpers-below-normal'): flags |= getattr(subprocess, 'BELOW_NORMAL_PRIORITY_CLASS', 0)
         if self.native:
             p = subprocess.Popen([OCR_EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=flags)
             first = lambda: p.stdout.readline().decode('utf-8', 'replace')
@@ -641,16 +640,6 @@ class Ocr:
             first = p.stdout.readline
         try: return p, ready_language(first())
         except Exception: p.kill(); raise
-
-    def set_priority(self, low):
-        """This reader's running helper to below normal priority (Dev switch helpers-below-normal), or back to normal:
-        True when Windows took it. Never raises."""
-        try:
-            import ctypes
-            k = ctypes.WinDLL('kernel32', use_last_error=True)
-            k.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]; k.SetPriorityClass.restype = ctypes.c_int
-            return bool(k.SetPriorityClass(int(self.p._handle), 0x4000 if low else 0x20))    # BELOW_NORMAL / NORMAL
-        except Exception: return False
 
     def restart(self):
         """A new helper in this one's place, which picks Windows OCR's language again: English added to Windows since

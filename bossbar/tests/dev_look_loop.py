@@ -13,7 +13,6 @@ behaviour (fill-fast, fight-skip-unchanged, top-sig-direct), checked against the
 - quiet-top-only: after a sent Egg Heist match, whole frames only on the looks a screen read is made from;
 - busy-half-pace: 2 screen reads and 10 looks a second while nothing can't wait, today's pace for everything that can't;
 - area-keep-short: a whole frame stays asked for 0.3 s, not 2 s;
-- helpers-below-normal: new OCR helpers start below normal priority, running ones follow the switch;
 - tabbed-out-rest: tabbed out with no fight, the whole-frame bar search runs twice a second.
 Made-up pictures only; readers, the capture and the helpers are stubbed. Exit code 1 on any failure.
 """
@@ -252,20 +251,21 @@ def blocked():
     started.wait(10)
     return gate
 shot = frame((640, 360)); black = Image.new('RGB', (640, 360))
+TF = {'capture': {'test_frames': True}}                                          # samples are test pictures (14 Nov)
 ran = []
 core.picture_job(lambda: ran.append(threading.current_thread().name))
 check('off: a picture is saved where it is taken', ran, ['MainThread'])
-core.keep_sample(shot, 'offpng'); core.keep_sample(shot.convert('RGBA'), 'offrgba'); core.keep_sample(shot, 'offjpg', gap=0)
+core.keep_sample(shot, 'offpng', TF); core.keep_sample(shot.convert('RGBA'), 'offrgba', TF); core.keep_sample(shot, 'offjpg', TF, gap=0)
 check('off: the samples are on disk at once', [n.split('_')[0] + n[-4:] for n in files('samples')], ['offjpg.jpg', 'offpng.png', 'offrgba.png'])
 check('off: no writer thread, nothing counted', (W0.thread, W0.n), (None, {'queued': 0, 'inline': 0, 'failed': 0, 'ms': 0.0, 'max': 0.0}))
 switches('proof-off-thread')
 gate = blocked()
-core.keep_sample(shot, 'onpng'); mine = shot.copy(); core.keep_sample(mine, 'onjpg', gap=0)
+core.keep_sample(shot, 'onpng', TF); mine = shot.copy(); core.keep_sample(mine, 'onjpg', TF, gap=0)
 mine.paste(black)                                                                # the look's frame is drawn over before it's written
 check('on: the look goes on before the picture is written', [n for n in files('samples') if n.startswith('on')], [])
 gate.set()
 check('on: the writer gets through them', W0.flush(), True)
-core.keep_sample(shot.convert('RGBA'), 'onrgba'); W0.flush()
+core.keep_sample(shot.convert('RGBA'), 'onrgba', TF); W0.flush()
 names = {n.split('_')[0]: n for n in files('samples')}
 check('on: the same file names', sorted(names), ['offjpg', 'offpng', 'offrgba', 'onjpg', 'onpng', 'onrgba'])
 for kind in ('png', 'jpg', 'rgba'):
@@ -294,9 +294,9 @@ class Clock:
     def strftime(self, fmt, *a): Clock.n += 1; return f'20261110_{Clock.n:06d}'
 core.time = Clock(); series = [frame((160, 90)) for _ in range(5)]
 D.use(None); Clock.n = 0
-for im in series: core.keep_sample(im, 'runoff', gap=0, kept=2)
+for im in series: core.keep_sample(im, 'runoff', TF, gap=0, kept=2)
 switches('proof-off-thread'); Clock.n = 0
-for im in series: core.keep_sample(im, 'runon', gap=0, kept=2); W0.flush()
+for im in series: core.keep_sample(im, 'runon', TF, gap=0, kept=2); W0.flush()
 core.time = time
 off_kept = [n for n in files('samples') if n.startswith('runoff')]; on_kept = [n for n in files('samples') if n.startswith('runon')]
 check('off: the newest two of a run stay', off_kept, ['runoff_20261110_000004.jpg', 'runoff_20261110_000005.jpg'])
@@ -523,43 +523,7 @@ check('area-keep-short: guarded', "keep = self.AREA_SHORT if D.on('area-keep-sho
 check('the times', (wc.SharedCapture.AREA_KEEP, wc.SharedCapture.AREA_SHORT), (2.0, 0.3))
 D.use(None)
 
-# ---------------------------------------------------------------- helpers-below-normal
-BELOW, NORMAL = 0x4000, 0x20
-started = []
-class Helper:
-    def __init__(self, text): self.text = text; self.killed = False
-    @property
-    def stdout(self): return type('S', (), {'readline': staticmethod(lambda: 'READY\ten-US\n' if self.text else b'READY\ten-US\n')})()
-    def kill(self): self.killed = True
-class Sub:
-    """reader's subprocess module, starting nothing."""
-    def __getattr__(self, name): return getattr(subprocess, name)
-    def Popen(self, cmd, **k): started.append(k.get('creationflags', 0)); return Helper(k.get('text'))
-def launch(native):
-    o = R.Ocr.__new__(R.Ocr); o.native = native
-    R.subprocess = Sub()
-    try: return o.launch()[1], started.pop()
-    finally: R.subprocess = subprocess
-if os.name == 'nt':
-    check('off, as today: a helper starts at normal priority, no window', [launch(n) for n in (True, False)], [('en-US', subprocess.CREATE_NO_WINDOW)] * 2)
-    switches('helpers-below-normal')
-    check('on: below normal, still no window', [launch(n) for n in (True, False)], [('en-US', subprocess.CREATE_NO_WINDOW | BELOW)] * 2)
-    D.use(None)
-    # Windows takes it: a process started that way, and one already running moved there and back
-    k32.GetPriorityClass.argtypes = [ctypes.c_void_p]; k32.GetPriorityClass.restype = ctypes.c_uint32
-    def stand_in(flags=0): return subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'], stdin=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW | flags)
-    def priority(p): return k32.GetPriorityClass(int(p._handle))
-    low = stand_in(subprocess.BELOW_NORMAL_PRIORITY_CLASS); o = R.Ocr.__new__(R.Ocr); o.p = stand_in()
-    try:
-        check('a process started with the flag is below normal', priority(low), BELOW)
-        check('a running helper: to below normal', (o.set_priority(True), priority(o.p)), (True, BELOW))
-        check('...and back', (o.set_priority(False), priority(o.p)), (True, NORMAL))
-    finally:
-        for p in (low, o.p): p.stdin.close(); p.wait(10)
-o = R.Ocr.__new__(R.Ocr); o.p = None
-check('no helper: no error', (o.set_priority(True), o.set_priority(False)), (False, False))
-
-# the helpers already running follow the switch, at the meter's once-a-minute line; that line says what the switches did
+# the meter's once-a-minute line says what the switches did (helpers-below-normal, retired 14 Nov, no longer sets the helpers)
 class Reader:
     def __init__(self): self.set = []
     def set_priority(self, low): self.set.append(low); return True
@@ -568,15 +532,10 @@ def line_meter():
     m.ocr = Reader(); m.ocr_bg = type('B', (), {'ocr': Reader()})(); m.screen_bg = type('B', (), {'ocr': None})(); m.hp_ocr = Reader()
     return m, (m.ocr, m.ocr_bg.ocr, m.hp_ocr)
 def lines(n): return [s for s in said[n:] if not s.startswith('dev switches')]      # (the flag module's own line)
-m, helpers = line_meter(); m.dev_line(940.0); n = len(said)                      # (its first line: this test's work so far)
-m.dev_line(1000.0); m.dev_line(1060.0)
-check('off: the helpers are left alone, and nothing is said', ([h.set for h in helpers], lines(n)), ([[]] * 3, []))
-switches('helpers-below-normal'); m.dev_line(1120.0); m.dev_line(1180.0)
-check('on: each running helper once', [h.set for h in helpers], [[True]] * 3)
-check('...said', lines(n), ['dev helpers-below-normal: 3 of 3 OCR helpers now at Below Normal priority'])
-D.use(None); m.dev_line(1240.0); m.dev_line(1300.0)
-check('off again: back to normal, once', ([h.set for h in helpers], said[-1]), ([[True, False]] * 3, 'dev helpers-below-normal: 3 of 3 OCR helpers now at Normal priority'))
-check('helpers-below-normal: guarded', "if D.on('helpers-below-normal'): flags |= getattr(subprocess, 'BELOW_NORMAL_PRIORITY_CLASS', 0)" in source('reader.py'), True)
+m, helpers = line_meter(); m.dev_line(940.0)
+switches('helpers-below-normal'); m.dev_line(1000.0); m.dev_line(1060.0); D.use(None)
+check('retired: the helpers are left alone', [h.set for h in helpers], [[]] * 3)
+check('retired: gone from the meter', ("D.on('helpers-below-normal')" in source('reader.py') + source('live.py'), 'set_priority' in source('reader.py')), (False, False))
 
 m, _ = line_meter(); m.dev_line(940.0); n = len(said)
 check('the line: the first one says what was done so far', said[-1].startswith('dev: '), True)
@@ -594,8 +553,8 @@ check('the line: area requests with their switch, pictures with their time', re.
       'dev: 1 pictures queued, 4 area requests, 2 for more rows, pictures took N ms off the look (longest N)')
 check('the line: counts and words only', [s for s in lines(n) if not re.fullmatch(r'dev: [0-9a-zA-Z ,()]+', s)], [])
 D.use(None); wc.shared.asked = wc.shared.grown = 0
-m.ocr = None; del m.ocr_bg                                                       # (a meter half built: the line is never an error)
-switches('helpers-below-normal'); m.dev_line(1240.0); D.use(None)
+m.dev_n = 5                                                                      # (a meter half built: the line is never an error)
+m.dev_line(1240.0)
 check('the line: an error is only a line', said[-1].startswith('dev: line not written'), True)
 
 # ---------------------------------------------------------------- tabbed-out-rest

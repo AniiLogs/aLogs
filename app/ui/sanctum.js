@@ -152,20 +152,23 @@
         await invoke("save_settings", { settings });
         state.enabled = on;
         document.dispatchEvent(new CustomEvent("sanctum-enabled", { detail: on }));   // the sidebar's switch follows
-        toast(on ? "Sanctum Helper is starting" : "Sanctum Helper stopped");
+        // 14 Nov: it runs only while the game does, so with the game closed it waits for it
+        toast(!on ? "Sanctum Helper stopped" : state.gameOpen === false ? "Sanctum Helper will start with the game" : "Sanctum Helper is starting");
       } catch (error) {
         toast(String(error), true);
       }
     })));
     nodes.push(el("div", { class: "cards" },
-      card("Game", !state.running ? (state.enabled ? "Starting…" : "Off") : found ? "Found" : "Not running", found ? "Watching the game window" : "Start Aniimo to begin", found),
+      // 14 Nov, the owner's call: it starts with the game (and stops a minute after it closes), so not "Starting…" then
+      card("Game", !state.running ? (!state.enabled ? "Off" : state.waitingForGame ? "Starts with the game" : "Starting…") : found ? "Found" : "Not running", found ? "Watching the game window" : "Start Aniimo to begin", found),
       card("Egg Heist run", inRun ? "In a run" : "Not in a run", inRun ? "Run timer on screen" : "Overlays stay hidden", inRun),
       card("Difficulty", st.difficulty || "—", st.difficultySource ? `From ${st.difficultySource}` : ""),
       card("Layout", layout ? layout.title : "Not found yet", layout ? `Blue door ${layout.compass} · via ${layout.source}` : inRun ? "Explore, or open the full map" : "Found during a run", Boolean(layout)),
     ));
     nodes.push(el("div", { class: "row" },
-      el("button", { class: "primary", textContent: "New run", title: "Forget the detected layout and start fresh", onclick: () => command("new-run").then((ok) => ok && toast("New run")) }),
-      el("button", { textContent: "Position on-screen map…", onclick: () => command("position-map").then((ok) => ok && toast("Drag the map on the game screen")) }),
+      // (these two need it running: with the game closed it isn't, 14 Nov; Open log folder works either way)
+      el("button", { class: "primary", textContent: "New run", title: "Forget the detected layout and start fresh", disabled: !state.running, onclick: () => command("new-run").then((ok) => ok && toast("New run")) }),
+      el("button", { textContent: "Position on-screen map…", disabled: !state.running, onclick: () => command("position-map").then((ok) => ok && toast("Drag the map on the game screen")) }),
       el("button", { textContent: "Open log folder", onclick: () => command("open-logs") }),
     ));
     const capture = st.sharedCapture ? "Reading the game through aLogs' shared capture." : st.windowCapture === false ? "Reading the screen." : "Reading the game window.";
@@ -307,13 +310,13 @@
       group("App",
         toggle("ShowNotifications", "Notifications", "A short notice when the difficulty or the Sanctum is found. In aLogs it shows like every aLogs notice, where General Settings › Notifications puts it, whether or not the DPS meter is on."),
       ),
-      el("p", { class: "hint" }, "Sanctum Helper runs while aLogs does, unless you switch it off here, in the sidebar or with the button over the game. The game window's title and whether overlays show in recordings are set once for all of aLogs, in General Settings."),
+      el("p", { class: "hint" }, "Sanctum Helper runs while the game does: it starts with the game and stops a minute after the game closes, unless you switch it off here, in the sidebar or with the button over the game. The game window's title and whether overlays show in recordings are set once for all of aLogs, in General Settings."),
     ];
   }
   let browserLayout = 0;
   function layoutsTab() {
     const layouts = info().layouts || [];
-    if (!layouts.length) return [el("p", { class: "hint" }, state.running ? "Loading the layouts…" : "The layout browser needs Sanctum Helper running.")];
+    if (!layouts.length) return [el("p", { class: "hint" }, state.running ? "Loading the layouts…" : state.waitingForGame ? "The layout browser needs Sanctum Helper running: it starts with the game." : "The layout browser needs Sanctum Helper running.")];
     if (!layouts.some((l) => l.number === browserLayout)) browserLayout = layouts[0].number;
     const picked = layouts.find((l) => l.number === browserLayout);
     const image = el("img", { class: "layout-image", alt: picked.title });
@@ -355,7 +358,7 @@
   /** Redraws the active tab. Live-only tabs (status, hotkeys) redraw on every poll; the rest only when asked or
    *  when what they show changes, so a slider being dragged isn't rebuilt under the mouse. */
   function draw(force = false) {
-    const key = JSON.stringify([activeTab, state.running, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
+    const key = JSON.stringify([activeTab, state.running, state.waitingForGame, state.standaloneRunning, state.enabled, Boolean(state.info?.layouts),
       activeTab === "status" || activeTab === "overlay" ? state.status : null,
       activeTab === "general" ? state.status?.ocrMissingLanguage : null]);
     if (!force && key === rendered) return;

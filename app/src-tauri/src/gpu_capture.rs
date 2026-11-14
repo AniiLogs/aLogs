@@ -11,8 +11,9 @@
 
 use windows::core::{Interface, Result, HSTRING};
 use windows::Foundation::Metadata::ApiInformation;
+use windows::Foundation::TimeSpan;
 use windows::Graphics::Capture::{
-    Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind, GraphicsCaptureItem,
+    Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind, GraphicsCaptureItem,
     GraphicsCaptureSession,
 };
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
@@ -22,10 +23,10 @@ use windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessSt
 use windows::Win32::Foundation::{E_FAIL, HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11ShaderResourceView, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
+    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Query, ID3D11ShaderResourceView, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
     D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_RESOURCE_MISC_GENERATE_MIPS,
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING,
+    D3D11_QUERY_DESC, D3D11_QUERY_EVENT, D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
@@ -136,6 +137,14 @@ pub struct Gpu {
     /// General Settings › Performance › Screen capture on the graphics card = Lowest: this device's work on the card
     /// goes behind the game's (LOW_PRIORITY).
     low: bool,
+    /// Dev switch capture-frame-hold (window capture; 14 Nov, the owner's call to try it): the frame Windows handed
+    /// over, kept open as the image (`cache` is its own texture, `borrowed`), so the whole frame isn't first copied on
+    /// the card. None with the switch off, and on Desktop Duplication.
+    frame: Option<Direct3D11CaptureFrame>,
+    /// ...and the frames it replaced, each closed (back to Windows, which draws the next frame into it) only once the
+    /// card has done every copy queued from it: an event query issued after the last of them reports done. Closed
+    /// any sooner, an area still being copied could come out half old frame, half new.
+    retiring: Vec<(Direct3D11CaptureFrame, ID3D11Query)>,
 }
 
 impl Gpu {
@@ -154,6 +163,76 @@ impl Gpu {
             lost: false,
             starved: None,
             low: false,
+            frame: None,
+            retiring: Vec::new(),
+        }
+    }
+
+    /// Dev switch capture-frame-hold: window capture's `frame` (its texture `source`, the window's `width` x `height`
+    /// of it) is the newest image as it is, with no copy of the whole frame on the card; areas are copied straight out
+    /// of it. The frame it replaces is retired (closed once its copies are done).
+    fn hold_frame(&mut self, frame: Direct3D11CaptureFrame, source: &ID3D11Texture2D, width: u32, height: u32) -> Result<()> {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { source.GetDesc(&mut desc) };
+        if desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM {
+            return Err(E_FAIL.into()); // (as store: not readable as is)
+        }
+        // the old frame retired first (nothing is asked of the card between that and the image moving on, so its
+        // query comes after every copy out of it); if it can't be, the old frame stays the image, open
+        self.retire_frame()?;
+        self.cache = Some((source.clone(), width.min(desc.Width), height.min(desc.Height)));
+        (self.borrowed, self.lost, self.starved) = (true, false, None);
+        self.frame = Some(frame);
+        self.generation += 1;
+        Ok(())
+    }
+
+    /// The held frame (if any) is no longer the image: an event query after everything asked of the card so far
+    /// (so after every copy out of it), and it waits in `retiring` until that's done.
+    fn retire_frame(&mut self) -> Result<()> {
+        let Some(frame) = self.frame.take() else { return Ok(()) };
+        let mut query = None;
+        let made = unsafe { self.device.CreateQuery(&D3D11_QUERY_DESC { Query: D3D11_QUERY_EVENT, MiscFlags: 0 }, Some(&mut query)) };
+        match (made, query) {
+            (Ok(()), Some(query)) => {
+                unsafe {
+                    self.context.End(&query);
+                    self.context.Flush();
+                }
+                self.retiring.push((frame, query));
+                Ok(())
+            }
+            (made, _) => {
+                // no way to know when its copies are done: kept (never closed early) until the capture starts again
+                self.frame = Some(frame);
+                Err(made.err().unwrap_or_else(|| E_FAIL.into()))
+            }
+        }
+    }
+
+    /// Closes the retired frames whose copies the card has done, without waiting. Returns how many are still busy.
+    fn retire_done(&mut self) -> usize {
+        let context = &self.context;
+        self.retiring.retain(|(frame, query)| {
+            let mut done = 0i32; // the event query's answer, a BOOL: written only once it's done
+            let asked = unsafe { context.GetData(query, Some(&mut done as *mut i32 as *mut _), std::mem::size_of::<i32>() as u32, 0) };
+            // an error is a lost device: nothing it queued will be done, and the capture starts again
+            let finished = asked.is_err() || done != 0;
+            if finished {
+                let _ = frame.Close();
+            }
+            !finished
+        });
+        self.retiring.len()
+    }
+
+    /// Every frame still open goes back to Windows (the window capture closing).
+    fn close_frames(&mut self) {
+        if let Some(frame) = self.frame.take() {
+            let _ = frame.Close();
+        }
+        for (frame, _) in self.retiring.drain(..) {
+            let _ = frame.Close();
         }
     }
 
@@ -299,6 +378,12 @@ impl Gpu {
     /// KEEP_QUEUED, then it's dropped and started again.
     pub fn end_round(&mut self) {
         self.give_back();
+        // capture-frame-hold: a replaced frame back to Windows as soon as its copies are done (the round's reads
+        // waited for the card), so the pool has its buffer for the next frame before the next round (nothing to do
+        // with the switch off)
+        if !self.retiring.is_empty() {
+            self.retire_done();
+        }
         self.queued.retain(|q| q.4.elapsed() < KEEP_QUEUED);
     }
 
@@ -532,6 +617,24 @@ pub struct WindowCapture {
     pool: Direct3D11CaptureFramePool,
     session: GraphicsCaptureSession,
     size: SizeInt32,
+    /// Dev switch capture-frame-hold: the fastest due reader's interval (ms, from capture.rs), and the session's
+    /// MinUpdateInterval as set from it (None: never set, Windows' own), or whether setting it failed.
+    fastest: Option<u64>,
+    interval_set: Option<u64>,
+    interval_failed: bool,
+    /// Frames held, frames copied, and updates that found a replaced frame still being copied from; app.log once a
+    /// minute while holding.
+    counts: [u32; 3],
+    counted_since: std::time::Instant,
+}
+
+/// capture-frame-hold: whether this Windows has GraphicsCaptureSession.MinUpdateInterval (Windows 11 24H2 and later).
+fn min_interval_supported() -> bool {
+    static KNOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *KNOWN.get_or_init(|| {
+        ApiInformation::IsPropertyPresent(&HSTRING::from("Windows.Graphics.Capture.GraphicsCaptureSession"), &HSTRING::from("MinUpdateInterval"))
+            .unwrap_or(false)
+    })
 }
 
 impl WindowCapture {
@@ -573,11 +676,86 @@ impl WindowCapture {
         }
         let _ = session.SetIsCursorCaptureEnabled(false);
         session.StartCapture()?;
-        Ok(WindowCapture { gpu: Gpu::new(d3d, context), device, pool, session, size })
+        Ok(WindowCapture {
+            gpu: Gpu::new(d3d, context),
+            device,
+            pool,
+            session,
+            size,
+            fastest: None,
+            interval_set: None,
+            interval_failed: false,
+            counts: [0; 3],
+            counted_since: std::time::Instant::now(),
+        })
+    }
+
+    /// The fastest reader's interval now (ms; capture.rs, every round): with capture-frame-hold on, the session's
+    /// MinUpdateInterval follows it (update). Unused with the switch off.
+    pub fn fastest_reader(&mut self, ms: Option<u64>) {
+        self.fastest = ms;
+    }
+
+    /// capture-frame-hold: Windows hands over a new frame no more often than the fastest reader asks for one, where it
+    /// can be told (min_interval_supported); set only when that interval changes.
+    fn follow_fastest(&mut self) {
+        let Some(ms) = self.fastest else { return };
+        if self.interval_set == Some(ms) || self.interval_failed || !min_interval_supported() {
+            return;
+        }
+        match self.session.SetMinUpdateInterval(TimeSpan { Duration: ms as i64 * 10_000 }) {
+            Ok(()) => {
+                if self.interval_set.is_none() {
+                    crate::app_log(&format!("capture: frame-hold: window capture's update interval follows the fastest reader ({ms} ms now)"));
+                }
+                self.interval_set = Some(ms);
+            }
+            Err(e) => {
+                self.interval_failed = true;
+                crate::app_log(&format!("capture: frame-hold: window capture's update interval not set ({e})"));
+            }
+        }
+    }
+
+    /// One more frame held (0), copied (1) or update with a replaced frame still being copied from (2); once a minute,
+    /// if any was held, app.log says how many of each, so a test can tell what the switch did.
+    fn count(&mut self, what: usize) {
+        self.counts[what] += 1;
+        if self.counted_since.elapsed().as_secs() >= 60 {
+            if self.counts[0] > 0 {
+                let [held, copied, busy] = self.counts;
+                let interval = self.interval_set.map_or("Windows' own".to_string(), |ms| format!("{ms} ms"));
+                crate::app_log(&format!(
+                    "capture: frame-hold, last minute: {held} frames held, {copied} copied, {busy} updates with a replaced frame still being copied from; update interval {interval}"
+                ));
+            }
+            (self.counts, self.counted_since) = ([0; 3], std::time::Instant::now());
+        }
     }
 
     /// Takes the newest window image if there is one. Ok(false): nothing new since the last.
+    ///
+    /// Dev switch capture-frame-hold (14 Nov): instead of copying every new frame whole into a texture of our own and
+    /// closing it at once, the newest frame stays open as the image and the readers' areas are copied out of it; it's
+    /// closed only once a newer frame has come and the card has done every copy queued from it (Gpu::retire_frame),
+    /// while the pool's other buffer takes the next frame. Off: exactly as before.
     pub fn update(&mut self) -> Result<bool> {
+        self.update_as(crate::dev::on("capture-frame-hold"))
+    }
+
+    /// `hold`: the Dev switch capture-frame-hold (update).
+    fn update_as(&mut self, hold: bool) -> Result<bool> {
+        if !hold && self.interval_set.is_some() {
+            // turned off after it set the session's update interval: a new session, as Windows starts one
+            crate::app_log("capture: frame-hold off: window capture starts again at Windows' own update interval");
+            return Err(E_FAIL.into());
+        }
+        if !self.gpu.retiring.is_empty() && self.gpu.retire_done() > 0 {
+            self.count(2);
+        }
+        if hold {
+            self.follow_fastest();
+        }
         // the pool hands frames out oldest first: take all that are waiting and keep the newest (one at a time,
         // a picture was up to two reader turns old while stamped as new)
         let mut newest = None;
@@ -600,24 +778,39 @@ impl WindowCapture {
             let age = std::time::Duration::from_nanos(((now_100ns - t.Duration).max(0) as u64).saturating_mul(100));
             std::time::Instant::now().checked_sub(age.min(std::time::Duration::from_secs(60)))
         });
+        let mut kept = false; // capture-frame-hold: the frame is the image now, closed later (retire_done)
         let result = (|| {
             let content = frame.ContentSize()?;
             let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
             let texture: ID3D11Texture2D = unsafe { access.GetInterface()? };
-            self.gpu.store(&texture, content.Width.max(1) as u32, content.Height.max(1) as u32)?;
-            if content.Width != self.size.Width || content.Height != self.size.Height {
+            let resized = content.Width != self.size.Width || content.Height != self.size.Height;
+            // (a resized window's frame is copied, as before: the pool is made again at the new size just below)
+            if hold && !resized {
+                self.gpu.hold_frame(frame.clone(), &texture, content.Width.max(1) as u32, content.Height.max(1) as u32)?;
+                kept = true;
+            } else {
+                self.gpu.store(&texture, content.Width.max(1) as u32, content.Height.max(1) as u32)?;
+                self.gpu.retire_frame()?; // a frame held before (the switch just turned off, or a resize): retired
+            }
+            if resized {
                 self.size = content; // the window was resized: buffers at the new size from now on
                 self.pool.Recreate(&self.device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, content)?;
             }
             Ok(true)
         })();
-        let _ = frame.Close();
+        if !kept {
+            let _ = frame.Close();
+        }
+        if hold && result.is_ok() {
+            self.count(if kept { 0 } else { 1 });
+        }
         result
     }
 }
 
 impl Drop for WindowCapture {
     fn drop(&mut self) {
+        self.gpu.close_frames(); // capture-frame-hold: nothing reads from them any more
         let _ = self.session.Close();
         let _ = self.pool.Close();
     }
@@ -720,6 +913,54 @@ mod tests {
             }
             println!(
                 "hold {hold}: screen {w}x{h}, 300 rounds: {new} new images ({held} rounds holding), {none} without; {read} areas read, {waiting} not yet; update {:.3} ms, read {:.3} ms a round",
+                in_update.as_secs_f64() * 1000.0 / 300.0,
+                in_read.as_secs_f64() * 1000.0 / 300.0,
+            );
+        }
+    }
+
+    /// Dev switch capture-frame-hold against the copy, on window capture of the window in front (Windows 11; with
+    /// the yellow border elsewhere): `cargo test --release --bins frame_hold -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn frame_hold_speed() {
+        unsafe {
+            windows::Win32::UI::HiDpi::SetThreadDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        for hold in [false, true, false, true] {
+            let mut w = WindowCapture::new(hwnd, true).expect("window capture");
+            w.fastest_reader(Some(16));
+            let started = std::time::Instant::now();
+            while !w.gpu.has_image() && started.elapsed().as_secs() < 3 {
+                w.update_as(hold).expect("update");
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+            let (iw, ih) = w.gpu.size();
+            let (aw, ah) = (iw.min(600), ih.min(400));
+            let mut buf = vec![0u8; (aw * ah * 4) as usize];
+            let (mut new, mut none, mut read, mut waiting, mut busy) = (0, 0, 0, 0, 0);
+            let (mut in_update, mut in_read) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+            for round in 0..300u32 {
+                let t = std::time::Instant::now();
+                if w.update_as(hold).expect("update") { new += 1 } else { none += 1 }
+                in_update += t.elapsed();
+                busy += w.gpu.retiring.len();
+                let x = (round * 7) % (iw - aw).max(1);
+                let t = std::time::Instant::now();
+                if w.gpu.ready(x, 0, aw, ah, 1).expect("ready") {
+                    w.gpu.read(x, 0, aw, ah, buf.as_mut_ptr(), aw as usize * 4, 1).expect("read");
+                    read += 1;
+                } else {
+                    waiting += 1;
+                }
+                in_read += t.elapsed();
+                w.gpu.end_round();
+                assert!(w.gpu.retiring.len() <= 1, "frames pile up");
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+            println!(
+                "hold {hold}: window {iw}x{ih}, 300 rounds: {new} new frames, {none} without; {read} areas read, {waiting} not yet; {busy} rounds with a frame still retiring; update {:.3} ms, read {:.3} ms a round",
                 in_update.as_secs_f64() * 1000.0 / 300.0,
                 in_read.as_secs_f64() * 1000.0 / 300.0,
             );

@@ -554,16 +554,10 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
 
     def dev_line(self, now):
         """Once a minute, with the load line: what the look loop's Dev switches did since the last line (counts and
-        milliseconds only), so a tester's log shows each one working; nothing while none of them did anything. Also
-        where the OCR helpers already running follow helpers-below-normal (new ones start that way: Ocr.launch)."""
+        milliseconds only), so a tester's log shows each one working; nothing while none of them did anything. (The
+        Dev switch helpers-below-normal is retired, 14 Nov, the owner's call: the OCR helpers' priority is General ›
+        Priority's, which aLogs sets: main.rs set_helpers_priority.)"""
         try:
-            low = D.on('helpers-below-normal')
-            if low != getattr(self, 'helpers_low', False):
-                self.helpers_low = low
-                hs = [o for o in (self.ocr, getattr(self.ocr_bg, 'ocr', None), getattr(self.screen_bg, 'ocr', None),
-                                  getattr(self, 'hp_ocr', None)) if getattr(o, 'set_priority', None)]
-                log.info(f"dev helpers-below-normal: {sum(bool(o.set_priority(low)) for o in hs)} of {len(hs)} OCR helpers now at "
-                         f"{'Below Normal' if low else 'Normal'} priority")
             w = WRITER.n; n = getattr(self, 'dev_n', None) or {}
             cur = {'pictures queued': w['queued'], 'pictures saved in the look': w['inline'], 'pictures failed': w['failed'],
                    'calm looks': n.get('calm', 0), 'whole frames after a match': n.get('quiet_whole', 0),
@@ -724,7 +718,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         self.egg_rank_watch(im, heads, now)
         self.screens_gone(now)
         self.egg_gone(now)
-        if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: keep_sample(im, 'egg_after', gap=3, kept=15)
+        if now - getattr(self, 'egg_sent_at', 0) < self.EGG_AFTER_S: keep_sample(im, 'egg_after', live_cfg(self), gap=3, kept=15)
         # a screen the meter reads is up: its readers look at more of the frame than the boxes. A frame of only the
         # boxes (screen_parts) is read again whole at once; whole frames go on until FULL_HOLD_S after the last one
         party = self.party_up(heads, now)
@@ -808,7 +802,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
     def prep_screen(self, im, now, u, ux, H, pill):
         """Battle prep screen of one boss: its name top-left, 'Best score: 24459 | (star) 15' top-right."""
         if now - self.stats_seen < 2: return
-        self.stats_seen = now; keep_sample(im, 'prep')      # its boss name stopped reading after the Whisperwake update
+        self.stats_seen = now; keep_sample(im, 'prep', live_cfg(self))      # its boss name stopped reading after the Whisperwake update
         t = self.ocr.read({'n': R.prep_text(im, (ux + u * 0.065, H * 0.025, ux + u * 0.3, H * 0.085), u / 2000),
                            'label': R.prep_label(im, u, ux, H)})
         name = t.get('n', '')
@@ -951,7 +945,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         and fix its own misreads. `names`: party_names' pills, already read (names_first)."""
         if now - getattr(self, 'party_seen', 0) < 2: return
         self.party_seen = now; k = u / 2000
-        keep_sample(im, 'party')
+        keep_sample(im, 'party', live_cfg(self))
         box = lambda a, b, c, d: (ux + u * a, H * b, ux + u * c, H * d)
         crops = dict(names[0]) if names else self.party_names(im, u, ux, H)
         crops.update({f'a{i}': R.prep_grey(im, box(*s), k) for i, s in enumerate(self.PARTY_CARDS)})

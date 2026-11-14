@@ -588,10 +588,18 @@ SAMPLES_KEPT = 5           # pictures of each kind in logs/samples (the newest);
 SAMPLE_GAP = 600           # seconds between two samples of one kind (one a run, not one a read)
 _sample_at = {}
 
-def keep_sample(im, kind, gap=None, kept=None):
+def live_cfg(meter):
+    """The meter's live settings (args.cfg, which reload_settings replaces), or None for a meter built without them
+    (a test's): what keep_sample is given, so it reads Save test pictures as it is now."""
+    return getattr(getattr(meter, 'args', None), 'cfg', None)
+
+def keep_sample(im, kind, cfg=None, gap=None, kept=None):
     """A few full-size pictures of the screens the readers depend on (the Party screen, an Interlink fight's HUD),
     kept on this PC so a changed screen can be checked against real pictures later: the newest SAMPLES_KEPT of each
-    kind, as PNG at the game's own size. Never sent anywhere."""
+    kind, as PNG at the game's own size. Never sent anywhere. `cfg`: the live settings (args.cfg); saved only while
+    Captures & logs › Save test pictures (capture.test_frames) is on, like every other test picture - nothing reads
+    them back, they're for a developer's eyes (14 Nov, the owner's call; they used to be kept for everyone)."""
+    if not ((cfg or {}).get('capture') or {}).get('test_frames'): return
     now = time.time()
     if now - _sample_at.get(kind, 0) < (SAMPLE_GAP if gap is None else gap): return
     _sample_at[kind] = now
@@ -843,4 +851,4 @@ OVERLAY_REDRAW = 0.25   # s between redraws of the overlay's numbers (4 a second
 BAR_HIDDEN = 0.5   # s without the game's boss bar before the labels around it are hidden too
 
 # everything above, for the plug-ins (from core import *), underscored names and the imported modules too
-__all__ = ['AWAY_INTERVAL', 'BAR_GONE_GRACE', 'BAR_GONE_S', 'BAR_HIDDEN', 'BAR_SPOT', 'BATTLE_DATA_PAUSE', 'C', 'CENTER_STARS', 'CHARACTERS', 'CLEAR_STARS', 'CONFIRM_GAP', 'CT', 'CpuLoad', 'E', 'FIGHT_LOG_DAYS', 'HERE', 'HOMELAND_SCENE', 'HP_GRADIENT', 'IDLE_INTERVAL', 'IMAGE_TYPES', 'INK_MIN', 'Image', 'ImageChops', 'ImageDraw', 'ImageFont', 'ImageOps', 'ImageStat', 'InputBlock', 'FocusGuard', 'K', 'KEEP_FOLDERS', 'LEFTOVER_HOURS', 'LogWatcher', 'METER_LOG', 'NOTICES', 'NO_ENGLISH_READS', 'OCR_RECHECK', 'OCR_SAY_AGAIN', 'PluginFormatter', 'OVERLAY_REDRAW', 'OcrWorker', 'PLAYER_LOG', 'PictureWriter', 'WRITER', 'picture_job', 'top_sig_direct', 'Presence', 'R', 'RX_SPACE_UID', 'RX_UID', 'S', 'SAMPLES_KEPT', 'SAMPLE_GAP', 'SETTINGS', 'STAR_CAPS', 'STEADY_ALIKE', 'STEADY_SEEN', 'TEAM', 'TEAMMATES', 'TEST_FRAME_BYTES', 'TEST_FRAME_DAYS', 'TEXT_DIAGNOSTICS', 'TOP_PART', 'Teammates', 'X', '_characters_file', '_last_status', '_meter', '_sample_at', '_status_logged', 'argparse', 'boss_row', 'character_verified', 'clean_old_fight_logs', 'clean_old_screenshots', 'clean_test_frames', 'clear_stars', 'collections', 'console_out', 'csv', 'ctypes', 'difflib', 'fmt', 'hp_colour', 'interlink_score', 'json', 'keep_sample', 'known_characters', 'last_rush_level', 'last_uid', 'load_korean_names', 'load_positions', 'log', 'logging', 'math', 'meter_mode', 'PLUGINS', 'HEALTH', 'SwitchWatch', 'guarded', 'notice_owners', 'switched_on', 'ocr_language_note', 'os', 'party_pill', 'pcstats', 'platform', 'queue', 're', 'refresh_cycles', 'same_name', 'save_picture', 'scene_of', 'screen_changed', 'screen_sig', 'screenshot_cleanup', 'setup_log', 'star_caps', 'stop_handles', 'sys', 'threading', 'time', 'uid_in', 'upload_cycles', 'wc']
+__all__ = ['AWAY_INTERVAL', 'BAR_GONE_GRACE', 'BAR_GONE_S', 'BAR_HIDDEN', 'BAR_SPOT', 'BATTLE_DATA_PAUSE', 'C', 'CENTER_STARS', 'CHARACTERS', 'CLEAR_STARS', 'CONFIRM_GAP', 'CT', 'CpuLoad', 'E', 'FIGHT_LOG_DAYS', 'HERE', 'HOMELAND_SCENE', 'HP_GRADIENT', 'IDLE_INTERVAL', 'IMAGE_TYPES', 'INK_MIN', 'Image', 'ImageChops', 'ImageDraw', 'ImageFont', 'ImageOps', 'ImageStat', 'InputBlock', 'FocusGuard', 'K', 'KEEP_FOLDERS', 'LEFTOVER_HOURS', 'LogWatcher', 'METER_LOG', 'NOTICES', 'NO_ENGLISH_READS', 'OCR_RECHECK', 'OCR_SAY_AGAIN', 'PluginFormatter', 'OVERLAY_REDRAW', 'OcrWorker', 'PLAYER_LOG', 'PictureWriter', 'WRITER', 'picture_job', 'top_sig_direct', 'Presence', 'R', 'RX_SPACE_UID', 'RX_UID', 'S', 'SAMPLES_KEPT', 'SAMPLE_GAP', 'SETTINGS', 'STAR_CAPS', 'STEADY_ALIKE', 'STEADY_SEEN', 'TEAM', 'TEAMMATES', 'TEST_FRAME_BYTES', 'TEST_FRAME_DAYS', 'TEXT_DIAGNOSTICS', 'TOP_PART', 'Teammates', 'X', '_characters_file', '_last_status', '_meter', '_sample_at', '_status_logged', 'argparse', 'boss_row', 'character_verified', 'clean_old_fight_logs', 'clean_old_screenshots', 'clean_test_frames', 'clear_stars', 'collections', 'console_out', 'csv', 'ctypes', 'difflib', 'fmt', 'hp_colour', 'interlink_score', 'json', 'keep_sample', 'live_cfg', 'known_characters', 'last_rush_level', 'last_uid', 'load_korean_names', 'load_positions', 'log', 'logging', 'math', 'meter_mode', 'PLUGINS', 'HEALTH', 'SwitchWatch', 'guarded', 'notice_owners', 'switched_on', 'ocr_language_note', 'os', 'party_pill', 'pcstats', 'platform', 'queue', 're', 'refresh_cycles', 'same_name', 'save_picture', 'scene_of', 'screen_changed', 'screen_sig', 'screenshot_cleanup', 'setup_log', 'star_caps', 'stop_handles', 'sys', 'threading', 'time', 'uid_in', 'upload_cycles', 'wc']
