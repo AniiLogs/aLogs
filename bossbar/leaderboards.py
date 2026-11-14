@@ -16,7 +16,6 @@ EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to it
 RESULT_PAUSE = 5                    # seconds the automatic Battle Data session stays on the result screen before clicking,
 SIM_GATE_GONE = 3           # s with the exit gate's button gone before a press no longer counts as ending the run
 SIM_PRESS_EARLY = 1.0       # s before the exit gate's button was first seen that a press still counts (it shows first)
-SIM_GATE_PRESSED = 0.5      # s with the exit gate's button gone (after it was up) that count as your press of it
 SIM_VICTORY_WAIT = 8        # s after your press at the exit gate for the Victory screen (it comes in ~1 s) before control comes back
 HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 
@@ -266,17 +265,11 @@ class LeaderboardsMixin:
         if up:
             if not gate.get('first_up'):
                 gate['first_up'] = now; log.info('Holo-Battle Sim: the exit gate button is up; watching for your Y or F')
-            gate['up_at'] = now; gate['gone'] = None
-        elif gate.get('first_up'):
-            # the button gone after it was up: you pressed it (the owner, 13 Nov: take control as soon as it goes away;
-            # a press the watch missed counts too). Gone for SIM_GATE_PRESSED, so one look that misses it isn't one.
-            # Walking away hides it too: then no Victory screen comes and control comes back after SIM_VICTORY_WAIT.
-            gate['gone'] = gate.get('gone') or now
-            if now - gate['gone'] >= SIM_GATE_PRESSED:
-                watch.stop(); gate['used'] = now
-                ctl = self.sim_control(now, 'the exit gate button went away (your press)')
-                ctl.update(stage='gate', done=now); gate['first_up'] = gate['up_at'] = gate['gone'] = None
-                log.info('Holo-Battle Sim: waiting for the Victory screen')
+            gate['up_at'] = now
+        # (13 Nov: the button going away isn't a press - the game hides its whole HUD for moments at the gate, and that
+        # took control three times while the player only stood there. The loading screen after the press is the sign.)
+        elif gate.get('first_up') and now - gate['up_at'] > SIM_GATE_GONE:
+            gate['first_up'] = gate['up_at'] = None               # walked away from the gate: no press counts now
 
     def sim_tour_start(self, now):
         """After a Holo-Battle Sim win, open the Gizmo screen and read every gizmo picked (All), keeping pictures of
