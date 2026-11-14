@@ -1350,7 +1350,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             have = {m['slot']: m for m in self.party['members']}
             got = {m['slot'] for m in members}
             missed = self.party.get('missed', {})
-            keep = [dict(m) for s, m in have.items() if s not in got and not missed.get(s)]
+            keep = [dict(m, kept=True) for s, m in have.items() if s not in got and not missed.get(s)]
             if keep: members = sorted(members + keep, key=lambda m: m['slot'])
             self.missed_now = {s: 1 for s in have if s not in got}
         # the same party is read every few seconds: keep each slot's most common reading (OCR slips now and then)
@@ -1364,9 +1364,39 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             for m in members:
                 if not m['self'] and was.get(m['slot'], {}).get('self') and was[m['slot']]['name'] == m['name']:
                     m['self'] = True; m['ai'] = False
+        # AI: a sign read on two reads, never on one. The Party screen's AI is a card with no CP read (or the old prep
+        # screen's 'Ai' badge), and a CP missed on one read (an effect over the card) marked a real player AI for the run
+        # (14 Nov: a human teammate went as AI). So a slot's player is AI once two reads say so and none read their CP
+        # (a CP is only ever on a real player's card); one of the game's own AI teammates by name (INTERLINK_NPCS) at once
+        recent = self.party and now - self.party['at'] < 900
+        signs = {k: list(v) for k, v in self.party.get('ai_signs', {}).items()} if recent else {}
+        for m in members:
+            if m.get('kept'): continue                  # a slot this read missed keeps what it had
+            key = (m['slot'], TEAM.fold(m['name']))
+            tally = signs.setdefault(key, [0, 0])       # reads that said AI, reads that said a real player
+            tally[0 if m['ai'] else 1] += 1
+            m['ai'] = not m['self'] and ((tally[0] >= 2 and tally[1] == 0) or (m['ai'] and m['name'].casefold() in INTERLINK_NPCS))
+        # One player in one slot only: the same name in two slots is one read's badge misread (a '2P' as '3P') next to the
+        # slot kept from a read before (14 Nov: one teammate in slots 2 and 3, the run sent with them twice). The slot whose
+        # pill sits in its own place keeps the name (then you, a slot read this time, the commoner read); the other copy
+        # goes when it was only kept, else its name is left blank: a blank is better than the same player twice
+        groups = {}
+        for m in members:
+            if m['name']: groups.setdefault(TEAM.fold(m['name']), []).append(m)
+        drop = []
+        for same_name_ in (g for g in groups.values() if len(g) > 1):
+            best = max(same_name_, key=lambda m: (m.get('pill', m['slot']) == m['slot'], bool(m['self']), not m.get('kept'),
+                                                  votes.get(m['slot'], {}).get(m['name'], 0)))
+            for m in same_name_:
+                if m is best: continue
+                log.info(f"party: {m['name']!r} in slot {m['slot'] + 1} too, kept in slot {best['slot'] + 1}: slot {m['slot'] + 1} left {'out' if m.get('kept') else 'blank'}")
+                if m.get('kept'): drop.append(m)
+                else: m.update(name='', ai=False, self=False)
+        members = [m for m in members if not any(m is d for d in drop)]
+        for m in members: m.pop('kept', None)
         counted = self.party.get('counted', set()) if same else set()
         for m in members:
-            if m['self'] or m['ai']: continue
+            if m['self'] or m['ai'] or not m['name']: continue
             clear = votes[m['slot']][m['name']] >= 3
             m['name'] = TEAM.steady(m['name'])
             if clear and m['slot'] not in counted: TEAM.saw(m['name']); counted.add(m['slot'])
@@ -1387,7 +1417,7 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             mine = next((m['slot'] for m in members if m['self']), None)
             if mine is not None and kept['teams'][mine]: kept['team'] = kept['teams'][mine]
         self.party = {'at': now, 'members': members, 'votes': votes, 'counted': counted, **kept,   # the icon reads carry on too
-                      'missed': getattr(self, 'missed_now', {})}
+                      'missed': getattr(self, 'missed_now', {}), 'ai_signs': signs}
         if changed:
             log.info('party: ' + ', '.join(f"{m['name']}{' (AI)' if m['ai'] else ''}{' (you)' if m['self'] else ''}"
                                            + (f" [{m.get('aniimo') or '?'}{' as ' + repr(m['nickname']) if m.get('nickname') and m['nickname'] != m.get('aniimo') else ''}"

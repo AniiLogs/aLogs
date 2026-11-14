@@ -237,7 +237,9 @@ def party_slots(players, party, sure=(), you=None, agreed=()):
         for p in players:
             if p.get('name') and not p.get('self'): p['name'] = TEAM.steady(p['name'])
         return
-    by_slot = {m['slot']: m for m in party}
+    # a slot the Party screen left blank (its name was another slot's too: Meter.set_party) gives no name
+    by_slot = {m['slot']: m for m in party if m.get('name')}
+    party = list(by_slot.values())
     sim = lambda a, b: difflib.SequenceMatcher(None, TEAM.fold(a), TEAM.fold(b)).ratio()
     taken, rest = set(), []                      # members (by slot) given to a column; the columns left to settle
     # the Party screen's you: its mark, or your name. Its vote keeps a slot's commonest name but the last read's mark,
@@ -263,7 +265,7 @@ def party_slots(players, party, sure=(), you=None, agreed=()):
             p.update(name=you, ai=False, self=True); taken.update(mine)
         elif p['slot'] in sure and len(own) == 1 and own.isascii() and own.isalnum():
             if m and m['name'] != own: log.info(f"result: column {p['slot'] + 1} reads {own!r} (sure), not the Party screen's {m['name']!r}")
-            p.setdefault('ai', False)
+            p.setdefault('ai', False); p['sure'] = True          # (the lineup takes this name for its slot: submit._lineup)
         else: rest.append(p)
     def named(p):                                # the free member this column clearly reads, when not its slot's
         m = by_slot.get(p['slot'])

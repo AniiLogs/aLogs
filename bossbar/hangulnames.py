@@ -66,6 +66,29 @@ def lone_latin(letters):
     return c if len(c) == 1 and c.isascii() and c.isalnum() and p >= LONE_P else ''
 
 
+def looks_hangul(letters):
+    """True when the Korean model's own best letters read as a Korean word: two Hangul letters or more, or one whole
+    syllable, and at least half of what it read. Without the game's fonts (KoreanNames off: the game install not
+    found) nothing can settle such a name, and the Latin read of that box is a Latin look-alike, not the name (14 Nov:
+    a jamo-only name went as one Latin letter on one PC, as a 4-letter Latin word on both screens of another run)."""
+    if not letters: return False
+    best = [picks[0][0] for _, picks in letters if picks]
+    hangul = [c for c in best if is_hangul(c)]
+    return bool(hangul) and 2 * len(hangul) >= len(best) and (len(hangul) >= 2 or any('가' <= c <= '힣' for c in hangul))
+
+
+def ink_pieces(img):
+    """How many separate pieces of letter-sized ink a tidied name box (tidy()) holds, left to right: runs of inked
+    columns at least half as tall as the tallest (a dot or a speck isn't one). One Latin letter or digit is one piece;
+    a name of two jamo (ㄴㄱ) is two, which a Latin read can take for one letter (14 Nov: read as 'L')."""
+    if img is None: return 0
+    mask = img.convert('L').point(lambda v: 255 if v < INK else 0)
+    runs = _runs(mask)
+    if not runs: return 0
+    tall = max(r[3] - r[2] for r in runs)
+    return sum(1 for r in runs if r[3] - r[2] >= tall / 2 and r[1] - r[0] >= 2)
+
+
 def clean_latin(text):
     """The Latin model's read of a name box without what follows the name: a voice or ready icon read as a circled
     number or a mark ('Soul_ShadowXD①', 'Neg③.')."""
@@ -171,6 +194,8 @@ class KoreanNames:
         s, v and z, and the font's best fit was right for every letter and digit."""
         c = lone_latin(letters)
         if not c: return ''
+        # one character is one piece of ink: two pieces are a longer name the model saw part of (ㄴㄱ as 'L')
+        if ink_pieces(img) != 1: return ''
         mask = img.convert('L').point(lambda v: 255 if v < INK else 0)
         box = mask.getbbox()
         if not box: return ''

@@ -13,6 +13,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Sanctum Helper says the difficulty you chose each time you open the party screen** ("Normal Mode chosen."), not only when it changes.
 
 ### Fixed
+- **Players' names read more carefully:** a Korean name is no longer sent as a Latin word on a PC where it can't be read (it's left blank and read again), one player can't fill two Party slots, a player is only marked AI after two reads agree, and the Party screen's names are checked against the result screen's, so a misread one takes the result screen's name.
 - **aLogs opens again from the tray:** after you had visited the Site tab, closing aLogs to the tray and then clicking its tray icon or Open did nothing; it comes back now.
 - **Your Aniimo are known by their picture, not their name:** now that Aniimo can be given their own names, the lead Aniimo on each Party screen card is read from its head portrait, like the team below it, so the right species goes with your runs and Egg Heist matches whatever you called them.
 - **Sanctum Helper keeps your place on the map:** after you close the in-game map it no longer moves you to a spot it only guessed, and when you leave a Sanctum it looks at all ten island doors and puts you at the one you went in by, not at some other blue door.
