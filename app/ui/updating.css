@@ -19,3 +19,16 @@ body.failed .bar span { background: var(--coral); animation: none; width: 100%; 
 body.done .bar span { animation: none; width: 100%; transition: width 0.4s; }
 @keyframes slide { 0% { left: -34%; } 100% { left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .bar span { animation: none; } }
+
+/* the first-install window (installing.html): the choices and Install first, the bar once it's installing */
+.choices { display: grid; justify-items: center; gap: 8px; }
+.opt { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.opt input { accent-color: var(--accent); }
+.go { margin-top: 6px; padding: 8px 34px; border-radius: 8px; border: 0; background: var(--accent); color: #062019;
+  font: 600 14px "Segoe UI", sans-serif; cursor: pointer; }
+.go:hover { filter: brightness(1.08); }
+.close { position: fixed; top: 8px; right: 10px; border: 0; background: none; color: var(--muted); font-size: 20px;
+  line-height: 1; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.close:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+body.choosing .bar { display: none; }
+body:not(.choosing) .choices, body:not(.choosing) .close { display: none; }

@@ -10,6 +10,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### Improved
 - **Seven tested speed-ups from the Dev menu are now standard** (and leave it): faster boss HP and xN counter reads in fights, a cheaper screen-change check, proof pictures made once when a record is sent again, no update check or photo upload during a boss fight, and fewer repeated capture lines in the log. Same readings as before.
+- **Installing aLogs for the first time looks like aLogs:** the installer opens a small aLogs window, the same as the updating one, instead of Windows' installer pages: pick a desktop shortcut and starting with Windows, press Install, and aLogs opens when it's done. If anything goes wrong, the full installer opens instead.
 - **Sanctum Helper says the difficulty you chose each time you open the party screen** ("Normal Mode chosen."), not only when it changes.
 
 ### Fixed

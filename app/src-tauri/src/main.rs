@@ -951,6 +951,11 @@ fn main() {
         update::splash(context, args[at + 1..].to_vec());
         return;
     }
+    if let Some(at) = args.iter().position(|a| a == "--install-splash") {
+        context.config_mut().app.windows.clear();
+        update::install_splash(context, args[at + 1..].to_vec());
+        return;
+    }
     let minimized = std::env::args().any(|a| a == "--minimized");
     tauri::Builder::default()
         // opening aLogs while it runs (hidden in the tray, say) shows that window instead of nothing happening (1 Nov:
