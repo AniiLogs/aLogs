@@ -16,6 +16,7 @@ EGG_BLACK = 0.12        # s of black screen that count as Egg Heist's fade to it
 RESULT_PAUSE = 5                    # seconds the automatic Battle Data session stays on the result screen before clicking,
 SIM_GATE_GONE = 3           # s with the exit gate's button gone before a press no longer counts as ending the run
 SIM_PRESS_EARLY = 1.0       # s before the exit gate's button was first seen that a press still counts (it shows first)
+SIM_MOUSE_WAIT = 3.0        # s the Victory screen gets to switch to mouse mode (the mouse moved) before the Gizmo tour gives up
 SIM_VICTORY_WAIT = 8        # s after your press at the exit gate for the Victory screen (it comes in ~1 s) before control comes back
 HOLD_MIN = RESULT_PAUSE + BATTLE_DATA_PAUSE   # "Block for at most" never shorter than both pauses (10 s)
 
@@ -371,10 +372,26 @@ class LeaderboardsMixin:
         at = lambda x, y: (self.origin[0] + ux + u * x, self.origin[1] + H * y)
         stage = tour['stage']
         if stage == 'open':                                     # the first icon of the Victory screen's gizmo row
+            # The Victory screen's prompt at the bottom says which mode the game is in: "A Confirm" with a controller
+            # (Data Collection opens with RS, a click there does nothing), "press anywhere to close" with the mouse (a
+            # click on the row opens it; anywhere else closes the screen). With a controller, the mouse is moved first,
+            # which the game takes for mouse mode (the owner, 13 Nov); the click comes only once the prompt says so,
+            # and only on the row's first icon. No mouse mode within SIM_MOUSE_WAIT: no click (it could close the screen).
+            spot = at(SIM_GIZMO_X, 0.545 + (SIM_LOW if getattr(self, 'sim_low', False) else 0.0))
+            prompt = re.sub(r'[^a-z]', '', (self.ocr.read({'p': R.prep_bright(im, (ux + u * 0.38, H * 0.93, ux + u * 0.62, H * 0.98), k)})
+                                           .get('p') or '').lower())
+            if 'anywhere' not in prompt and 'close' not in prompt:
+                tour.setdefault('mouse_from', now)
+                if now - tour['mouse_from'] > SIM_MOUSE_WAIT:
+                    self.sim_tour_end(f"the game didn't switch to mouse mode (prompt read {prompt!r})"); return False
+                if not tour.get('wiggled') or now - tour['wiggled'] > 0.8:
+                    log.info(f"Holo-Battle Sim: the Victory screen is in controller mode ({prompt!r}): moving the mouse for mouse mode")
+                    wc.wiggle_at(*spot); tour['wiggled'] = now
+                tour['next'] = now + 0.25
+                return True
             tour['tries'] += 1
             if tour['tries'] > 3: self.sim_tour_end(f"the Gizmo screen did not open (title read {tour.get('title', '')!r})"); return False
-            spot = at(SIM_GIZMO_X, 0.545 + (SIM_LOW if getattr(self, 'sim_low', False) else 0.0))
-            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']})")
+            log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']}, mouse mode)")
             wc.click_at(*spot); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
         title = self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0], H * self.GIZMO_TITLE[1],
