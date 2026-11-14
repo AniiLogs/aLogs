@@ -232,8 +232,23 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             # ...and the meter's OCR helpers (the frame loop's, which holds the name models, the bar's and the screens'
             # text, the HP number's): the name models' memory never showed in a report (278 MB for the widths 419 real
             # names need, 740 MB after 19 widths, measured on the helper alone)
-            ours += [getattr(getattr(o, 'p', None), 'pid', 0) for o in (self.ocr, getattr(self.ocr_bg, 'ocr', None),
-                                                                       getattr(self.screen_bg, 'ocr', None), getattr(self, 'hp_ocr', None))]
+            helpers = [getattr(getattr(o, 'p', None), 'pid', 0) for o in (self.ocr, getattr(self.ocr_bg, 'ocr', None),
+                                                                          getattr(self.screen_bg, 'ocr', None), getattr(self, 'hp_ocr', None))]
+            ours += helpers
+            # General › Performance › "What each part of aLogs uses": every aLogs process by part (its WebView2 windows,
+            # Sanctum Helper's CPU and a leftover updating window were counted nowhere: a 14 Nov lag report had the
+            # whole PC 15 points busier than the parts it named), and the rest of the PC as one share
+            parts = None
+            if (self.args.cfg.get('app') or {}).get('load_details'):
+                times = {}
+                def started(q):
+                    if q not in times: times[q] = self.cpu_load.times(q)
+                    return times[q] and times[q][0]
+                groups = pcstats.alogs_groups(pcstats.process_table(), app, os.getpid(), pcstats.sanctum_pid(),
+                                              [q for q in helpers if q], started)
+                parts = (groups, self.cpu_load.groups(groups, {q: t for q, t in times.items() if t}))
+                ours = sorted(set(ours) | set().union(*groups.values()))
+            else: self.cpu_load.pid_last = None          # switched on again later: starts afresh
             gpu = (getattr(self, 'gpu_load', None) or setattr(self, 'gpu_load', pcstats.GpuLoad()) or self.gpu_load).sample()
             gpu_text = (f"GPU game {gpu['by_pid'].get(pid.value, 0):.0f}%, aLogs {sum(gpu['by_pid'].get(q, 0) for q in ours if q):.0f}%, "
                         f"whole card {gpu['total']:.0f}%") if gpu else 'GPU ?'
@@ -254,8 +269,19 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             where = ('homeland' if scene_of(self.space) == HOMELAND_SCENE else 'Interlink' if self.bossrush_space
                      else 'Holo-Battle Sim' if self.holosim_space else 'world' if self.space else '?')
             fmt = lambda v: '?' if v is None else f'{v:g}%'
+            parts_text = ''
+            if parts:
+                groups, used = parts
+                n = lambda k: f" ({len(groups[k])})" if len(groups[k]) > 1 else ''
+                known = [used.get(k) for k in used] + [cpu and cpu['pc']]     # no game running: it took nothing
+                other = (None if any(v is None for v in known) else
+                         max(0.0, round(cpu['pc'] - (cpu['game'] or 0) - sum(used.values()), 1)))
+                parts_text = (f" | aLogs by part: meter {fmt(used['meter'])}{n('meter')}, app {fmt(used['app'])}, its windows "
+                              f"{fmt(used['windows'])}{n('windows')}, Sanctum Helper {fmt(used['sanctum'])}{n('sanctum')}"
+                              + (f", left over {fmt(used['leftover'])}{n('leftover') or ' (1)'}" if groups['leftover'] else '')
+                              + f"; other programs {fmt(other)}")
             log.info(f"load: CPU meter {fmt(cpu and cpu['meter'])}, aLogs app {fmt(cpu and cpu['app'])}, game {fmt(cpu and cpu['game'])}, whole PC "
-                     f"{fmt(cpu and cpu['pc'])} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, {c.get('parts', 0) / span:.1f} box frames/s, "
+                     f"{fmt(cpu and cpu['pc'])}{parts_text} | {c['whole'] / span:.1f} whole frames/s, {c['part'] / span:.1f} top parts/s, {c.get('parts', 0) / span:.1f} box frames/s, "
                      f"{c['reads'] / span:.1f} text reads/s | {where}, {'fight' if self.fight else 'idle' if self.idle() else 'busy'}"
                      f"{'' if not self.hwnd or wc.is_foreground(self.hwnd) else ', tabbed out'} | {gpu_text} | {ram_text} | {hitch_text} | {peak_text}")
             self.load_counts = {'whole': 0, 'part': 0, 'reads': 0}

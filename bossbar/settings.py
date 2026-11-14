@@ -34,6 +34,13 @@ DEFAULTS = {
         'beta_updates': False,               # the app's self-update follows the beta feed too (About › Updates)
         'photos_auto': False,                # Photos: upload new in-game photos to the profile on their own
         'photos_auto_since': 0,              # ...taken after this (unix time: when that was switched on)
+        'load_details': False,               # meter.log's load line splits aLogs' CPU by part (General › Performance)
+    },
+    'perf': {                                # General Settings › Performance (app/ui/perf-options.js): the main switch and each
+        'on': False,                         # option's choice. The app writes what's in force into each option's own setting
+        'priority': 'low',                   # (app.priority, capture.*), so the meter reads those; kept here so a save by the
+        'look_interval': 0.05,               # meter keeps them (a key missing here is dropped). Add each new option here too.
+        'fight_rate': 30,
     },
     'sanctum': {                             # Sanctum Helper module (its own options live in its settings.json)
         'enabled': True,

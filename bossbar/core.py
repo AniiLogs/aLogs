@@ -187,10 +187,45 @@ class CpuLoad:
         game, app = self._pid(game_pid), self._pid(app_pid)
         now, self.last, last = (total, busy, me, game, game_pid, app), (total, busy, me, game, game_pid, app), self.last
         if not last or now[0] <= last[0]: return None
-        span = now[0] - last[0]
+        span = self.span = now[0] - last[0]      # all cores' time (GetSystemTimes), what groups() divides by too
         pct = lambda a, b: round(100 * (a - b) / span, 1) if a is not None and b is not None else None
         return {'pc': pct(now[1], last[1]), 'meter': pct(now[2], last[2]),
                 'game': pct(now[3], last[3]) if now[4] == last[4] else None, 'app': pct(now[5], last[5])}
+
+    def times(self, pid):
+        """(start, CPU seconds) of a process, or None: its start tells a pid used again by a new process apart."""
+        if not pid: return None
+        k = ctypes.windll.kernel32; h = k.OpenProcess(0x1000, False, pid)
+        if not h: return None
+        try:
+            ft = [ctypes.wintypes.FILETIME() for _ in range(4)]
+            if not k.GetProcessTimes(h, *[ctypes.byref(f) for f in ft]): return None
+            return self._ft(ft[0]), self._ft(ft[2]) + self._ft(ft[3])
+        finally: k.CloseHandle(h)
+
+    def groups(self, groups, times=None):
+        """% of the whole PC each group of processes ({name: pids}) used since the last call, from the same span as
+        sample() (call it right after). A process seen last time counts what it used since; one started since then
+        counts all it used; one that ended in between is missed (its last part only). {name: % or None}, None on the
+        first call. `times`: {pid: (start, CPU s)} already read (alogs_groups needed the starts)."""
+        times = dict(times or {})
+        k = ctypes.windll.kernel32; now_ft = ctypes.wintypes.FILETIME(); k.GetSystemTimeAsFileTime(ctypes.byref(now_ft))
+        wall = self._ft(now_ft)
+        last, last_wall, span = getattr(self, 'pid_last', None), getattr(self, 'pid_wall', None), getattr(self, 'span', None)
+        seen, out = {}, {}
+        for name, pids in groups.items():
+            used = 0.0
+            for p in pids:
+                t = times[p] if p in times else self.times(p)
+                if not t: continue
+                seen[p] = t
+                before = last.get(p) if last else None
+                if before and before[0] == t[0]: used += max(0.0, t[1] - before[1])
+                elif last_wall is not None and t[0] >= last_wall: used += t[1]           # started since
+            out[name] = used
+        self.pid_last, self.pid_wall = seen, wall
+        if last is None or not span: return {name: None for name in groups}
+        return {name: round(100 * used / span, 1) for name, used in out.items()}
 
 def scene_of(space_id):
     """'100-<playerId>-<sceneId>' -> sceneId (homeland 550, open world 3000 ...); instances return None."""
