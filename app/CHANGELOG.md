@@ -19,7 +19,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Holo-Battle Sim: aLogs sees the exit gate's button in more places:** on some grounds it wasn't found, so your press at the gate took no control. And on the Victory screen the Gizmo screen now opens at once instead of up to 20 s later, by when the game could have moved on.
 - **Holo-Battle Sim with a controller: the Gizmo screen opens too.** With a controller the Victory screen opens Data Collection with RS, and aLogs' click did nothing (or closed the screen). aLogs now moves the mouse first, waits for the game's mouse prompt, then clicks the gizmo row.
 - **Holo-Battle Sim: the Gizmo screen is read even when the Victory screen's gizmo icons aren't recognised,** and the Victory screen is read once its right side has finished fading in.
-- **Holo-Battle Sim: your controller can no longer skip the end.** From your press at the exit gate until the gizmos are read and the run is sent, aLogs keeps the game in the background, where it reads no controller (hiding the controller couldn't stop it, as the game already had it open). It also stops clicking if the game leaves the Sim anyway.
+- **Holo-Battle Sim: the Gizmo screen is read smoothly:** the game stays in front the whole time (no more flicker between aLogs and the game), every gizmo is read from the All list, and aLogs stops clicking if the game leaves the Sim.
 - **Settings text:** "Capture only the game window" now says the yellow border can still show briefly with it off, and "Block from the fade to black" no longer says it's off by default.
 
 ## 0.1.36

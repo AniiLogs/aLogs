@@ -196,9 +196,10 @@ class LeaderboardsMixin:
         self.sim_ctl = ctl = {'until': now + seconds, 'why': why, 'held': bool(r.get('hold_inputs')), 'space': self.space}
         if ctl['held']:
             self.hold.start(seconds)
-            # the controller too: the game in the background reads none (HidHide's hide can't reach a controller the
-            # game already has open; 11 Nov, a Sim end skipped with it)
-            if self.hwnd and self.args.replay is None: self.focus_guard.take(self.hwnd, seconds)
+            # (No focus taking any more: from 11 Nov the game was pushed to the background so it read no controller, for
+            # issue 68 - the Victory screen left 1.4 s after it came up. On 13 Nov that turned out to be aLogs' own click on
+            # a Victory screen in mouse mode, "press anywhere to close"; and the switching stuttered, put the game back in
+            # controller mode and lost clicks and scrolls. The controller is hidden as before, keyboard and mouse held.)
         if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
         log.info(f'Holo-Battle Sim: aLogs has control ({why}), for at most {seconds} s')
         return ctl
@@ -392,7 +393,9 @@ class LeaderboardsMixin:
             tour['tries'] += 1
             if tour['tries'] > 3: self.sim_tour_end(f"the Gizmo screen did not open (title read {tour.get('title', '')!r})"); return False
             log.info(f"Holo-Battle Sim: clicking the gizmo row at {tuple(round(v) for v in spot)} (try {tour['tries']}, mouse mode)")
-            wc.click_at(*spot); tour.update(stage='wait', next=now + 0.3, waited=0)
+            # the mouse moved around the icon first, every time: both clicks that opened the screen came right after a
+            # wiggle; with the game already in mouse mode and no wiggle, three clicks did nothing (13 Nov 23:11)
+            wc.wiggle_at(*spot); wc.click_at(*spot, keep=True); tour.update(stage='wait', next=now + 0.3, waited=0)
             return True
         title = self.ocr.read({'t': R.prep_grey(im, (ux + u * self.GIZMO_TITLE[0], H * self.GIZMO_TITLE[1],
                                                      ux + u * self.GIZMO_TITLE[2], H * self.GIZMO_TITLE[3]), k)}).get('t') or ''
@@ -410,7 +413,7 @@ class LeaderboardsMixin:
             tour['backs'] += 1
             if tour['backs'] > 4: self.sim_tour_end('the Gizmo screen did not close'); return False
             if tour['backs'] % 2: wc.press_key(wc.VK_ESCAPE)
-            else: wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK))
+            else: wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK), keep=True)
             tour['next'] = now + 0.4
             return True
         if not on_page: self.sim_tour_end('left the Gizmo screen'); return False
@@ -421,7 +424,7 @@ class LeaderboardsMixin:
             # All first, before anything is read (the owner, 13 Nov); the count once two reads agree (13 Nov: 'All 14'
             # read once as 74, and the tour looked for 60 picks that weren't there)
             if not tour.get('all_clicked'):
-                wc.wiggle_at(*at(*self.GIZMO_ALL)); wc.click_at(*at(*self.GIZMO_ALL))
+                wc.wiggle_at(*at(*self.GIZMO_ALL)); wc.click_at(*at(*self.GIZMO_ALL), keep=True)
                 tour.update(all_clicked=True, next=now + 0.3); return True
             t = self.ocr.read({'a': R.prep_bright(im, (ux + u * 0.065, H * 0.14, ux + u * 0.135, H * 0.185), k)}).get('a') or ''   # 'All / 14'
             m = re.search(r'(\d{1,3})', t)
@@ -443,7 +446,10 @@ class LeaderboardsMixin:
             tour['sig'] = sig; tour['next'] = now + 0.08
             return True
         tour.pop('moved', None); tour['sig'] = sig
-        at_end = gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0
+        # the list's end: a scroll that didn't move it, twice running (one that didn't take isn't the end; 13 Nov: the
+        # first pass stopped at the top 6 of 15 that way)
+        tour['stuck'] = tour.get('stuck', 0) + 1 if gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0 else 0
+        at_end = tour['stuck'] >= 2
         tour['read_sig'] = sig
         text = self.ocr.read({'n': R.prep_grey(im, (ux + u * x0, H * y0, ux + u * x1, H * y1), k, size=2)}).get('n') or ''
         view = self.sim_names(text)
@@ -451,7 +457,7 @@ class LeaderboardsMixin:
         if tour['rows'] and view and len(rows) == len(tour['rows']) + len(view) and tour.get('backups', 0) < 3:
             # no row in common with the last view: the scroll went too far, so back up a little and read again
             tour['backups'] = tour.get('backups', 0) + 1; tour['next'] = now + 0.12
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 2)
+            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 2, keep=True)
             return True
         if len(rows) > len(tour['rows']):
             shot = self.sim_tour_shot(im, f"all_{tour['scrolls']:02d}")
@@ -460,7 +466,7 @@ class LeaderboardsMixin:
         tour['rows'] = rows
         if (tour['want'] is None or self.sim_count(rows) < tour['want']) and not at_end and tour['idle'] < 2 and tour['scrolls'] < 20:
             tour['scrolls'] += 1; tour['next'] = now + 0.12
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3)
+            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3, keep=True)
             return True
         # the best pass so far is kept (13 Nov: 12 of 14, then a fresh pass ended on 6); the same gizmo can be picked twice,
         # so passes aren't merged by name
@@ -471,13 +477,13 @@ class LeaderboardsMixin:
             log.info(f"Holo-Battle Sim Gizmo screen: {self.sim_count(rows)} of All {tour['all_n']} read - clicking All again")
             tour['kept'] = rows
             tour.update(rows=[], scrolls=0, idle=0, sig=None, read_sig=None, backups=0, stage='all', all_clicked=False, next=now + 0.1)
-            wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 20)        # back to the top of the list
+            for _ in range(2): wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), 15, keep=True)   # back to the top of the list
             return True
         for n in rows:                                          # each row under its series (game data)
             g = self.icons.sim_gizmos.get(n.split(':')[0].strip())
             if g: tour['read'].setdefault(g[0], []).append(n)
         # the mouse moved first: the game falls back to controller mode, and its back arrow then took no click (13 Nov)
-        wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK)); tour.update(stage='back', backs=0, next=now + 0.4)
+        wc.wiggle_at(*at(*self.GIZMO_BACK)); wc.click_at(*at(*self.GIZMO_BACK), keep=True); tour.update(stage='back', backs=0, next=now + 0.4)
         return True
 
     def sim_tour_shot(self, im, what):
