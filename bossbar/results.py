@@ -642,7 +642,7 @@ class ResultsMixin:
         if won and not ((t.get('coins') or t.get('coinsL')) and t.get('share')):
             first = getattr(self, 'sim_first', None)
             if first is None or now - first > 30: self.sim_first = first = now
-            if now - first < 3: return
+            if now - first < 1.5: return                   # (the Gizmo screen's own 'All N' counts the picks now)
         self.sim_seen = now
         log.info(f"Holo-Battle Sim: {'victory' if won else 'not a victory'} ({t.get('title')!r}), {sim['trial']} - "
                  f"{sim['difficulty']}, battle time {sim['time_s']} s")
