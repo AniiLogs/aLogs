@@ -51,6 +51,10 @@ def gizmo_list_sig(im):
     c = im.crop((int(ux + u * b[0]), int(H * b[1]), int(ux + u * b[2]), int(H * b[3]))).convert('L')
     return c.point(lambda v: 255 if v < 130 else 0).resize((64, 72), Image.BOX)
 
+def gizmo_list_diff(a, b):
+    """How far apart two Gizmo list signatures are (mean pixel difference): 0 the same view, 9.9+ a scroll apart."""
+    return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
+
 def gizmo_list_same(a, b):
     """The list hasn't moved between two signatures (a few pixels' worth of difference allowed)."""
     return a is not None and b is not None and ImageStat.Stat(ImageChops.difference(a, b)).mean[0] < 1.5   # still: 0, moving: 3.7+
@@ -220,8 +224,10 @@ class LeaderboardsMixin:
         """Ctrl+Shift+F11 on a Holo-Battle Sim Victory screen (the owner, 14 Nov: testing the end over and over without a
         new run): the Victory screen is read again as a new win and the Gizmo screen toured, as after a run, but nothing is
         sent. Read from the key's state (no hook), once per press."""
-        down = bool(ctypes.windll.user32.GetAsyncKeyState(0x7A) & 0x8000 and ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000
-                    and ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+        # held now, or pressed since the last look (the low bit): a quick press between two looks was missed, and it seemed
+        # to work only on a second try (14 Nov)
+        key = lambda vk: ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8001
+        down = bool(key(0x7A) and key(0x11) and key(0x10))
         was, self.sim_test_down = getattr(self, 'sim_test_down', False), down
         if not down or was or getattr(self, 'sim_tour', None) or getattr(self, 'sim_ctl', None): return
         self.sim_test = True; self.sim_seen = 0; self.sim_last = None; self.sim_first = None
@@ -472,15 +478,19 @@ class LeaderboardsMixin:
             tour['sig'] = sig; tour['next'] = now + 0.05
             return True
         tour.pop('moved', None); tour['sig'] = sig
-        same = gizmo_list_same(sig, tour.get('read_sig')) and tour['scrolls'] > 0
+        # the list's end: a view that matches one already kept. At the end each scroll bounces the list a little, so two
+        # looks at the end were never quite alike and the tour scrolled on to its limit, a 4K picture each time (14 Nov:
+        # 7 s at the end, 15 pictures); every repeat there was within 3.5 of an earlier view, every real scroll 9.9+ away
+        kept = tour.setdefault('sigs', [])
+        same = any(gizmo_list_diff(sig, old) < 3.5 for old in kept)
         tour['stuck'] = tour.get('stuck', 0) + 1 if same else 0
-        tour['read_sig'] = sig
         if not same:
+            kept.append(sig)
             tour.setdefault('views', []).append(im.crop((int(ux + u * x0), int(H * y0), int(ux + u * x1), int(H * y1))).copy())
             tour['view_k'] = k
             shot = self.sim_tour_shot(im, f"all_{tour['scrolls']:02d}")
             if shot: tour['shots'].append(shot)
-        if tour['stuck'] < 2 and tour['scrolls'] < 25:
+        if not tour['stuck'] and tour['scrolls'] < 25:
             tour['scrolls'] += 1; tour['next'] = now + 0.1
             wc.scroll_at(*at((x0 + x1) / 2, (y0 + y1) / 2), -3, keep=True)
             return True
@@ -784,4 +794,4 @@ ENTRY = {'auto_active': False, 'check_pending_run': None, 'egg_fade': None, 'egg
 for _name, _fallback in ENTRY.items():
     setattr(LeaderboardsMixin, _name, guarded('leaderboards', _fallback)(getattr(LeaderboardsMixin, _name)))
 
-__all__ = ['EGG_BLACK', 'GIZMO_LIST_BOX', 'HOLD_MIN', 'PROOF_BYTES', 'RESULT_PAUSE', 'SIM_GATE_GONE', 'SIM_PRESS_EARLY', 'SIM_VICTORY_WAIT', 'gizmo_list_same', 'gizmo_list_sig', 'save_proof', 'sim_gate_pill', 'LeaderboardsMixin']
+__all__ = ['EGG_BLACK', 'GIZMO_LIST_BOX', 'gizmo_list_diff', 'HOLD_MIN', 'PROOF_BYTES', 'RESULT_PAUSE', 'SIM_GATE_GONE', 'SIM_PRESS_EARLY', 'SIM_VICTORY_WAIT', 'gizmo_list_same', 'gizmo_list_sig', 'save_proof', 'sim_gate_pill', 'LeaderboardsMixin']
