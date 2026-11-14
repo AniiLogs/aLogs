@@ -29,7 +29,8 @@ DEFAULTS = {
         'show_guide': True,                  # the setup guide when aLogs starts (until finished or skipped)
         'start_with_windows': False,
         'close_to_tray': True,
-        'priority': '',                      # how much of a busy PC aLogs may take: '' (not set: Windows decides), low, normal, high
+        'priority': 'low',                   # how much of a busy PC aLogs may take: low (default: below normal, so the game comes
+                                             # first; the app treats '' the same), normal, high (14 Nov: was '', the app's 'low')
         'auto_download': True,               # the app downloads updates in the background (About › Updates)
         'beta_updates': False,               # the app's self-update follows the beta feed too (About › Updates)
         'photos_auto': False,                # Photos: upload new in-game photos to the profile on their own

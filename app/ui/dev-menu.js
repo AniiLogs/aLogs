@@ -385,7 +385,8 @@
   }
 
   async function refresh(force = false) {
-    if (!root.closest("[data-panel]")?.classList.contains("is-active") || !root.closest("[data-page-body]")?.classList.contains("is-active")) return;
+    // 14 Nov: document.hidden too: not while the window is hidden in the tray (offsetParent/is-active stay set)
+    if (document.hidden || !root.closest("[data-panel]")?.classList.contains("is-active") || !root.closest("[data-page-body]")?.classList.contains("is-active")) return;
     // The app's every time: it also has how long each switch has been on and what was sent, for every tab
     const asked = [invoke("dev_state").then((found) => { dev = found; }, () => { dev = {}; })];
     if (plugin === "sanctum") asked.push(invoke("sanctum_state").then((found) => { state = found; }, () => { state = {}; }));
@@ -394,6 +395,7 @@
     draw(force || first);
   }
   setInterval(refresh, 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh(); }); // 14 Nov: shown again: now, not in up to 1 s
   document.querySelector('[data-page="beta"]')?.addEventListener("click", () => void refresh());
   document.querySelector('[data-page-body="beta"] [data-tab="dev"]')?.addEventListener("click", () => void refresh());
   invoke("dev_state").then((found) => { dev = found; adopt(); draw(true); }).catch(() => {});

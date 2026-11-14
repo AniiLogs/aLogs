@@ -97,6 +97,7 @@ class LogWatcher(threading.Thread):
         self.uid = None
         self.current = None                          # the space the game entered last
         self.delays = collections.deque(maxlen=20)   # seconds between the game logging a line and us seeing it
+        self.buf = b''                               # the unfinished last line of the newest read (feed)
 
     def _delay(self, line):
         m = self.RX_TIME.search(line)
@@ -126,34 +127,56 @@ class LogWatcher(threading.Thread):
             if last in rush: self.events.put(('bossrush', last, None))
             if last in sim: self.events.put(('holosim', last, None))
 
+    # Every word a line needs for _line to do anything (14 Nov): one compiled search over the new chunk finds those lines
+    # instead of five substring tests on every line in Python. ][info] lines only matter while the delays fill up.
+    RX_WANTED = re.compile(rb'callerId=|/prod/|createVoxelScene|clearSpace|bossrush|fb_roguelike')
+    RX_WANTED_INFO = re.compile(rb'callerId=|/prod/|createVoxelScene|clearSpace|bossrush|fb_roguelike|\]\[info\]')
+
+    def _line(self, raw):
+        """One whole line (bytes, without its newline): the UID, a scene entered or left, an Interlink or Sim scene."""
+        if b'callerId=' in raw or b'/prod/' in raw:             # service calls and login downloads
+            uid = uid_in(raw)
+            if uid and uid != self.uid:
+                self.uid = uid; self.events.put(('uid', uid.decode(), None))
+            if b'createVoxelScene' not in raw: return
+        if (b'createVoxelScene' not in raw and b'clearSpace' not in raw and b'bossrush' not in raw
+                and b'fb_roguelike' not in raw):
+            if b'][info]' in raw and len(self.delays) < 20: self._delay(raw.decode('utf-8', 'replace'))
+            return
+        line = raw.decode('utf-8', 'replace'); d = self._delay(line)
+        m = self.RX_ENTER.search(line)
+        if m: self.current = m.group(1); self.events.put(('enter', m.group(1), d)); return
+        m = self.RX_LEAVE.search(line)
+        if m: self.events.put(('leave', m.group(1), d)); return
+        if 'fb_bossrush' in line: self.events.put(('bossrush', self.current, d))
+        elif 'fb_roguelike' in line: self.events.put(('holosim', self.current, d))   # Holo-Battle Sim
+
+    def feed(self, data):
+        """New bytes from the log, after what's left of an unfinished line (self.buf): each whole line with one of the
+        wanted words goes to _line, in order; the unfinished end waits for the next read. The same lines, events and
+        order as splitting every line (tests/log_watcher_same.py)."""
+        data = self.buf + data; cut = data.rfind(b'\n')
+        self.buf = data[cut + 1:]
+        if cut < 0: return
+        rx = self.RX_WANTED_INFO if len(self.delays) < 20 else self.RX_WANTED    # (the deque never shrinks)
+        at = 0
+        while True:
+            m = rx.search(data, at, cut)
+            if not m: return
+            start = data.rfind(b'\n', 0, m.start()) + 1; end = data.find(b'\n', m.start())
+            self._line(data[start:end]); at = end + 1
+
     def run(self):
-        pos = None; buf = b''
+        pos = None; self.buf = b''
         while not self.stop:
             try:
                 size = os.path.getsize(self.path)
                 if pos is None: self.look_back(size)
-                if pos is None or size < pos: pos = size; buf = b''          # start at the end / log was recreated
+                if pos is None or size < pos: pos = size; self.buf = b''     # start at the end / log was recreated
                 if size > pos:
                     with open(self.path, 'rb') as f:
                         f.seek(pos); chunk = f.read(min(size - pos, 64 << 20)); pos += len(chunk)
-                    lines = (buf + chunk).split(b'\n'); buf = lines.pop()
-                    for raw in lines:
-                        if b'callerId=' in raw or b'/prod/' in raw:             # service calls and login downloads
-                            uid = uid_in(raw)
-                            if uid and uid != self.uid:
-                                self.uid = uid; self.events.put(('uid', uid.decode(), None))
-                            if b'createVoxelScene' not in raw: continue
-                        if (b'createVoxelScene' not in raw and b'clearSpace' not in raw and b'bossrush' not in raw
-                                and b'fb_roguelike' not in raw):
-                            if b'][info]' in raw and len(self.delays) < 20: self._delay(raw.decode('utf-8', 'replace'))
-                            continue
-                        line = raw.decode('utf-8', 'replace'); d = self._delay(line)
-                        m = self.RX_ENTER.search(line)
-                        if m: self.current = m.group(1); self.events.put(('enter', m.group(1), d)); continue
-                        m = self.RX_LEAVE.search(line)
-                        if m: self.events.put(('leave', m.group(1), d)); continue
-                        if 'fb_bossrush' in line: self.events.put(('bossrush', self.current, d))
-                        elif 'fb_roguelike' in line: self.events.put(('holosim', self.current, d))   # Holo-Battle Sim
+                    self.feed(chunk)
             except OSError: pass
             time.sleep(0.25)
 

@@ -911,6 +911,9 @@
       }
       set(input.dataset.k, value);
       markUserSet(input.dataset.k);
+      // 14 Nov: a Performance choice (perf.<id>) is the player's choice of that option's own setting too
+      const perfOption = input.dataset.k.startsWith("perf.") && window.ALOGS_PERF?.options.find((o) => `perf.${o.id}` === input.dataset.k);
+      if (perfOption) markUserSet(perfOption.key);
       tokenHint();
       dependents();
       scheduleSave();
@@ -1579,7 +1582,14 @@
     if (info.hiding) $("[data-hidhide-state]").textContent = "Your controller is hidden from the game right now (the meter is holding inputs).";
   }
   // refreshed while Leaderboards › Automation is open (often, so the "which one is it" light follows your presses)
-  setInterval(() => { if ($('[data-hidhide-test]').offsetParent) void showPads(); }, 400);
+  // 14 Nov: also only while the window is shown and Leaderboards › Automation is the open page and tab (offsetParent
+  // stays set while the window is hidden in the tray), so the app's controller readers can stop (hidhide.rs watch)
+  setInterval(() => {
+    const test = $('[data-hidhide-test]');
+    if (document.hidden || !test.offsetParent || !test.closest("[data-panel]")?.classList.contains("is-active")
+      || !test.closest("[data-page-body]")?.classList.contains("is-active")) return;
+    void showPads();
+  }, 400);
 
   // ---------------------------------------------------------------- status
   const n = (value) => (value === null || value === undefined ? "—" : Number(value).toLocaleString());
@@ -2000,10 +2010,10 @@
       if (overlay && overlay.in_recordings === undefined && overlay.hide_from_capture !== undefined) overlay.in_recordings = !overlay.hide_from_capture;
       settings = merge(DEFAULTS, stored);
       showSanctumSwitch(settings.sanctum?.enabled ?? true);
-      if (!settings.app.priority) settings.app.priority = "low";   // "Not set" before B8: lower is the default now
       if (settings.overlay.world_position === "quests") settings.overlay.world_position = "right";   // B9: under the quests is gone
-      // the fight rate's default was 60 before B6, now 30: a rate nobody picked is 30
-      if (settings.capture.fight_rate !== 30 && !(settings.user_set || []).includes("capture.fight_rate")) settings.capture.fight_rate = 30;
+      // 14 Nov: the load-time resets of app.priority ("not set" before B8 = low) and capture.fight_rate (60 before B6 =
+      // 30 unless picked) are gone: perf.js apply() writes both on every save from the Performance choice, and an old
+      // fight rate 60 nobody picked doesn't become a choice (perf.js migrate checks user_set)
     } catch {
       settings = structuredClone(DEFAULTS);
     }

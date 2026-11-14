@@ -98,6 +98,34 @@ def _white_run(px, x, yc, reach, H):
         n = n + 1 if _line_px(px, x, y) else n
     return n
 
+def _bright_columns(im, yc, reach, H):
+    """For each column, how many pixels in _white_run's rows (yc - reach to yc + reach) have their darkest channel at
+    140 or more, in one pass of PIL's own operations. Every pixel _line_px counts is one of them, so this is an upper
+    bound on _white_run: a column below the bracket threshold here can't be a bracket, and the Python check is
+    skipped for it. Same decisions, ~7x less time on a frame with red and no bar (find_bar 203 -> 30 ms at 4K, 14 Nov)."""
+    from PIL import ImageChops
+    y0, y1 = max(0, yc - reach), min(H, yc + reach)
+    if y1 <= y0: return lambda x: 0
+    r, g, b = im.crop((0, y0, im.width, y1)).convert('RGB').split()
+    rows = ImageChops.darker(ImageChops.darker(r, g), b).point(lambda v: 1 if v >= 140 else 0)
+    data, h = rows.transpose(Image.Transpose.TRANSPOSE).tobytes(), y1 - y0
+    return lambda x: data[x * h:(x + 1) * h].count(1)
+
+def _colored_run(im, y, x0, x1):
+    """_longest_run(px, y, x0, x1, colored) from a one-row class map (the same fill/ghost bands as colored(), PIL's own
+    operations) matched with a regular expression: the walk to the frame's right edge (up to 3840 px of Python) was the
+    largest part of find_bar left after _bright_columns (12 of 30 ms at 4K, 14 Nov). Same (length, start), the first of
+    the longest runs."""
+    from PIL import ImageChops
+    if x1 <= x0: return (0, 0)
+    r, g, b = im.crop((x0, y, x1, y + 1)).convert('RGB').split()
+    fill = ImageChops.darker(ImageChops.darker(r.point(_band(220, 255)), g.point(_band(90, 195))), b.point(_band(0, 125)))
+    ghost = ImageChops.darker(ImageChops.darker(r.point(_band(165, 215)), g.point(_band(55, 105))), b.point(_band(55, 100)))
+    best = (0, 0)
+    for m in re.finditer(rb'[\xff]+', ImageChops.lighter(fill, ghost).tobytes()):
+        if m.end() - m.start() > best[0]: best = (m.end() - m.start(), x0 + m.start())
+    return best
+
 LAST_FAIL = ['']     # why the last find_bar call found nothing (for the meter's diagnostics)
 
 def _band(lo, hi): return lambda v: 255 if lo <= v <= hi else 0
@@ -145,7 +173,7 @@ def find_bar(im, cropped=False, tries=8):
         if len(tried) >= tries: break
         if any(abs(by - t) <= 2 for t in tried): continue          # same bar seen on a neighbouring row
         tried.append(by)
-        r = _check_candidate(px, W, H, x0 + round(bs * f), y0 + round(by * f), d, cropped)
+        r = _check_candidate(px, W, H, x0 + round(bs * f), y0 + round(by * f), d, cropped, im=im)
         if isinstance(r, dict): LAST_FAIL[0] = ''; return r
         reasons.append(r)
     LAST_FAIL[0] = '; '.join(dict.fromkeys(reasons)) or 'no candidate'
@@ -171,7 +199,7 @@ def bar_at(im, spots):
             if isinstance(r, dict): return r
     return None
 
-def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
+def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None, im=None):
     """Refine one candidate run at full resolution and check it is the boss bar. Returns the bar dict or a reason."""
     col = min(W - 1, xg + 4 * d)
     if not colored(px[col, yg]):
@@ -187,10 +215,15 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
     if brackets:                                                    # already checked where they were (bar_at)
         lb, rb = brackets; start = xg
     else:
-        n, start = _longest_run(px, yc, max(0, xg - 4 * d), W, colored)
+        n, start = (_colored_run(im, yc, max(0, xg - 4 * d), W) if im is not None
+                    else _longest_run(px, yc, max(0, xg - 4 * d), W, colored))
+        # columns that can't be a bracket skipped before the per-pixel check (_bright_columns: same decisions)
+        bright = _bright_columns(im, yc, 2 * thick, H) if im is not None else None
+        need = 1.3 * thick - 1.5
+        bracket = lambda x: (bright is None or bright(x) >= need) and _is_bracket(px, x, yc, thick, W, H)
         lb = None                                                   # left bracket: thin tall white line
         for x in range(start - 1, max(0, start - 4 * thick) - 1, -1):
-            if _is_bracket(px, x, yc, thick, W, H): lb = x; break
+            if bracket(x): lb = x; break
         est = SPAN_PER_THICKNESS * thick
         rb = None
         if lb is not None:
@@ -205,7 +238,7 @@ def _check_candidate(px, W, H, xg, yg, d, cropped, brackets=None):
             # its width, under the 0.3 searched before, so ultrawide bars were never found
             U = min(W, H * 16 / 9)
             lines = [x for x in range(min(W - 1, int(W - lb + 0.06 * U)), max(int(lb + 0.3 * U), int(W - lb - 0.06 * U)), -1)
-                     if _is_bracket(px, x, yc, thick, W, H)]
+                     if bracket(x)]
             rb = min(lines, key=lambda x: abs(lb + (x - lb) / 2 - W / 2)) if lines else None
     if lb is not None and rb is not None: span = rb - lb
     elif not cropped: return 'no left bracket' if lb is None else 'no right bracket'
