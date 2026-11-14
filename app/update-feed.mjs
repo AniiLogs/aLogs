@@ -3,17 +3,41 @@
 //   releases: latest.json on the release itself (reached through releases/latest/download/latest.json)
 //   betas:    beta.json on the fixed "update-feed" pre-release; a release points it at itself too, so testers move on
 import { existsSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 export const FEED_TAG = "update-feed";
 
 /** A version's notes from CHANGELOG.md ("## <version>" up to the next "## "), each paragraph and list item on one line. */
-export function changelogNotes(version) {
-  const changelog = readFileSync("CHANGELOG.md", "utf8").replace(/\r\n/gu, "\n");
+export function changelogNotes(version, text = null) {
+  const changelog = (text ?? readFileSync("CHANGELOG.md", "utf8")).replace(/\r\n/gu, "\n");
   const start = changelog.search(new RegExp(`^## ${version.replace(/\./gu, "\\.")}\\s*$`, "mu"));
   if (start < 0) return "";
   const rest = changelog.slice(start).split("\n").slice(1).join("\n");
   const end = rest.search(/^## /mu);
   return rest.slice(0, end >= 0 ? end : undefined).trim().replace(/\n(?![\n#-]|$)\s*/gu, " ");
+}
+
+/** A beta's notes (the owner, 14 Nov: a beta's notes are what changed since the previous beta; a release's, everything
+ * since the last release): the items of the version's section that weren't in it when the previous beta was published
+ * (the CHANGELOG at the commit that recorded beta N-1 in betas.json), then the whole section. Just the section for a
+ * first beta, or when that commit can't be found. */
+export function betaNotes(version, beta) {
+  const all = changelogNotes(version);
+  if (!beta || beta < 2) return all;
+  let old = null;
+  try {
+    const run = (cmd) => execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    for (const sha of run("git log --format=%H -- betas.json").split("\n").filter(Boolean)) {
+      const betas = JSON.parse(run(`git show ${sha}:app/betas.json`));
+      if (betas[version] === beta - 1) { old = run(`git show ${sha}:app/CHANGELOG.md`); break; }
+    }
+  } catch { old = null; }
+  if (old === null) return all;
+  const items = (text) => text.split("\n").filter((line) => line.startsWith("- "));
+  const before = new Set(items(changelogNotes(version, old)));
+  const fresh = items(all).filter((line) => !before.has(line));
+  if (!fresh.length) return all;
+  return `**New in Beta ${beta}** (since Beta ${beta - 1}):\n\n${fresh.join("\n")}\n\n**Everything in ${version} so far** (since the last release):\n\n${all}`;
 }
 
 export function feed({ version, rc, beta, notes, url, installer }) {

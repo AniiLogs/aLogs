@@ -12,7 +12,7 @@
 //   add --dry-run to print what would happen, publish nothing
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { changelogNotes, feed, feedRelease, putJson } from "./update-feed.mjs";
+import { betaNotes, changelogNotes, feed, feedRelease, putJson } from "./update-feed.mjs";
 
 const REPO = "AniiLogs/aniilogs.github.io";
 const mode = process.argv.includes("--beta") ? "beta" : process.argv.includes("--test") ? "test" : null;
@@ -63,7 +63,7 @@ if (mode === "test") {
 } else {
   const betas = releases.filter((r) => betaTag.test(r.tag_name));
   tag = `companion-v${version}-beta`; name = `aLogs ${version} ${beta ? `B${beta}` : "Beta"}`; asset = `AniiLogs-Companion-${version}-beta-Setup.exe`;
-  body = `Public beta of ${version}, updated as it goes (this one: ${built}). For players with "Get beta updates" on; the site's Download button stays on the released version.\n\n${changelogNotes(version)}`;
+  body = `Public beta of ${version}, updated as it goes (this one: ${built}). For players with "Get beta updates" on; the site's Download button stays on the released version.\n\n${betaNotes(version, beta)}`;
   fold = betas.find((r) => r.tag_name === tag) ?? null;                 // the beta this build goes into
   stale = betas.filter((r) => r !== fold);                               // numbered betas from before go
 }
@@ -72,8 +72,16 @@ body += `\n\nThe app isn't code-signed yet, so Windows may say it protected your
 if (notesOnly) {                                  // the notes alone: no build swapped, nothing removed
   if (mode !== "beta" || !fold) throw new Error("--notes-only needs --beta and an existing beta of this version.");
   const keep = /^Public beta of .*?\n\n/su.exec(fold.body || "")?.[0] ?? "";   // which build it is stays as it was
-  const notes = `${keep}${changelogNotes(version)}\n\nThe app isn't code-signed yet, so Windows may say it protected your PC: choose **More info**, then **Run anyway**.`;
+  const notes = `${keep}${betaNotes(version, beta)}\n\nThe app isn't code-signed yet, so Windows may say it protected your PC: choose **More info**, then **Run anyway**.`;
   if (!dryRun) await github(`https://api.github.com/repos/${REPO}/releases/${fold.id}`, { method: "PATCH", body: JSON.stringify({ body: notes }) });
+  // the beta feed's notes too (the app's update notice shows them), the rest of beta.json as it was
+  const feedRel = await feedRelease({ headers, repo: REPO });
+  const feedAsset = (feedRel.assets || []).find((a) => a.name === "beta.json");
+  if (feedAsset && !dryRun) {
+    const current = await (await fetch(feedAsset.browser_download_url)).json();
+    await putJson({ headers, repo: REPO, release: feedRel, name: "beta.json", json: { ...current, notes } });
+    console.log("beta feed: notes replaced");
+  }
   console.log(`${dryRun ? "[dry run] " : ""}${name}: notes replaced from CHANGELOG.md (${notes.length} characters)`);
   process.exitCode = 0;
 } else {
