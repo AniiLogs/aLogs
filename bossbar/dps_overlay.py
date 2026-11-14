@@ -770,7 +770,7 @@ def run_overlay(meter, hide):
                     dps_at['hide_at'] = time.time() + 30
                 elif k == 'status' and d.startswith('Holo-Battle Sim recorded'):
                     # Victory screen: under the panel, above "press anywhere to close" and the loading bar after it
-                    show_end(end_note_sim(d), 0.82)          # above the loading screen's bar that follows (13 Nov: it sat on it at 0.875)
+                    show_end(end_note_sim(d), 0.86)          # clear of the loading screen's bar after it (at 0.94; 13 Nov: 0.875 touched it, 0.82 too high)
                     dps_at['hide_at'] = time.time() + 15
                 elif k == 'status' and d.startswith('Battle Data'):
                     # Battle Data: under the player cards
