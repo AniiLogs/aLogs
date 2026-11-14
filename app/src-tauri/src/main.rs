@@ -122,17 +122,55 @@ pub(crate) fn write_setting(pointer: &str, value: Value) {
     if let Ok(text) = serde_json::to_string_pretty(&settings) {
         if fs::write(&tmp, text).is_ok() {
             for _ in 0..10 {
-                if fs::rename(&tmp, &path).is_ok() { break; }
+                if replace_settings(&tmp, &path, &settings).is_ok() { break; }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
         }
     }
 }
 
+// 14 Nov: settings.json kept in memory. read_settings is asked often (the capture thread every 2 s, the watchdog
+// twice every 3 s, the button over the game...) and read and parsed the whole file each time; now a look at the
+// file's time and size, and a read only when they changed (the meter, a hand edit). This app's own writes
+// (save_settings, write_setting, which plugins.rs and update.rs use) put what they wrote here as they replace the
+// file, under the same lock as the reads, so the copy is never older than the file, even for two writes in the same
+// clock tick. A failed read or parse is never kept (the next ask reads again, as before).
+type SettingsKey = (Option<std::time::SystemTime>, u64);
+static SETTINGS: Mutex<Option<(SettingsKey, Value)>> = Mutex::new(None);
+fn settings_key(path: &Path) -> Option<SettingsKey> {
+    fs::metadata(path).ok().map(|m| (m.modified().ok(), m.len()))
+}
+
+/// Moves the written `tmp` over settings.json and keeps `settings` (what was written) as the copy in memory.
+fn replace_settings(tmp: &Path, path: &Path, settings: &Value) -> std::io::Result<()> {
+    let mut cache = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    fs::rename(tmp, path)?;
+    *cache = match (settings_key(path), settings) {
+        (Some(key), Value::Object(_)) => Some((key, settings.clone())),
+        _ => None,
+    };
+    Ok(())
+}
+
 pub(crate) fn read_settings() -> Value {
-    match read_json(&settings_path()) {
-        Value::Object(map) => Value::Object(map),
-        _ => json!({}),
+    let path = settings_path();
+    let mut cache = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let key = settings_key(&path);
+    if let (Some(key), Some((cached, value))) = (key, cache.as_ref()) {
+        if key == *cached {
+            return value.clone();
+        }
+    }
+    match read_json(&path) {
+        Value::Object(map) => {
+            let value = Value::Object(map);
+            *cache = key.map(|key| (key, value.clone()));
+            value
+        }
+        _ => {
+            *cache = None;
+            json!({})
+        }
     }
 }
 
@@ -287,6 +325,56 @@ pub(crate) fn set_priority(child: Option<&Child>, settings: &Value) {
     unsafe { SetPriorityClass(handle, class) };
 }
 
+/// 14 Nov: the meter's running OCR helpers (its child processes) to the class they'd get if the meter started them
+/// now, so a Priority change reaches them too (before, they kept what they inherited when they started). Windows
+/// passes only below normal (and idle) on to a child; anything else starts it at normal, so: below normal for "low",
+/// normal otherwise. Left alone while the meter's Dev switch helpers-below-normal is on: the meter sets them then.
+/// Only processes the meter started: their parent is the meter's PID and they started after it (a PID Windows gave
+/// the meter may have been an older, gone process's, whose children still name it as their parent).
+fn set_helpers_priority(meter: &Child, settings: &Value) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SET_INFORMATION,
+    };
+    if dev::on("helpers-below-normal") {
+        return;
+    }
+    let class = match priority_class(settings, dev::on("priority-game-first")) {
+        Some(BELOW_NORMAL_PRIORITY_CLASS) => BELOW_NORMAL_PRIORITY_CLASS,
+        _ => NORMAL_PRIORITY_CLASS,
+    };
+    let started = |h: windows_sys::Win32::Foundation::HANDLE| -> Option<u64> {
+        let zero = || FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut created, mut z1, mut z2, mut z3) = (zero(), zero(), zero(), zero());
+        (unsafe { GetProcessTimes(h, &mut created, &mut z1, &mut z2, &mut z3) } != 0)
+            .then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+    };
+    let Some(meter_started) = started(meter.as_raw_handle() as _) else { return };
+    let meter_pid = meter.id();
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap == INVALID_HANDLE_VALUE {
+        return;
+    }
+    let mut entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+    let mut more = unsafe { Process32FirstW(snap, &mut entry) } != 0;
+    while more {
+        if entry.th32ParentProcessID == meter_pid && entry.th32ProcessID != meter_pid {
+            let h = unsafe { OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID) };
+            if !h.is_null() {
+                if started(h).is_some_and(|t| t >= meter_started) {
+                    unsafe { SetPriorityClass(h, class) };
+                }
+                unsafe { CloseHandle(h) };
+            }
+        }
+        more = unsafe { Process32NextW(snap, &mut entry) } != 0;
+    }
+    unsafe { CloseHandle(snap) };
+}
+
 /// A priority in words, for app.log.
 fn priority_name(class: u32) -> &'static str {
     use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
@@ -317,6 +405,7 @@ fn apply_priority(app: &AppHandle, settings: &Value) {
     set_priority(None, settings);
     if let Some(child) = app.state::<Meter>().child.lock().unwrap().as_ref() {
         set_priority(Some(child), settings);
+        set_helpers_priority(child, settings);
     }
     sanctum::set_priority(app, settings);
 }
@@ -396,7 +485,7 @@ fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Re
     fs::write(&tmp, text).map_err(|e| e.to_string())?;
     // the meter may be reading settings.json at that moment (Windows then refuses the replace): try again shortly
     let mut tries = 0;
-    while let Err(e) = fs::rename(&tmp, &path) {
+    while let Err(e) = replace_settings(&tmp, &path, &settings) {   // 14 Nov: also the copy in memory (read_settings)
         tries += 1;
         if tries >= 10 {
             return Err(e.to_string());
@@ -406,11 +495,13 @@ fn save_settings(app: AppHandle, meter: State<'_, Meter>, settings: Value) -> Re
     let autostart = settings.pointer("/app/start_with_windows").and_then(Value::as_bool).unwrap_or(false);
     set_autostart(autostart)?;
     // the overlay is set up when the meter starts, so most of its settings restart the meter (ending a fight); the
-    // DPS window's lock, its reset and its spots the meter reads as they change
+    // DPS window's lock, its reset and its spots the meter reads as they change; 14 Nov: so is result_seconds (how long
+    // a fight's result stays up: dps_overlay.py reads meter.args.cfg, which live.py reload_settings replaces, at each
+    // fight's end), so changing it no longer ends a fight in progress
     let live = |v: Option<&Value>| {
         let mut v = v.cloned().unwrap_or(Value::Null);
         if let Some(o) = v.as_object_mut() {
-            for k in ["dps_locked", "dps_example", "dps_reset", "world_position", "rush_position"] {
+            for k in ["dps_locked", "dps_example", "dps_reset", "world_position", "rush_position", "result_seconds"] {
                 o.remove(k);
             }
         }
@@ -437,7 +528,7 @@ fn get_status(meter: State<Meter>) -> Value {
     }
     status["running"] = json!(running);
     status["data_dir"] = json!(data_dir().to_string_lossy());
-    status["hidhide_installed"] = json!(hidhide::installed());
+    status["hidhide_installed"] = json!(hidhide::installed_lately()); // 14 Nov: checked at most every 10 s (hidhide.rs)
     status["borderless_capture"] = json!(capture::borderless_capture());
     status
 }
@@ -927,6 +1018,7 @@ fn show_main(app: &AppHandle, why: &str) {
         app_log(&format!("window: open asked ({why}), but there is no main window"));
         return;
     };
+    site::window_seen(app, Some(false), Some(false)); // 14 Nov: the pages draw again (and the Site tab's view if it's open)
     let errors: Vec<String> = [("show", window.show()), ("unminimize", window.unminimize()), ("focus", window.set_focus())]
         .into_iter()
         .filter_map(|(step, r)| r.err().map(|e| format!("{step}: {e}")))
@@ -1033,17 +1125,27 @@ fn main() {
             if minimized {
                 if let Some(window) = app.get_window("main") {
                     let _ = window.hide();
+                    site::window_seen(app.handle(), Some(true), None); // 14 Nov: nothing drawn while in the tray
                     app_log("window: started in the tray (with Windows)");
                 }
             }
             Ok(())
         })
         .on_window_event(|window, event| {
+            // 14 Nov: minimized (Windows sizes it 0 x 0) the pages stop drawing; any other size, they draw again
+            if let WindowEvent::Resized(size) = event {
+                if window.label() == "main" {
+                    site::window_seen(window.app_handle(), None, Some(size.width == 0 && size.height == 0));
+                }
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = read_settings().pointer("/app/close_to_tray").and_then(Value::as_bool).unwrap_or(true);
                 if to_tray {
                     api.prevent_close();
                     let hidden = window.hide();
+                    if window.label() == "main" {
+                        site::window_seen(window.app_handle(), Some(true), None); // 14 Nov: nothing drawn while in the tray
+                    }
                     app_log(&format!("window: closed to the tray{}", hidden.err().map_or(String::new(), |e| format!("; hide failed: {e}"))));
                 } else {
                     api.prevent_close();

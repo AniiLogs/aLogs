@@ -1140,7 +1140,9 @@ unsafe fn run() {
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
             // the row is checked dragged or not: it also tells keyboard from controller (the label under the button)
             // in a homeland the meter captures nothing for now (heavy on the game already), and neither does this
-            if now.saturating_sub(homeland.0) >= 1000 {
+            // 14 Nov: read only when it's used below (s.show && in_front); back in front it's read again before use
+            // whenever the last read is 1 s old or more, as before (the log line further down may show an old value)
+            if s.show && in_front && now.saturating_sub(homeland.0) >= 1000 {
                 let status = std::fs::read_to_string(crate::data_dir().join("status.json")).unwrap_or_default();
                 // only while the meter is writing it (about once a second): a meter stopped in a homeland left it
                 // saying "homeland" for good

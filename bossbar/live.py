@@ -1540,7 +1540,12 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
         # the same name twice in a row first: while the menu slides in, one read can be off
         seen, self.menu_candidate = getattr(self, 'menu_candidate', None), (self.uid, name)
         if seen != (self.uid, name): return
-        self.prove_name(name, where, self.proof_crop(im, u, ux, H, where))
+        # the proof crop (a 4K optimized PNG, ~0.8 s) only goes with the character link, which is sent only when signed in
+        # with Link character on (submit.link_character): no file when it would go nowhere (14 Nov)
+        sub = self.submitter
+        if sub: sub.refresh()
+        linking = bool(sub and sub.account and sub.account['link_character'])
+        self.prove_name(name, where, self.proof_crop(im, u, ux, H, where) if linking else None)
 
     # ---- Link character (the app's button): read the Profile screen, then send the name once the player confirms.
     # The app writes character_link.json - {"request": time}, then {"request": time, "confirm": {"uid", "name"}} - and
@@ -1806,6 +1811,9 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
                 self.bar = None
         if rest:
             self.out('status', 'The DPS meter is off'); return
+        # the game's icons on the first look that isn't resting (they were loaded at start, rest or not; 14 Nov): every
+        # reader of them comes after this, and load_icons does nothing once they're loading or loaded
+        if self.args.replay is None: self.load_icons()
         # out in the world, keep the app listening for the boss kill sound while a fight is on
         if self.fight and not self.fight.bossrush and self.args.cfg.get('audio_cues', {}).get('boss_kill'):
             wc.audio.want(time.time())
@@ -2148,8 +2156,8 @@ class Meter(FightsMixin, ResultsMixin, LeaderboardsMixin):
             threading.Thread(target=refresh_cycles, args=(self,), daemon=True, name='game-cycles').start()
             threading.Thread(target=screenshot_cleanup, args=(self,), daemon=True, name='screenshot-cleanup').start()
             # the game's icons from the start: rebuilt after a game patch or an aLogs update they take ~40 s, and
-            # loaded only at the Party screen they were ready after it was gone (6 Nov: a run sent without teams)
-            self.load_icons()
+            # loaded only at the Party screen they were ready after it was gone (6 Nov: a run sent without teams).
+            # Now from the first look that isn't resting (step), so the DPS meter and leaderboards both off load none (14 Nov)
         while not self.stop:
             t = time.time()
             if self.asked_to_stop(): break

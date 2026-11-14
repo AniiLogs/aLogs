@@ -587,7 +587,10 @@ class FightsMixin:
         back frame after frame: "11,390 -> 11,356" read twice raised the alert at full HP. A misread also tends to
         flip back and forth between the same two numbers, which is never a hit. (The bar's length missed small hits,
         hits while being healed, and flickered at full HP: false alarms standing in a town.)"""
-        if self.args.replay is not None or not self.hwnd or wc.is_foreground(self.hwnd) or not self.frame_size[1]:
+        # no overlay (args.no_overlay: run without one, it never starts later): the alert can't show, so no second OCR
+        # helper and capture reader for it (14 Nov)
+        if (self.args.replay is not None or getattr(self.args, 'no_overlay', False) or not self.hwnd
+                or wc.is_foreground(self.hwnd) or not self.frame_size[1]):
             self.hp_seen = self.hp_pending = self.hp_drop = None; return
         if now - getattr(self, 'hp_read_at', 0) < 0.25: return
         self.hp_read_at = now
@@ -599,7 +602,13 @@ class FightsMixin:
         W, H = self.frame_size; u = min(W, H * 16 / 9); ux = (W - u) / 2
         area = ((ux + u * HP_BAR[0]) / W, HP_BAR[1], (ux + u * HP_BAR[2]) / W, HP_BAR[3])
         strip = self.hp_reader.read_area(self.hwnd, area)
-        hp = hp_number(self.hp_ocr, strip, u) if strip is not None else None
+        # the same picture as the last read gives the same text: its answer again, no OCR (tabbed out, Windows 10's window
+        # copy comes ~4 times a second and a still town gives the same strip over and over; 20-50 ms in the helper each)
+        key = (strip.size, u, strip.tobytes()) if strip is not None else None
+        if key is not None and key == getattr(self, 'hp_strip_key', None): hp = self.hp_strip_read
+        else:
+            hp = hp_number(self.hp_ocr, strip, u) if strip is not None else None
+            self.hp_strip_key, self.hp_strip_read = key, hp
         # a misread can come twice from one picture ("260/12694"): under a tenth of your HP is taken for one (by then
         # the hits before it have shown the alert anyway)
         if hp is None or hp[0] > hp[1] or hp[0] * 10 < hp[1]: return
@@ -637,8 +646,11 @@ class FightsMixin:
         damage read the same at 30."""
         cfg = self.args.cfg
         rate = cfg.get('capture', {}).get('fight_rate', 30)
-        chosen = 'capture.fight_rate' in (cfg.get('user_set') or [])
-        if not (rate == 60 and chosen): rate = 30              # 60 only when picked (it was the default before B6)
+        # 60 only when picked (it was the default before B6): the Performance tab writes the stored rate (perf.on true),
+        # and an older file counts only when it was marked chosen (user_set). With only user_set, picking 60 in the
+        # tab did nothing (14 Nov).
+        chosen = bool((cfg.get('perf') or {}).get('on')) or 'capture.fight_rate' in (cfg.get('user_set') or [])
+        if not (rate == 60 and chosen): rate = 30
         return FIGHT_INTERVAL if rate == 30 else 1 / 60
 
     def text_due(self, now):

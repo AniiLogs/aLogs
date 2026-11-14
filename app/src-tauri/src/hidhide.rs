@@ -16,14 +16,15 @@ use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HIDD_ATTRIBUTES, HIDP_CAPS,
 };
 use windows_sys::Win32::Devices::Properties::{DEVPKEY_Device_InstanceId, DEVPKEY_Device_Stack};
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::Storage::FileSystem::{CreateFileW, ReadFile, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_IO_PENDING, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+use windows_sys::Win32::Storage::FileSystem::{CreateFileW, ReadFile, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegDeleteKeyValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, REG_MULTI_SZ,
     RRF_RT_ANY, RRF_RT_REG_DWORD, RRF_RT_REG_MULTI_SZ,
 };
 use windows_sys::Win32::System::Services::{CloseServiceHandle, DeleteService, OpenSCManagerW, OpenServiceW, SC_MANAGER_CONNECT};
-use windows_sys::Win32::System::IO::DeviceIoControl;
+use windows_sys::Win32::System::IO::{CancelIoEx, DeviceIoControl, GetOverlappedResult, OVERLAPPED};
+use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 const HARDWARE_ID: &str = r"root\HidHide";
 // the classes HidHide filters: HID devices, and the Xbox 360 / Xbox One (XInput) controllers
@@ -80,7 +81,21 @@ fn open(path: &str) -> Option<Handle> {
 
 /// Is the driver running (installed by this app, or by HidHide's own setup)?
 pub fn installed() -> bool {
-    open(r"\\.\HidHide").is_some()
+    let on = open(r"\\.\HidHide").is_some();
+    *INSTALLED.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), on));
+    on
+}
+
+// 14 Nov: the app's status (get_status, every second) opened the driver each time; now at most every 10 s. Every
+// real check (installed(): setting up blocking, the Controller panel's controller_status) refreshes it too, so a
+// finished setup shows at once.
+static INSTALLED: std::sync::Mutex<Option<(std::time::Instant, bool)>> = std::sync::Mutex::new(None);
+pub fn installed_lately() -> bool {
+    let cached = *INSTALLED.lock().unwrap_or_else(|e| e.into_inner());
+    match cached {
+        Some((at, on)) if at.elapsed() < std::time::Duration::from_secs(10) => on,
+        _ => installed(),
+    }
 }
 
 /// Is HidHide registered as a filter on the controller classes? Without it the driver runs but hides nothing.
@@ -201,6 +216,7 @@ pub fn status() -> serde_json::Value {
     if !installed() {
         return serde_json::json!({ "installed": false, "controllers": pads().iter().map(|p| serde_json::json!({ "name": p.name, "blocked": false })).collect::<Vec<_>>() });
     }
+    asked(); // 14 Nov: keeps the press readers (watch) running while the panel asks
     let list = block_list().unwrap_or_default();
     let found = pads();
     let blocked_here: usize = found.iter().map(|p| p.ids().iter().filter(|id| listed(&list, id)).count()).sum();
@@ -238,12 +254,24 @@ pub fn set_blocked(hid_id: &str, on: bool) -> Result<(), String> {
 
 // Which controller is which: a reader per controller notes when its input changes (a button, a stick), so its row
 // can light up while you press it. Readers stop by themselves when the controller goes away or is hidden.
+// 14 Nov: ...and when the Controller panel stops asking (no controller_status for READ_FOR), so they no longer read
+// every pad for the rest of the session; the next ask starts them again. Reads are overlapped so a reader can see
+// that it isn't wanted while the pad is idle, and cancels its read (waiting for the cancel) before it goes.
 static PRESSED: std::sync::Mutex<Vec<(String, std::time::Instant)>> = std::sync::Mutex::new(Vec::new());
 static WATCHED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static LAST_ASK: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+const READ_FOR: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn pressed_ms_ago(hid: &str) -> Option<u64> {
     let pressed = PRESSED.lock().unwrap_or_else(|e| e.into_inner());
     pressed.iter().find(|(id, _)| id == hid).map(|(_, at)| at.elapsed().as_millis() as u64)
+}
+
+fn asked() {
+    *LAST_ASK.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+}
+fn still_asked() -> bool {
+    LAST_ASK.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|at| at.elapsed() < READ_FOR)
 }
 
 fn watch(pad: &Pad) {
@@ -256,13 +284,28 @@ fn watch(pad: &Pad) {
     }
     let (hid, link, len) = (pad.hid.clone(), pad.link.clone(), pad.report_len.max(1) as usize);
     std::thread::spawn(move || {
-        let h = unsafe { CreateFileW(wide(&link).as_ptr(), 0x8000_0000, FILE_SHARE_READ | FILE_SHARE_WRITE, null(), OPEN_EXISTING, 0, null_mut()) };
-        if h != INVALID_HANDLE_VALUE {
-            let h = Handle(h);
+        let h = unsafe {
+            CreateFileW(wide(&link).as_ptr(), 0x8000_0000, FILE_SHARE_READ | FILE_SHARE_WRITE, null(), OPEN_EXISTING, FILE_FLAG_OVERLAPPED, null_mut())
+        };
+        let h = (h != INVALID_HANDLE_VALUE).then_some(Handle(h));
+        let ev = unsafe { CreateEventW(null(), 1, 0, null()) }; // manual reset; ReadFile clears it when it starts
+        if let (Some(h), false) = (&h, ev.is_null()) {
             let (mut last, mut buf) = (Vec::new(), vec![0u8; len]);
-            loop {
+            while still_asked() {
+                let mut ov: OVERLAPPED = unsafe { std::mem::zeroed() };
+                ov.hEvent = ev;
+                if unsafe { ReadFile(h.0, buf.as_mut_ptr(), len as u32, null_mut(), &mut ov) } == 0 && unsafe { GetLastError() } != ERROR_IO_PENDING {
+                    break;
+                }
+                while unsafe { WaitForSingleObject(ev, 250) } != WAIT_OBJECT_0 {
+                    if !still_asked() {
+                        unsafe { CancelIoEx(h.0, &ov) };
+                        break;
+                    }
+                }
                 let mut got = 0u32;
-                if unsafe { ReadFile(h.0, buf.as_mut_ptr(), len as u32, &mut got, null_mut()) } == 0 {
+                // waits until the read is really finished (or cancelled), so `buf` and `ov` are free again
+                if unsafe { GetOverlappedResult(h.0, &ov, &mut got, 1) } == 0 {
                     break;
                 }
                 let report = buf[..got as usize].to_vec();
@@ -273,6 +316,9 @@ fn watch(pad: &Pad) {
                 }
                 last = report;
             }
+        }
+        if !ev.is_null() {
+            unsafe { CloseHandle(ev) };
         }
         WATCHED.lock().unwrap_or_else(|e| e.into_inner()).retain(|id| id != &hid);
     });

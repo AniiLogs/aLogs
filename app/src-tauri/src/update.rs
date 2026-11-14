@@ -324,6 +324,15 @@ pub fn splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
                 .always_on_top(true)
                 .build()?;
             let handle = app.handle().clone();
+            // Never left behind: this window is a whole copy of aLogs with its own WebView2 and an endless loader, and
+            // it only closed once the installer returned; an installer that never did left it running for good,
+            // unseen in the meter's numbers (14 Nov lag report). 5 minutes is far past any update (seconds).
+            let watchdog = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(300));
+                eprintln!("updating window: still open after 5 minutes, closing");
+                watchdog.exit(0);
+            });
             let installed = installed.clone();
             let installer = installer.clone();
             std::thread::spawn(move || {

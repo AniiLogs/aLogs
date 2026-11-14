@@ -90,47 +90,26 @@ class LeaderboardsMixin:
     """The leaderboards plug-in's part of the Meter (live.py): its methods, sharing the Meter's state."""
 
     def egg_fade(self, im, now):
-        """Egg Heist (opt-in, experimental): the screen fades to black right before the end screen, and a stray
-        press there skips it. From the fade until the end screen is read (egg_result), keyboard and mouse presses are
-        held back, and the controller hidden when that is switched on too. A black screen that isn't the end (loading)
-        lets go 5 s after the picture comes back; the time limit and Ctrl+Shift+F12 always end it. It starts once the
-        screen has stayed black for EGG_BLACK, so a dark flash or a camera cut doesn't block anything.
-        Only a fade inside a live run counts: the end screen shows in the match's own space and the game log's
-        leave/enter only comes after it is closed (28 Oct matches), while every false hold (30 Oct) was a load: right
-        after leaving the island, in the Sanctum up to 30 s after the run, or 3 s into the next island's load-in."""
-        r = self.args.cfg['results']
+        """Egg Heist: ends a hold egg_screen_hold started on the end or rank screen (results.py). A black screen that
+        isn't the end (loading) lets go 5 s after the picture comes back, a new space lets go at once, and the time limit
+        and Ctrl+Shift+F12 always end it. (Until 9 Nov a hold also started here once the screen stayed black: it took
+        black loads inside a run for the end.)"""
         hold = getattr(self, 'egg_hold', None)              # [ends at, picture came back at, space it started in]
-        if self.space != getattr(self, 'egg_space', None): self.egg_space = self.space; self.egg_space_at = now
+        # Nothing to do without a hold (egg_screen_hold starts them now): return before shrinking and sorting the whole
+        # frame, which this did on every full frame for nothing (14 Nov). The fade's own hold start was dead code after a
+        # bare return and is gone (no hold starts on a fade any more: it took black loads inside a run for the end,
+        # holding keys in play, 9 Nov: 3 times in one match).
+        if not hold: return
         small = im.reduce(max(1, im.width // 64)).convert('L')
         lum = sorted(small.getdata())
         black = lum[len(lum) // 2] < 14 and lum[int(len(lum) * 0.95)] < 40
-        if hold:
-            if now > hold[0]: self.egg_hold_end('time limit')
-            # a new space during the hold is a loading screen (leaving the match), never the end screen: let go now
-            elif self.space != hold[2]: self.egg_fade_frame(im, 'load'); self.egg_hold_end('the game loaded a new scene')
-            elif black: hold[1] = 0.0
-            elif not hold[1]: hold[1] = now
-            elif now - hold[1] > 5:
-                self.egg_fade_frame(im, 'back'); self.egg_hold_end('the screen came back without an end screen')
-            return
-        # (No hold starts on a fade any more: it took black loads inside a run for the end, holding keys in play, 9 Nov: 3 times in
-        # one match. The end and rank screens hold when they're spotted: egg_screen_hold.)
-        return
-        before = getattr(self, 'egg_last_lit', None)
-        if not black: self.egg_last_lit = im; self.egg_black = 0; return
-        if not getattr(self, 'egg_black', 0): self.egg_black = now                  # when this black stretch began
-        if now - self.egg_black < EGG_BLACK or not C.automation(self.args.cfg, 'egg_fade_hold') or not self.sanctum_in_run(now): return
-        # sanctum_in_run remembers a run for 30 s (for reading the end screen); the fade itself has to come while the
-        # run is still being seen (SH reads ~1/s and drops it at the fade), and not just after a scene load's fade-in
-        if now - getattr(self, 'sh_run_seen', 0) > 4 or now - getattr(self, 'egg_space_at', 0) < 8: return
-        if self.hwnd and not wc.is_foreground(self.hwnd): return          # only while you're in the game
-        # its own switch: keyboard and mouse are held whatever the result-screen block says, for as long as that allows
-        seconds = max(HOLD_MIN, min(120, int(r.get("hold_seconds") or 60)))
-        self.egg_hold = [now + seconds, 0.0, self.space]
-        self.hold.start(seconds)
-        if r.get('hold_controller') and CT.available(): CT.hide_controllers(True)
-        log.info(f'Egg Heist: the screen faded to black - holding inputs until the end screen is read (at most {seconds} s)')
-        if before is not None: self.egg_fade_frame(before, 'before')
+        if now > hold[0]: self.egg_hold_end('time limit')
+        # a new space during the hold is a loading screen (leaving the match), never the end screen: let go now
+        elif self.space != hold[2]: self.egg_fade_frame(im, 'load'); self.egg_hold_end('the game loaded a new scene')
+        elif black: hold[1] = 0.0
+        elif not hold[1]: hold[1] = now
+        elif now - hold[1] > 5:
+            self.egg_fade_frame(im, 'back'); self.egg_hold_end('the screen came back without an end screen')
 
     def egg_fade_frame(self, im, what):
         """Diagnostics (Captures & logs › diagnostic captures): the frame before a fade and the one that ended a hold

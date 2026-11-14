@@ -29,6 +29,15 @@ for oid, plugin, key, default, rest in options:
     if last not in S.DEFAULTS.get(group, {}): fails.append(f'{oid}: its setting {key} is not a meter setting')
 extra = set(perf) - {'on'} - {o[0] for o in options}
 if extra: fails.append(f'settings.py has perf options the tab does not: {sorted(extra)}')
+# fights.fight_interval (14 Nov): the tab's stored rate counts when perf.on is true; an older file's 60 only when marked chosen
+import types, fights as F
+def interval(cfg): return F.FightsMixin.fight_interval(types.SimpleNamespace(args=types.SimpleNamespace(cfg=cfg)))
+for cfg, want, what in [({'capture': {'fight_rate': 60}, 'perf': {'on': True}, 'user_set': []}, 1 / 60, 'perf.on + 60'),
+                        ({'capture': {'fight_rate': 30}, 'perf': {'on': False}, 'user_set': []}, 1 / 30, 'perf.on false + 30'),
+                        ({'capture': {'fight_rate': 60}, 'user_set': []}, 1 / 30, 'old file, 60 not chosen, no perf'),
+                        ({'capture': {'fight_rate': 60}, 'user_set': ['capture.fight_rate']}, 1 / 60, 'old file, 60 chosen')]:
+    got = interval(cfg)
+    if abs(got - want) > 1e-9: fails.append(f'fight_interval {what}: {got:.4f} s, want {want:.4f} s')
 print(f'{len(options)} options in {len(sections)} sections')
 if fails:
     print('FAIL\n  ' + '\n  '.join(fails)); sys.exit(1)
