@@ -17,50 +17,6 @@ static LAST_PAGE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new()
 /// creations would race ("a webview with label `site` already exists").
 static BUSY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// 14 Nov: whether the views should draw. Closing to the tray only hides the window and minimizing only shrinks it,
-/// and WebView2 can go on thinking both pages are on screen, so their timers and animations (the site's WebGL
-/// backdrop, CSS animations) kept running at the monitor's rate. (site wanted: the page's Site tab is open, i.e. the
-/// last site_view asked to show it; in the tray; minimized.) Every show/hide of the site view is sent from a worker
-/// thread while this is locked, so they reach the window in the order they were decided and the last one wins.
-static SEEN: std::sync::Mutex<(bool, bool, bool)> = std::sync::Mutex::new((false, false, false));
-
-/// Show or hide the site view as SEEN says (call with SEEN locked).
-fn sync_site(app: &AppHandle, seen: &(bool, bool, bool)) {
-    if let Some(view) = app.get_webview(LABEL) {
-        let _ = if seen.0 && !seen.1 && !seen.2 { view.show() } else { view.hide() };
-    }
-}
-
-/// The main window went to the tray / came back (`tray`), or was minimized / restored (`minimized`): the main page
-/// stops or starts drawing (its WebView2 controller's IsVisible), and so does the site view, which comes back only
-/// when the Site tab is the open one. Safe to call from any thread, and again with nothing changed.
-pub(crate) fn window_seen(app: &AppHandle, tray: Option<bool>, minimized: Option<bool>) {
-    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    let was_away = seen.1 || seen.2;
-    if let Some(t) = tray {
-        seen.1 = t;
-    }
-    if let Some(m) = minimized {
-        seen.2 = m;
-    }
-    let away = seen.1 || seen.2;
-    if away == was_away {
-        return;
-    }
-    // the main page first, here (on the main thread it's done before the window shows again)
-    if let Some(main) = app.get_webview("main") {
-        let _ = main.with_webview(move |view| unsafe {
-            let _ = view.controller().SetIsVisible(!away);
-        });
-    }
-    drop(seen);
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-        sync_site(&app, &seen); // as things stand when this runs: a later change has its own thread after this
-    });
-}
-
 /// Pages the site view may show itself: the site, its API (sign-in round trip) and Discord's sign-in pages.
 pub(crate) fn stays_inside(url: &Url) -> bool {
     match url.host_str() {
@@ -86,8 +42,6 @@ pub async fn site_view(app: AppHandle, path: Option<String>, theme: Option<Strin
     let _one_at_a_time = BUSY.lock().unwrap_or_else(|e| e.into_inner());
     let existing = app.get_webview(LABEL);
     let Some(path) = path else {
-        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-        seen.0 = false;
         if let Some(view) = existing {
             view.hide().map_err(|e| e.to_string())?;
         }
@@ -121,13 +75,7 @@ pub async fn site_view(app: AppHandle, path: Option<String>, theme: Option<Strin
             view.navigate(url).map_err(|e| e.to_string())?;
             *last = page;
         }
-        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-        seen.0 = true;
-        if seen.1 || seen.2 {
-            view.hide().map_err(|e| e.to_string())?; // 14 Nov: asked while the window is away: shown when it's back
-        } else {
-            view.show().map_err(|e| e.to_string())?;
-        }
+        view.show().map_err(|e| e.to_string())?;
         return Ok(());
     }
     let window = app.get_window("main").ok_or("The main window is gone.")?;
@@ -144,12 +92,7 @@ pub async fn site_view(app: AppHandle, path: Option<String>, theme: Option<Strin
             open_outside(&url);
             NewWindowResponse::Deny
         });
-    SEEN.lock().unwrap_or_else(|e| e.into_inner()).0 = true;
     window.add_child(builder, position, size).map_err(|e| e.to_string())?;
     *LAST_PAGE.lock().unwrap_or_else(|e| e.into_inner()) = page;
-    let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    if seen.1 || seen.2 {
-        sync_site(&app, &seen); // 14 Nov: made while the window is away: hidden until it's back
-    }
     Ok(())
 }
