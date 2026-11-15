@@ -578,7 +578,7 @@ fn client(hwnd: HWND) -> Option<(u32, u32, POINT)> {
     }
 }
 
-/// A window above the game's, as far as hiding the game on screen goes (dev switch capture-uncovered).
+/// A window above the game's, as far as hiding the game on screen goes.
 struct Above {
     rect: RECT,     // what of it shows, on screen
     ex_style: u32,
@@ -594,7 +594,7 @@ fn covers(game: &RECT, w: &Above) -> bool {
     overlap && !w.cloaked && !w.excluded && w.ex_style & click_through != click_through
 }
 
-/// Dev switch capture-uncovered: no other window shows over the game's picture, so the screen still shows all of it
+/// No other window shows over the game's picture, so the screen still shows all of it
 /// though another window has the focus. Walks the windows from the top one down to the game's; false when unsure.
 fn uncovered(hwnd: HWND) -> bool {
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -1139,7 +1139,7 @@ pub fn start() {
             let mut away_black_since = 0u64;
             let mut away_last = 0u64;
             let mut away_said = false;
-            let mut on_screen_said = false; // dev switch capture-uncovered: said that it stays on the screen
+            let mut on_screen_said = false; // said that it stays on the screen though the game isn't in front
             loop {
                 let now = now_ms();
                 shared.put_u64(HEARTBEAT, now); // alive (readers notice when the app is gone)
@@ -1213,10 +1213,10 @@ pub fn start() {
                     source = None;
                 }
                 let away = kind.needs_front() && unsafe { GetForegroundWindow() } != hwnd;
-                // Dev switch capture-uncovered: another window has the focus but none shows over the game (it's on
+                // Another window has the focus but none shows over the game (it's on
                 // another screen, or it's a hidden one), so the screen still shows the game: stay on it. The window
                 // copy below makes the game hold a frame twice as long, 4 times a second (measured 15 Nov).
-                let on_screen = away && crate::dev::on("capture-uncovered") && uncovered(hwnd);
+                let on_screen = away && uncovered(hwnd);
                 if on_screen != on_screen_said {
                     on_screen_said = on_screen;
                     if on_screen {
@@ -1388,7 +1388,7 @@ mod tests {
         assert_eq!(place(&readers, &active, 0, full), Some(0));
     }
 
-    /// Dev switch capture-uncovered: what counts as a window over the game (a 4K game at 0,0).
+    /// What counts as a window over the game (a 4K game at 0,0).
     #[test]
     fn what_covers_the_game() {
         let game = RECT { left: 0, top: 0, right: 3840, bottom: 2160 };

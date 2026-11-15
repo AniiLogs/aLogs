@@ -36,18 +36,6 @@
     "revision": 1
   },
   {
-    "id": "capture-uncovered",
-    "plugin": "core",
-    "section": "Low risk",
-    "area": "Smoothness",
-    "title": "Another window focused: keep reading the screen while nothing covers the game",
-    "what": "On Windows 10, when the game isn't the focused window, aLogs stops reading the screen and copies the game window itself, up to four times a second. Each of those copies makes the game hold one frame about twice as long. With this on, aLogs first checks whether any other window actually shows over the game. If none does (you clicked a window on another monitor, or a hidden window has the focus), it keeps reading the screen, as it does while you play. A window over any part of the game still gets the window copy, as before. Only where aLogs captures the screen rather than the game window (every Windows 10 PC).",
-    "gain": "Measured on one Windows 10 PC at 4K (15 Nov): while the window copy ran, the game had about 220 doubled frames a minute, against about 30 while aLogs read the screen or was closed. This should take them away whenever the whole game is visible.",
-    "risk": "A window that comes up over the game is noticed at the next picture, so a picture taken in that instant could show it. Other programs' click-through overlays and windows kept out of captures don't count as covering the game, the same as while the game is focused.",
-    "tested": "The rule for what covers the game is bench tested. Not tried in a game yet.",
-    "revision": 1
-  },
-  {
     "id": "button-row-steady",
     "plugin": "core",
     "section": "Low risk",

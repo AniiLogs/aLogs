@@ -24,7 +24,7 @@
   let rendered = "";
   let loaded = false;  // the saved verdicts are here: until then nothing can be chosen, or a late answer would undo it
   let sending = false;
-  // Filters: lit shows, darkened hides, in each row, per plug-in. Not saved: the tab opens with everything showing.
+  // Filters: lit shows, darkened hides, in each row, per plug-in; a row with nothing lit doesn't filter. Not saved: the tab opens with everything showing.
   const hidden = { core: new Set(), dps: new Set(), sanctum: new Set(), leaderboards: new Set() };
   // What the tester chose and wrote, by switch ("sanctum:<id>" for Sanctum Helper's). The copy that counts while the app
   // is open: the app is told of every change, and only tells back how long a switch was on and what was sent.
@@ -112,7 +112,7 @@
       el("div", { class: "dev-chips" }, list.map((name) => chip(name, !off.has(name), flip(name)))));
     const allOn = off.size === 0;
     return el("div", { class: "dev-filters" },
-      el("div", { class: "dev-filter-row" }, el("span"), el("div", { class: "dev-chips" }, chip("Show all", allOn, () => {
+      el("div", { class: "dev-filter-row" }, el("span"), el("div", { class: "dev-chips" }, chip("Show all", showing === total, () => {
         if (allOn) names.forEach((name) => off.add(name)); else off.clear();
         draw(true);
       }))),
@@ -245,7 +245,10 @@
     const changed = lists.changed;
     const sections = [...new Set(options.map((o) => o.section))];
     const areas = [...new Set(options.map((o) => o.area))];
-    const shown = options.filter((o) => !hidden[id].has(o.section) && !hidden[id].has(o.area));
+    // a row with nothing lit doesn't filter: only Low risk lit shows every Low risk switch, whatever its type
+    const picked = (list) => (list.every((name) => hidden[id].has(name)) ? () => true : (name) => !hidden[id].has(name));
+    const [risk, type] = [picked(sections), picked(areas)];
+    const shown = options.filter((o) => risk(o.section) && type(o.area));
     const nodes = [el("p", { class: "notice" }, `Beta only. All off at every start, except any you make Persistent. ${on.size} on now, ${persistent.size} persistent. With all off, ${WORKS_AS[id]} as in 0.1.36.`)];
     if (changed.length) {
       const names = changed.map((id) => options.find((o) => o.id === id)?.title || id).join(", ");
