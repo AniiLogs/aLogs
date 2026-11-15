@@ -74,3 +74,18 @@ is `app/` (Tauri: Rust in `app/src-tauri/src`, UI in `app/ui`). Fight rows are w
 - **Never put report contents in the repository, an issue or a PR:** no log excerpts with UIDs or names, no
   attached files. PRs are public; the reports are not. Quote numbers and timings, not identities. A note is
   private (developers only), but keep UIDs and names out of it too.
+
+## A window that froze
+
+When the window doesn't answer for 5 s, the app writes a line to `app.log` (`app/src-tauri/src/watchdog.rs`), and again
+at 30 s:
+
+    window: not answering for 5 s. The page's last calls: collect_logs 0.4 s ago, ... The window's thread is at:
+    ntdll.dll+0xa1024 (NtWaitForSingleObject) < KERNELBASE.dll+0x... < alogs-app.exe+0x1a2b3c < ...
+
+Innermost call first. System files come with the function's name. For `alogs-app.exe+0x...`, look the offset up in that
+build's map: `app/src-tauri/target/release/bundle/maps/aLogs_<version>_RC<n>.map` on the PC that built it (the report's
+`app.txt` says the RC). In the map, a function's "Rva+Base" minus the preferred load address (the first lines) is its
+offset; the frame is in the function with the largest offset not above the frame's. `window: answering again after N s`
+means it came back by itself; no such line and a new `window: aLogs started` means the player closed it. A `panic on
+thread ...` line is a crash inside the app.

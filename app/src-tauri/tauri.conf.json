@@ -4,7 +4,8 @@
   "version": "0.1.37",
   "identifier": "app.alogs.desktop",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui",
+    "beforeBundleCommand": "node set-exe-version.mjs"
   },
   "app": {
     "withGlobalTauri": true,

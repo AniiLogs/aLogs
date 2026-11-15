@@ -3,7 +3,7 @@
 // (%USERPROFILE%\.tauri\alogs-updater.key, never in the project). clean-installers.mjs then names the installer
 // aLogs_<version>_RC<n>_x64-setup.exe.
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { signUpdate, verifyUpdate } from "./sign-update.mjs";
@@ -28,6 +28,13 @@ execSync("npx tauri build", {
 
 // The feeds announce this build as "<version>+rc.<n>" and the updater only installs an update signed for exactly
 // the announced version, so the installer is signed again with that version (sign-update.mjs), then checked.
+// The map of this build's functions, kept by RC number: a "window: not answering" line in a player's app.log gives
+// addresses in alogs-app.exe, and only this build's map says which functions those are. Never shipped.
+const map = join("src-tauri", "target", "release", "alogs-app.map");
+if (existsSync(map)) {
+  mkdirSync(join("src-tauri", "target", "release", "bundle", "maps"), { recursive: true });
+  copyFileSync(map, join("src-tauri", "target", "release", "bundle", "maps", `aLogs_${version}_RC${rc}.map`));
+}
 const installer = join("src-tauri", "target", "release", "bundle", "nsis", `aLogs_${version}_x64-setup.exe`);
 signUpdate(installer, `${version}+rc.${rc}`, key);
 const pubkey = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).plugins.updater.pubkey;

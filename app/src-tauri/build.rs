@@ -4,5 +4,12 @@ fn main() {
     if !std::path::Path::new("build.json").exists() {
         std::fs::write("build.json", "{\"version\":\"0.0.0\",\"rc\":0}\n").expect("write build.json");
     }
+    // A map of the program's functions beside a release build (target/release/alogs-app.map): what the addresses in
+    // app.log's "window: not answering" line (watchdog.rs) are looked up in. It stays on the build PC; tauri-build.mjs
+    // keeps one per test build.
+    if std::env::var("PROFILE").as_deref() == Ok("release") {
+        let map = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default()).join("target").join("release").join("alogs-app.map");
+        println!("cargo:rustc-link-arg-bins=/MAP:{}", map.display());
+    }
     tauri_build::build()
 }

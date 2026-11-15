@@ -27,6 +27,7 @@ mod plugins;
 mod sanctum;
 mod site;
 mod update;
+mod watchdog;
 
 const APP_DIR: &str = "aLogs"; // the suite's short name: data folder, tray; must match bossbar/settings.py
 const FULL_NAME: &str = "aLogs: Aniiloger's Companion App";
@@ -1050,7 +1051,8 @@ fn main() {
         .manage(sanctum::Sanctum::new())
         .manage(update::Pending::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
             get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held, capture_choose_icon,
             auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, auth::auth_window_open, auth::auth_window_close, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, photos::photos_stamp, photos::photos_wait, site::site_view,
             install_english_ocr,
@@ -1061,9 +1063,16 @@ fn main() {
             sanctum::sanctum_layout_image, sanctum::sanctum_icon,
             update::update_state, update::check_update, update::install_update, update::install_update_later,
             update::build_number, update::build_label
-        ])
+            ]);
+            // the names of the page's last calls, for the line app.log gets when the window stops answering
+            move |invoke| {
+                watchdog::command(invoke.message.command());
+                handler(invoke)
+            }
+        })
         .setup(move |app| {
             app_log(&format!("window: aLogs started{}", if minimized { " (in the tray)" } else { "" }));
+            watchdog::start(app.handle().clone());
             let show = MenuItem::with_id(app, "show", "Open", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit (stops the meter)", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;

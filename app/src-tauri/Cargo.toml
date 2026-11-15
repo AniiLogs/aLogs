@@ -30,12 +30,14 @@ windows = { version = "0.62", features = [                         # GPU capture
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Memory",
   "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_Security",
+  "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader",   # where the window is stuck (watchdog.rs)
   # controller blocking (hidhide.rs)
   "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_Properties",
   "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Registry", "Win32_System_Services",
   "Win32_System_Threading", "Win32_UI_Shell",
   "Win32_System_Diagnostics_ToolHelp",   # the meter's OCR helpers follow the Priority setting (main.rs, 14 Nov)
 ] }
+backtrace = "0.3"   # names for the addresses in a stuck window's stack (watchdog.rs)
 
 [profile.release]
 opt-level = "s"
