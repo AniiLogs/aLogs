@@ -279,7 +279,7 @@ class Submitter(threading.Thread):
         """Queue one record; the same kind + run id replaces an older queued copy. Nothing is queued while off."""
         self.refresh()
         if not self.config: return
-        payload = {**payload, 'clientVersion': CLIENT_VERSION}
+        payload = {**send_check(payload, species_names()), 'clientVersion': CLIENT_VERSION}   # the last check (send_check)
         if 'server' not in payload: payload['server'] = game_server()      # read each time: you can switch servers
         name = _safe(f"{payload['kind']}__{payload['clientRunId']}") + '.json'
         write_json(os.path.join(QUEUE, name), {'endpoint': 'submissions', 'payload': payload,
@@ -606,6 +606,74 @@ def lineup_names(party, players):
             log.info(f"lineup: {out[id(m)]!r} is slot {seen[key] + 1}'s already: slot {(m.get('slot') or 0) + 1} sent unnamed")
             out[id(m)] = ''
         else: seen[key] = m.get('slot') or 0
+    return out
+
+# ---------------------------------------------------------------- the last check before sending
+# The owner (14 Nov): misreads are stopped in the meter, never repaired on the site afterwards. A read of 613 stored runs
+# found, all from before 0.1.37 B8: a player named twice in a lineup (21 runs) or in Battle Data (5), and leads, team
+# members and Holo-Battle Sim team members that weren't an Aniimo at all (nicknames, cut-off reads like "Pawne").
+# B8/B9 fixed each reader; this is the net under all of them, so none of it can be sent whatever a reader misses.
+_SPECIES = {'at': None, 'names': None}
+
+def species_names():
+    """Every Aniimo's name, folded, from the game's own files (the meter's icon cache, read again after each game patch),
+    or None when they can't be read (then names aren't checked against it: never guessed)."""
+    path = os.path.join(HERE, 'icons', 'icons.json')
+    try: at = os.path.getmtime(path)
+    except OSError: return None
+    if _SPECIES['at'] != at:
+        try:
+            with open(path, encoding='utf-8') as f: heads = json.load(f).get('heads') or {}
+            _SPECIES['names'] = {str(n).strip().casefold() for n in heads.values() if n} or None
+        except (OSError, ValueError, AttributeError): _SPECIES['names'] = None
+        _SPECIES['at'] = at
+    return _SPECIES['names']
+
+def _send_fold(name): return _fold(re.sub(r'\s+', '', str(name or '')))   # look-alike letters fold, as the B8 name checks do
+
+def _one_each(rows, what, run):
+    """No player twice: a later row with a name already sent goes unnamed (a row marked you keeps its name first)."""
+    order = sorted(range(len(rows)), key=lambda i: (not (isinstance(rows[i], dict) and rows[i].get('self')), i))
+    seen = set()
+    for i in order:
+        r = rows[i]
+        if not isinstance(r, dict) or not r.get('name') or r.get('ai'): continue
+        k = _send_fold(r['name'])
+        if k in seen:
+            log.info(f"send check: {what} row {i + 1} of {run} has a name another row has: sent unnamed")
+            rows[i] = {k: v for k, v in r.items() if k != 'name'}      # unnamed as the readers send it: no name at all
+        else: seen.add(k)
+
+def send_check(payload, species=None):
+    """`payload` as it may go out: players and lineup slots named once each, and every Aniimo species one from the game's
+    list (one that isn't: the lead's text kept as its nickname, a team member left out). A copy; the input is untouched."""
+    out = json.loads(json.dumps(payload))
+    run = f"{out.get('kind')} {out.get('clientRunId')}"
+    if isinstance(out.get('players'), list): _one_each(out['players'], 'player', run)
+    extra = out.get('extra') if isinstance(out.get('extra'), dict) else {}
+    lineup = extra.get('lineup') if isinstance(extra.get('lineup'), list) else None
+    if lineup: _one_each(lineup, 'lineup', run)
+    if not species: return out
+    ok = lambda n: isinstance(n, str) and n.strip().casefold() in species
+    for i, e in enumerate(lineup or []):
+        if not isinstance(e, dict): continue
+        if e.get('aniimo') and not ok(e['aniimo']):
+            log.info(f"send check: lineup slot {i + 1} of {run}: its lead isn't an Aniimo's name: kept as its nickname only")
+            e.setdefault('nickname', e['aniimo']); e.pop('aniimo', None)
+        if isinstance(e.get('team'), list):
+            team = [m for m in e['team'] if isinstance(m, dict) and ok(m.get('aniimo'))]
+            if len(team) != len(e['team']): log.info(f"send check: lineup slot {i + 1} of {run}: {len(e['team']) - len(team)} team member(s) not an Aniimo: left out")
+            if team: e['team'] = team
+            else: e.pop('team', None)
+    setup = extra.get('setup') if isinstance(extra.get('setup'), dict) else None
+    if setup and isinstance(setup.get('team'), list):
+        team = []
+        for m in setup['team']:
+            if isinstance(m, dict) and m.get('name') and not ok(m['name']):
+                log.info(f"send check: a Holo-Battle Sim team member of {run} isn't an Aniimo: left out")
+                continue
+            team.append(m)
+        setup['team'] = team
     return out
 
 def _lineup(summary):
