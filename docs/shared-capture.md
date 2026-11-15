@@ -13,7 +13,11 @@ Both ways keep the picture on the graphics card and copy into memory only the ar
 2. **Desktop Duplication** of the screen the game is on, only while the game is in front. Our overlays can be in
    it (flags bit 1): the meter and Sanctum Helper hide their windows from capture then.
 
-PrintWindow and BitBlt screen copies (v1) were removed: ~50 ms per 4K frame, and they made the game wait.
+Not in front on Windows 10: while no window shows over the game, Desktop Duplication goes on. With a window over
+the game, window capture takes the game window alone, with Windows 10's yellow border (behind whatever covers the
+game), until the game is uncovered or in front again. PrintWindow is only the fallback where that can't start or
+shows nothing: ~50 ms per 4K frame, and each copy makes the game wait (measured 15 Nov: about 220 doubled frames a
+minute at 4 copies a second). BitBlt screen copies (v1) were removed.
 
 ## Reading
 1. Open the mapping (map it whole: size 0) and check the magic `ALCP`.
