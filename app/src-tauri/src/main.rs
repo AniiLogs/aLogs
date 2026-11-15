@@ -1011,7 +1011,6 @@ fn show_main(app: &AppHandle, why: &str) {
         app_log(&format!("window: open asked ({why}), but there is no main window"));
         return;
     };
-    site::window_seen(app, Some(false), Some(false)); // 14 Nov: the pages draw again (and the Site tab's view if it's open)
     let errors: Vec<String> = [("show", window.show()), ("unminimize", window.unminimize()), ("focus", window.set_focus())]
         .into_iter()
         .filter_map(|(step, r)| r.err().map(|e| format!("{step}: {e}")))
@@ -1112,27 +1111,17 @@ fn main() {
             if minimized {
                 if let Some(window) = app.get_window("main") {
                     let _ = window.hide();
-                    site::window_seen(app.handle(), Some(true), None); // 14 Nov: nothing drawn while in the tray
                     app_log("window: started in the tray (with Windows)");
                 }
             }
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 14 Nov: minimized (Windows sizes it 0 x 0) the pages stop drawing; any other size, they draw again
-            if let WindowEvent::Resized(size) = event {
-                if window.label() == "main" {
-                    site::window_seen(window.app_handle(), None, Some(size.width == 0 && size.height == 0));
-                }
-            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = read_settings().pointer("/app/close_to_tray").and_then(Value::as_bool).unwrap_or(true);
                 if to_tray {
                     api.prevent_close();
                     let hidden = window.hide();
-                    if window.label() == "main" {
-                        site::window_seen(window.app_handle(), Some(true), None); // 14 Nov: nothing drawn while in the tray
-                    }
                     app_log(&format!("window: closed to the tray{}", hidden.err().map_or(String::new(), |e| format!("; hide failed: {e}"))));
                 } else {
                     api.prevent_close();
