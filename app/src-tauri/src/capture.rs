@@ -74,7 +74,9 @@ use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows_sys::Win32::System::Memory::{CreateFileMappingW, MapViewOfFile, FILE_MAP_ALL_ACCESS, PAGE_READWRITE};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible,
+    EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetTopWindow, GetWindow, GetWindowDisplayAffinity,
+    GetWindowLongW, GetWindowRect, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible, GWL_EXSTYLE, GW_HWNDNEXT,
+    WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
 };
 
 use crate::gpu_capture::{window_frame_origin, Duplication, Gpu, WindowCapture};
@@ -574,6 +576,65 @@ fn client(hwnd: HWND) -> Option<(u32, u32, POINT)> {
         ClientToScreen(hwnd, &mut origin);
         Some((width as u32, height as u32, origin))
     }
+}
+
+/// A window above the game's, as far as hiding the game on screen goes (dev switch capture-uncovered).
+struct Above {
+    rect: RECT,     // what of it shows, on screen
+    ex_style: u32,
+    cloaked: bool,  // there for Windows, drawn nowhere (another desktop, a parked app window)
+    excluded: bool, // kept out of captures, like aLogs' own overlays
+}
+
+/// Whether that window hides any of the game's picture (`game`: its client area on screen) from Desktop Duplication.
+/// Windows that let clicks through (overlays) don't count: they're over the game while it's in front too.
+fn covers(game: &RECT, w: &Above) -> bool {
+    let overlap = w.rect.left < game.right && w.rect.right > game.left && w.rect.top < game.bottom && w.rect.bottom > game.top;
+    let click_through = WS_EX_LAYERED | WS_EX_TRANSPARENT;
+    overlap && !w.cloaked && !w.excluded && w.ex_style & click_through != click_through
+}
+
+/// Dev switch capture-uncovered: no other window shows over the game's picture, so the screen still shows all of it
+/// though another window has the focus. Walks the windows from the top one down to the game's; false when unsure.
+fn uncovered(hwnd: HWND) -> bool {
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
+    let Some((width, height, origin)) = client(hwnd) else { return false };
+    let game = RECT { left: origin.x, top: origin.y, right: origin.x + width as i32, bottom: origin.y + height as i32 };
+    unsafe {
+        let mut at = GetTopWindow(null_mut());
+        for _ in 0..4000 {
+            if at.is_null() {
+                return false; // the game's window isn't among them
+            }
+            if at == hwnd {
+                return true;
+            }
+            if IsWindowVisible(at) != 0 && IsIconic(at) == 0 {
+                let window = windows::Win32::Foundation::HWND(at as _);
+                // what shows of it: a maximized window's own rectangle reaches 8 px onto the next screen
+                let mut rect: RECT = std::mem::zeroed();
+                let size = std::mem::size_of::<RECT>() as u32;
+                if DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &mut rect as *mut RECT as *mut _, size).is_err() {
+                    GetWindowRect(at, &mut rect);
+                }
+                let mut cloaked = 0u32;
+                let _ = DwmGetWindowAttribute(window, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut _, 4);
+                let mut affinity = 0u32;
+                GetWindowDisplayAffinity(at, &mut affinity);
+                let above = Above {
+                    rect,
+                    ex_style: GetWindowLongW(at, GWL_EXSTYLE) as u32,
+                    cloaked: cloaked != 0,
+                    excluded: affinity == WDA_EXCLUDEFROMCAPTURE,
+                };
+                if covers(&game, &above) {
+                    return false;
+                }
+            }
+            at = GetWindow(at, GW_HWNDNEXT);
+        }
+    }
+    false
 }
 
 /// True if a spread of the pixels at `pixels` (w x h, `stride` bytes per row) has anything not black.
@@ -1078,6 +1139,7 @@ pub fn start() {
             let mut away_black_since = 0u64;
             let mut away_last = 0u64;
             let mut away_said = false;
+            let mut on_screen_said = false; // dev switch capture-uncovered: said that it stays on the screen
             loop {
                 let now = now_ms();
                 shared.put_u64(HEARTBEAT, now); // alive (readers notice when the app is gone)
@@ -1150,7 +1212,20 @@ pub fn start() {
                 if source.as_ref().is_some_and(|s| s.moved(hwnd)) {
                     source = None;
                 }
-                if kind.needs_front() && unsafe { GetForegroundWindow() } != hwnd {
+                let away = kind.needs_front() && unsafe { GetForegroundWindow() } != hwnd;
+                // Dev switch capture-uncovered: another window has the focus but none shows over the game (it's on
+                // another screen, or it's a hidden one), so the screen still shows the game: stay on it. The window
+                // copy below makes the game hold a frame twice as long, 4 times a second (measured 15 Nov).
+                let on_screen = away && crate::dev::on("capture-uncovered") && uncovered(hwnd);
+                if on_screen != on_screen_said {
+                    on_screen_said = on_screen;
+                    if on_screen {
+                        eprintln!("shared capture: another window has the focus but none covers the game; staying on the screen");
+                    } else if away {
+                        eprintln!("shared capture: a window covers the game; copying the game window");
+                    }
+                }
+                if away && !on_screen {
                     // Tabbed out: Desktop Duplication sees the other window. Copy the game window itself, slowly.
                     if now < away_last + AWAY_MS {
                         std::thread::sleep(Duration::from_millis(10));
@@ -1311,6 +1386,36 @@ mod tests {
             readers[i].room = 0;
         }
         assert_eq!(place(&readers, &active, 0, full), Some(0));
+    }
+
+    /// Dev switch capture-uncovered: what counts as a window over the game (a 4K game at 0,0).
+    #[test]
+    fn what_covers_the_game() {
+        let game = RECT { left: 0, top: 0, right: 3840, bottom: 2160 };
+        let at = |left, top, right, bottom| Above { rect: RECT { left, top, right, bottom }, ex_style: 0, cloaked: false, excluded: false };
+        assert!(covers(&game, &at(100, 100, 900, 700)), "a window over the game");
+        assert!(covers(&game, &at(0, 2088, 3840, 2160)), "the taskbar over its bottom edge");
+        assert!(covers(&game, &at(-500, -500, 1, 1)), "one pixel of overlap");
+        assert!(!covers(&game, &at(3840, 0, 6400, 1440)), "a window filling the next screen");
+        assert!(!covers(&game, &at(-32000, -32000, -31999, -31999)), "a window parked off screen");
+        assert!(!covers(&game, &at(0, 0, 0, 0)), "an empty window");
+        assert!(!covers(&game, &Above { cloaked: true, ..at(0, 0, 3840, 2160) }), "a window Windows draws nowhere");
+        assert!(!covers(&game, &Above { excluded: true, ..at(0, 0, 400, 300) }), "an overlay kept out of captures");
+        assert!(!covers(&game, &Above { ex_style: WS_EX_LAYERED | WS_EX_TRANSPARENT, ..at(0, 0, 3840, 2160) }), "a click-through overlay");
+        assert!(covers(&game, &Above { ex_style: WS_EX_LAYERED, ..at(0, 0, 400, 300) }), "a see-through window that takes clicks");
+    }
+
+    /// A look at this PC as it is now (run it with the game open and another window focused):
+    /// `cargo test --bin alogs-app capture::tests::game_uncovered_now -- --exact --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn game_uncovered_now() {
+        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let hwnd = find_game();
+        assert!(!hwnd.is_null(), "the game isn't open");
+        let t = Instant::now();
+        let free = uncovered(hwnd);
+        println!("game in front: {}, uncovered: {free}, the look took {:?}", unsafe { GetForegroundWindow() } == hwnd, t.elapsed());
     }
 
     /// The meter's reader (bossbar/wincapture.py) against pictures served here from Desktop Duplication of the
