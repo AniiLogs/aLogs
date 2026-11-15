@@ -10,10 +10,11 @@
 //! yellow border round the game: only the game, never other programs' overlays. The border shows only while
 //! something reads pictures; nobody asking closes the capture (and the border with it).
 //!
-//! Tabbed out on Windows 10 (Desktop Duplication sees the other window then), so the meter can still warn that
-//! you're being attacked: the game window is copied with PrintWindow, at most 4 times a second (~50 ms each at 4K,
-//! which can make the game stutter, but only while you're not looking at it); where that gives black pictures,
-//! window capture with Windows 10's yellow border, closed as soon as the game is back in front.
+//! Not in front on Windows 10: while no window shows over the game, Desktop Duplication goes on (the screen still
+//! shows all of it). With a window over it, the game window alone is taken as on Windows 11, by window capture with
+//! Windows 10's yellow border (behind whatever covers the game), closed as soon as the game is uncovered or back in
+//! front. Only where that can't start or shows nothing: PrintWindow, at most 4 times a second (each copy makes the
+//! game hold a frame about twice as long: measured 15 Nov at 4K).
 //!
 //! Each reader (the meter, Sanctum Helper, ...) says which area of the game it needs and how often, and gets
 //! that area in **its own picture buffer**, written at its own pace: only that area leaves the graphics card,
@@ -1135,7 +1136,8 @@ pub fn start() {
             // tabbed out on Windows 10: the window copy, or (where it's black) window capture with its border
             let mut away_copy: Option<WindowCopy> = None;
             let mut away_window: Option<WindowCapture> = None;
-            let mut away_border = false; // the window copy gave only black pictures for this game window
+            let mut away_border = true; // window capture; false once it can't start or shows nothing for this game window
+            let mut away_tries = 0u32; // window capture's failed starts and breaks in a row
             let mut away_black_since = 0u64;
             let mut away_last = 0u64;
             let mut away_said = false;
@@ -1189,7 +1191,7 @@ pub fn start() {
                     hwnd = find_game();
                     last_find = now;
                     (kind, source, tries, black_since) = (best, None, 0, 0); // a new game window: the best way first again
-                    (away_copy, away_window, away_border, away_black_since) = (None, None, false, 0);
+                    (away_copy, away_window, away_border, away_black_since, away_tries) = (None, None, true, 0, 0);
                 }
                 let usable = unsafe { !hwnd.is_null() && IsWindow(hwnd) != 0 && IsIconic(hwnd) == 0 };
                 let wait = |shared: &Shared, readers: &mut [Reader; SLOTS]| {
@@ -1226,8 +1228,11 @@ pub fn start() {
                     }
                 }
                 if away && !on_screen {
-                    // Tabbed out: Desktop Duplication sees the other window. Copy the game window itself, slowly.
-                    if now < away_last + AWAY_MS {
+                    // A window is over the game: Desktop Duplication sees that window. Take the game window alone, as
+                    // Windows 11 does: window capture, on the graphics card, at the readers' own pace. Windows 10 draws
+                    // its yellow border round the game for it, behind whatever covers it. Only where that can't start
+                    // or shows nothing: the window copy (PrintWindow), slowly, since each one makes the game wait.
+                    if !away_border && now < away_last + AWAY_MS {
                         std::thread::sleep(Duration::from_millis(10));
                         continue;
                     }
@@ -1270,25 +1275,33 @@ pub fn start() {
                                 }
                                 Err(_) => {
                                     away_window = None;
+                                    away_tries += 1;
                                     None
                                 }
                             },
-                            None => None,
-                        }
-                    };
-                    match result {
-                        Some(true) => {
-                            away_black_since = 0;
-                            if !away_said {
-                                away_said = true;
-                                eprintln!("shared capture: tabbed out, using {}", if away_border { "window capture (with border)" } else { "PrintWindow" });
+                            None => {
+                                away_tries += 1;
+                                None
                             }
                         }
-                        Some(false) if !away_border => {
+                    };
+                    if away_border && away_tries >= GPU_TRIES {
+                        eprintln!("shared capture: window capture can't start while a window covers the game; copying the game window");
+                        (away_border, away_window, away_said, away_black_since) = (false, None, false, 0);
+                    }
+                    match result {
+                        Some(true) => {
+                            (away_black_since, away_tries) = (0, 0);
+                            if !away_said {
+                                away_said = true;
+                                eprintln!("shared capture: a window covers the game, using {}", if away_border { "window capture (with border)" } else { "PrintWindow" });
+                            }
+                        }
+                        Some(false) if away_border => {
                             away_black_since = if away_black_since == 0 { now } else { away_black_since };
                             if now - away_black_since >= BLACK_MS / 2 {
-                                eprintln!("shared capture: PrintWindow gives no picture; window capture while tabbed out");
-                                (away_border, away_copy, away_said) = (true, None, false);
+                                eprintln!("shared capture: window capture shows nothing while a window covers the game; copying the game window");
+                                (away_border, away_window, away_said, away_black_since) = (false, None, false, 0);
                             }
                         }
                         _ => wait(&shared, &mut readers),
@@ -1403,6 +1416,28 @@ mod tests {
         assert!(!covers(&game, &Above { excluded: true, ..at(0, 0, 400, 300) }), "an overlay kept out of captures");
         assert!(!covers(&game, &Above { ex_style: WS_EX_LAYERED | WS_EX_TRANSPARENT, ..at(0, 0, 3840, 2160) }), "a click-through overlay");
         assert!(covers(&game, &Above { ex_style: WS_EX_LAYERED, ..at(0, 0, 400, 300) }), "a see-through window that takes clicks");
+    }
+
+    /// Window capture of the game as it is now, covered or not, for 3 s (Windows 10 shows its yellow border meanwhile):
+    /// `cargo test --bin alogs-app capture::tests::window_capture_now -- --exact --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn window_capture_now() {
+        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let hwnd = find_game();
+        assert!(!hwnd.is_null(), "the game isn't open");
+        let t = Instant::now();
+        let mut capture = WindowCapture::new(windows::Win32::Foundation::HWND(hwnd as _), true).expect("window capture");
+        let started = t.elapsed();
+        let (mut new, mut looks, mut slowest) = (0u32, 0u32, Duration::ZERO);
+        while t.elapsed() < Duration::from_secs(3) {
+            let one = Instant::now();
+            new += capture.update().expect("an update") as u32;
+            (looks, slowest) = (looks + 1, slowest.max(one.elapsed()));
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        println!("uncovered: {}, started in {started:?}, {new} new frames in {looks} looks, slowest look {slowest:?}", uncovered(hwnd));
+        assert!(new > 0, "no frame came");
     }
 
     /// A look at this PC as it is now (run it with the game open and another window focused):
