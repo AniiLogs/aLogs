@@ -25,6 +25,9 @@ drawn names are made up. Needs a PC with en-US Windows OCR.
 Nothing is sent and nothing lands in your logs: the meter's data folder is a temporary one. Exit code 1 on any failure.
 """
 import logging, os, shutil, struct, subprocess, sys, tempfile, threading, time, types
+# its lines show the Korean names read: a Windows console's cp1252 couldn't print them and the test crashed after every
+# check had passed (14 Nov), so it looked like a failure on every PC
+sys.stdout.reconfigure(encoding='utf-8', errors='replace'); sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 HERE = os.environ.get('ALOGS_BOSSBAR') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 TMP = tempfile.mkdtemp(prefix='alogs_ocrlang_')
