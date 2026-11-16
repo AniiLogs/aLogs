@@ -70,6 +70,7 @@ dependencies = [
  "alogs-capture",
  "alogs-gamedata",
  "alogs-gamelog",
+ "alogs-pcstats",
  "alogs-pil",
  "alogs-protocol",
  "alogs-pyval",
@@ -86,6 +87,16 @@ dependencies = [
  "unicode-normalization",
  "ureq",
  "uuid",
+ "winreg",
+]
+
+[[package]]
+name = "alogs-pcstats"
+version = "0.1.37"
+dependencies = [
+ "regex",
+ "serde_json",
+ "windows-sys 0.61.2",
  "winreg",
 ]
 
