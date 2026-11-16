@@ -46,17 +46,19 @@ pub fn source_name(flags: u32) -> &'static str {
 }
 
 /// A mapped view of a named shared memory block.
-struct View {
+pub struct View {
     base: *mut u8,
     #[cfg(windows)]
     handle: windows_sys::Win32::Foundation::HANDLE,
 }
 
 unsafe impl Send for View {}
+// Reads and writes go through the shared mapping, which other processes write too: no Rust-side aliasing.
+unsafe impl Sync for View {}
 
 impl View {
     #[cfg(windows)]
-    fn open(name: &str, size: usize) -> Option<View> {
+    pub fn open(name: &str, size: usize) -> Option<View> {
         use windows_sys::Win32::System::Memory::{FILE_MAP_ALL_ACCESS, MapViewOfFile, OpenFileMappingW};
         let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
@@ -73,45 +75,50 @@ impl View {
         }
     }
     #[cfg(not(windows))]
-    fn open(_: &str, _: usize) -> Option<View> {
+    pub fn open(_: &str, _: usize) -> Option<View> {
         None
     }
 
-    fn u8(&self, at: usize) -> u8 {
+    /// The start of the mapping (pixels are read straight from it).
+    pub fn ptr(&self) -> *const u8 {
+        self.base
+    }
+
+    pub fn u8(&self, at: usize) -> u8 {
         unsafe { std::ptr::read_volatile(self.base.add(at)) }
     }
-    fn u16(&self, at: usize) -> u16 {
+    pub fn u16(&self, at: usize) -> u16 {
         unsafe { std::ptr::read_volatile(self.base.add(at) as *const u16) }
     }
-    fn u32(&self, at: usize) -> u32 {
+    pub fn u32(&self, at: usize) -> u32 {
         unsafe { std::ptr::read_volatile(self.base.add(at) as *const u32) }
     }
-    fn u64(&self, at: usize) -> u64 {
+    pub fn u64(&self, at: usize) -> u64 {
         unsafe { std::ptr::read_volatile(self.base.add(at) as *const u64) }
     }
-    fn i32(&self, at: usize) -> i32 {
+    pub fn i32(&self, at: usize) -> i32 {
         unsafe { std::ptr::read_volatile(self.base.add(at) as *const i32) }
     }
-    fn f32(&self, at: usize) -> f32 {
+    pub fn f32(&self, at: usize) -> f32 {
         unsafe { std::ptr::read_volatile(self.base.add(at) as *const f32) }
     }
-    fn set_u8(&self, at: usize, v: u8) {
+    pub fn set_u8(&self, at: usize, v: u8) {
         unsafe { std::ptr::write_volatile(self.base.add(at), v) }
     }
-    fn set_u16(&self, at: usize, v: u16) {
+    pub fn set_u16(&self, at: usize, v: u16) {
         unsafe { std::ptr::write_volatile(self.base.add(at) as *mut u16, v) }
     }
-    fn set_u32(&self, at: usize, v: u32) {
+    pub fn set_u32(&self, at: usize, v: u32) {
         unsafe { std::ptr::write_volatile(self.base.add(at) as *mut u32, v) }
     }
-    fn set_u64(&self, at: usize, v: u64) {
+    pub fn set_u64(&self, at: usize, v: u64) {
         unsafe { std::ptr::write_volatile(self.base.add(at) as *mut u64, v) }
     }
-    fn set_i32(&self, at: usize, v: i32) {
+    pub fn set_i32(&self, at: usize, v: i32) {
         unsafe { std::ptr::write_volatile(self.base.add(at) as *mut i32, v) }
     }
     /// BGRX rows at `at` (stride bytes apart) as an RGB image.
-    fn bgrx(&self, at: usize, w: usize, h: usize, stride: usize) -> Image {
+    pub fn bgrx(&self, at: usize, w: usize, h: usize, stride: usize) -> Image {
         let mut data = Vec::with_capacity(w * h * 3);
         for y in 0..h {
             let row = unsafe { std::slice::from_raw_parts(self.base.add(at + y * stride), w * 4) };
