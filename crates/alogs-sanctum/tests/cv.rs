@@ -174,3 +174,12 @@ fn filters_matching_and_warps_match_opencv() {
         assert_eq!(diff(&got, &u8m(&c["out"])), (0, 0), "warp {}", c["interp"]);
     }
 }
+
+#[test]
+fn circles_are_drawn_as_opencv_draws_them() {
+    let c = cases("match").into_iter().find(|c| c.get("mask").is_some()).unwrap();
+    let want = u8m(&c["mask"]);
+    let mut got = Mat::new(21, 17, 1);
+    cv2::circle(&mut got, 10, 8, 7, 255);
+    assert_eq!(diff(&got, &want), (0, 0));
+}

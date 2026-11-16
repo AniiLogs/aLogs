@@ -629,3 +629,295 @@ pub fn warp_affine(src: &Mat, m: [f64; 6], dw: usize, dh: usize, linear: bool) -
     }
     o
 }
+
+// ---------------------------------------------------------------------------------------------- more for the trackers
+
+/// cv::circle filled (LINE_8, no shift): OpenCV's midpoint algorithm, painting `set(x0, x1, y)` spans.
+pub fn circle_spans(w: usize, h: usize, cx: i64, cy: i64, radius: i64, mut set: impl FnMut(usize, usize, usize)) {
+    if radius < 0 {
+        return;
+    }
+    let (w, h) = (w as i64, h as i64);
+    let (mut err, mut dx, mut dy, mut plus, mut minus) = (0i64, radius, 0i64, 1i64, (radius << 1) - 1);
+    let mut hline = |y: i64, x0: i64, x1: i64| {
+        if y >= 0 && y < h {
+            let (a, b) = (x0.max(0), x1.min(w - 1));
+            if a <= b {
+                set(a as usize, b as usize, y as usize);
+            }
+        }
+    };
+    while dx >= dy {
+        let (y11, y12, y21, y22) = (cy - dy, cy + dy, cy - dx, cy + dx);
+        let (x11, x12, x21, x22) = (cx - dx, cx + dx, cx - dy, cx + dy);
+        if x11 < w && x12 >= 0 && y21 < h && y22 >= 0 {
+            hline(y11, x11, x12);
+            hline(y12, x11, x12);
+            if x21 < w && x22 >= 0 {
+                hline(y21, x21, x22);
+                hline(y22, x21, x22);
+            }
+        }
+        dy += 1;
+        err += plus;
+        plus += 2;
+        let mask = if err <= 0 { 0 } else { -1 };
+        err -= minus & mask;
+        dx += mask;
+        minus -= mask & 2;
+    }
+}
+
+pub fn circle(m: &mut Mat, cx: i64, cy: i64, r: i64, v: u8) {
+    let (w, c) = (m.w, m.c);
+    circle_spans(m.w, m.h, cx, cy, r, |x0, x1, y| m.data[(y * w + x0) * c..(y * w + x1 + 1) * c].iter_mut().for_each(|p| *p = v));
+}
+
+pub fn circle_f(m: &mut MatF, cx: i64, cy: i64, r: i64, v: f32) {
+    let w = m.w;
+    circle_spans(m.w, m.h, cx, cy, r, |x0, x1, y| m.data[y * w + x0..=y * w + x1].iter_mut().for_each(|p| *p = v));
+}
+
+/// The scores as Sanctum Helper cleans them: NaN to -1, over 1 to 0, under -1 to -1.
+pub fn clean_scores(m: &mut MatF) {
+    for v in m.data.iter_mut() {
+        if v.is_nan() {
+            *v = -1.0;
+        }
+        if *v > 1.0 {
+            *v = 0.0;
+        }
+        if *v < -1.0 {
+            *v = -1.0;
+        }
+    }
+}
+
+/// boundingRect of the nonzero pixels: (x, y, w, h); zeros when there are none.
+pub fn bounding_rect(m: &Mat) -> (usize, usize, usize, usize) {
+    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0usize, 0usize);
+    for y in 0..m.h {
+        for x in 0..m.w {
+            if m.data[y * m.w + x] != 0 {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    if x0 == usize::MAX { (0, 0, 0, 0) } else { (x0, y0, x1 - x0 + 1, y1 - y0 + 1) }
+}
+
+/// getRotationMatrix2D.
+pub fn rotation_matrix(cx: f64, cy: f64, angle_deg: f64, scale: f64) -> [f64; 6] {
+    let a = angle_deg.to_radians();
+    let (al, be) = (scale * a.cos(), scale * a.sin());
+    [al, be, (1.0 - al) * cx - be * cy, -be, al, be * cx + (1.0 - al) * cy]
+}
+
+/// resize of a one-channel float image: area (downscale), nearest, or the area-mode linear of an upscale.
+pub fn resize_f(src: &MatF, dw: usize, dh: usize, fx: f64, fy: f64, nearest: bool) -> MatF {
+    let (dw, dh, inv_x, inv_y) = if dw == 0 || dh == 0 {
+        let (w, h) = crate::cv::scaled_size(src.w, src.h, fx, fy);
+        (w, h, fx, fy)
+    } else {
+        (dw, dh, dw as f64 / src.w as f64, dh as f64 / src.h as f64)
+    };
+    if dw == 0 || dh == 0 {
+        return MatF::new(dw, dh, 1);
+    }
+    if dw == src.w && dh == src.h {
+        return src.clone();
+    }
+    let mut o = MatF::new(dw, dh, 1);
+    if nearest {
+        let (ifx, ify) = (1.0 / inv_x, 1.0 / inv_y);
+        for y in 0..dh {
+            let sy = ((y as f64 * ify).floor() as usize).min(src.h - 1);
+            for x in 0..dw {
+                let sx = ((x as f64 * ifx).floor() as usize).min(src.w - 1);
+                o.data[y * dw + x] = src.data[sy * src.w + sx];
+            }
+        }
+        return o;
+    }
+    let (sx, sy) = (1.0 / inv_x, 1.0 / inv_y);
+    if sx >= 1.0 && sy >= 1.0 {
+        let (isx, isy) = (round_i(sx), round_i(sy));
+        if (sx - isx as f64).abs() < f64::EPSILON && (sy - isy as f64).abs() < f64::EPSILON {
+            let (ax, ay) = (isx as usize, isy as usize);
+            let scale = 1.0f32 / (ax * ay) as f32;
+            for dy in 0..dh {
+                for dx in 0..dw {
+                    let (mut sum, mut n) = (0f32, 0usize);
+                    for yy in dy * ay..(dy * ay + ay).min(src.h) {
+                        for xx in dx * ax..(dx * ax + ax).min(src.w) {
+                            sum += src.data[yy * src.w + xx];
+                            n += 1;
+                        }
+                    }
+                    o.data[dy * dw + dx] = if n == ax * ay { sum * scale } else if n > 0 { sum / n as f32 } else { 0.0 };
+                }
+            }
+            return o;
+        }
+        let xtab = area_tab_f(src.w, dw, sx);
+        let ytab = area_tab_f(src.h, dh, sy);
+        let mut buf = vec![0f32; dw];
+        let mut sum = vec![0f32; dw];
+        let mut prev = ytab.first().map_or(0, |t| t.0);
+        for &(dy, syy, beta) in &ytab {
+            buf.iter_mut().for_each(|v| *v = 0.0);
+            for &(dx, sxx, alpha) in &xtab {
+                buf[dx] += src.data[syy * src.w + sxx] * alpha;
+            }
+            if dy != prev {
+                for i in 0..dw {
+                    o.data[prev * dw + i] = sum[i];
+                    sum[i] = beta * buf[i];
+                }
+                prev = dy;
+            } else {
+                for i in 0..dw {
+                    sum[i] += beta * buf[i];
+                }
+            }
+        }
+        for i in 0..dw {
+            o.data[prev * dw + i] = sum[i];
+        }
+        return o;
+    }
+    // upscale in area mode: linear with area coefficients
+    let tab = |ss: usize, ds: usize, scale: f64, inv: f64, clamp: bool| -> Vec<(usize, usize, f32)> {
+        (0..ds).map(|d| {
+            let mut s = (d as f64 * scale).floor() as i64;
+            let mut f = ((d + 1) as f64 - (s + 1) as f64 * inv) as f32;
+            f = if f <= 0.0 { 0.0 } else { f - f.floor() };
+            if clamp && s < 0 {
+                s = 0;
+                f = 0.0;
+            }
+            if clamp && s >= ss as i64 - 1 {
+                s = ss as i64 - 1;
+                f = 0.0;
+            }
+            let a = s.clamp(0, ss as i64 - 1) as usize;
+            let b = (s + 1).clamp(0, ss as i64 - 1) as usize;
+            (a, b, f)
+        }).collect()
+    };
+    let xt = tab(src.w, dw, sx, inv_x, true);
+    let yt = tab(src.h, dh, sy, inv_y, false);
+    for (y, &(y0, y1, fyv)) in yt.iter().enumerate() {
+        for (x, &(x0, x1, fxv)) in xt.iter().enumerate() {
+            let r0 = src.data[y0 * src.w + x0] * (1.0 - fxv) + src.data[y0 * src.w + x1] * fxv;
+            let r1 = src.data[y1 * src.w + x0] * (1.0 - fxv) + src.data[y1 * src.w + x1] * fxv;
+            o.data[y * dw + x] = r0 * (1.0 - fyv) + r1 * fyv;
+        }
+    }
+    o
+}
+
+fn area_tab_f(ssize: usize, dsize: usize, scale: f64) -> Vec<(usize, usize, f32)> {
+    let mut tab = vec![];
+    for dx in 0..dsize {
+        let fsx1 = dx as f64 * scale;
+        let fsx2 = fsx1 + scale;
+        let cell = scale.min(ssize as f64 - fsx1);
+        let mut sx1 = fsx1.ceil() as i64;
+        let mut sx2 = fsx2.floor() as i64;
+        sx2 = sx2.min(ssize as i64 - 1);
+        sx1 = sx1.min(sx2);
+        if sx1 as f64 - fsx1 > 1e-3 {
+            tab.push((dx, (sx1 - 1) as usize, ((sx1 as f64 - fsx1) / cell) as f32));
+        }
+        for sx in sx1..sx2 {
+            tab.push((dx, sx as usize, (1.0 / cell) as f32));
+        }
+        if fsx2 - sx2 as f64 > 1e-3 {
+            tab.push((dx, sx2 as usize, ((fsx2 - sx2 as f64).min(1.0).min(cell) / cell) as f32));
+        }
+    }
+    tab
+}
+
+/// A masked CCoeffNormed match prepared once for many images (Sanctum Helper's MaskedTemplate): planes of floats
+/// (8-bit as 0-1) and a binary mask.
+pub struct Masked {
+    pub w: usize,
+    pub h: usize,
+    tz: Vec<Vec<f64>>,
+    m: Vec<f64>,
+    msum: f64,
+    tnorm: f64,
+}
+
+impl Masked {
+    pub fn new(tpl_planes: &[Vec<f64>], w: usize, h: usize, mask: &Mat) -> Masked {
+        let m: Vec<f64> = mask.data.iter().map(|&v| if v > 0 { 1.0 } else { 0.0 }).collect();
+        let msum = m.iter().sum::<f64>().max(1e-9);
+        let mut tnorm = 0f64;
+        let tz = tpl_planes.iter().map(|t| {
+            let mean = t.iter().zip(&m).map(|(a, b)| a * b).sum::<f64>() / msum;
+            let z: Vec<f64> = t.iter().zip(&m).map(|(a, b)| (a - mean) * b).collect();
+            tnorm += z.iter().map(|v| v * v).sum::<f64>();
+            z
+        }).collect();
+        Masked { w, h, tz, m, msum, tnorm }
+    }
+
+    pub fn from_u8(tpl: &Mat, mask: &Mat) -> Masked {
+        Masked::new(&planes(tpl, 1.0 / 255.0), tpl.w, tpl.h, mask)
+    }
+
+    pub fn from_f32(tpl: &MatF, mask: &Mat) -> Masked {
+        Masked::new(&[tpl.data.iter().map(|&v| f64::from(v)).collect()], tpl.w, tpl.h, mask)
+    }
+
+    /// The score map over image planes (iw x ih); empty when the template doesn't fit.
+    pub fn run(&self, ip: &[Vec<f64>], iw: usize, ih: usize) -> MatF {
+        if iw < self.w || ih < self.h {
+            return MatF::new(0, 0, 1);
+        }
+        let (rw, rh) = (iw + 1 - self.w, ih + 1 - self.h);
+        let mut num = vec![0f64; rw * rh];
+        let mut sum2 = vec![0f64; rw * rh];
+        let mut sqi = vec![0f64; iw * ih];
+        for (ch, plane) in ip.iter().enumerate() {
+            let r = xcorr(plane, iw, ih, &[&self.tz[ch], &self.m], self.w, self.h);
+            for i in 0..rw * rh {
+                num[i] += r[0][i];
+                sum2[i] += r[1][i] * r[1][i];
+            }
+            for (s, v) in sqi.iter_mut().zip(plane) {
+                *s += v * v;
+            }
+        }
+        let sq = &xcorr(&sqi, iw, ih, &[&self.m], self.w, self.h)[0];
+        let data = (0..rw * rh).map(|i| {
+            let d = (sq[i] * self.tnorm - sum2[i] * self.tnorm / self.msum).max(0.0).sqrt();
+            if d <= 0.0 { f32::NAN } else { (num[i] / d) as f32 }
+        }).collect();
+        MatF { w: rw, h: rh, c: 1, data }
+    }
+
+    pub fn run_u8(&self, img: &Mat) -> MatF {
+        self.run(&planes(img, 1.0 / 255.0), img.w, img.h)
+    }
+
+    pub fn run_f32(&self, img: &MatF) -> MatF {
+        self.run(&[img.data.iter().map(|&v| f64::from(v)).collect()], img.w, img.h)
+    }
+}
+
+/// A rectangle of a float image (clipped).
+pub fn roi_f(m: &MatF, x: usize, y: usize, w: usize, h: usize) -> MatF {
+    let (w, h) = (w.min(m.w.saturating_sub(x)), h.min(m.h.saturating_sub(y)));
+    let mut o = MatF::new(w, h, 1);
+    for r in 0..h {
+        o.data[r * w..(r + 1) * w].copy_from_slice(&m.data[(y + r) * m.w + x..(y + r) * m.w + x + w]);
+    }
+    o
+}
