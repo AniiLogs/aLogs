@@ -309,6 +309,14 @@ pub struct Fight {
     csv: Option<csv::Writer<std::fs::File>>,
     boss_col: bool,
     pub frames: Option<std::path::PathBuf>,
+    /// The fight's file name without its .csv (logs/<name>.csv).
+    pub csv_name: String,
+    /// The bar this fight follows: (span, yc).
+    pub bar_geom: Option<(f64, f64)>,
+    pub foreign_logged: bool,
+    /// The game log confirmed an Interlink scene.
+    pub scene_ok: bool,
+    pub ended: Option<f64>,
 }
 
 fn get<'a>(r: &'a Row, k: &str) -> &'a str {
@@ -402,6 +410,11 @@ impl Fight {
             csv,
             boss_col,
             frames,
+            csv_name: name,
+            bar_geom: None,
+            foreign_logged: false,
+            scene_ok: false,
+            ended: None,
         }
     }
 
