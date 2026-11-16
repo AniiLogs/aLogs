@@ -140,5 +140,9 @@ settings window (the aLogs app is the settings UI), the Dev switches (none liste
 behaviour is kept), ChestPrompt (a Dev-only reader), Analyzer and ConeRecord (offline developer tools), the uninstaller.
 Packaging: resources/sanctumhelper needs SanctumHelper.exe with Sanctum Helper's Assets folder beside it (a release
 step for the maintainer); while developing alogs-app runs target/<profile>/SanctumHelper.exe with the reference's
-Assets. Still to port in the meter: OcrWorker / names_first threads and the top-only / box-part captures and calm
-pacing (performance; behaviour is the same without them), dmgnumbers (paused in B16).
+Assets. **The meter's leftovers are ported**: the top-part capture between fights with box frames for screen reads,
+window capture for a spotted screen, the background OCR helpers for the bar's text and the screens', time_check, the
+proof copy with the overlay, the Party picture with Egg Heist matches, the notices hand-over flag. Left out on
+purpose: calm pacing (a Dev switch), names_first (only shortens a wait), dmgnumbers (paused in B16). Still to port:
+extracting the game font atlas and the game icons from the game's Unity bundles (UnityPy in the Python); the Rust
+reads the caches the Python wrote, so a PC that never ran the Python meter has neither.
