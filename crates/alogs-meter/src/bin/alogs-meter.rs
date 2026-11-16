@@ -338,6 +338,8 @@ fn main() {
         // "You're being attacked" reads your HP with a helper of its own (no overlay: the alert can't show, so none)
         m.hp_ocr = Ocr::new(&m.env.res.join("ocr-helper.exe")).ok().map(|o| Box::new(o) as Box<dyn Reader>);
     }
+    alogs_meter::ocrcheck::ocr_language_note(m.ocr.as_ref());
+    m.ocr_check.checked = now();
     m.submitter = submitter.clone();
     if let Some(u) = alogs_gamelog::last_uid(&player_log) {
         m.set_uid(&u);
@@ -354,6 +356,7 @@ fn main() {
         if t - last_status >= 1.0 {
             last_status = t;
             m.link_poll(t);
+            m.ocr_recheck(t);
             write_status(&m, submitter.as_deref(), &live, t);
         }
         let mut iv = if m.fight.is_some() { m.fight_interval() } else { interval };

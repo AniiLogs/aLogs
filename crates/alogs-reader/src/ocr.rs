@@ -69,6 +69,10 @@ pub trait Reader: Send {
     fn sure(&self, _img: &Image) -> bool {
         false
     }
+    /// A new helper in this one's place (which picks Windows OCR's language again); only an OCR helper has one.
+    fn restart(&self) -> Result<(), String> {
+        Err("not an OCR helper".into())
+    }
 }
 
 pub struct Ocr {
@@ -191,6 +195,9 @@ impl Ocr {
 }
 
 impl Reader for Ocr {
+    fn restart(&self) -> Result<(), String> {
+        Ocr::restart(self)
+    }
     fn sure(&self, img: &Image) -> bool {
         self.name_cache.lock().unwrap().get(&name_signature(img)).is_some_and(|h| h.1.is_none())
     }
