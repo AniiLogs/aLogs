@@ -66,6 +66,10 @@ pub trait Frames {
     }
     /// Ask every aLogs program to keep its overlays out of screen captures until then (unix ms).
     fn set_clean_until(&mut self, _ms: u64) {}
+    /// Your HP bar's strip (`area` as shares of the client), from a capture reader of its own; None without one.
+    fn hp_strip(&mut self, _hwnd: usize, _area: (f64, f64, f64, f64)) -> Option<Image> {
+        None
+    }
 }
 
 pub struct Meter {
@@ -130,6 +134,11 @@ pub struct Meter {
     pub menu: crate::menu::MenuState,
     pub icon: crate::party_icons::IconState,
     pub diag: crate::diag::DiagState,
+    pub hit: crate::hits::HitState,
+    /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
+    pub hit_at: f64,
+    /// A second OCR reader for the HP number (hit_watch), set by the binary.
+    pub hp_ocr: Option<Box<dyn Reader>>,
     /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
     pub icons: Option<alogs_reader::icons::Icons>,
     /// None, 'loading', 'ready', 'failed'.
@@ -241,6 +250,9 @@ impl Meter {
             menu: Default::default(),
             icon: Default::default(),
             diag: Default::default(),
+            hit: Default::default(),
+            hit_at: 0.0,
+            hp_ocr: None,
             icons: None,
             icons_state: None,
             icons_job: None,
@@ -664,6 +676,7 @@ impl Meter {
     /// One look at the game: keep the bar locked, follow the fight, read its text.
     pub fn step(&mut self, frames: &mut dyn Frames, out: &mut dyn Out) {
         self.reload_settings(self.env.now());
+        self.auto_active();
         let meter_off = !self.args.replay && frames.switched_off();
         let cfg = self.args.cfg.clone();
         self.switches.tick(&self.manifest, &cfg, !meter_off, &mut self.health);
@@ -677,6 +690,7 @@ impl Meter {
             self.capture_off = rest;
             log::info!(target: "meter", "{}", if rest { "the DPS meter and the leaderboards are off: resting" } else { "reading the game again" });
             if rest {
+                self.end_auto("the DPS meter and the leaderboards were switched off");
                 if self.fight.is_some() {
                     self.end_fight(out, "the DPS meter was switched off");
                 }
@@ -736,6 +750,9 @@ impl Meter {
         self.last_step = now;
         let fg = self.args.replay || frames.is_foreground(hwnd);
         self.away_note(Some(&im), fg);
+        if !self.quiet {
+            self.hit_watch(frames, now);
+        }
         // TODO(port): top signature, calm pacing, Egg Heist fade, Sim checks and Gizmo tour (live.py 1836-1846)
         if self.bar.as_ref().is_none_or(|b| !bar::verify_bar(&im, b)) {
             if partial.is_some() {

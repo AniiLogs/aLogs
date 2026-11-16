@@ -119,11 +119,16 @@ impl Out for Console {
 struct Live {
     title: String,
     cap: SharedCapture,
+    hp_cap: Option<SharedCapture>,
     hwnd: Option<usize>,
     look_at: f64,
 }
 
 impl Frames for Live {
+    fn hp_strip(&mut self, hwnd: usize, area: (f64, f64, f64, f64)) -> Option<Image> {
+        self.hp_cap.get_or_insert_with(|| SharedCapture::new(2)).read_area(hwnd, area, 1)
+    }
+
     fn grab(&mut self, hwnd: usize, top: Option<f64>) -> Option<Image> {
         if !self.cap.app_present() {
             return None;
@@ -320,12 +325,18 @@ fn main() {
     };
     let env = Env::new(res, data.clone());
     let mut m = Meter::new(env, args, ocr, Some(rx));
+    if !m.args.no_overlay {
+        // "You're being attacked" reads your HP with a helper of its own (no overlay: the alert can't show, so none)
+        m.hp_ocr = Ocr::new(&m.env.res.join("ocr-helper.exe")).ok().map(|o| Box::new(o) as Box<dyn Reader>);
+    }
     m.submitter = submitter.clone();
-    m.uid = alogs_gamelog::last_uid(&player_log);
+    if let Some(u) = alogs_gamelog::last_uid(&player_log) {
+        m.set_uid(&u);
+    }
     if let Some(u) = &m.uid {
         log::info!("player uid {u} (from the game log)");
     }
-    let mut live = Live { title, cap: SharedCapture::new(0), hwnd: None, look_at: 0.0 };
+    let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, hwnd: None, look_at: 0.0 };
     let mut console = Console::default();
     let mut last_status = 0.0;
     loop {
