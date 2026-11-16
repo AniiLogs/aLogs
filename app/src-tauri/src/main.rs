@@ -672,6 +672,22 @@ impl Scrubber {
     }
 
     fn clean(&self, text: &str) -> String {
+        // The freeze line's call stack (watchdog.rs) is file names, offsets and function names only, and the rule for
+        // long tokens blanked the longer function names (NtUserMsgWaitForMultipleObjectsEx is 33 letters): that part
+        // of the line is left as it is, the rest of the line is cleaned like any other.
+        if text.contains(watchdog::STACK_MARK) {
+            return text
+                .split_inclusive('\n')
+                .map(|line| match line.split_once(watchdog::STACK_MARK) {
+                    Some((head, stack)) => format!("{}{}{stack}", self.clean_part(head), watchdog::STACK_MARK),
+                    None => self.clean_part(line),
+                })
+                .collect();
+        }
+        self.clean_part(text)
+    }
+
+    fn clean_part(&self, text: &str) -> String {
         let mut out = text.to_string();
         for (pattern, with) in self.rules.iter().chain(&self.names) {
             out = pattern.replace_all(&out, *with).into_owned();
@@ -717,8 +733,9 @@ fn collect_logs_inner(version: &str, meter_on: bool, dev_feedback: bool) -> Resu
         let text = dev::feedback_report(&format!("{version}{build}")).ok_or("There is no new feedback to send.")?;
         files.push(("dev-feedback.json".into(), text.into_bytes()));
     }
-    add(&mut files, "meter.log", logs.join("meter.log"));
+    // app.log first: it's small and holds the line a frozen window leaves (watchdog.rs), so it's never the file left out
     add(&mut files, "app.log", data.join("app.log"));
+    add(&mut files, "meter.log", logs.join("meter.log"));
     let mut fights: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&logs)
         .map(|dir| {
             dir.flatten()
@@ -1155,6 +1172,23 @@ mod scrub_tests {
         assert!(!out.contains("Jo") && !out.contains("00e3"), "{out}");
         assert!(out.contains("<user>"), "{out}");
         assert_eq!(s.clean(r"C:\Users\Ana\x"), r"C:\Users\<user>\x");
+    }
+
+    /// A frozen window's line reaches the report whole: its long function names aren't taken for sign-in tokens,
+    /// while the lines around it (and the line's own start) are still cleaned.
+    #[test]
+    fn freeze_line_keeps_its_call_stack() {
+        let s = Scrubber::new();
+        let stack = "win32u.dll+0x9a84 (NtUserMsgWaitForMultipleObjectsEx) < alogs-app.exe+0x1f3c20 < ntdll.dll+0x5aa58 (RtlUserThreadStart)";
+        let token = "a".repeat(40);
+        let text = format!(
+            "1.000 sign-in {token}\n2.000 window: not answering for 5 s. The page's last calls: collect_logs 0.4 s ago. {}{stack}\n3.000 again {token}\n",
+            crate::watchdog::STACK_MARK
+        );
+        let out = s.clean(&text);
+        assert!(out.contains(stack), "{out}");
+        assert!(!out.contains(&token), "{out}");
+        assert_eq!(out.lines().count(), 3, "{out}");
     }
 }
 

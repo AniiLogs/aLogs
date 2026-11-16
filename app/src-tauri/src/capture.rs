@@ -280,13 +280,17 @@ unsafe extern "system" fn each_window(hwnd: HWND, lparam: LPARAM) -> i32 {
         return 1;
     }
     let mut buf = [0u16; 256];
-    GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
-    if wide(&buf).to_lowercase() != search.title {
-        return 1;
-    }
-    // The game is a Unity player; this keeps browser tabs and folders named "Aniimo" out.
+    // The game is a Unity player; this keeps browser tabs and folders named "Aniimo" out. Asked before the title, and
+    // that order matters: the title of one of aLogs' own windows is asked of the window's thread (WM_GETTEXT) and
+    // waits for its answer. 15 Nov: Sanctum Helper's watcher asked while holding the lock the window's thread was
+    // waiting for, and the window froze for good ("Not Responding"). A class name never waits on anyone.
     GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
     if wide(&buf) != "UnityWndClass" {
+        return 1;
+    }
+    buf = [0u16; 256];
+    GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+    if wide(&buf).to_lowercase() != search.title {
         return 1;
     }
     // the largest of them, like the meter's find_window (bossbar/wincapture.py), so both take the same window
@@ -1381,6 +1385,33 @@ pub fn start() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Looking for the game never waits on one of aLogs' own windows: with a visible window whose thread isn't
+    /// answering (as the app's window thread wasn't, 15 Nov), the search still comes back.
+    #[test]
+    fn finding_the_game_never_waits_on_our_own_windows() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE};
+        let (made, is_made) = std::sync::mpsc::channel();
+        let (release, hold) = std::sync::mpsc::channel::<()>();
+        let owner = std::thread::spawn(move || unsafe {
+            let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+            let hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, class.as_ptr(), class.as_ptr(), WS_POPUP | WS_VISIBLE,
+                                       -32000, -32000, 1, 1, null_mut(), null_mut(), null_mut(), null_mut());
+            made.send(!hwnd.is_null()).unwrap();
+            let _ = hold.recv(); // answers nothing meanwhile
+            DestroyWindow(hwnd);
+        });
+        assert!(is_made.recv().unwrap(), "the test's window");
+        let (done, is_done) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            find_game_titled();
+            let _ = done.send(());
+        });
+        let came_back = is_done.recv_timeout(Duration::from_secs(5)).is_ok();
+        release.send(()).unwrap();
+        owner.join().unwrap();
+        assert!(came_back, "the search waited on a window of our own that wasn't answering");
+    }
 
     /// Two small readers spread over the pool leave no gap for a whole 4K frame (the meter on the result screen):
     /// `place` alone finds none, and once the others give up their room it starts at the pool's start.

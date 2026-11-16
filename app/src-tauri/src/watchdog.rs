@@ -26,6 +26,8 @@ const STUCK_MS: u64 = 5_000;
 const STILL_STUCK_MS: u64 = 30_000;
 const KEPT: usize = 12;
 const FRAMES: usize = 48;
+/// What the call stack follows in the line. A report's privacy scrubber leaves what comes after it as it is (main.rs).
+pub const STACK_MARK: &str = "The window's thread is at: ";
 
 /// When the window's thread last answered (unix ms).
 static ANSWERED: AtomicU64 = AtomicU64::new(0);
@@ -101,7 +103,7 @@ pub fn start(app: AppHandle) {
                 said = next;
                 let stack = window_stack();
                 crate::app_log(&format!(
-                    "window: {} for {:.0} s. The page's last calls: {}. The window's thread is at: {}",
+                    "window: {} for {:.0} s. The page's last calls: {}. {STACK_MARK}{}",
                     if next == 1 { "not answering" } else { "still not answering" },
                     waited as f64 / 1000.0,
                     recent_commands(now),

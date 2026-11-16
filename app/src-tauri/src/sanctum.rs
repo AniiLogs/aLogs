@@ -157,8 +157,10 @@ fn gone_for(open: bool, gone_at: &AtomicU64, now: u64) -> u64 {
 /// aLogs did). app.log says why each time it starts or stops.
 pub fn ensure(app: &AppHandle, settings: &Value) {
     let state = app.state::<Sanctum>();
-    let mut guard = state.child.lock().unwrap();
+    // looked for before the lock is taken: nothing that may wait on another thread happens while it's held (the
+    // window's thread takes it too, for the page's sanctum_state)
     let gone_for = game_gone_for(&state, now_ms());
+    let mut guard = state.child.lock().unwrap();
     if let Some(child) = guard.as_mut() {
         match child.try_wait() {
             Ok(None) => {
