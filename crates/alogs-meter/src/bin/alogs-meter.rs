@@ -430,7 +430,7 @@ fn main() {
         replay: false,
         no_submit: argv.iter().any(|a| a == "--no-submit"),
         no_debug_frames: argv.iter().any(|a| a == "--no-debug-frames") || !cfg.get("capture").get("debug_frames").truthy(),
-        no_overlay: true,
+        no_overlay: argv.iter().any(|a| a == "--no-overlay") || matches!(cfg.get("overlay").get("show"), Value::Bool(false)),
         no_auto_click: true,
         player_log: player_log.clone(),
         cfg,
@@ -489,16 +489,54 @@ fn main() {
     if let Some(u) = &m.uid {
         log::info!("player uid {u} (from the game log)");
     }
+    let hide = !m.args.cfg.get("overlay").get("in_recordings").truthy() && !matches!(m.args.cfg.get("overlay").get("in_recordings"), Value::None);
+    if m.args.no_overlay {
+        run_meter(m, title, game_data, submitter, interval, None, None);
+        return;
+    }
+    // the overlay's windows live on this thread (their messages); the meter reads the game on its own
+    let view = std::sync::Arc::new(std::sync::Mutex::new(m.overlay_view()));
+    let (otx, orx) = std::sync::mpsc::channel();
+    let v2 = view.clone();
+    let meter = std::thread::spawn(move || run_meter(m, title, game_data, submitter, interval, Some(v2), Some(otx)));
+    match alogs_meter::overlay::Overlay::new(data.clone(), view.clone(), orx, hide) {
+        Some(o) => o.run(),
+        None => log::warn!("overlay windows could not be made: console output only"),
+    }
+    let _ = meter.join();
+}
+
+/// Both the console and the overlay get the meter's messages.
+struct Both {
+    console: Console,
+    overlay: Option<std::sync::mpsc::Sender<(String, Value)>>,
+}
+
+impl Out for Both {
+    fn out(&mut self, kind: &str, data: Value) {
+        if let Some(t) = &self.overlay {
+            let _ = t.send((kind.to_string(), data.clone()));
+        }
+        self.console.out(kind, data);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<alogs_meter::housekeeping::GameData>, submitter: Option<std::sync::Arc<Submitter>>,
+    interval: f64, view: Option<std::sync::Arc<std::sync::Mutex<alogs_meter::overlay::View>>>, overlay_tx: Option<std::sync::mpsc::Sender<(String, Value)>>) {
     let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, audio: alogs_capture::shared::SharedAudio::default(), hwnd: None, look_at: 0.0,
         stats: CapStats::default(), said_window: None, last_size: (0, 0), no_pic_since: 0.0, no_pic_said: 0.0 };
     let mut load = Load { cpu: alogs_pcstats::CpuLoad::default(), gpu: alogs_pcstats::GpuLoad::new(), since: 0.0, discord_said: false };
-    let mut console = Console::default();
+    let mut console = Both { console: Console::default(), overlay: overlay_tx };
     let mut last_status = 0.0;
     loop {
         let t = now();
         m.take_game_data(&game_data);
         let look = std::time::Instant::now();
         m.step(&mut live, &mut console);
+        if let Some(v) = &view {
+            *v.lock().unwrap() = m.overlay_view();
+        }
         m.diag.peak_look = m.diag.peak_look.max(look.elapsed().as_secs_f64() * 1000.0);
         if live.minute(now()) {
             load_line(&mut load, &mut m, now());

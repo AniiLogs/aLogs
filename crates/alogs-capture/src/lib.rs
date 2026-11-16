@@ -3,6 +3,7 @@
 
 pub mod focusguard;
 pub mod input;
+pub mod layered;
 pub mod rewasd;
 pub mod presence;
 pub mod shared;

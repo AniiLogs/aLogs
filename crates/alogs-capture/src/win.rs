@@ -225,6 +225,11 @@ mod imp {
 
 pub use imp::{client_rect, find_window, hide_from_capture, move_to, window_copy, window_modules, window_pid, is_window};
 
+/// The window in front now.
+pub fn imp_foreground() -> usize {
+    imp::foreground()
+}
+
 const MOVE: u32 = 0x1;
 const LEFTDOWN: u32 = 0x2;
 const LEFTUP: u32 = 0x4;
