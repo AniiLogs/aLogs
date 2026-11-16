@@ -13,7 +13,10 @@ serde_json.workspace = true
 regex = "1"
 rustfft = "6"
 png = "0.17"
+unicode-normalization = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Globalization", "Storage_Streams", "Foundation", "Foundation_Collections"] }
+windows-sys = { version = "0.61", features = ["Win32_Globalization"] }

@@ -8,3 +8,7 @@ pub mod layout_db;
 pub mod settings;
 pub mod vision;
 pub mod features;
+pub mod lang;
+pub mod log;
+pub mod ocr;
+pub mod detectors;

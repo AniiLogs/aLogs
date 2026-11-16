@@ -11,7 +11,7 @@ use std::sync::Mutex;
 pub const CURRENT_VERSION: i64 = 5;
 
 /// A rectangle in 1920x1080 reference pixels.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct RegionF {
     pub x: f64,

@@ -200,10 +200,14 @@ dependencies = [
  "alogs-capture",
  "alogs-pil",
  "chrono",
+ "png 0.17.16",
  "regex",
  "rustfft",
  "serde",
  "serde_json",
+ "unicode-normalization",
+ "windows",
+ "windows-sys 0.61.2",
  "winreg 0.52.0",
 ]
 
