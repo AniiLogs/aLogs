@@ -10,6 +10,7 @@ alogs-pil = { path = "../alogs-pil" }
 alogs-gamedata = { path = "../alogs-gamedata" }
 alogs-gamelog = { path = "../alogs-gamelog" }
 alogs-pyval = { path = "../alogs-pyval" }
+alogs-unity = { path = "../alogs-unity" }
 serde_json.workspace = true
 regex = "1"
 csv = "1"

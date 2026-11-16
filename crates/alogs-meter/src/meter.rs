@@ -1185,17 +1185,22 @@ pub fn last_rush_level(data: &std::path::Path) -> Option<i64> {
 }
 
 impl Meter {
-    /// The game's own pictures (icons.py's cache in <data>/icons), loaded once in the background. Extracting them
-    /// from the game (UnityPy) isn't ported: the cache the Python meter wrote is read.
+    /// The game's own pictures (icons.py's cache in <data>/icons), loaded once in the background: read from the game
+    /// first when there's no cache or the game was updated since.
     pub fn load_icons(&mut self) {
         if self.icons_state.is_some() {
             return;
         }
         self.icons_state = Some("loading".into());
         let dir = self.env.data.join("icons");
+        let log = self.args.player_log.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(alogs_reader::icons::Icons::open(&dir));
+            let ic = alogs_reader::icons::Icons::load(&dir, Some(&log));
+            if let Err(e) = &ic {
+                log::info!(target: "meter", "game icons: not readable ({e})");
+            }
+            let _ = tx.send(ic.ok());
         });
         self.icons_job = Some(rx);
     }
@@ -1206,7 +1211,7 @@ impl Meter {
             self.icons_job = None;
             match &ic {
                 Some(i) => log::info!(target: "meter", "game icons: {} Aniimo, {} buffs (game build {})", i.heads.len(), i.buffs.len(), i.build),
-                None => log::info!(target: "meter", "game icons: not readable (no cache from this game version)"),
+                None => {}
             }
             self.icons_state = Some(if ic.is_some() { "ready" } else { "failed" }.into());
             self.icons = ic;

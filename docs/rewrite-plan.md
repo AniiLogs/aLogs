@@ -143,6 +143,8 @@ step for the maintainer); while developing alogs-app runs target/<profile>/Sanct
 Assets. **The meter's leftovers are ported**: the top-part capture between fights with box frames for screen reads,
 window capture for a spotted screen, the background OCR helpers for the bar's text and the screens', time_check, the
 proof copy with the overlay, the Party picture with Egg Heist matches, the notices hand-over flag. Left out on
-purpose: calm pacing (a Dev switch), names_first (only shortens a wait), dmgnumbers (paused in B16). Still to port:
-extracting the game font atlas and the game icons from the game's Unity bundles (UnityPy in the Python); the Rust
-reads the caches the Python wrote, so a PC that never ran the Python meter has neither.
+purpose: calm pacing (a Dev switch), names_first (only shortens a wait), dmgnumbers (paused in B16). **The Unity
+extraction is ported** (crates/alogs-unity in place of UnityPy): the game font atlases and the game icons are read
+out of the game's bundles into the same caches as the Python's (checked pixel for pixel against it on a real
+install), when there's no cache or, for the icons, the game build changed. Unlike the Python it also finds the font
+bundles in the game's download cache (by the package manifests' names) and installs outside steamapps.

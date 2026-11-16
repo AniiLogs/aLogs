@@ -222,3 +222,115 @@ pub fn floodfill(im: &mut Image, xy: (usize, usize), value: &[u8]) {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+struct Edge {
+    x0: i32,
+    y0: i32,
+    xmin: i32,
+    ymin: i32,
+    xmax: i32,
+    ymax: i32,
+    dx: f32,
+}
+
+fn add_edge(x0: i32, y0: i32, x1: i32, y1: i32) -> Edge {
+    let dx = if y0 == y1 { 0.0 } else { (x1 - x0) as f32 / (y1 - y0) as f32 };
+    Edge { x0, y0, xmin: x0.min(x1), xmax: x0.max(x1), ymin: y0.min(y1), ymax: y0.max(y1), dx }
+}
+
+/// `ROUND_UP` / `ROUND_DOWN` (Draw.c) on a float.
+fn round_up(f: f32) -> i64 {
+    (if f >= 0.0 { ((f + 0.5) as f64).floor() } else { -((f.abs() + 0.5) as f64).floor() }) as i64
+}
+fn round_down(f: f32) -> i64 {
+    (if f >= 0.0 { ((f - 0.5) as f64).ceil() } else { -((f.abs() - 0.5) as f64).ceil() }) as i64
+}
+
+/// `ImageDraw.Draw(im).polygon(xy, fill=ink)` (no outline): the vertices truncated to ints, then Draw.c's
+/// `ImagingDrawPolygon` fill and `polygon_generic` scan lines, float for float.
+pub fn polygon(im: &mut Image, xy: &[(f64, f64)], fill: &[u8]) {
+    let count = xy.len();
+    if count == 0 {
+        return;
+    }
+    let px = ink_px(im, fill);
+    let p: Vec<(i32, i32)> = xy.iter().map(|&(x, y)| (x as i32, y as i32)).collect();
+    let mut e: Vec<Edge> = Vec::with_capacity(count);
+    let mut i = 0;
+    while i < count - 1 {
+        let ((x0, y0), (x1, y1)) = (p[i], p[i + 1]);
+        if y0 == y1 && i != 0 && y0 == p[i - 1].1 {
+            let last = e.len() - 1;
+            if x1 > x0 && x0 > p[i - 1].0 {
+                e[last].xmax = x1;
+                i += 1;
+                continue;
+            } else if x1 < x0 && x0 < p[i - 1].0 {
+                e[last].xmin = x1;
+                i += 1;
+                continue;
+            }
+        }
+        e.push(add_edge(x0, y0, x1, y1));
+        i += 1;
+    }
+    if p[i] != p[0] {
+        e.push(add_edge(p[i].0, p[i].1, p[0].0, p[0].1));
+    }
+    // polygon_generic
+    let (mut ymin, mut ymax) = (im.height as i32 - 1, 0i32);
+    let mut table: Vec<Edge> = Vec::new();
+    for ed in &e {
+        ymin = ymin.min(ed.ymin);
+        ymax = ymax.max(ed.ymax);
+        if ed.ymin == ed.ymax {
+            hline(im, ed.xmin as i64, ed.ymin as i64, ed.xmax as i64, &px);
+            continue;
+        }
+        table.push(*ed);
+    }
+    ymin = ymin.max(0);
+    ymax = ymax.min(im.height as i32);
+    let at = |ed: &Edge, y: i32| (y - ed.y0) as f32 * ed.dx + ed.x0 as f32;
+    let mut xx: Vec<f32> = Vec::with_capacity(table.len() * 2);
+    for y in ymin..=ymax {
+        xx.clear();
+        for (i, cur) in table.iter().enumerate() {
+            if y < cur.ymin || y > cur.ymax {
+                continue;
+            }
+            xx.push(at(cur, y));
+            if y == cur.ymax && y < ymax {
+                // needed to draw consistent polygons
+                xx.push(*xx.last().unwrap());
+            } else if (y == cur.ymin || y == cur.ymax) && cur.dx != 0.0 {
+                // connect discontiguous corners
+                for other in &table[..i] {
+                    if (y != other.ymin && y != other.ymax) || other.dx == 0.0 {
+                        continue;
+                    }
+                    let last = *xx.last().unwrap();
+                    if last.round() == at(other, y).round() {
+                        let offset = if y == cur.ymax { -1 } else { 1 };
+                        let adj = at(cur, y + offset);
+                        if y + offset >= other.ymin && y + offset <= other.ymax {
+                            let adj_other = at(other, y + offset);
+                            let n = xx.len() - 1;
+                            if last > adj + 1.0 && last > adj_other + 1.0 {
+                                xx[n] = ((adj as f64).max(adj_other as f64) as f32).round() + 1.0;
+                            } else if last < adj - 1.0 && last < adj_other - 1.0 {
+                                xx[n] = ((adj as f64).min(adj_other as f64) as f32).round() - 1.0;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        xx.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        for k in (1..xx.len()).step_by(2) {
+            hline(im, round_up(xx[k - 1]), y as i64, round_down(xx[k]), &px);
+        }
+    }
+}

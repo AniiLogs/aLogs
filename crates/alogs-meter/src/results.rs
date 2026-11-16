@@ -156,11 +156,14 @@ impl Meter {
         if now - p.get("at").as_f64().unwrap_or(0.0) < 900.0 { p.get("members").as_list().cloned() } else { None }
     }
 
-    /// The game-font reader, with the font cache in the data folder; None without it.
+    /// The game-font reader, with the font cache in the data folder (read from the game first if needed); None
+    /// when the game's font can't be read.
     pub fn name_reader(&mut self) -> Option<&NameReader> {
         if self.font_reader.is_none() && !self.font_tried {
             self.font_tried = true;
-            self.font_reader = alogs_reader::gamefont::GameFont::open(&self.env.data.join("gamefont"), alogs_reader::gamefont::FONT_NAME).map(NameReader::new);
+            self.font_reader = alogs_reader::gamefont::GameFont::load(&self.env.data.join("gamefont"), Some(&self.args.player_log), alogs_reader::gamefont::FONT_NAME)
+                .ok()
+                .map(NameReader::new);
         }
         self.font_reader.as_ref()
     }

@@ -1,7 +1,7 @@
 //! The game's own pictures behind the Party and Victory screens' icons (head portraits, card art, buff icons, Holo-
-//! Battle Sim pictures) and the matchers that use them. Port of the matching half of aLogs B16 `bossbar/icons.py`:
-//! the cache the Python meter extracted (icons.json + PNGs) is read; extracting it from the game's Unity bundles
-//! (UnityPy) is not ported yet.
+//! Battle Sim pictures) and the matchers that use them. Port of aLogs B16 `bossbar/icons.py`: the cache
+//! (icons.json + PNGs in the data folder) is read here, and written from the game's Unity bundles by
+//! `icons_extract::extract` when it's missing or from another game build (`Icons::load`).
 
 use alogs_pil::ops::{darker, difference, lighter, multiply, subtract};
 use alogs_pil::{Filter, Image, Mode};
@@ -133,6 +133,24 @@ impl Icons {
     /// Are the Holo-Battle Sim pictures cached?
     pub fn has_sim_art(&self) -> bool {
         !self.sim_art.is_empty()
+    }
+
+    /// The cached icons, read from the game again when it was updated since (icons.py `Icons.load`); the error says
+    /// why when the game can't be read.
+    pub fn load(cache_dir: &Path, player_log: Option<&Path>) -> Result<Icons, String> {
+        if let Some(icons) = Icons::open(cache_dir) {
+            let Some((_, game)) = crate::bundles::game(player_log) else { return Ok(icons) };
+            match crate::bundles::build(&game) {
+                None => return Ok(icons),
+                Some(b) if icons.build.as_str() == Some(b.as_str()) => return Ok(icons),
+                _ => {}
+            }
+        }
+        match crate::icons_extract::extract(cache_dir, player_log) {
+            Ok(true) => Icons::open(cache_dir).ok_or_else(|| "the extracted icons can't be read".to_string()),
+            Ok(false) => Err("the game install was not found".into()),
+            Err(e) => Err(e),
+        }
     }
 
     /// The cached pictures in `cache_dir`, or None when the cache is missing or from another version.

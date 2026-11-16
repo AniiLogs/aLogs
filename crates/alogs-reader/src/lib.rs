@@ -3,9 +3,11 @@
 
 pub mod bar;
 pub mod boss;
+pub mod bundles;
 pub mod gamefont;
 pub mod hangul;
 pub mod icons;
+pub mod icons_extract;
 pub mod names;
 pub mod ocr;
 pub mod parse;

@@ -2,6 +2,7 @@
 //! same pixels, and so the same readings, as the Python meter. tests/pil.rs checks each against Pillow.
 //! Known differences: `quant` (see there) and text drawing (not here: FreeType's rasteriser isn't ported).
 
+mod bcn;
 mod convert;
 pub mod draw;
 mod image;

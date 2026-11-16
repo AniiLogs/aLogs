@@ -1,7 +1,7 @@
 //! The game's own UI font (TextMeshPro signed-distance-field atlases). Port of `GameFont` in aLogs B16
 //! `bossbar/gamefont.py`: the cached atlas (gamefont*.png + .json in the data folder) and the distance field of a
-//! text. Reading the atlas out of the game's Unity bundles (`extract`, UnityPy) is not ported yet: the cache the Python
-//! meter wrote is used. `render` (the overlay's text style) lives with the overlay.
+//! text, and `extract`, which reads the atlas and glyph table out of the game's Unity bundles (alogs-unity in place of
+//! UnityPy) into that cache. `render` draws a text in the game's HUD style.
 
 use alogs_pil::ops::lighter;
 use alogs_pil::{Filter, Image, Mode};
@@ -24,7 +24,85 @@ pub struct GameFont {
     pub glyphs: HashMap<u32, [f64; 7]>,
 }
 
+/// Writes `<cache_dir>/gamefont.png` and `gamefont.json` (or the other font's own pair) from the game install, as
+/// gamefont.py `extract` does. Ok(false) when the install or the font isn't found.
+///
+/// Differences from the Python, both so it works on today's installs: the game is found as icons.py finds it
+/// (gamedata's `find_game_data`, which also knows installs outside steamapps), and the font bundles are also looked
+/// for in the game's download cache, by their names in its manifests (an install may keep them only there).
+pub fn extract(cache_dir: &Path, player_log: Option<&Path>, font_name: &str) -> Result<bool, String> {
+    use alogs_unity::{CLASS_MONOBEHAVIOUR, CLASS_TEXTURE2D, Env, V};
+    let Some((_, game)) = crate::bundles::game(player_log) else { return Ok(false) };
+    let mut paths: Vec<std::path::PathBuf> =
+        crate::bundles::shipped(&game).into_iter().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().contains("xgui_font"))).collect();
+    let mut cached: Vec<(String, std::path::PathBuf)> = crate::bundles::cached_by_name(&game).into_iter().filter(|(n, _)| n.contains("xgui_font")).collect();
+    cached.sort();
+    let shipped_names: Vec<String> = paths.iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
+    paths.extend(cached.into_iter().filter(|(n, _)| !shipped_names.contains(n)).map(|(_, p)| p));
+    if paths.is_empty() {
+        return Ok(false);
+    }
+    let env = Env::load(&paths)?;
+    let num = |v: &V| match *v {
+        V::Int(i) => J::from(i),
+        V::Float(f) => J::from(f),
+        V::Bool(b) => J::from(b),
+        _ => J::Null,
+    };
+    for o in env.objects().collect::<Vec<_>>() {
+        if env.class_id(o) != CLASS_MONOBEHAVIOUR {
+            continue;
+        }
+        let Ok(tree) = env.read(o) else { continue };
+        if tree.get("m_Name").as_str() != Some(font_name) {
+            continue;
+        }
+        let atlas = tree.get("m_AtlasTextures").as_list().first().cloned().unwrap_or_default();
+        let Some(tex) = atlas.get("m_PathID").as_i64().and_then(|pid| env.find(pid, CLASS_TEXTURE2D)) else { continue };
+        let img = env.texture(tex)?.convert(Mode::Rgba).split().swap_remove(3); // the distance field is in alpha
+        std::fs::create_dir_all(cache_dir).map_err(|e| e.to_string())?;
+        img.save_png(&cache_dir.join(format!("{}.png", stem(font_name)))).map_err(|e| e.to_string())?;
+        let face = tree.get("m_FaceInfo");
+        let mut glyphs: HashMap<i64, &V> = HashMap::new();
+        for g in tree.get("m_GlyphTable").as_list() {
+            glyphs.insert(g.get("m_Index").as_i64().unwrap_or(-1), g);
+        }
+        let mut table = serde_json::Map::new();
+        for ch in tree.get("m_CharacterTable").as_list() {
+            let Some(g) = ch.get("m_GlyphIndex").as_i64().and_then(|i| glyphs.get(&i)) else { continue };
+            let (r, m) = (g.get("m_GlyphRect"), g.get("m_Metrics"));
+            let row: Vec<J> = [r.get("m_X"), r.get("m_Y"), r.get("m_Width"), r.get("m_Height"), m.get("m_HorizontalBearingX"), m.get("m_HorizontalBearingY"), m.get("m_HorizontalAdvance")]
+                .into_iter()
+                .map(num)
+                .collect();
+            table.insert(num(ch.get("m_Unicode")).to_string(), J::from(row));
+        }
+        let padding = if tree.has("m_AtlasPadding") { num(tree.get("m_AtlasPadding")) } else { J::from(2) };
+        let meta = serde_json::json!({
+            "version": CACHE_VERSION, "point_size": num(face.get("m_PointSize")), "ascent": num(face.get("m_AscentLine")),
+            "descent": num(face.get("m_DescentLine")), "line_height": num(face.get("m_LineHeight")), "padding": padding,
+            "atlas_height": img.height, "glyphs": table,
+        });
+        std::fs::write(cache_dir.join(format!("{}.json", stem(font_name))), meta.to_string()).map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 impl GameFont {
+    /// The cached font, extracting it from the game first when there's no cache or it's from another version
+    /// (gamefont.py `GameFont.load`); the error says why when the game files can't be read.
+    pub fn load(cache_dir: &Path, player_log: Option<&Path>, font_name: &str) -> Result<GameFont, String> {
+        if let Some(f) = GameFont::open(cache_dir, font_name) {
+            return Ok(f);
+        }
+        match extract(cache_dir, player_log, font_name) {
+            Ok(true) => GameFont::open(cache_dir, font_name).ok_or_else(|| "the extracted font can't be read".to_string()),
+            Ok(false) => Err("the game install was not found".into()),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn open(cache_dir: &Path, font_name: &str) -> Option<GameFont> {
         let meta: J = serde_json::from_str(&std::fs::read_to_string(cache_dir.join(format!("{}.json", stem(font_name)))).ok()?).ok()?;
         if meta.get("version").and_then(J::as_i64) != Some(CACHE_VERSION) {

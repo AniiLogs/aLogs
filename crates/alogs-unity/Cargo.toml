@@ -1,0 +1,14 @@
+[package]
+name = "alogs-unity"
+description = "Reading the game's Unity asset bundles: UnityFS, serialized files with their type trees, textures and sprites (the part of UnityPy aLogs used)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alogs-pil = { path = "../alogs-pil" }
+lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-decode"] }
+lzma-rs = "0.3"
+
+[dev-dependencies]
+md5 = "0.7"

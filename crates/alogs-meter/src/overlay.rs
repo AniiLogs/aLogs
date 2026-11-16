@@ -298,8 +298,8 @@ const HP_SPOTS: [(&str, f64, f64, &str, f64); 4] = [
 ];
 
 impl Overlay {
-    pub fn new(data: PathBuf, view: Arc<Mutex<View>>, rx: Receiver<(String, Value)>, hide: bool, own: Arc<Mutex<Own>>) -> Option<Overlay> {
-        let game = GameFont::open(&data.join("gamefont"), FONT_NAME);
+    pub fn new(data: PathBuf, player_log: Option<PathBuf>, view: Arc<Mutex<View>>, rx: Receiver<(String, Value)>, hide: bool, own: Arc<Mutex<Own>>) -> Option<Overlay> {
+        let game = GameFont::load(&data.join("gamefont"), player_log.as_deref(), FONT_NAME).ok();
         log::info!(target: "meter.dps", "overlay font: {}", if game.is_some() { "the game's own (UI_Font_Europe)" } else { "Segoe UI (game font not readable)" });
         let dir = std::env::var_os("WINDIR").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from).join("Fonts");
         let plain = alogs_reader::text::Font::load(&dir.join("seguisb.ttf")).or_else(|| alogs_reader::text::Font::load(&dir.join("segoeui.ttf")));

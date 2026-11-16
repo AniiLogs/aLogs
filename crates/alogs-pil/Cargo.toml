@@ -11,3 +11,4 @@ png = "0.17"
 [dev-dependencies]
 serde_json.workspace = true
 sha2 = "0.10"
+md5 = "0.7"

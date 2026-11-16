@@ -467,12 +467,12 @@ fn main() {
             // Korean player names settled against the game's own fonts (the cache in <data>/gamefont)
             use alogs_reader::gamefont::{FONT_NAME, GameFont, KOREAN_FONT};
             let gf = data.join("gamefont");
-            match GameFont::open(&gf, FONT_NAME).map(|l| (l, GameFont::open(&gf, KOREAN_FONT))) {
-                Some((latin, Some(korean))) => {
+            match GameFont::load(&gf, Some(&player_log), FONT_NAME).and_then(|l| Ok((l, GameFont::load(&gf, Some(&player_log), KOREAN_FONT)?))) {
+                Ok((latin, korean)) => {
                     o.korean = Some(alogs_reader::hangul::KoreanNames::new(Some(latin), Some(korean)));
                     log::info!("Korean names: on (the game's Korean font)");
                 }
-                _ => log::info!("Korean names: off (game font not readable: no cache from this game version)"),
+                Err(e) => log::info!("Korean names: off (game font not readable: {e})"),
             }
             Box::new(o)
         }
@@ -535,7 +535,7 @@ fn main() {
     let (otx, orx) = std::sync::mpsc::channel();
     let v2 = view.clone();
     let meter = std::thread::spawn(move || run_meter(m, title, game_data, submitter, interval, Some(v2), Some(otx)));
-    match alogs_meter::overlay::Overlay::new(data.clone(), view.clone(), orx, hide, own) {
+    match alogs_meter::overlay::Overlay::new(data.clone(), Some(player_log.clone()), view.clone(), orx, hide, own) {
         Some(o) => {
             alogs_meter::overlay::TAKES_NOTICES.store(true, std::sync::atomic::Ordering::SeqCst);
             o.run();
