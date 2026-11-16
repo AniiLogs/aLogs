@@ -143,6 +143,10 @@ struct CapStats {
 }
 
 impl Frames for Live {
+    fn other_overlays(&mut self) -> Vec<(i32, i32, i32, i32)> {
+        self.cap.overlays(Some(alogs_capture::shared::OWNER_METER))
+    }
+
     fn audio_want(&mut self, now: f64) {
         self.audio.want(now, 3.0);
     }
@@ -496,10 +500,12 @@ fn main() {
     }
     // the overlay's windows live on this thread (their messages); the meter reads the game on its own
     let view = std::sync::Arc::new(std::sync::Mutex::new(m.overlay_view()));
+    let own = std::sync::Arc::new(std::sync::Mutex::new(alogs_meter::overlay::Own::default()));
+    m.own = Some(own.clone());
     let (otx, orx) = std::sync::mpsc::channel();
     let v2 = view.clone();
     let meter = std::thread::spawn(move || run_meter(m, title, game_data, submitter, interval, Some(v2), Some(otx)));
-    match alogs_meter::overlay::Overlay::new(data.clone(), view.clone(), orx, hide) {
+    match alogs_meter::overlay::Overlay::new(data.clone(), view.clone(), orx, hide, own) {
         Some(o) => o.run(),
         None => log::warn!("overlay windows could not be made: console output only"),
     }

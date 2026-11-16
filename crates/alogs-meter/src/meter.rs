@@ -66,6 +66,10 @@ pub trait Frames {
     }
     /// Ask every aLogs program to keep its overlays out of screen captures until then (unix ms).
     fn set_clean_until(&mut self, _ms: u64) {}
+    /// The other aLogs programs' windows on screen (Sanctum Helper's, the app's button), to cover in a screen copy.
+    fn other_overlays(&mut self) -> Vec<(i32, i32, i32, i32)> {
+        vec![]
+    }
     /// Your HP bar's strip (`area` as shares of the client), from a capture reader of its own; None without one.
     fn hp_strip(&mut self, _hwnd: usize, _area: (f64, f64, f64, f64)) -> Option<Image> {
         None
@@ -154,6 +158,8 @@ pub struct Meter {
     pub hit_at: f64,
     /// When the game log last said you left a space (Egg Heist's fade after it is a load).
     pub egg_space_at: f64,
+    /// The overlay's windows, to cover in a picture of the screen.
+    pub own: Option<std::sync::Arc<std::sync::Mutex<crate::overlay::Own>>>,
     /// The app's newest audio cue (Frames::audio_cue), as of the last look.
     pub audio_cue: Option<(u32, f64, f32)>,
     /// A second OCR reader for the HP number (hit_watch), set by the binary.
@@ -279,6 +285,7 @@ impl Meter {
             presence_sent: None,
             hit_at: 0.0,
             egg_space_at: 0.0,
+            own: None,
             audio_cue: None,
             hp_ocr: None,
             icons: None,
@@ -820,6 +827,9 @@ impl Meter {
         if partial.is_none() {
             self.frame_size = im.size();
         }
+        if !self.args.replay && frames.screen_copy() {
+            self.mask_own(frames, &mut im); // our overlays can be in a picture of the screen
+        }
         self.frames += 1;
         if let Some(f) = &mut self.fight
             && !self.args.replay
@@ -1160,5 +1170,30 @@ impl Meter {
         self.kill_sound_used = Some(n);
         log::info!(target: "meter", "boss kill sound heard {before:.1}s before the Catch Countdown (match {score:.2})");
         Some(at)
+    }
+}
+
+impl Meter {
+    /// The picture is of the screen and our overlay windows show in captures: cover where they are (and were a moment
+    /// ago) in the reader's COVER colour, so the meter never reads its own numbers; the other aLogs programs' too.
+    pub fn mask_own(&mut self, frames: &mut dyn Frames, im: &mut Image) {
+        let mut rects: Vec<(i32, i32, i32, i32, f64)> = match &self.own {
+            Some(o) => {
+                let o = o.lock().unwrap();
+                if o.in_capture { o.rects.clone() } else { vec![] }
+            }
+            None => vec![],
+        };
+        rects.extend(frames.other_overlays().into_iter().map(|r| (r.0, r.1, r.2, r.3, 0.0)));
+        let t = self.env.now();
+        let (ox, oy) = self.origin;
+        let c = alogs_reader::bar::COVER;
+        let fill: Vec<u8> = if im.mode == alogs_pil::Mode::Rgba { vec![c[0], c[1], c[2], 255] } else { c.to_vec() };
+        for (x0, y0, x1, y1, until) in rects {
+            if until != 0.0 && until < t {
+                continue;
+            }
+            alogs_pil::draw::rectangle(im, (f64::from(x0 - ox), f64::from(y0 - oy), f64::from(x1 - ox - 1), f64::from(y1 - oy - 1)), &fill);
+        }
     }
 }

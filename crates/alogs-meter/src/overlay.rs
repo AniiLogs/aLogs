@@ -37,6 +37,14 @@ const TOAST_MARGIN: f64 = 18.0;
 const HP_GRADIENT: [(f64, [u8; 3]); 7] = [(0.0, [248, 108, 108]), (0.25, [250, 120, 104]), (0.4, [249, 131, 98]), (0.55, [251, 144, 94]),
     (0.7, [254, 157, 91]), (0.85, [255, 167, 88]), (1.0, [255, 176, 85])];
 
+/// Where the overlay's windows are (screen px: x0, y0, x1, y1, until; until 0: there now), and whether they show in
+/// captures, for the meter to cover them in its own pictures of the screen (Meter::mask_own).
+#[derive(Default)]
+pub struct Own {
+    pub rects: Vec<(i32, i32, i32, i32, f64)>,
+    pub in_capture: bool,
+}
+
 /// The meter's state the overlay looks at (published by the meter's loop every step).
 #[derive(Clone)]
 pub struct View {
@@ -269,6 +277,11 @@ pub struct Overlay {
     alert_alpha: i32,
     toast: Toast,
     in_capture: Option<bool>,
+    own: Arc<Mutex<Own>>,
+    cur: HashMap<usize, (i32, i32, i32, i32)>,
+    old: Vec<(i32, i32, i32, i32, f64)>,
+    published: f64,
+    shared: alogs_capture::shared::SharedCapture,
 }
 
 const HP_SPOTS: [(&str, f64, f64, &str, f64); 4] = [
@@ -279,7 +292,7 @@ const HP_SPOTS: [(&str, f64, f64, &str, f64); 4] = [
 ];
 
 impl Overlay {
-    pub fn new(data: PathBuf, view: Arc<Mutex<View>>, rx: Receiver<(String, Value)>, hide: bool) -> Option<Overlay> {
+    pub fn new(data: PathBuf, view: Arc<Mutex<View>>, rx: Receiver<(String, Value)>, hide: bool, own: Arc<Mutex<Own>>) -> Option<Overlay> {
         let game = GameFont::open(&data.join("gamefont"), FONT_NAME);
         log::info!(target: "meter.dps", "overlay font: {}", if game.is_some() { "the game's own (UI_Font_Europe)" } else { "Segoe UI (game font not readable)" });
         let dir = std::env::var_os("WINDIR").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from).join("Fonts");
@@ -298,6 +311,11 @@ impl Overlay {
             toast: Toast { queue: vec![], since: None, img: None, at: (0.0, 0.0), edge: "right", motion: "fade".into(), screen: (0, 0, 1920, 1080),
                 alpha: -1, shown: None, looked: 0.0, sample: None, drag: None },
             in_capture: None,
+            own,
+            cur: HashMap::new(),
+            old: vec![],
+            published: 0.0,
+            shared: alogs_capture::shared::SharedCapture::new(3),
         };
         for (_, (w, ..)) in &o.hp {
             w.w.click_through(false);
@@ -319,17 +337,54 @@ impl Overlay {
 
     fn present(&mut self, which: &str, image: Image, x: i32, y: i32) {
         let away = self.away;
+        let rect = (x, y, x + image.width as i32, y + image.height as i32);
         let win = self.win_mut(which);
         if !away {
             win.w.show(&image, x, y);
         }
         win.placed = Some((image, x, y));
+        let h = win.w.hwnd;
+        self.own_spot(h, Some(rect));
     }
 
     fn park(&mut self, which: &str) {
         let win = self.win_mut(which);
         win.placed = None;
         win.w.park();
+        let h = win.w.hwnd;
+        self.own_spot(h, None);
+    }
+
+    /// Where each overlay window is, for the meter to cover; a spot just left is kept half a second.
+    fn own_spot(&mut self, hwnd: usize, rect: Option<(i32, i32, i32, i32)>) {
+        let t = now();
+        let prev = self.cur.get(&hwnd).copied();
+        if prev == rect {
+            return;
+        }
+        if let Some(p) = prev {
+            self.old.push((p.0, p.1, p.2, p.3, t + 0.5));
+        }
+        match rect {
+            Some(r) => {
+                self.cur.insert(hwnd, r);
+            }
+            None => {
+                self.cur.remove(&hwnd);
+            }
+        }
+        self.old.retain(|r| r.4 > t);
+        self.publish_own(t);
+    }
+
+    /// Our spots for Sanctum Helper and the app to cover in their pictures (and again each second).
+    fn publish_own(&mut self, t: f64) {
+        self.published = t;
+        let mut rects: Vec<(i32, i32, i32, i32, f64)> = self.cur.values().map(|r| (r.0, r.1, r.2, r.3, 0.0)).collect();
+        rects.extend(self.old.iter().copied());
+        let live: Vec<(i32, i32, i32, i32)> = rects.iter().filter(|r| r.4 == 0.0 || r.4 > t).map(|r| (r.0, r.1, r.2, r.3)).collect();
+        self.shared.publish_overlays(alogs_capture::shared::OWNER_METER, &live);
+        self.own.lock().unwrap().rects = rects;
     }
 
     fn win_mut(&mut self, which: &str) -> &mut Win {
@@ -800,10 +855,14 @@ impl Overlay {
             return false;
         }
         self.mouse(&v);
+        if now() - self.published > 1.0 {
+            self.publish_own(now());
+        }
         // in captures unless the player chose otherwise
         let want_in = !self.hide;
         if self.in_capture != Some(want_in) {
             self.in_capture = Some(want_in);
+            self.own.lock().unwrap().in_capture = want_in;
             for w in self.wins() {
                 w.hide_from_capture(!want_in);
             }
