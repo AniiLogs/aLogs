@@ -238,7 +238,7 @@ impl Meter {
         let u = w.min(h * 16.0 / 9.0);
         let ux = (w - u) / 2.0;
         self.menu_name(im, u, ux, h, heads);
-        // TODO(port): profile_notes
+        self.profile_notes(heads, im, now, u, ux, h);
         let cc = g(heads, "cc");
         if cc.contains("catch") {
             if now - self.catch_seen > 30.0 {

@@ -47,6 +47,20 @@ pub struct MenuState {
     profile_read: f64,
     miss_logged: f64,
     other_logged: f64,
+    /// The EXP card's reads while it's up: (time, level, exp, needed).
+    exp_card: Vec<(f64, i64, i64, i64)>,
+    exp_last: Option<std::collections::HashMap<String, (i64, i64)>>,
+    profile_seen: IndexMap<String, f64>,
+    level_sent: Option<String>,
+}
+
+/// A profile note: ('exp', level, exp, needed) or ('catch', name, level).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileEvent {
+    pub kind: &'static str,
+    pub a: String,
+    pub b: i64,
+    pub c: Option<i64>,
 }
 
 fn digits_of(uid_text: &str) -> String {
@@ -404,6 +418,142 @@ impl Meter {
             link.uid = self.uid.clone();
             link.proof = proof;
             log::info!(target: "meter", "link character: read {} with UID {} - waiting for the player to confirm", alogs_pyval::str_repr(name), self.uid.clone().unwrap_or_default());
+        }
+    }
+}
+
+impl Meter {
+    /// Overworld notifications for the profile, kept in logs/profile_events.csv: the EXP card (level and EXP) and the
+    /// catch card (what you caught).
+    pub fn profile_notes(&mut self, heads: &Heads, im: &Image, now: f64, u: f64, ux: f64, h: f64) {
+        static PE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\d[\d,]*)\s*/\s*(\d[\d,]*)").unwrap());
+        static LEVEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\d{1,3})\s*$").unwrap());
+        static CATCH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*([A-Za-z][A-Za-z '-]{1,30}?)\s*/\s*L[vVyY]\.?\s*(\d{1,3})").unwrap());
+        static VIEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)view|close").unwrap());
+        let g = |k: &str| heads.get(k).cloned().unwrap_or_default();
+        let mut events = vec![];
+        if g("pl").to_lowercase().contains("level") {
+            let pe = g("pe");
+            let m = PE.captures(&pe).map(|c| (c[1].replace(',', "").parse::<i64>().unwrap_or(0), c[2].replace(',', "").parse::<i64>().unwrap_or(0)));
+            let mut crops = IndexMap::new();
+            crops.insert("n".to_string(), prep::prep_labelled(im, (ux + u * 0.47, h * 0.148, ux + u * 0.53, h * 0.192), u / 2000.0, "Level:", 2.0));
+            let n = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new()).get("n").cloned().unwrap_or_default();
+            if let (Some(lv), Some((cur, need))) = (LEVEL.captures(&n).and_then(|c| c[1].parse::<i64>().ok()), m)
+                && cur <= need
+            {
+                self.menu.exp_card.push((now, lv, cur, need));
+                let n = self.menu.exp_card.len();
+                if n > 60 {
+                    self.menu.exp_card.drain(..n - 60);
+                }
+            }
+        }
+        if let Some(ev) = self.exp_settled(now) {
+            events.push(ev);
+        }
+        let pc = g("pc");
+        if let Some(c) = CATCH.captures(&pc)
+            && VIEW.is_match(&g("pb"))
+        {
+            events.push(ProfileEvent { kind: "catch", a: c[1].trim().to_string(), b: c[2].parse().unwrap_or(0), c: None });
+        }
+        for ev in events {
+            let key = format!("{}|{}|{}|{:?}", ev.kind, ev.a, ev.b, ev.c);
+            if now - self.menu.profile_seen.get(&key).copied().unwrap_or(-1e9) >= 60.0 {
+                self.profile_note(&ev);
+            }
+            self.menu.profile_seen.insert(key, now);
+            if ev.kind == "exp"
+                && self.submitter.is_some()
+                && let Some(uid) = self.uid.clone()
+            {
+                let sent = format!("{uid}|{}|{}|{:?}", ev.a, ev.b, ev.c);
+                if self.menu.level_sent.as_ref() != Some(&sent) {
+                    self.menu.level_sent = Some(sent);
+                    let mut d = Dict::new();
+                    d.insert("level".into(), Value::Int(ev.a.parse().unwrap_or(0)));
+                    d.insert("exp".into(), Value::Int(ev.b));
+                    d.insert("expNeeded".into(), ev.c.map_or(Value::None, Value::Int));
+                    if let Some(server) = crate::submit::game_server() {
+                        d.insert("server".into(), Value::Str(server));
+                    }
+                    self.submitter.as_ref().unwrap().character_stats(&uid, &Value::Dict(d));
+                }
+            }
+        }
+        self.menu.profile_seen.retain(|_, t| now - *t < 120.0);
+    }
+
+    /// The EXP card's level and EXP once it's gone (no read for 2 s): its highest read at the level most reads agree
+    /// on, kept only when it's not behind the last noted value for this character.
+    pub fn exp_settled(&mut self, now: f64) -> Option<ProfileEvent> {
+        let card = &self.menu.exp_card;
+        if card.is_empty() || now - card.last().unwrap().0 < 2.0 {
+            return None;
+        }
+        let card = std::mem::take(&mut self.menu.exp_card);
+        let mut counts: IndexMap<i64, i64> = IndexMap::new();
+        for r in &card {
+            *counts.entry(r.1).or_insert(0) += 1;
+        }
+        let (level, votes) = counts.iter().fold((0, 0), |b, (l, n)| if *n > b.1 { (*l, *n) } else { b });
+        let best = card.iter().filter(|r| r.1 == level).fold(None::<&(f64, i64, i64, i64)>, |b, r| if b.is_none_or(|b| r.2 > b.2) { Some(r) } else { b }).unwrap();
+        let (cur, need) = (best.2, best.3);
+        let uid = self.uid.clone().unwrap_or_default();
+        if self.menu.exp_last.is_none() {
+            let mut known = std::collections::HashMap::new();
+            if let Ok(text) = std::fs::read_to_string(self.env.data.join("logs").join("profile_events.csv")) {
+                let mut rd = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(text.as_bytes());
+                for r in rd.records().flatten() {
+                    let num = |i: usize| r.get(i).filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit())).and_then(|v| v.parse::<i64>().ok());
+                    if r.len() > 5
+                        && r.get(2) == Some("exp")
+                        && let (Some(a), Some(b)) = (num(3), num(4))
+                    {
+                        let e = known.entry(r.get(1).unwrap_or("").to_string()).or_insert((0, 0));
+                        *e = (*e).max((a, b));
+                    }
+                }
+            }
+            self.menu.exp_last = Some(known);
+        }
+        let known = self.menu.exp_last.as_mut().unwrap();
+        if let Some(last) = known.get(&uid)
+            && (level < last.0 || (level > last.0 && votes < 2) || (level == last.0 && cur <= last.1))
+        {
+            return None;
+        }
+        known.insert(uid, (level, cur));
+        Some(ProfileEvent { kind: "exp", a: level.to_string(), b: cur, c: Some(need) })
+    }
+
+    fn profile_note(&self, ev: &ProfileEvent) {
+        let th = |n: i64| {
+            let s = n.to_string();
+            let mut o = String::new();
+            for (i, ch) in s.chars().enumerate() {
+                if i > 0 && (s.len() - i) % 3 == 0 {
+                    o.push(',');
+                }
+                o.push(ch);
+            }
+            o
+        };
+        if ev.kind == "exp" {
+            log::info!(target: "meter", "profile: exp - level {}, EXP {} / {}", ev.a, th(ev.b), th(ev.c.unwrap_or(0)));
+        } else {
+            log::info!(target: "meter", "profile: {} - {} Lv {}", ev.kind, ev.a, ev.b);
+        }
+        let path = self.env.data.join("logs").join("profile_events.csv");
+        let new = !path.exists();
+        let _ = std::fs::create_dir_all(self.env.data.join("logs"));
+        if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let mut w = csv::WriterBuilder::new().terminator(csv::Terminator::CRLF).from_writer(f);
+            if new {
+                let _ = w.write_record(["when", "uid", "kind", "name_or_level", "level_or_exp", "exp_needed", "exp_gained"]);
+            }
+            let _ = w.write_record([crate::results::local(self.env.now(), "%Y-%m-%d %H:%M:%S"), self.uid.clone().unwrap_or_default(), ev.kind.to_string(),
+                ev.a.clone(), ev.b.to_string(), ev.c.map_or(String::new(), |c| c.to_string()), String::new()]);
         }
     }
 }

@@ -85,3 +85,25 @@ fn link_character_reads_then_waits_for_the_player() {
     m.link_poll(t + 6.0);
     assert!(m.menu.link.is_none());
 }
+
+#[test]
+fn the_exp_card_is_noted_once_it_goes() {
+    let mut m = meter("menu-exp");
+    m.ocr = Box::new(FakeOcr([("n".to_string(), "Level: 64".to_string())].into_iter().collect()));
+    let im = Image::new(Mode::Rgb, 1920, 1080, &[40, 40, 40]);
+    let t = 1_800_000_000.0;
+    let heads = |pe: &str| -> IndexMap<String, String> { [("pl", "Level 64"), ("pe", pe)].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+    // the card counts up while it slides in: short reads, never too high
+    for (i, pe) in ["985/80000", "5085/80000", "5O85/80000"].iter().enumerate() {
+        m.profile_notes(&heads(pe), &im, t + i as f64 * 0.5, 1920.0, 0.0, 1080.0);
+    }
+    let path = m.env.data.join("logs/profile_events.csv");
+    assert!(!path.exists(), "not while the card is up");
+    m.profile_notes(&IndexMap::new(), &im, t + 4.0, 1920.0, 0.0, 1080.0);
+    let csv = std::fs::read_to_string(&path).unwrap();
+    assert!(csv.contains(",123456789,exp,64,5085,80000,"), "{csv}");
+    // the same numbers again later: behind what's noted, not noted again
+    m.profile_notes(&heads("5085/80000"), &im, t + 10.0, 1920.0, 0.0, 1080.0);
+    m.profile_notes(&IndexMap::new(), &im, t + 13.0, 1920.0, 0.0, 1080.0);
+    assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 2);
+}
