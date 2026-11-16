@@ -2,6 +2,7 @@
 //! AniiLogs/SanctumHelper (C# .NET 9 WPF + OpenCvSharp) at `alogs-integration` 8cd1c6a, one part at a time.
 
 pub mod cv;
+pub mod cv2;
 pub mod game_log;
 pub mod layout_db;
 pub mod settings;

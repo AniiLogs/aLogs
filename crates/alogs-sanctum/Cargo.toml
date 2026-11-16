@@ -11,6 +11,7 @@ alogs-capture = { path = "../alogs-capture" }
 serde = { workspace = true }
 serde_json.workspace = true
 regex = "1"
+rustfft = "6"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]

@@ -201,6 +201,7 @@ dependencies = [
  "alogs-pil",
  "chrono",
  "regex",
+ "rustfft",
  "serde",
  "serde_json",
  "winreg 0.52.0",
