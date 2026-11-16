@@ -135,6 +135,56 @@ for _ in range(10):
          lambda a, b, c: Image.composite(a, b, c))
 case("new", {}, [], lambda: Image.new("RGBA", (5, 3), (1, 2, 3, 4)))
 
+# ImageChops, ImageOps, ImageFilter, ImageStat, ImageDraw
+CHOPS = {"lighter": ImageChops.lighter, "darker": ImageChops.darker, "difference": ImageChops.difference,
+         "multiply": ImageChops.multiply, "screen": ImageChops.screen}
+for _ in range(8):
+    for name, fn in CHOPS.items():
+        m = rnd.choice(["L", "RGB", "RGBA"])
+        case("chop", {"name": name}, [src(m), src(m)], lambda a, b, fn=fn: fn(a, b))
+    m = rnd.choice(["L", "RGB"]); sc, off = rnd.choice([1.0, 2.0, 0.7]), rnd.randint(-30, 60)
+    case("chop_sub", {"scale": sc, "offset": off}, [src(m), src(m)], lambda a, b, sc=sc, off=off: ImageChops.subtract(a, b, sc, off))
+    case("chop_add", {"scale": sc, "offset": off}, [src(m), src(m)], lambda a, b, sc=sc, off=off: ImageChops.add(a, b, sc, off))
+    case("chop_and", {}, [src("1"), src("1")], lambda a, b: ImageChops.logical_and(a, b))
+    case("chop_or", {}, [src("1"), src("1")], lambda a, b: ImageChops.logical_or(a, b))
+    case("chop_invert", {}, [src(rnd.choice(MODES))], lambda a: ImageChops.invert(a))
+for _ in range(10):
+    m = rnd.choice(["1", "L", "RGB"])
+    case("ops_invert", {}, [src(m)], lambda a: ImageOps.invert(a))
+    m = rnd.choice(["L", "RGB"]); co = rnd.choice([0, 2, 5, [1, 3]])
+    case("autocontrast", {"cutoff": co}, [src(m)], lambda a, co=co: ImageOps.autocontrast(a, cutoff=tuple(co) if isinstance(co, list) else co))
+    m = rnd.choice(MODES); bd = rnd.randint(0, 6); fl = rnd.choice([0, 255])
+    case("expand", {"border": bd, "fill": fl}, [src(m)], lambda a, bd=bd, fl=fl: ImageOps.expand(a, border=bd, fill=fl))
+for _ in range(10):
+    m = rnd.choice(MODES); sz = rnd.choice([3, 5, 7])  # size 1 crashes Pillow 12.3 (ImagingExpand divides by zero)
+    case("maxfilter", {"size": sz}, [src(m)], lambda a, sz=sz: a.filter(ImageFilter.MaxFilter(sz)))
+    case("minfilter", {"size": sz}, [src(m)], lambda a, sz=sz: a.filter(ImageFilter.MinFilter(sz)))
+    m = rnd.choice(["L", "RGB", "RGBA"]); r = rnd.choice([0.5, 1, 1.5, 2.2, 3, 6.4])
+    case("gaussian", {"radius": r}, [src(m)], lambda a, r=r: a.filter(ImageFilter.GaussianBlur(r)))
+for _ in range(10):
+    m = rnd.choice(["L", "RGB"]); mk = rnd.choice([None, "1", "L"])
+    i = src(m); ins = [i] + ([[mk, i[1], i[2], rnd.randint(0, 999), 3]] if mk else [])
+    def stat(a, mask=None):
+        st = ImageStat.Stat(a, mask)
+        return {"mean": st.mean, "median": st.median, "stddev": st.stddev, "extrema": [list(e) for e in st.extrema], "count": st.count}
+    case("stat", {}, ins, stat)
+for _ in range(25):
+    m = rnd.choice(["1", "L", "RGB", "RGBA"]); w, h = rnd.randint(3, 40), rnd.randint(3, 40)
+    x0, y0 = rnd.uniform(-5, w), rnd.uniform(-5, h); x1, y1 = x0 + rnd.uniform(0, w), y0 + rnd.uniform(0, h)
+    xy = [round(v * 4) / 4 for v in (x0, y0, x1, y1)]; ink = rnd.randint(1, 255); ow = rnd.choice([0, 1, 2, 4])
+    def ell(a, xy=xy, ink=ink, ow=ow):
+        a = a.copy(); d = ImageDraw.Draw(a)
+        if ow: d.ellipse(tuple(xy), outline=ink, width=ow)
+        else: d.ellipse(tuple(xy), fill=ink)
+        return a
+    def rect(a, xy=xy, ink=ink):
+        a = a.copy(); ImageDraw.Draw(a).rectangle(tuple(xy), fill=ink); return a
+    case("ellipse", {"xy": xy, "ink": ink, "width": ow}, [[m, w, h, 1, 2]], ell)
+    case("rectangle", {"xy": xy, "ink": ink}, [[m, w, h, 1, 2]], rect)
+    def flood(a, ink=ink):
+        a = a.copy(); ImageDraw.floodfill(a, (1, 1), ink); return a
+    case("floodfill", {"ink": ink}, [["L", w, h, rnd.randint(0, 99), 3]], flood)
+
 dst = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "crates", "alogs-pil", "tests", "data", "pil_goldens.json")
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 with open(dst, "w", encoding="utf-8", newline="\n") as f: json.dump(cases, f)

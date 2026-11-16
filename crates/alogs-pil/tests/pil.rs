@@ -158,6 +158,59 @@ fn run(op: &str, a: &J, ims: &[Image]) -> Out {
         }
         "composite" => img(Image::composite(&ims[0], &ims[1], &ims[2])),
         "new" => img(Image::new(Mode::Rgba, 5, 3, &[1, 2, 3, 4])),
+        "chop" => {
+            use alogs_pil::ops::*;
+            let fun: fn(&Image, &Image) -> Image = match a["name"].as_str().unwrap() {
+                "lighter" => lighter,
+                "darker" => darker,
+                "difference" => difference,
+                "multiply" => multiply,
+                _ => screen,
+            };
+            img(fun(&ims[0], &ims[1]))
+        }
+        "chop_sub" => img(alogs_pil::ops::subtract(&ims[0], &ims[1], f(a, "scale") as f32, a["offset"].as_i64().unwrap() as i32)),
+        "chop_add" => img(alogs_pil::ops::add(&ims[0], &ims[1], f(a, "scale") as f32, a["offset"].as_i64().unwrap() as i32)),
+        "chop_and" => img(alogs_pil::ops::logical_and(&ims[0], &ims[1])),
+        "chop_or" => img(alogs_pil::ops::logical_or(&ims[0], &ims[1])),
+        "chop_invert" => img(alogs_pil::ops::chop_invert(&ims[0])),
+        "ops_invert" => img(alogs_pil::ops::invert(&ims[0])),
+        "autocontrast" => {
+            let co = match &a["cutoff"] {
+                J::Array(v) => (v[0].as_f64().unwrap(), v[1].as_f64().unwrap()),
+                v => (v.as_f64().unwrap(), v.as_f64().unwrap()),
+            };
+            img(alogs_pil::ops::autocontrast(&ims[0], co))
+        }
+        "expand" => img(alogs_pil::ops::expand(&ims[0], u(a, "border"), &[a["fill"].as_u64().unwrap() as u8])),
+        "maxfilter" => img(alogs_pil::ops::max_filter(&ims[0], u(a, "size"))),
+        "minfilter" => img(alogs_pil::ops::min_filter(&ims[0], u(a, "size"))),
+        "gaussian" => img(alogs_pil::ops::gaussian_blur(&ims[0], f(a, "radius"))),
+        "stat" => {
+            let st = alogs_pil::ops::Stat::new(&ims[0], ims.get(1));
+            Out::Value(json!({"mean": st.mean(), "median": st.median(), "stddev": st.stddev(),
+                "extrema": st.extrema().iter().map(|e| [e.0, e.1]).collect::<Vec<_>>(), "count": st.count()}))
+        }
+        "ellipse" | "rectangle" => {
+            let xy: Vec<f64> = a["xy"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+            let ink = [a["ink"].as_u64().unwrap() as u8];
+            let mut im = ims[0].clone();
+            let xy = (xy[0], xy[1], xy[2], xy[3]);
+            if op == "rectangle" {
+                alogs_pil::draw::rectangle(&mut im, xy, &ink);
+            } else if a["width"].as_i64().unwrap() > 0 {
+                alogs_pil::draw::ellipse(&mut im, xy, None, Some(&ink), a["width"].as_i64().unwrap() as i32);
+            } else {
+                alogs_pil::draw::ellipse(&mut im, xy, Some(&ink), None, 1);
+            }
+            img(im)
+        }
+        "floodfill" => {
+            let mut im = ims[0].clone();
+            alogs_pil::draw::floodfill(&mut im, (1, 1), &[a["ink"].as_u64().unwrap() as u8]);
+            img(im)
+        }
+
         _ => panic!("unknown op {op}"),
     }
 }
