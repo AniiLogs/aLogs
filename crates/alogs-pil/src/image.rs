@@ -251,6 +251,37 @@ impl Image {
         Image::from_raw(mode, w, h, data)
     }
 
+    /// `im.alpha_composite(src, (x, y))` on RGBA images: `src` over this image at (x, y), Pillow's integer blend.
+    pub fn alpha_composite(&mut self, src: &Image, x: i64, y: i64) {
+        let bg = self.crop_i(x, y, x + src.width as i64, y + src.height as i64);
+        let mut out = bg.clone();
+        let sh = |a: u32| ((a >> 8) + a) >> 8;
+        for i in 0..src.width * src.height {
+            let (s, d) = (&src.data[i * 4..i * 4 + 4], &bg.data[i * 4..i * 4 + 4]);
+            if s[3] == 0 {
+                continue;
+            }
+            let (sa, da) = (u32::from(s[3]), u32::from(d[3]));
+            let blend = da * (255 - sa);
+            let outa255 = sa * 255 + blend;
+            let coef1 = sa * 255 * 255 * (1 << 7) / outa255;
+            let coef2 = 255 * (1 << 7) - coef1;
+            for c in 0..3 {
+                let t = u32::from(s[c]) * coef1 + u32::from(d[c]) * coef2;
+                out.data[i * 4 + c] = (sh(t + (0x80 << 7)) >> 7) as u8;
+            }
+            out.data[i * 4 + 3] = sh(outa255 + 0x80) as u8;
+        }
+        self.paste(&out, x, y);
+    }
+
+    /// `im.putalpha(a)` on an RGBA image: its alpha band becomes `a` (an L image of the same size).
+    pub fn putalpha(&mut self, a: &Image) {
+        for i in 0..self.width * self.height {
+            self.data[i * 4 + 3] = a.data[i];
+        }
+    }
+
     /// `getbbox()` (for RGBA, the alpha band only): `(x0, y0, x1, y1)` of what isn't 0, or None.
     pub fn getbbox(&self) -> Option<(usize, usize, usize, usize)> {
         let b = self.bands();

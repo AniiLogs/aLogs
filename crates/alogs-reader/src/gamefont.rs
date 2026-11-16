@@ -78,4 +78,65 @@ impl GameFont {
         }
         (field, base)
     }
+
+    /// RGBA image of the text in the game's style, and its baseline's y in the picture (gamefont.render). `bold`
+    /// thickens the strokes; `stroke`: a solid black outline instead of the faint one; `lead`: the first n characters
+    /// in their own colour, with a thicker outline ('HP' in red before white numbers).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(&self, text: &str, px: f64, fill: [u8; 3], outline: [u8; 3], italic: bool, bold: bool, stroke: bool, lead: Option<(usize, [u8; 3])>) -> (Image, i64) {
+        use alogs_pil::ops::{gaussian_blur, max_filter, multiply};
+        let (field, base) = self.field(text, px);
+        let soft = (64.0 / px.max(1.0) * 2.0).max(1.0);
+        let band = |edge: f64| field.point(|v| ((f64::from(v) - edge) * 255.0 / (2.0 * soft * 8.0) + 128.0).clamp(0.0, 255.0).trunc());
+        let edge = 128.0 - if bold { 14.0 } else { 0.0 };
+        let body = band(edge);
+        let rim = band(edge - 22.0);
+        let shadow = gaussian_blur(&rim, (px / 10.0).max(1.5));
+        let (w, h) = (field.width, field.height);
+        let dy = ((px / 20.0).round_ties_even() as usize).max(1);
+        let mut out = Image::new(Mode::Rgba, w, h + dy, &[0, 0, 0, 0]);
+        let mut sh = Image::new(Mode::Rgba, w, h, &[outline[0], outline[1], outline[2], 0]);
+        sh.putalpha(&shadow.point(|v| f64::from(u32::from(v) * 120 / 255)));
+        out.alpha_composite(&sh, 0, dy as i64);
+        let mut upto = 0usize;
+        if let Some((n, _)) = lead {
+            let ps = self.meta["point_size"].as_f64().unwrap_or(1.0);
+            let s = px / ps;
+            let adv: f64 = text.chars().take(n).map(|c| self.glyph(c).or_else(|| self.glyph('?')).map_or(0.0, |g| g[6])).sum();
+            upto = w.min((10.0 * s + 2.0 + adv * s).round_ties_even() as usize);
+        }
+        let oc = if stroke { [0, 0, 0] } else { outline };
+        let mut ol = Image::new(Mode::Rgba, w, h, &[oc[0], oc[1], oc[2], 0]);
+        if stroke {
+            let size = ((px / 10.0).round_ties_even() as usize).max(3) | 1;
+            let mut alpha = lighter(&rim, &max_filter(&body, size));
+            if lead.is_some() {
+                let grow = ((px / 4.0).round_ties_even() as usize).max(5) | 1;
+                let thick = max_filter(&body, grow);
+                let mut keep = Image::new(Mode::L, w, h, &[0]);
+                keep.paste(&Image::new(Mode::L, w.min(upto + grow / 2), h, &[255]), 0, 0);
+                alpha = lighter(&alpha, &multiply(&thick, &keep));
+            }
+            ol.putalpha(&alpha);
+        } else {
+            ol.putalpha(&rim.point(|v| f64::from(u32::from(v) * 55 / 255)));
+        }
+        out.alpha_composite(&ol, 0, 0);
+        let mut fg = Image::new(Mode::Rgba, w, h, &[fill[0], fill[1], fill[2], 0]);
+        if let Some((_, c)) = lead
+            && upto > 0
+        {
+            fg.paste(&Image::new(Mode::Rgba, upto, h, &[c[0], c[1], c[2], 0]), 0, 0);
+        }
+        fg.putalpha(&body);
+        out.alpha_composite(&fg, 0, 0);
+        if italic {
+            let k = 0.21;
+            let nw = out.width + (out.height as f64 * k) as usize;
+            out = out.transform_affine(nw, out.height, [1.0, k, -(out.height as f64) * k, 0.0, 1.0, 0.0], Filter::Bicubic, &[0, 0, 0, 0]);
+        }
+        let bb = out.getbbox().unwrap_or((0, 0, 1, 1));
+        let out = out.crop_i(bb.0 as i64, bb.1 as i64, bb.2 as i64, bb.3 as i64);
+        (out, base.round_ties_even() as i64 - bb.1 as i64)
+    }
 }
