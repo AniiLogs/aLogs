@@ -195,26 +195,13 @@ impl Meter {
         true
     }
 
-    /// Time for the next screen read: 0.1 s after the last when the screen changed, about every 1.5 s when not.
-    pub fn screen_read_due(&self, now: f64, quick: bool, top_sig: Option<&Vec<u8>>) -> bool {
-        let changed = match (&self.ss.screen_read_sig, top_sig) {
-            (Some(a), Some(b)) => crate::team::screen_changed(b, a, 6.0),
-            _ => true,
-        };
-        let mut gap = if quick { 0.25 } else if changed { 0.1 } else { 1.5 };
-        if !quick && self.fight.is_none() && self.bar.is_none() && !self.bossrush_space {
-            gap = f64::max(gap, 1.0);
-        }
-        now - self.rs.last_results >= gap
-    }
-
     /// The game's screens with text, read about once a second (back to back while a fight's bar is hidden).
     pub fn check_battle_data(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64) {
         let quick = self.fight.is_some() && now - self.bar_seen > 0.5;
-        let sig = crate::team::top_sig_direct(im, im.height as f64 * crate::meter::TOP_PART);
-        if !self.screen_read_due(now, quick, Some(&sig)) {
+        if self.names_waiting() || !self.frame_full || !self.screen_read_due(now, quick) {
             return;
         }
+        let sig = self.top_sig.clone().unwrap_or_else(|| crate::team::top_sig_direct(im, im.height as f64 * crate::meter::TOP_PART));
         self.rs.last_results = now;
         self.diag.load.reads += 1;
         self.ss.screen_read_sig = Some(sig);
@@ -234,11 +221,24 @@ impl Meter {
         }
         let party = self.party_up(heads, now);
         let spotted = screen_spotted(heads).or(if party { Some("party") } else { None });
-        if spotted.is_some() && !self.args.replay {
+        self.game_only_gone(frames, spotted, now);
+        if let Some(sp) = spotted.filter(|_| !self.args.replay) {
             self.ss.full_until = now + FULL_HOLD_S;
             let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));
             self.egg_screen_hold(spotted, heads, now, fg);
-            // TODO(port): game_only (window capture while a screen is up on Windows 10)
+            if self.game_only(frames, sp, now) {
+                self.rs.last_results = 0.0;
+                return;
+            }
+            // a frame of only the boxes is read again whole at once; whole frames go on until FULL_HOLD_S after
+            if self.parts_frame {
+                if now - self.pacing.parts_said > 60.0 {
+                    self.pacing.parts_said = now;
+                    log::info!(target: "meter", "screen read: {sp} spotted, whole frames while it's up");
+                }
+                self.rs.last_results = 0.0;
+                return;
+            }
         }
         let (w, h) = (im.width as f64, im.height as f64);
         let u = w.min(h * 16.0 / 9.0);

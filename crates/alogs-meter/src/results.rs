@@ -403,7 +403,7 @@ impl Meter {
 
     /// Interlink: the game's line when the party leader ends a run early.
     pub fn leader_ended_note(&mut self, im: &Image, now: f64) {
-        if now - self.rs.leader_look < 1.0 {
+        if now - self.rs.leader_look < 1.0 || !self.frame_full {
             return;
         }
         let f = self.fight.as_ref().or(self.last_fight.as_ref().map(|x| &x.0));

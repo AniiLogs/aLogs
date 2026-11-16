@@ -66,6 +66,12 @@ pub trait Frames {
     }
     /// Ask every aLogs program to keep its overlays out of screen captures until then (unix ms).
     fn set_clean_until(&mut self, _ms: u64) {}
+    /// Only these parts (shares of the client, 0-1) of the game's picture, pasted in place on a black frame, or None.
+    fn grab_parts(&mut self, _hwnd: usize, _rects: &[(f64, f64, f64, f64)]) -> Option<Image> {
+        None
+    }
+    /// Ask the app for window capture until then (unix ms): pictures of the game alone (Windows 10, with its border).
+    fn set_game_only_until(&mut self, _ms: u64) {}
     /// The other aLogs programs' windows on screen (Sanctum Helper's, the app's button), to cover in a screen copy.
     fn other_overlays(&mut self) -> Vec<(i32, i32, i32, i32)> {
         vec![]
@@ -129,6 +135,13 @@ pub struct Meter {
     pub capture_off: bool,
     pub homeland_rest: bool,
     pub band_frame: bool,
+    /// The last frame is whole (or holds every box a screen read needs); false for a top-part-only look.
+    pub frame_full: bool,
+    /// The last frame holds only a screen read's boxes (the rest black).
+    pub parts_frame: bool,
+    /// The top part's signature, every look.
+    pub top_sig: Option<Vec<u8>>,
+    pub pacing: crate::pacing::Pacing,
     pub brk_at: f64,
     pub last_step: f64,
     pub status_text: String,
@@ -261,6 +274,10 @@ impl Meter {
             capture_off: false,
             homeland_rest: false,
             band_frame: false,
+            frame_full: true,
+            parts_frame: false,
+            top_sig: None,
+            pacing: Default::default(),
             brk_at: 0.0,
             last_step: 0.0,
             status_text: "starting".into(),
@@ -798,7 +815,9 @@ impl Meter {
             }
             self.audio_cue = frames.audio_cue();
         }
-        self.check_pending_run(self.now()); // TODO(port): names_waiting (Battle Data waiting for its names counts)
+        if !self.names_waiting() {
+            self.check_pending_run(self.now()); // (Battle Data waiting for its names counts)
+        }
         let now = self.now();
         let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay && self.sim.tour.is_none()).then_some(TOP_PART);
         self.band_frame = false;
@@ -815,16 +834,38 @@ impl Meter {
             self.status(out, "waiting for the game window".into());
             return;
         };
-        if partial.is_some() {
+        // Between fights only the top part is copied unless a whole frame is due (full_frame_due); a screen read alone
+        // gets just its boxes. The Gizmo tour reads whole frames.
+        let live = !self.args.replay && self.sim.tour.is_none();
+        let idle_look = live && partial.is_none() && self.fight.is_none() && self.bar.is_none();
+        let due = if idle_look { self.full_frame_due(now) } else { crate::pacing::Due::Whole };
+        let top_only = idle_look && due == crate::pacing::Due::No;
+        let parts = if idle_look && due == crate::pacing::Due::Screen { self.screen_parts(now) } else { None };
+        self.frame_full = partial.is_none() && !top_only;
+        self.parts_frame = parts.is_some();
+        if parts.is_some() {
+            self.diag.load.parts += 1;
+        } else if partial.is_some() || top_only {
             self.diag.load.part += 1;
         } else {
             self.diag.load.whole += 1;
         }
-        let Some(mut im) = frames.grab(hwnd, partial) else {
+        let grabbed = match (&parts, top_only) {
+            (Some(p), _) => frames.grab_parts(hwnd, p),
+            (None, true) => frames.grab(hwnd, Some(TOP_PART)).map(|top| {
+                // painted into a frame-sized picture (the rest black) for the code that expects a whole frame
+                let (w, h) = self.frame_size;
+                let mut canvas = Image::new(top.mode, w, h, &[0, 0, 0, 0][..top.mode.bands()]);
+                canvas.paste(&top, 0, 0);
+                canvas
+            }),
+            _ => frames.grab(hwnd, partial),
+        };
+        let Some(mut im) = grabbed else {
             self.status(out, "can't see the game window".into());
             return;
         };
-        if partial.is_none() {
+        if partial.is_none() && !top_only && parts.is_none() {
             self.frame_size = im.size();
         }
         if !self.args.replay && frames.screen_copy() {
@@ -843,8 +884,9 @@ impl Meter {
         if !self.quiet {
             self.hit_watch(frames, now);
         }
-        // TODO(port): top signature, calm pacing (live.py 1836-1846)
-        if partial.is_none() {
+        let top_h = (self.frame_size.1 as f64 * TOP_PART).max(1.0);
+        self.top_sig = Some(crate::team::top_sig_direct(&im, top_h));
+        if self.frame_full {
             self.egg_fade(&im, now); // Egg Heist: ends a screen hold that's done
         }
         self.sim_check(now);
@@ -855,7 +897,7 @@ impl Meter {
             }
         }
         // the Gizmo tour first, before any bar search (its list's lines looked like boss bars)
-        if self.sim.tour.is_some() && partial.is_none() && self.sim_tour_step(frames, out, &im, now) {
+        if self.sim.tour.is_some() && self.frame_full && self.sim_tour_step(frames, out, &im, now) {
             return;
         }
         if self.bar.is_none() && self.holosim_space {

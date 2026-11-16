@@ -1,6 +1,6 @@
 //! The boss DPS meter, as a program: a drop-in for the Python meter (bossbar.exe) the aLogs app starts. Port of
 //! `main`, `Meter.run`, `write_status`, `plugin_status`, `setup_log` and `console_out` in aLogs B16 `bossbar/live.py`
-//! and `core.py`. Console output only for now (the overlay windows aren't ported yet: TODO(port) dps_overlay.py).
+//! and `core.py`. The overlay windows (overlay.rs) run on the main thread, the meter on its own.
 //!
 //!   alogs-meter [--interval S] [--title T] [--duration N] [--level N] [--boss-id ID] [--player-log PATH]
 //!               [--no-overlay] [--no-debug-frames] [--no-submit] [--res DIR]
@@ -222,6 +222,28 @@ impl Frames for Live {
     fn set_clean_until(&mut self, ms: u64) {
         self.cap.set_clean_until(ms);
     }
+    fn grab_parts(&mut self, hwnd: usize, rects: &[(f64, f64, f64, f64)]) -> Option<Image> {
+        if !self.cap.app_present() {
+            return None;
+        }
+        let t0 = std::time::Instant::now();
+        let im = self.cap.read_rects(hwnd, rects);
+        match &im {
+            None => self.stats.none += 1,
+            Some(_) => {
+                let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                self.stats.n += 1;
+                self.stats.ms += ms;
+                self.stats.max = self.stats.max.max(ms);
+                self.stats.app_us += u64::from(self.cap.copy_us);
+            }
+        }
+        self.picture_gap(im.is_none(), now());
+        im
+    }
+    fn set_game_only_until(&mut self, ms: u64) {
+        self.cap.set_game_only_until(ms);
+    }
 }
 
 impl Live {
@@ -287,8 +309,8 @@ fn load_line(load: &mut Load, m: &mut Meter, t: f64) {
     let away = if m.hwnd.is_none_or(win::is_foreground) { "" } else { ", tabbed out" };
     let peak = std::mem::take(&mut m.diag.peak_look);
     let (pc, me, game, appc) = cpu.map_or((None, None, None, None), |c| (c.pc, c.meter, c.game, c.app));
-    log::info!("load: CPU meter {}, aLogs app {}, game {}, whole PC {} | {:.1} whole frames/s, {:.1} top parts/s, 0.0 box frames/s, {:.1} text reads/s | {where_}, {state}{away} | {gpu_text} | {ram_text} | no PC stalls | longest look {peak:.0} ms",
-        fmt(me), fmt(appc), fmt(game), fmt(pc), c.whole as f64 / span, c.part as f64 / span, c.reads as f64 / span);
+    log::info!("load: CPU meter {}, aLogs app {}, game {}, whole PC {} | {:.1} whole frames/s, {:.1} top parts/s, {:.1} box frames/s, {:.1} text reads/s | {where_}, {state}{away} | {gpu_text} | {ram_text} | no PC stalls | longest look {peak:.0} ms",
+        fmt(me), fmt(appc), fmt(game), fmt(pc), c.whole as f64 / span, c.part as f64 / span, c.parts as f64 / span, c.reads as f64 / span);
     // Discord's in-game overlay draws inside the game's picture: said once per start
     if !load.discord_said && let Some(h) = m.hwnd {
         let mods = win::window_modules(h);
@@ -356,7 +378,8 @@ fn write_status(m: &Meter, sub: Option<&Submitter>, live: &Live, t: f64) {
         ("game_window", Value::Bool(m.hwnd.is_some())),
         ("capture", if live.cap.source.is_empty() { Value::None } else { Value::Str(live.cap.source.clone()) }),
         ("homeland", Value::Bool(m.homeland_rest)),
-        ("notices", Value::Bool(false)), // TODO(port): notice_window (Sanctum Helper's notices handed over)
+        // Sanctum Helper hands its notices over while the overlay's windows are up
+        ("notices", Value::Bool(alogs_meter::overlay::TAKES_NOTICES.load(std::sync::atomic::Ordering::SeqCst))),
         ("plugins", plugin_status(m, !m.capture_off)),
         ("frame", if m.frame_size.0 > 0 { Value::List(vec![Value::Int(m.frame_size.0 as i64), Value::Int(m.frame_size.1 as i64)]) } else { Value::None }),
         ("boss_bar", Value::Bool(m.bar.is_some())),
@@ -506,7 +529,10 @@ fn main() {
     let v2 = view.clone();
     let meter = std::thread::spawn(move || run_meter(m, title, game_data, submitter, interval, Some(v2), Some(otx)));
     match alogs_meter::overlay::Overlay::new(data.clone(), view.clone(), orx, hide, own) {
-        Some(o) => o.run(),
+        Some(o) => {
+            alogs_meter::overlay::TAKES_NOTICES.store(true, std::sync::atomic::Ordering::SeqCst);
+            o.run();
+        }
         None => log::warn!("overlay windows could not be made: console output only"),
     }
     let _ = meter.join();

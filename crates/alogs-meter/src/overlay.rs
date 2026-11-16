@@ -5,6 +5,10 @@
 //! Without the game's font the text is drawn in Segoe UI (the Python used Tk's text there). The Dev switches
 //! overlay-label-cache and overlay-idle-poll are not ported (pictures are redrawn; the loop looks every 15 ms).
 
+/// The overlay's windows are up, so other programs' notices (Sanctum Helper's) come here: status.json says so
+/// (`takes_notices` in dps_overlay.py).
+pub static TAKES_NOTICES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 use alogs_capture::layered::{self, Layered, Mouse};
 use alogs_pil::ops::{gaussian_blur, lighter, multiply};
 use alogs_pil::{Filter, Image, Mode};

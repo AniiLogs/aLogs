@@ -26,6 +26,7 @@ fn test_gap(kind: &str) -> f64 {
 pub struct LoadCounts {
     pub whole: i64,
     pub part: i64,
+    pub parts: i64,
     pub reads: i64,
 }
 
@@ -146,7 +147,7 @@ impl Meter {
         if kind != "fight" {
             self.screen_up(kind, now);
         }
-        if !self.test_frame_due(kind, now) {
+        if !self.frame_full || !self.test_frame_due(kind, now) {
             return;
         }
         self.diag.test_last.insert(kind.to_string(), now);
@@ -247,6 +248,8 @@ impl Meter {
             && self.bar.is_none()
             && !self.bossrush_space
             && self.auto.auto_until == 0.0
+            && self.sim.tour.is_none()
+            && self.egg.hold.is_none()
             && !self.after_fight.as_ref().is_some_and(|a| now < a.1)
             && !self.sanctum_in_run(now)
     }

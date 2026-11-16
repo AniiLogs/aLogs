@@ -39,7 +39,7 @@ pub struct SimCtl {
 #[derive(Default)]
 pub struct GateState {
     space: Option<String>,
-    last: bool,
+    pub last: bool,
     first_up: Option<f64>,
     up_at: f64,
     used: f64,
