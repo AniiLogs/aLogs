@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "SanctumHelper"
+path = "src/main.rs"
+
 [dependencies]
 alogs-pil = { path = "../alogs-pil" }
 alogs-capture = { path = "../alogs-capture" }
