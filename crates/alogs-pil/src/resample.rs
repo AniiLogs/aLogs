@@ -389,6 +389,11 @@ impl Image {
 
     /// `thumbnail(size)` (BICUBIC, reducing_gap 2.0), returning the new image (Pillow changes the image in place).
     pub fn thumbnail(&self, w: usize, h: usize) -> Image {
+        self.thumbnail_filter(w, h, Filter::Bicubic)
+    }
+
+    /// `thumbnail(size, resample)` (reducing_gap 2.0).
+    pub fn thumbnail_filter(&self, w: usize, h: usize, resample: Filter) -> Image {
         let (x, y) = (w as i64, h as i64);
         if x >= self.width as i64 && y >= self.height as i64 {
             return self.clone();
@@ -409,7 +414,7 @@ impl Image {
         if (nx as usize, ny as usize) == self.size() {
             return self.clone();
         }
-        self.resize_full(nx as usize, ny as usize, Some(Filter::Bicubic), None, Some(2.0))
+        self.resize_full(nx as usize, ny as usize, Some(resample), None, Some(2.0))
     }
 
     /// `transform(size, AFFINE, data, resample, fillcolor)`.

@@ -5,6 +5,8 @@ pub mod bar;
 pub mod boss;
 pub mod gamefont;
 pub mod hangul;
+pub mod icons;
+pub mod names;
 pub mod ocr;
 pub mod parse;
 pub mod prep;
