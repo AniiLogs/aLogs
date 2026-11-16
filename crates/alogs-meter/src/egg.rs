@@ -1,6 +1,6 @@
 //! Egg Heist's screens: the end screen (one record per match, two reads alike), the rank screens (Rank Info, the
 //! post-match rank, Egg Emperor's eggs) and boss rush's Challenge Stats. Port of those parts of aLogs B16
-//! `bossbar/results.py`. Holding the player's inputs while a screen is read (egg_screen_hold, egg_fade) is TODO(port).
+//! `bossbar/results.py`. Holding the player's inputs while a screen is read: egg_screen_hold, egg_fade.
 
 use crate::eggheist as e;
 use crate::meter::{Frames, Meter, Out};
@@ -329,8 +329,10 @@ impl Meter {
             && let Some(uid) = self.uid.clone()
         {
             self.egg_update(None);
-            // TODO(port): the Party screen's picture as more proof (the party screen reader isn't ported)
-            let _ = with_party;
+            // the Party screen's picture as more proof, when that screen was read before this match
+            let picture = if with_party { self.party_picture.clone() } else { None };
+            let party_shot = picture.and_then(|pic| self.picture(frames, &pic, "screens", &format!("party_{}", local(now, "%Y%m%d_%H%M%S")), true, false));
+            let party_rel = party_shot.as_ref().map(|p| rel(&self.env.data, p));
             let spare = |data: &Path, p: &Option<std::path::PathBuf>| -> Option<String> {
                 let p = p.as_ref()?;
                 let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
@@ -341,8 +343,8 @@ impl Meter {
             let clock = alogs_gamelog::FixedClock(self.env.now());
             let season = self.egg.season.clone().map_or(Value::None, Value::Str);
             let payload = payloads::egg_match_payload(&Value::Dict(m.clone()), &season, &Value::Str(uid), Some(now), &clock);
-            self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: None });
-            self.send_result(&payload, shot_rel.as_deref(), None, None, None);
+            self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: spare(&self.env.data, &party_shot) });
+            self.send_result(&payload, shot_rel.as_deref(), None, party_rel.as_deref(), None);
         }
         self.egg.hold = None;
         if self.send_waiting.is_none() {

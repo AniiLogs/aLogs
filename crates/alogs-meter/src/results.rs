@@ -2,7 +2,7 @@
 //! pictures. Port of `ResultsMixin` in aLogs B16 `bossbar/results.py` (the Interlink half: result screen, Battle
 //! Data, run_of, fight_summary, schedule_run, record_score, leader_ended_note, picture/game_alone/settled_frame) and
 //! the helpers it uses from core.py (save_picture, star_caps, clear_stars, save_calibration).
-//! Holo-Battle Sim, Egg Heist and Challenge Stats are in `screens_more` (TODO(port) where not yet).
+//! Holo-Battle Sim, Egg Heist and Challenge Stats are in sim.rs and egg.rs.
 
 use crate::fights::Fight;
 use crate::meter::{Frames, Meter, Out};
@@ -449,8 +449,36 @@ impl Meter {
         } else {
             im.clone()
         };
-        // TODO(port): proof_with_overlay (a copy with the DPS window drawn on it, for the player's own troubleshooting)
+        if proof {
+            self.proof_with_overlay(&im, name);
+        }
         save_picture(&self.env.data, &im, folder, name, if sending { 3840 } else { 1920 })
+    }
+
+    /// Next to each proof (the game alone, which is what's sent), a copy with the DPS window drawn where it was on
+    /// screen a moment later (its result note comes up just after), for the player's own troubleshooting: with the test
+    /// pictures (logs/test_frames/<day>/proof_overlay), never sent. Only while Save test pictures is on.
+    pub fn proof_with_overlay(&self, im: &Image, name: &str) {
+        let Some(own) = self.own.clone() else { return };
+        if self.args.replay || !self.args.cfg.get("capture").get("test_frames").truthy() {
+            return;
+        }
+        let (origin, im, name) = (self.origin, im.clone(), name.to_string());
+        let dir = self.env.data.join("logs").join("test_frames").join(local(self.env.now(), "%Y%m%d")).join("proof_overlay");
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            let Some((dps, x, y)) = own.lock().unwrap().dps_now.clone() else { return };
+            let mut copy = im.convert(alogs_pil::Mode::Rgba);
+            copy.alpha_composite(&dps.convert(alogs_pil::Mode::Rgba), i64::from(x - origin.0), i64::from(y - origin.1));
+            let rgb = copy.convert(alogs_pil::Mode::Rgb);
+            let mut out = vec![];
+            let ok = jpeg_encoder::Encoder::new(&mut out, 92).encode(&rgb.data, rgb.width as u16, rgb.height as u16, jpeg_encoder::ColorType::Rgb).is_ok();
+            if ok && std::fs::create_dir_all(&dir).is_ok() {
+                if let Err(e) = std::fs::write(dir.join(format!("{name}_overlay.jpg")), out) {
+                    log::info!(target: "meter", "proof copy with the overlay not saved ({e})");
+                }
+            }
+        });
     }
 
     /// A proof is of the game, not of what's on top of it: with a screen copy, the game window alone is taken too.
@@ -860,7 +888,8 @@ impl Meter {
         if t > 1.0 {
             msg += &format!(" vs meter {} ({} Lv {})", thousands((run.damage as f64 / t).round_ties_even() as i64), run.title, f.level);
         }
-        // TODO(port): time_check (logs/time_check.csv)
+        let to_end = f.ended.unwrap_or(now) - f.t0;
+        time_check(&self.env.data, f.bossrush, f.elapsed, to_end, &run.title, run.damage, game_dps, now);
         let mut calibrate = f.bossrush && f.started_at_top && loss > 0.02 && t > 60.0;
         if calibrate && run.bosses.is_some() {
             calibrate = false;
@@ -1123,3 +1152,37 @@ pub fn save_calibration(data: &Path, puppet_id: &str, level: i64, measured: f64,
     let _ = std::fs::write(&path, Value::Dict(cal).json_dumps_indent(1));
     med
 }
+
+/// One CSV field as Python's csv writer puts it (quoted when it holds a comma, a quote or a line break).
+fn csv_field(v: &str) -> String {
+    if v.contains([',', '"', '\n', '\r']) { format!("\"{}\"", v.replace('"', "\"\"")) } else { v.to_string() }
+}
+
+/// Which fight time the game's Battle Data uses: the time its team DPS implies (damage / DPS) next to the meter's two
+/// candidates (to the last frame with the bar, and to the fight's end). One line per fight in logs/time_check.csv.
+/// Port of `time_check` (fights.py).
+#[allow(clippy::too_many_arguments)]
+pub fn time_check(data: &std::path::Path, bossrush: bool, elapsed: f64, to_end: f64, title: &str, damage: i64, game_dps: i64, now: f64) {
+    if game_dps == 0 || damage == 0 {
+        return;
+    }
+    let game_s = damage as f64 / game_dps as f64;
+    log::info!(target: "meter", "time check: the game's team DPS implies {game_s:.1}s; the meter counted {elapsed:.1}s (to the last bar reading) and {to_end:.1}s (to the end of the fight)");
+    let path = data.join("logs").join("time_check.csv");
+    let new = !path.exists();
+    let r1 = |v: f64| format!("{:.1}", (v * 10.0).round_ties_even() / 10.0);
+    let mut text = String::new();
+    if new {
+        text += "when,boss,interlink,damage,game_team_dps,game_seconds,meter_seconds,to_end_seconds\r\n";
+    }
+    let bossrush = if bossrush { "True" } else { "False" };
+    let row = [local(now, "%Y-%m-%d %H:%M:%S"), csv_field(title), bossrush.into(), damage.to_string(), game_dps.to_string(), r1(game_s), r1(elapsed), r1(to_end)];
+    text += &row.join(",");
+    text += "\r\n";
+    let _ = std::fs::create_dir_all(data.join("logs"));
+    use std::io::Write;
+    if let Ok(mut fh) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = fh.write_all(text.as_bytes());
+    }
+}
+

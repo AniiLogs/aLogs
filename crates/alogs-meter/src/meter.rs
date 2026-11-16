@@ -1,9 +1,9 @@
 //! The reading loop: the `Meter` and what every plug-in shares, and following fights on it. Port of `Meter.step` and
 //! its capture/state handling in aLogs B16 `bossbar/live.py`, and of `FightsMixin` in `bossbar/fights.py`.
 //!
-//! Not ported yet (each marked `TODO(port)` where the loop calls it, doing nothing for now): the end-screen readers
-//! (`ResultsMixin`: result screens, Battle Data, Holo-Battle Sim, Egg Heist, Challenge Stats), the leaderboards
-//! plug-in (`LeaderboardsMixin`), the Party/prep/menu/profile screen readers, test pictures and the overlay windows.
+//! The end-screen readers, the leaderboards plug-in, the screen readers and the diagnostics are in their own modules
+//! (results, egg, sim, leaderboards, screens, party, menu, diag); how much of the picture each look copies in pacing.
+//! Left out: the Dev switches' calm pacing (busy-half-pace), and the damage-number recorder (paused in B16).
 
 use crate::env::Env;
 use crate::fights::{CONFIRM_GAP, FIGHT_INTERVAL, Fight, LEVEL_CONFIRM, TOP_BAR};

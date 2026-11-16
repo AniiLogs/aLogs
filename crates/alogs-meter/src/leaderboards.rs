@@ -1,6 +1,6 @@
 //! The leaderboards plug-in's run handling: deciding and sending runs, late Battle Data, your bests, and the automatic
 //! "View Battle Data" click. Port of those parts of `LeaderboardsMixin` in aLogs B16 `bossbar/leaderboards.py`.
-//! Holding the player's inputs meanwhile (InputBlock, HidHide) is TODO(port).
+//! Holding the player's inputs meanwhile: alogs-capture's input module (InputBlock, HidHide).
 
 use crate::meter::{Meter, Out};
 use crate::payloads;

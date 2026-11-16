@@ -1,7 +1,7 @@
 //! The screens before a run: the boss rush battle prep screen (best score, the Party row), Interlink's Party screen
 //! (who is in each slot, AI or not, their lead's level and CP), and the Interlink screen's star caps. Port of those
-//! parts of aLogs B16 `bossbar/live.py` and `fights.py` (cycle_boss). Each card's team and lead read from their
-//! portraits, the Special Offering and the Season Buffs (read_party_icons, party_circle) are TODO(port).
+//! parts of aLogs B16 `bossbar/live.py` and `fights.py` (cycle_boss). Each card's team and lead from their portraits,
+//! the Special Offering and the Season Buffs are in party_icons.rs.
 
 use crate::meter::{Frames, Meter, Out};
 use crate::results::star_caps;

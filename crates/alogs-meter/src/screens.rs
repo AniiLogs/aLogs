@@ -1,9 +1,9 @@
 //! Which game screen is up, and handing it to its reader. Port of `screen_crops`, `screen_spotted`, `party_up`,
 //! `read_screen`, `check_battle_data`, `screen_read_due` and the screen box tables in aLogs B16 `bossbar/live.py`.
 //!
-//! Reads run in place (as the Python does in replays and tests); the background OCR threads (`OcrWorker`,
-//! `names_first`) are TODO(port). Screens not ported yet (prep, Party, profile, menu, Holo-Battle Sim, Egg Heist,
-//! Challenge Stats, interlink screen) are marked TODO(port) in `read_screen`.
+//! Live, the reads are made on an OCR helper of their own (`screen_bg`, ocr_worker.rs) and handled on a later look;
+//! replays and tests read in place. New player names are read in place too (the Python's `names_first` only reads
+//! them first on its helper, to shorten the wait).
 
 use crate::meter::{Frames, Meter, Out};
 use alogs_gamelog::difflib::ratio;

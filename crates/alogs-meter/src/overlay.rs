@@ -47,6 +47,8 @@ const HP_GRADIENT: [(f64, [u8; 3]); 7] = [(0.0, [248, 108, 108]), (0.25, [250, 1
 pub struct Own {
     pub rects: Vec<(i32, i32, i32, i32, f64)>,
     pub in_capture: bool,
+    /// The DPS window's picture and screen spot while it's shown (Meter::proof_with_overlay).
+    pub dps_now: Option<(Image, i32, i32)>,
 }
 
 /// The meter's state the overlay looks at (published by the meter's loop every step).
@@ -349,6 +351,10 @@ impl Overlay {
         win.placed = Some((image, x, y));
         let h = win.w.hwnd;
         self.own_spot(h, Some(rect));
+        if which == "dps" {
+            let shown = if away { None } else { self.dw.placed.clone() };
+            self.own.lock().unwrap().dps_now = shown;
+        }
     }
 
     fn park(&mut self, which: &str) {
@@ -357,6 +363,9 @@ impl Overlay {
         win.w.park();
         let h = win.w.hwnd;
         self.own_spot(h, None);
+        if which == "dps" {
+            self.own.lock().unwrap().dps_now = None;
+        }
     }
 
     /// Where each overlay window is, for the meter to cover; a spot just left is kept half a second.

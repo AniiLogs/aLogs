@@ -1,7 +1,7 @@
 //! Holo-Battle Sim's Victory screen: the win, its team, Holo-gizmos and pictures, noted and sent to the leaderboards.
 //! Port of `sim_result`, `sim_pictures`, `sim_species`, `sim_prep_for` (aLogs B16 `bossbar/results.py`) and
-//! `sim_send` / `sim_release` (`leaderboards.py`). The Gizmo screen tour, the exit gate watch and taking control
-//! (input holds, reWASD, focus guard) are TODO(port): a win is sent from the Victory screen alone.
+//! `sim_send` / `sim_release` (`leaderboards.py`). The Gizmo screen tour, the exit gate watch and taking control are
+//! in sim_tour.rs.
 
 use crate::meter::{Frames, Meter, Out};
 use crate::payloads;
