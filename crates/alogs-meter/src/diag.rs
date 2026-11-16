@@ -170,7 +170,7 @@ impl Meter {
         let name = local(now, "%H%M%S");
         let (data, pic) = (self.env.data.clone(), im.clone());
         std::thread::spawn(move || {
-            crate::results::save_picture(&data, &pic, &folder, &name, 1280);
+            crate::results::save_picture(&data, &pic, &folder, &name, 1920);
         });
     }
 
@@ -256,4 +256,73 @@ fn count_files(d: &std::path::Path) -> i64 {
         }
     }
     n
+}
+
+pub const BAR_LOST_S: f64 = 60.0;
+pub const BAR_LOST_EACH: i64 = 12;
+pub const BAR_LOST_MAX: i64 = 60;
+
+#[derive(Default)]
+pub struct BarDiag {
+    pub sampled: Option<String>,
+    pub last_nobar: f64,
+    pub nobar_count: i64,
+    pub lost_at: Option<f64>,
+    pub lost_last: f64,
+    pub lost_n: i64,
+    pub lost_total: i64,
+}
+
+impl Meter {
+    /// One full-size frame per fight with the boss bar on it (logs/bar_samples/), with Debug frames on.
+    pub fn bar_sample(&mut self, im: &Image, now: f64) {
+        let Some(f) = &self.fight else { return };
+        if self.bars.sampled.as_deref() == Some(f.csv_name.as_str()) || now - f.created < 8.0 || !self.args.cfg.get("capture").get("debug_frames").truthy() {
+            return;
+        }
+        if matches!(f.brk.phase, "broken" | "refill") {
+            return;
+        }
+        self.bars.sampled = Some(f.csv_name.clone());
+        let d = self.env.data.join("logs").join("bar_samples");
+        if std::fs::create_dir_all(&d).is_ok() {
+            save_in_background(im, d.join(format!("{}.png", f.csv_name)), false, None);
+        }
+    }
+
+    /// In an Interlink room but no boss bar found: a few full frames, with why.
+    pub fn save_nobar(&mut self, im: &Image, now: f64) {
+        if !self.args.cfg.get("capture").get("nobar_frames").truthy() || !self.bossrush_space {
+            return;
+        }
+        if now - self.bars.last_nobar < 5.0 || self.bars.nobar_count >= 30 {
+            return;
+        }
+        self.bars.last_nobar = now;
+        self.bars.nobar_count += 1;
+        let name = local(now, "%Y%m%d_%H%M%S");
+        crate::results::save_picture(&self.env.data, im, "nobar", &name, 1920);
+        let why = alogs_reader::bar::LAST_FAIL.lock().unwrap().clone();
+        let _ = std::fs::write(self.env.data.join("logs").join("nobar").join(format!("{name}.txt")), format!("{why}\n"));
+    }
+
+    /// For a minute after a boss bar was lost (outside Interlink): the top of the screen every 5 s, with why.
+    pub fn save_bar_lost(&mut self, im: &Image, now: f64) {
+        if !self.args.cfg.get("capture").get("nobar_frames").truthy() || self.bossrush_space {
+            return;
+        }
+        let b = &mut self.bars;
+        if b.lost_at.is_none_or(|t| now - t > BAR_LOST_S) || now - b.lost_last < 5.0 || b.lost_n >= BAR_LOST_EACH || b.lost_total >= BAR_LOST_MAX {
+            return;
+        }
+        b.lost_last = now;
+        b.lost_n += 1;
+        b.lost_total += 1;
+        let h = if self.frame_size.1 != 0 { self.frame_size.1 } else { im.height };
+        let top = im.crop_i(0, 0, im.width as i64, im.height.min((h as f64 * crate::meter::TOP_PART) as usize) as i64);
+        let name = local(now, "%Y%m%d_%H%M%S");
+        crate::results::save_picture(&self.env.data, &top, "bar_lost", &name, 1920);
+        let why = alogs_reader::bar::LAST_FAIL.lock().unwrap().clone();
+        let _ = std::fs::write(self.env.data.join("logs").join("bar_lost").join(format!("{name}.txt")), format!("{why}\n"));
+    }
 }

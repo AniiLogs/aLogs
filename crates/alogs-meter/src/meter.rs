@@ -135,6 +135,7 @@ pub struct Meter {
     pub icon: crate::party_icons::IconState,
     pub diag: crate::diag::DiagState,
     pub hit: crate::hits::HitState,
+    pub bars: crate::diag::BarDiag,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
     /// A second OCR reader for the HP number (hit_watch), set by the binary.
@@ -251,6 +252,7 @@ impl Meter {
             icon: Default::default(),
             diag: Default::default(),
             hit: Default::default(),
+            bars: Default::default(),
             hit_at: 0.0,
             hp_ocr: None,
             icons: None,
@@ -798,6 +800,8 @@ impl Meter {
                     save_spots(&self.env.data.join("bar_spot.json"), &self.bar_spots);
                 }
                 self.bar = Some(fd);
+                self.end_auto("boss bar is back");
+                self.bar_sample(&im, now);
             } else if self.fight.is_some() && {
                 let f = self.fight.as_ref().unwrap();
                 let grace = if f.bossrush && (self.bossrush_space || f.partner.is_some()) { BAR_GONE_GRACE * 4.0 } else { BAR_GONE_GRACE };
@@ -839,13 +843,17 @@ impl Meter {
             } else {
                 if self.bar.is_some() {
                     log::info!(target: "meter", "boss bar lost ({})", bar::LAST_FAIL.lock().unwrap());
+                    self.bars.lost_at = Some(now);
+                    self.bars.lost_n = 0;
                 }
                 self.bar = None;
                 if self.fight.is_some() {
                     self.end_fight(out, "boss bar gone");
                 }
-                // TODO(port): sim_tour_step, save_nobar, save_bar_lost
+                // TODO(port): sim_tour_step
                 self.save_end_screens(&im, now);
+                self.save_nobar(&im, now);
+                self.save_bar_lost(&im, now);
                 self.watch_end_note(out, &im);
                 self.leader_ended_note(&im, now);
                 self.check_battle_data(frames, out, &im, now);

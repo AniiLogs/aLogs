@@ -125,7 +125,7 @@ impl Meter {
         if now - self.hit_at > 5.0 {
             log::info!(target: "meter", "tabbed out: HP {} -> {} of {} ({:.1}%), \"You're being attacked\" shown", th(seen.0), th(hp.0), th(hp.1), share * 100.0);
             let name = crate::results::local(now, "%Y%m%d_%H%M%S");
-            crate::results::save_picture(&self.env.data, &strip, "hp_alerts", &name, 1280);
+            crate::results::save_picture(&self.env.data, &strip, "hp_alerts", &name, 1920);
             let d = self.env.data.join("logs").join("hp_alerts");
             if let Ok(rd) = std::fs::read_dir(&d) {
                 let mut names: Vec<_> = rd.flatten().map(|e| e.file_name()).collect();
