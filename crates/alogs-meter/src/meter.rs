@@ -734,6 +734,10 @@ impl Meter {
     /// One look at the game: keep the bar locked, follow the fight, read its text.
     pub fn step(&mut self, frames: &mut dyn Frames, out: &mut dyn Out) {
         self.reload_settings(self.env.now());
+        // holds end on time even without a picture
+        if self.egg.hold.as_ref().is_some_and(|h| self.env.now() > h.0) {
+            self.egg_hold_end("time limit");
+        }
         self.auto_active();
         self.result_sent_check();
         let meter_off = !self.args.replay && frames.switched_off();
@@ -750,6 +754,7 @@ impl Meter {
             log::info!(target: "meter", "{}", if rest { "the DPS meter and the leaderboards are off: resting" } else { "reading the game again" });
             if rest {
                 self.end_auto("the DPS meter and the leaderboards were switched off");
+                self.egg_hold_end("the DPS meter and the leaderboards were switched off");
                 self.hold.stop();
                 if alogs_capture::input::controllers_hidden() {
                     alogs_capture::input::hide_controllers(false);
@@ -828,7 +833,10 @@ impl Meter {
         if !self.quiet {
             self.hit_watch(frames, now);
         }
-        // TODO(port): top signature, calm pacing, Egg Heist fade (live.py 1836-1846)
+        // TODO(port): top signature, calm pacing (live.py 1836-1846)
+        if partial.is_none() {
+            self.egg_fade(&im, now); // Egg Heist: ends a screen hold that's done
+        }
         self.sim_check(now);
         if self.holosim_space && !self.args.replay {
             self.sim_test_key(); // Ctrl+Shift+F11: test the Sim end

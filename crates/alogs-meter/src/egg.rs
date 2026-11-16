@@ -23,6 +23,7 @@ pub const EGG_GONE_S: f64 = 4.0;
 pub const EGG_SENT_S: f64 = 60.0;
 pub const EGG_PARTY_S: f64 = 1800.0;
 pub const EGG_RANK_WAIT_S: f64 = 90.0;
+pub const EGG_SCREEN_HOLD_S: f64 = 10.0;
 pub const EGG_NEXT_TRIES: i64 = 4;
 pub const EGG_NEXT_GAP_S: f64 = 1.5;
 pub const EGG_NEXT_S: f64 = 30.0;
@@ -63,6 +64,8 @@ pub struct EggState {
     pub gain_seen: f64,
     pub stats_seen: f64,
     pub season: Option<String>,
+    /// Inputs held while an end or rank screen is read: (ends at, picture came back at, space it started in).
+    pub hold: Option<(f64, f64, Option<String>)>,
     /// What each kind of rank record last sent ('egg_rank', 'egg_gain').
     pub last: IndexMap<String, String>,
 }
@@ -285,6 +288,7 @@ impl Meter {
             m.insert(k.into(), confirmed(&votes, k));
         }
         if m.at("loot").is_none() && m.at("time_s").is_none() {
+            self.egg_hold_end("end screen read");
             return;
         }
         if m.at("time_s").is_none()
@@ -340,6 +344,7 @@ impl Meter {
             self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: None });
             self.send_result(&payload, shot_rel.as_deref(), None, None, None);
         }
+        self.egg.hold = None;
         if self.send_waiting.is_none() {
             self.hold.stop();
         }
@@ -551,8 +556,14 @@ impl Meter {
         self.egg.rank_frame = None;
         if self.egg.pending.is_some() {
             let shot = self.picture(frames, im, "screens", &format!("egg_rank_{}", local(now, "%Y%m%d_%H%M%S")), true, true);
+            self.egg.hold = None;
             let r = shot.map(|p| rel(&self.env.data, &p));
             self.egg_update(r);
+            if self.send_waiting.is_none() {
+                self.hold.stop();
+            }
+        } else {
+            self.egg_hold_end("rank screen read");
         }
     }
 
@@ -637,5 +648,70 @@ impl Meter {
             return true;
         }
         false
+    }
+
+    pub fn egg_hold_end(&mut self, why: &str) {
+        if self.egg.hold.take().is_none() {
+            return;
+        }
+        self.hold.stop();
+        if alogs_capture::input::controllers_hidden() {
+            alogs_capture::input::hide_controllers(false);
+        }
+        log::info!(target: "meter", "Egg Heist input hold ended: {why}");
+    }
+
+    /// Inputs held while an Egg Heist end screen, or the rank screen after it, is read, so a press can't skip past it.
+    pub fn egg_screen_hold(&mut self, spotted: Option<&str>, heads: &Heads, now: f64, foreground: bool) {
+        if spotted != Some("Egg Heist") || self.args.replay || self.egg.hold.is_some() {
+            return;
+        }
+        if !alogs_protocol::settings::automation(&self.args.cfg, Some("egg_fade_hold")) || (self.hwnd.is_some() && !foreground) {
+            return;
+        }
+        if heads.get("eh").is_some_and(|v| v.to_lowercase().contains("adventure")) {
+            if now - self.egg.sent_at < EGG_SENT_S {
+                return;
+            }
+        } else if !(now - self.egg.sent_at.max(self.egg.end_seen) < EGG_RANK_WAIT_S && now - self.egg.rank_read_at > EGG_RANK_WAIT_S) {
+            return;
+        }
+        self.egg.hold = Some((now + EGG_SCREEN_HOLD_S, 0.0, self.space.clone()));
+        self.hold.start(EGG_SCREEN_HOLD_S);
+        log::info!(target: "meter", "Egg Heist: holding inputs while this screen is read (at most {EGG_SCREEN_HOLD_S} s)");
+    }
+
+    /// Ends a hold egg_screen_hold started: the time limit, a new space, or the picture back 5 s without an end screen.
+    pub fn egg_fade(&mut self, im: &Image, now: f64) {
+        let Some(hold) = self.egg.hold.clone() else { return };
+        let small = im.reduce((im.width / 64).max(1)).convert(Mode::L);
+        let mut lum = small.data.clone();
+        lum.sort_unstable();
+        let black = !lum.is_empty() && lum[lum.len() / 2] < 14 && lum[(lum.len() as f64 * 0.95) as usize] < 40;
+        if now > hold.0 {
+            self.egg_hold_end("time limit");
+        } else if self.space != hold.2 {
+            self.egg_fade_frame(im, "load");
+            self.egg_hold_end("the game loaded a new scene");
+        } else if black {
+            self.egg.hold.as_mut().unwrap().1 = 0.0;
+        } else if hold.1 == 0.0 {
+            self.egg.hold.as_mut().unwrap().1 = now;
+        } else if now - hold.1 > 5.0 {
+            self.egg_fade_frame(im, "back");
+            self.egg_hold_end("the screen came back without an end screen");
+        }
+    }
+
+    fn egg_fade_frame(&self, im: &Image, what: &str) {
+        if !self.args.cfg.get("capture").get("debug_frames").truthy() {
+            return;
+        }
+        let d = self.env.data.join("logs").join("egg_fade");
+        if std::fs::create_dir_all(&d).is_err() {
+            return;
+        }
+        let small = im.convert(Mode::Rgb).thumbnail(1280, 720);
+        let _ = std::fs::write(d.join(format!("{}_{what}.jpg", local(self.env.now(), "%Y%m%d_%H%M%S"))), crate::submit::jpeg(&small, 80));
     }
 }

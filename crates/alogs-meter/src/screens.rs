@@ -236,7 +236,9 @@ impl Meter {
         let spotted = screen_spotted(heads).or(if party { Some("party") } else { None });
         if spotted.is_some() && !self.args.replay {
             self.ss.full_until = now + FULL_HOLD_S;
-            // TODO(port): egg_screen_hold, game_only (window capture while a screen is up on Windows 10)
+            let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));
+            self.egg_screen_hold(spotted, heads, now, fg);
+            // TODO(port): game_only (window capture while a screen is up on Windows 10)
         }
         let (w, h) = (im.width as f64, im.height as f64);
         let u = w.min(h * 16.0 / 9.0);
