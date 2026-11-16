@@ -6,3 +6,4 @@ pub mod cv2;
 pub mod game_log;
 pub mod layout_db;
 pub mod settings;
+pub mod vision;
