@@ -300,3 +300,57 @@ pub fn scroll_at(x: i32, y: i32, notches: i32, keep: bool) {
         }
     });
 }
+
+/// Handles to wait on for "stop": the app's stop event (ALOGS_STOP_EVENT) and the app's own process (ALOGS_PARENT).
+pub struct StopHandles(Vec<(&'static str, usize)>);
+
+impl StopHandles {
+    pub fn open() -> StopHandles {
+        StopHandles(stop_imp::open())
+    }
+
+    /// "event" (the app asked) or "parent" (the app is gone), once signalled.
+    pub fn signalled(&self) -> Option<&'static str> {
+        self.0.iter().find(|(_, h)| stop_imp::signalled(*h)).map(|(k, _)| *k)
+    }
+}
+
+#[cfg(windows)]
+mod stop_imp {
+    use windows_sys::Win32::System::Threading::{OpenEventW, OpenProcess, WaitForSingleObject};
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+
+    pub fn open() -> Vec<(&'static str, usize)> {
+        let mut out = vec![];
+        if let Ok(name) = std::env::var("ALOGS_STOP_EVENT")
+            && !name.is_empty()
+        {
+            let w: Vec<u16> = name.encode_utf16().chain([0]).collect();
+            let h = unsafe { OpenEventW(SYNCHRONIZE, 0, w.as_ptr()) };
+            if !h.is_null() {
+                out.push(("event", h as usize));
+            }
+        }
+        if let Some(parent) = std::env::var("ALOGS_PARENT").ok().and_then(|v| v.parse::<u32>().ok()).filter(|p| *p != 0) {
+            let h = unsafe { OpenProcess(SYNCHRONIZE, 0, parent) };
+            if !h.is_null() {
+                out.push(("parent", h as usize));
+            }
+        }
+        out
+    }
+
+    pub fn signalled(h: usize) -> bool {
+        unsafe { WaitForSingleObject(h as windows_sys::Win32::Foundation::HANDLE, 0) == 0 }
+    }
+}
+
+#[cfg(not(windows))]
+mod stop_imp {
+    pub fn open() -> Vec<(&'static str, usize)> {
+        vec![]
+    }
+    pub fn signalled(_: usize) -> bool {
+        false
+    }
+}

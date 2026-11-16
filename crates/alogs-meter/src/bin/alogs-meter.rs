@@ -535,11 +535,27 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
     let mut load = Load { cpu: alogs_pcstats::CpuLoad::default(), gpu: alogs_pcstats::GpuLoad::new(), since: 0.0, discord_said: false };
     let mut console = Both { console: Console::default(), overlay: overlay_tx };
     let mut last_status = 0.0;
+    let stop = win::StopHandles::open();
     loop {
         let t = now();
+        if let Some(kind) = stop.signalled() {
+            log::info!("the aLogs app {} - stopping", if kind == "event" { "asked the meter to stop" } else { "is gone" });
+            if kind == "parent" {
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    std::process::exit(0);
+                });
+            }
+            break;
+        }
         m.take_game_data(&game_data);
         let look = std::time::Instant::now();
-        m.step(&mut live, &mut console);
+        // an error in one look is logged and the next look runs anyway
+        if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| m.step(&mut live, &mut console))) {
+            let why = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+            log::error!("error in step: {why}");
+            console.out("status", Value::Str(format!("error: {why} (details in logs/meter.log)")));
+        }
         if let Some(v) = &view {
             *v.lock().unwrap() = m.overlay_view();
         }
@@ -575,5 +591,22 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
         }
         let nap = (iv - (now() - t)).max(0.0);
         std::thread::sleep(std::time::Duration::from_secs_f64(nap));
+    }
+    // the meter closing: nothing held, nothing hidden, the open fight and a run waiting for its Battle Data kept
+    m.end_auto("meter closed");
+    m.egg_hold_end("meter closed");
+    m.hold.stop();
+    if alogs_capture::input::controllers_hidden() {
+        alogs_capture::input::hide_controllers(false);
+    }
+    m.end_fight(&mut console, "meter closed");
+    m.send_waiting_run();
+    if let (Some(s), Some((uid, state, _))) = (&submitter, m.presence_sent.clone())
+        && state != "offline"
+    {
+        s.presence(&uid, "offline", true);
+    }
+    if let Some(v) = &view {
+        v.lock().unwrap().running = false;
     }
 }
