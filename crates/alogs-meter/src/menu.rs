@@ -67,7 +67,7 @@ fn digits_of(uid_text: &str) -> String {
     uid_text.replace('O', "0").chars().filter(char::is_ascii_digit).collect()
 }
 
-fn png_bytes(im: &Image) -> Option<Vec<u8>> {
+pub(crate) fn png_bytes(im: &Image) -> Option<Vec<u8>> {
     let rgb = im.convert(Mode::Rgb);
     let mut out = vec![];
     {

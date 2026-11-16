@@ -55,7 +55,7 @@ pub struct ResultsState {
     pub last_results: f64,
 }
 
-pub(crate) fn local(now: f64, fmt: &str) -> String {
+pub fn local(now: f64, fmt: &str) -> String {
     use chrono::TimeZone;
     chrono::Local.timestamp_opt(now as i64, 0).single().map_or_else(String::new, |d| d.format(fmt).to_string())
 }

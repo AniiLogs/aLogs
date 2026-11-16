@@ -138,7 +138,7 @@ impl Meter {
             return;
         }
         self.egg.stats_seen = now;
-        // TODO(port): keep_sample(im, 'prep')
+        self.keep_sample(im, "prep", None, None);
         let mut crops = IndexMap::new();
         crops.insert("n".to_string(), prep::prep_text(im, (ux + u * 0.065, h * 0.025, ux + u * 0.3, h * 0.085), u / 2000.0, 190, 3.0, 24));
         crops.insert("label".to_string(), prep::prep_label(im, u, ux, h));
@@ -356,6 +356,7 @@ impl Meter {
             return;
         }
         self.ps.party_seen = now;
+        self.keep_sample(im, "party", None, None);
         let k = u / 2000.0;
         let bx = |s: &BoxF| (ux + u * s.0, h * s.1, ux + u * s.2, h * s.3);
         let mut crops = self.party_names(im, u, ux, h);
@@ -449,6 +450,7 @@ impl Meter {
 
     /// This run's party, each slot's name voted over a few reads.
     pub fn set_party(&mut self, members: Vec<Dict>, now: f64) {
+        self.screen_settled("party", now);
         if members.is_empty() {
             return;
         }

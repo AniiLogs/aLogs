@@ -330,8 +330,6 @@ fn main() {
     let mut last_status = 0.0;
     loop {
         let t = now();
-        m.args.cfg = settings::load(&data); // TODO(port): reload_settings only when settings.json changed
-        m.args.no_auto_click = !settings::automation(&m.args.cfg, Some("auto_open_battle_data"));
         m.step(&mut live, &mut console);
         if t - last_status >= 1.0 {
             last_status = t;
@@ -346,7 +344,7 @@ fn main() {
             && !win::is_foreground(h)
         {
             iv = iv.max(if m.fight.is_some() { 0.5 } else { AWAY_INTERVAL });
-        } else if m.fight.is_none() && m.bar.is_none() && !m.bossrush_space {
+        } else if m.idle() {
             iv = iv.max(IDLE_INTERVAL);
         }
         if m.capture_off {

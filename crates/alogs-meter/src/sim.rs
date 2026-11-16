@@ -295,6 +295,7 @@ impl Meter {
         }
         let msg = format!("Holo-Battle Sim recorded: {} - {} in {} s{}", sim.at("trial").py_str(), sim.at("difficulty").py_str(), sim.at("time_s").py_str(),
             note.map_or(String::new(), |n| format!(" ({n})")));
+        self.screen_settled("sim_result", self.env.now());
         out.out("status", Value::Str(msg));
         self.sim_release("the run is saved");
     }

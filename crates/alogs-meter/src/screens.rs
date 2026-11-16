@@ -227,7 +227,10 @@ impl Meter {
         let heads = &self.rank_only_after_match(heads, now);
         self.egg_rank_watch(frames, out, im, heads, now);
         self.egg_gone(frames, out, now);
-        // TODO(port): screens_gone, egg_after samples
+        self.screens_gone(now);
+        if now - self.egg.sent_at < 45.0 {
+            self.keep_sample(im, "egg_after", Some(3.0), Some(15));
+        }
         let party = self.party_up(heads, now);
         let spotted = screen_spotted(heads).or(if party { Some("party") } else { None });
         if spotted.is_some() && !self.args.replay {
@@ -268,34 +271,40 @@ impl Meter {
                     self.end_auto("Battle Data did not open after 6 clicks");
                 }
             }
-            // TODO(port): test_frame
+            self.test_frame(im, "result", now);
             let names = Self::result_names(im, u, ux, h);
             let banner = heads.get("cs").cloned().unwrap_or_default();
             self.result_screen(frames, out, im, now, u, ux, h, &banner, Some(names));
             return;
         }
         if g(heads, "sv").contains("battle time") {
+            self.test_frame(im, "sim_result", now);
             self.sim_result(frames, out, im, now, u, ux, h);
             return;
         }
         if g(heads, "cs").contains("challenge") {
+            self.test_frame(im, "challenge", now);
             self.challenge_stats(frames, out, im, now, u, ux, h);
             return;
         }
         if g(heads, "bs").contains("score") {
             let pill = heads.get("bs").cloned().unwrap_or_default();
+            self.test_frame(im, "prep", now);
             self.prep_screen(frames, out, im, now, u, ux, h, &pill);
             return;
         }
         if head.to_lowercase().contains("rank info") {
+            self.test_frame(im, "egg_rank", now);
             self.egg_rank_info(frames, out, im, now, u, ux, h);
             return;
         }
         if title_is(&head, "profile") {
+            self.test_frame(im, "profile", now);
             self.profile_screen(im, now, u, ux, h);
             return;
         }
         if party {
+            self.test_frame(im, "party", now);
             self.party_layout(heads.get("ph").map_or("", String::as_str));
             self.party_circle(im, now, u, ux, h);
             // TODO(port): names_first (the pills read first, on a thread)
@@ -311,9 +320,13 @@ impl Meter {
         if self.egg_screens(frames, out, im, now, u, ux, h, heads) {
             return;
         }
+        if heads.get("me").is_some_and(|v| !v.is_empty()) && heads.get("uid").is_some_and(|v| !v.is_empty()) {
+            self.test_frame(im, "menu", now);
+        }
         if !is_bd {
             return;
         }
+        self.test_frame(im, "battle_data", now);
         let n = Self::bd_card_count(im, u, ux, h);
         let names = Self::bd_names(im, n, u, ux, h);
         self.battle_data(frames, out, im, now, u, ux, h, &head, Some(names));

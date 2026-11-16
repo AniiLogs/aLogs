@@ -129,6 +129,7 @@ pub struct Meter {
     pub ps: crate::party::PartyState,
     pub menu: crate::menu::MenuState,
     pub icon: crate::party_icons::IconState,
+    pub diag: crate::diag::DiagState,
     /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
     pub icons: Option<alogs_reader::icons::Icons>,
     /// None, 'loading', 'ready', 'failed'.
@@ -239,6 +240,7 @@ impl Meter {
             ps: Default::default(),
             menu: Default::default(),
             icon: Default::default(),
+            diag: Default::default(),
             icons: None,
             icons_state: None,
             icons_job: None,
@@ -661,6 +663,7 @@ impl Meter {
 
     /// One look at the game: keep the bar locked, follow the fight, read its text.
     pub fn step(&mut self, frames: &mut dyn Frames, out: &mut dyn Out) {
+        self.reload_settings(self.env.now());
         let meter_off = !self.args.replay && frames.switched_off();
         let cfg = self.args.cfg.clone();
         self.switches.tick(&self.manifest, &cfg, !meter_off, &mut self.health);
@@ -731,6 +734,8 @@ impl Meter {
             f.away += 1f64.min(now - if self.last_step == 0.0 { now } else { self.last_step });
         }
         self.last_step = now;
+        let fg = self.args.replay || frames.is_foreground(hwnd);
+        self.away_note(Some(&im), fg);
         // TODO(port): top signature, calm pacing, Egg Heist fade, Sim checks and Gizmo tour (live.py 1836-1846)
         if self.bar.as_ref().is_none_or(|b| !bar::verify_bar(&im, b)) {
             if partial.is_some() {
@@ -822,7 +827,8 @@ impl Meter {
                 if self.fight.is_some() {
                     self.end_fight(out, "boss bar gone");
                 }
-                // TODO(port): sim_tour_step, save_end_screens, save_nobar, save_bar_lost
+                // TODO(port): sim_tour_step, save_nobar, save_bar_lost
+                self.save_end_screens(&im, now);
                 self.watch_end_note(out, &im);
                 self.leader_ended_note(&im, now);
                 self.check_battle_data(frames, out, &im, now);
@@ -907,6 +913,9 @@ impl Meter {
             if f.phases.len() != bosses {
                 let seg = f.seg;
                 self.boss_handed_over(out, &format!("its bar came back at x{}", seg.map_or("None".into(), |s| s.to_string())));
+            }
+            if partial.is_none() {
+                self.test_frame(&im, "fight", now);
             }
             // an Interlink fight: your team from the fight's right side while the Party screen left a slot blank
             if self.fight.as_ref().is_some_and(|f| f.bossrush) && partial.is_none() {

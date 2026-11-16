@@ -337,6 +337,7 @@ impl Meter {
             self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: None });
             self.send_result(&payload, shot_rel.as_deref(), None, None, None);
         }
+        self.screen_settled("egg_result", self.env.now());
         let (outcome, loot, difficulty) = (m.at("outcome").clone(), m.at("loot").as_i64(), m.at("difficulty").clone());
         let msg = format!("Egg Heist match recorded: {}{}{}",
             if outcome.as_str() == Some("success") { "escaped".to_string() } else { outcome.py_str() },
@@ -397,6 +398,7 @@ impl Meter {
                     season.clone().unwrap_or_default(), "egg_rank".into(), st.get("name").py_str(), c(st.get("points")), c(st.get("stars")), shot_rel.clone().unwrap_or_default()]);
             }
         }
+        self.screen_settled("egg_rank", self.env.now());
         let msg = format!("Egg Heist rank recorded: {}{}{}", st.get("name").py_str(),
             st.get("points").as_i64().map_or(String::new(), |p| format!(" - {} rank points", thousands(p))),
             st.get("stars").as_i64().map_or(String::new(), |s| format!(" - {} stars", thousands(s))));
@@ -624,6 +626,7 @@ impl Meter {
             self.egg_emperor_count(frames, out, im, now, u, ux, h, &g("es"));
         }
         if g("eh").to_lowercase().contains("adventure") {
+            self.test_frame(im, "egg_result", now);
             self.egg_result(frames, out, im, now, u, ux, h, &g("eh"));
             return true;
         }
