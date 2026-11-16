@@ -774,7 +774,8 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(db: Arc<LayoutDb>, settings: Arc<RwLock<Settings>>, hook: Arc<KeyHook>) -> Engine {
+    /// `player_log`: the game's Player.log (None: where the game keeps it).
+    pub fn new(db: Arc<LayoutDb>, settings: Arc<RwLock<Settings>>, hook: Arc<KeyHook>, player_log: Option<std::path::PathBuf>) -> Engine {
         let sh = Arc::new(Shared {
             running: AtomicBool::new(false),
             settings: settings.clone(),
@@ -817,7 +818,7 @@ impl Engine {
             });
         }
         let use_log = settings.read().unwrap().use_game_log;
-        let mut game_log = GameLog::new(None);
+        let mut game_log = GameLog::new(player_log);
         if use_log {
             game_log.poll();
             game_log.changes.clear(); // what it already held is the starting point, not news

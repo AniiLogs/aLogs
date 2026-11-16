@@ -131,10 +131,10 @@ Since then: the Holo-Battle Sim exit gate and Gizmo tour, input holds (alogs-cap
 pcstats (alogs-pcstats), diagnostics, housekeeping (cleanup, game-data refresh), the OCR language checks, the overlay
 (gamefont.render bit-exact; layered windows; DPS window, HP labels, end notes, the alert, notices), the stop event and a
 clean shutdown. **alogs-app** is moved in (crates/alogs-app, with its ui) and starts the Rust meter; pictures of the game
-the UI shows are git-ignored. **alogs-sanctum** is started: settings, layouts and chest sets, the game log, the OpenCV subset Sanctum Helper uses (cv.rs, cv2.rs: byte-for-byte against OpenCvSharp 4.10 goldens from tools/cv-goldens), vision.rs (map art, minimap and island trackers, door locator, floor refiner, icons, heading) and features.rs (ORB, Hamming kNN, RANSAC similarity; MapMatcher), Lang, Windows OCR, the region placement and the party screen reader (Detectors).
+the UI shows are git-ignored. **alogs-sanctum** is started: settings, layouts and chest sets, the game log, the OpenCV subset Sanctum Helper uses (cv.rs, cv2.rs: byte-for-byte against OpenCvSharp 4.10 goldens from tools/cv-goldens), vision.rs (map art, minimap and island trackers, door locator, floor refiner, icons, heading) and features.rs (ORB, Hamming kNN, RANSAC similarity; MapMatcher), Lang, Windows OCR, the region placement and the party screen reader (Detectors), capture (game window, PrintWindow, screen, magnifier, the app's shared picture), the key hook and controller, and the engine (Engine.cs: main and heading loops, tracking, layout guess, run timer, full-map alignment; smoke-tested without a game).
 
-Still to port, in order: Sanctum Helper's Engine.cs, OverlayWindow.cs, Hosted.cs (the `--hosted`
-contract), SharedCapture/SharedNotices/OwnOverlays, KeyHook, Gamepad, ToastWindow, ChestPrompt, Analyzer,
+Still to port, in order: Sanctum Helper's OverlayWindow.cs, Hosted.cs (the `--hosted`
+contract), SharedNotices, ToastWindow, ChestPrompt, Analyzer,
 the app entry; then point alogs-app's sanctum.rs at it. In the meter: OcrWorker / names_first threads and the
 top-only / box-part captures and calm pacing (performance; behaviour is the same without them), dmgnumbers (paused in
 B16). Sanctum Helper's Dev switches are beta-only and all off by default: the port keeps the default behaviour.
