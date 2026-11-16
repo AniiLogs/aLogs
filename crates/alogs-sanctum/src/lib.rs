@@ -7,3 +7,4 @@ pub mod game_log;
 pub mod layout_db;
 pub mod settings;
 pub mod vision;
+pub mod features;
