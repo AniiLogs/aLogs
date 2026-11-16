@@ -55,6 +55,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "alogs-meter"
+version = "0.1.37"
+dependencies = [
+ "alogs-gamedata",
+ "alogs-gamelog",
+ "alogs-pil",
+ "alogs-protocol",
+ "alogs-pyval",
+ "alogs-reader",
+ "chrono",
+ "csv",
+ "indexmap",
+ "log",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "alogs-pil"
 version = "0.1.37"
 dependencies = [

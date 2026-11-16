@@ -1,0 +1,22 @@
+[package]
+name = "alogs-meter"
+description = "The meter's logic: fights on the boss bar, end screens into runs, the reading loop (port of fights.py, results.py, core.py, live.py)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alogs-pil = { path = "../alogs-pil" }
+alogs-reader = { path = "../alogs-reader" }
+alogs-gamedata = { path = "../alogs-gamedata" }
+alogs-gamelog = { path = "../alogs-gamelog" }
+alogs-protocol = { path = "../alogs-protocol" }
+alogs-pyval = { path = "../alogs-pyval" }
+serde_json.workspace = true
+indexmap = { version = "2", features = ["serde"] }
+csv = "1"
+log = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+regex = "1"
+
+[dev-dependencies]
