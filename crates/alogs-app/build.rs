@@ -8,8 +8,11 @@ fn main() {
     // app.log's "window: not answering" line (watchdog.rs) are looked up in. It stays on the build PC; tauri-build.mjs
     // keeps one per test build.
     if std::env::var("PROFILE").as_deref() == Ok("release") {
-        let map = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default()).join("target").join("release").join("alogs-app.map");
-        println!("cargo:rustc-link-arg-bins=/MAP:{}", map.display());
+        // (the workspace's target/release: OUT_DIR is target/release/build/alogs-app-<hash>/out)
+        let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap_or_default());
+        if let Some(release) = out.ancestors().nth(3) {
+            println!("cargo:rustc-link-arg-bins=/MAP:{}", release.join("alogs-app.map").display());
+        }
     }
     tauri_build::build()
 }
