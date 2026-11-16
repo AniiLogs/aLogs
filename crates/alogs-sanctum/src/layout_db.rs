@@ -119,6 +119,11 @@ impl Layout {
         if self.is_island() { "Egg Heist island".into() } else { format!("Layout {}", self.number) }
     }
 
+    /// The name shown on maps ("Sanctum 53", "Egg Heist island"), in the app's language.
+    pub fn display_title(&self) -> String {
+        if self.is_island() { crate::lang::t("Egg Heist island") } else { crate::lang::f("Sanctum {0}", &[&self.number]) }
+    }
+
     pub fn compass(&self) -> &'static str {
         const D: [&str; 8] = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
         D[(((self.door_vector.angle + 22.5) / 45.0).floor() as i64).rem_euclid(8) as usize]

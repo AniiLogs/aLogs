@@ -229,6 +229,17 @@ impl Drop for KeyHook {
     }
 }
 
+/// The key is held down right now (polled; for keys read without a hook, as Enter / Esc while placing).
+pub fn key_held(vk: i32) -> bool {
+    #[cfg(windows)]
+    return imp::key_held(vk);
+    #[cfg(not(windows))]
+    {
+        let _ = vk;
+        false
+    }
+}
+
 /// A key's name as the settings show it.
 pub fn key_name(vk: i32) -> String {
     match vk {

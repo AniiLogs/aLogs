@@ -13,6 +13,9 @@ pub enum Mouse {
     Up,
     Double,
     Right,
+    /// The wheel turned away from the user (up) or towards them (down).
+    WheelUp,
+    WheelDown,
 }
 
 thread_local! {
@@ -45,6 +48,15 @@ impl Layered {
             bgra.extend_from_slice(&[m(p[2]), m(p[1]), m(p[0]), p[3]]);
         }
         imp::show(self.hwnd, &bgra, rgba.width as i32, rgba.height as i32, x, y)
+    }
+
+    /// Show a premultiplied RGBA picture (tiny-skia's) as the whole window at screen (x, y).
+    pub fn show_premultiplied(&self, rgba: &[u8], w: i32, h: i32, x: i32, y: i32) -> bool {
+        let mut bgra = rgba.to_vec();
+        for p in bgra.chunks_exact_mut(4) {
+            p.swap(0, 2);
+        }
+        imp::show(self.hwnd, &bgra, w, h, x, y)
     }
 
     /// Fade the whole window (0-255) without sending its bitmap again.
@@ -106,6 +118,7 @@ mod imp {
             WM_LBUTTONUP => Some(Mouse::Up),
             WM_LBUTTONDBLCLK => Some(Mouse::Double),
             WM_RBUTTONUP => Some(Mouse::Right),
+            WM_MOUSEWHEEL => Some(if ((w >> 16) as u16 as i16) > 0 { Mouse::WheelUp } else { Mouse::WheelDown }),
             _ => None,
         };
         if let Some(k) = kind {
