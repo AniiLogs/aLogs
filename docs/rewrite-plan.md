@@ -110,6 +110,25 @@ alogs-rust/
 
 ## Status
 
-- [x] Reference clones at B16.
-- [x] Workspace, `alogs-gamedata::hpcalc` ported. Tested against Python goldens (every formula, levels 1-80) and
-  `boss_catalog.csv`.
+Ported, each with parity tests against goldens written by the B16 Python (tools/gen_*_goldens.py):
+
+| Crate | From | Checked |
+| --- | --- | --- |
+| alogs-pyval | (Python values: dict keys, repr, json.dumps) | unit tests |
+| alogs-gamedata | hpcalc.py, gamedata.py (pmdata.bin reader, schedule, boss list, grades, drift) | synthetic game data + 150 byte-flipped copies, shipped boss_catalog.csv |
+| alogs-protocol | settings.py, plugins.py, devflags.py, notice files | goldens |
+| alogs-gamelog | core.LogWatcher, last_uid, scene_of, interlink_score, same_name, difflib | 18k events from a made-up log |
+| alogs-pil | the Pillow 12.3 operations the readers use | 846 cases bit-exact |
+| alogs-reader | reader.py, xn_digits.py, hangulnames.py, namereader.py, icons.py matchers, gamefont field, OCR helper client | 26 synthetic bar frames, name boxes, parsers |
+| alogs-capture | wincapture.py (shared capture reader, audio cues, window and input helpers) | stand-in app test |
+| alogs-meter | fights.py (Fight, Timer, BreakTracker, FightsMixin), results.py parsers, submit.py (payloads, sender), core Teammates/pills/signatures, Meter.step, the alogs-meter binary | scripted fights frame by frame, payloads, local API, step scenario |
+
+Known differences (documented where they are): Pillow's quantize (plain median cut here), text drawing (ab_glyph,
+not FreeType), proof JPEG bytes (jpeg-encoder, not libjpeg), font/icon extraction from the game's Unity bundles (the
+Python meter's cache is read).
+
+Still to port, in order: the end-screen readers (results.py ResultsMixin), eggheist.py, the leaderboards plug-in
+(leaderboards.py), live.py's screen readers (prep, Party, menu, profile, icons) and OcrWorker threads, the rest of
+core.py (cleanup, picture writer, cycle refresh), the overlays (dps_overlay.py, notice_window.py, layered.py,
+gamefont.render), focusguard.py, inputblock/controller (HidHide), pcstats.py, presence.py, dmgnumbers.py; then the
+app shell move-in (alogs-app) and Sanctum Helper (C#). `TODO(port)` marks each place the meter calls one of these.
