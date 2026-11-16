@@ -198,7 +198,14 @@ impl Meter {
     /// The game's screens with text, read about once a second (back to back while a fight's bar is hidden).
     pub fn check_battle_data(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64) {
         let quick = self.fight.is_some() && now - self.bar_seen > 0.5;
-        if self.names_waiting() || !self.frame_full || !self.screen_read_due(now, quick) {
+        if self.names_waiting() {
+            return; // a screen waits for its players' names: it's handled first
+        }
+        // live, the read is made on a helper of its own and handled on a later look, with the frame it was made from
+        if let Some((text, (frame, at))) = self.screen_bg.as_ref().and_then(|w| w.take()) {
+            self.read_screen(frames, out, &frame, at, &text);
+        }
+        if self.screen_bg.as_ref().is_some_and(|w| w.busy()) || !self.frame_full || !self.screen_read_due(now, quick) {
             return;
         }
         let sig = self.top_sig.clone().unwrap_or_else(|| crate::team::top_sig_direct(im, im.height as f64 * crate::meter::TOP_PART));
@@ -206,7 +213,15 @@ impl Meter {
         self.diag.load.reads += 1;
         self.ss.screen_read_sig = Some(sig);
         let crops = self.screen_crops(im, quick);
-        let heads = if crops.is_empty() { IndexMap::new() } else { self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new()) };
+        if crops.is_empty() {
+            self.read_screen(frames, out, im, now, &IndexMap::new()); // nothing on screen to read
+            return;
+        }
+        if let Some(w) = &self.screen_bg {
+            w.submit(crops, (im.clone(), now));
+            return;
+        }
+        let heads = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new());
         self.read_screen(frames, out, im, now, &heads);
     }
 
@@ -310,7 +325,7 @@ impl Meter {
             self.test_frame(im, "party", now);
             self.party_layout(heads.get("ph").map_or("", String::as_str));
             self.party_circle(im, now, u, ux, h);
-            // TODO(port): names_first (the pills read first, on a thread)
+            // (the Python reads new names first on its helper, names_first: that only shortens the wait, the reads are the same)
             if now - self.ps.party_seen >= 2.0 {
                 self.party_screen(im, now, u, ux, h);
             }

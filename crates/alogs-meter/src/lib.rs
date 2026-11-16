@@ -12,6 +12,7 @@ pub mod leaderboards;
 pub mod menu;
 pub mod meter;
 pub mod ocrcheck;
+pub mod ocr_worker;
 pub mod overlay;
 pub mod pacing;
 pub mod party;

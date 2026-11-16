@@ -502,6 +502,13 @@ fn main() {
         // "You're being attacked" reads your HP with a helper of its own (no overlay: the alert can't show, so none)
         m.hp_ocr = Ocr::new(&m.env.res.join("ocr-helper.exe")).ok().map(|o| Box::new(o) as Box<dyn Reader>);
     }
+    if !m.args.replay {
+        // the boss bar's text and the screens' read on helpers of their own: a look never waits for OCR
+        let exe = m.env.res.join("ocr-helper.exe");
+        let e2 = exe.clone();
+        m.ocr_bg = Some(alogs_meter::ocr_worker::OcrWorker::new("ocr-bar", move || Ocr::new(&exe).ok().map(|o| Box::new(o) as Box<dyn Reader>)));
+        m.screen_bg = Some(alogs_meter::ocr_worker::OcrWorker::new("ocr-screens", move || Ocr::new(&e2).ok().map(|o| Box::new(o) as Box<dyn Reader>)));
+    }
     alogs_meter::ocrcheck::ocr_language_note(m.ocr.as_ref());
     m.ocr_check.checked = now();
     m.submitter = submitter.clone();

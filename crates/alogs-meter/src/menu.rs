@@ -134,7 +134,7 @@ impl Meter {
             self.game_menu(&me, &uid_text, Some(im), u, ux, h, "menu", true);
             return;
         }
-        // (the Python reads the names first, on a thread: names_first; TODO(port))
+        // (the Python reads new names first on its helper, names_first: that only shortens the wait, the reads are the same)
         let b = (ux + u * 0.657, h * 0.068, ux + u * 0.86, h * 0.104);
         let mut crops = IndexMap::new();
         crops.insert("me".to_string(), prep::prep_text(im, b, u / 2000.0, 190, 3.0, 24));

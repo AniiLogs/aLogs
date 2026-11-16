@@ -87,6 +87,10 @@ impl Meter {
                 said.insert(whose.to_string(), format!("OCR helper did not restart ({whose}): {e}"));
             }
         }
+        // the bar's and the screens' helpers too (their language isn't asked: they restart with the others)
+        for w in [self.ocr_bg.as_ref().map(|w| w as &dyn Restart), self.screen_bg.as_ref().map(|w| w as &dyn Restart)].into_iter().flatten() {
+            w.restart_helper();
+        }
         let short = self.ocr_not_english();
         if !short.is_empty() {
             let langs: Vec<String> = short.iter().map(|w| {
@@ -116,5 +120,16 @@ impl Meter {
             log::warn!(target: "meter", "{line}");
             self.ocr_check.said.insert(which, (line, now));
         }
+    }
+}
+
+/// An OCR worker of any meta, restarted the same way.
+trait Restart {
+    fn restart_helper(&self);
+}
+
+impl<M: Send + 'static> Restart for crate::ocr_worker::OcrWorker<M> {
+    fn restart_helper(&self) {
+        self.restart();
     }
 }

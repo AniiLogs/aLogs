@@ -100,6 +100,11 @@ pub struct Meter {
     pub xn_tpl: xn::Templates,
     pub xn_cache: xn::CounterCache,
     pub ocr: Box<dyn Reader>,
+    /// Live: the boss bar's text (title, timer, xN) read on a helper of its own, so a look never waits for it;
+    /// the meta says whether the xN was missing and whether a title was asked for.
+    pub ocr_bg: Option<crate::ocr_worker::OcrWorker<(bool, bool)>>,
+    /// Live: the screens' text read on a helper of its own, with the frame and time it was read from.
+    pub screen_bg: Option<crate::ocr_worker::OcrWorker<(Image, f64)>>,
     pub fight: Option<Fight>,
     pub hwnd: Option<usize>,
     pub frame_size: (usize, usize),
@@ -239,6 +244,8 @@ impl Meter {
             xn_tpl,
             xn_cache: xn::CounterCache::default(),
             ocr,
+            ocr_bg: None,
+            screen_bg: None,
             fight: None,
             hwnd: None,
             frame_size: (0, 0),
@@ -1044,8 +1051,19 @@ impl Meter {
             return;
         }
         let mut timer = None;
+        // Text (timer, title, xN fallback) is read about once a second. Live, a background OCR helper does it so a frame
+        // never waits for it; the result is used on the frame after it arrives. Replays read it in place.
+        if let Some((text, (xn_missing, title))) = self.ocr_bg.as_ref().and_then(|w| w.take()) {
+            timer = parse::parse_timer(text.get("timer").map(String::as_str));
+            if xn_missing && xnv.is_none() {
+                xnv = parse::parse_xn(text.get("xn").map(String::as_str), top);
+            }
+            if title {
+                let (t, r) = (text.get("title").cloned(), text.get("title_red").cloned());
+                self.identify(out, t.as_deref(), xnv, r.as_deref());
+            }
+        }
         if self.text_due(now) && !self.band_frame {
-            // read in place (the Python reads on a background OCR thread live; TODO(port): OcrWorker)
             let (w, h) = (self.frame_size.0 as f64, self.frame_size.1 as f64);
             let mut crops: IndexMap<String, Image> = IndexMap::new();
             crops.insert("timer".into(), prep::prep_text(&im, bar::timer_box(w, h, false), scale, 190, 3.0, 24));
@@ -1063,14 +1081,18 @@ impl Meter {
             if need_title {
                 self.last_title = now;
             }
-            let text = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new());
-            timer = parse::parse_timer(text.get("timer").map(String::as_str));
-            if xnv.is_none() {
-                xnv = parse::parse_xn(text.get("xn").map(String::as_str), top);
-            }
-            if need_title {
-                let (t, r) = (text.get("title").cloned(), text.get("title_red").cloned());
-                self.identify(out, t.as_deref(), xnv, r.as_deref());
+            if let Some(w) = &self.ocr_bg {
+                w.submit(crops, (xnv.is_none(), need_title));
+            } else {
+                let text = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new());
+                timer = parse::parse_timer(text.get("timer").map(String::as_str));
+                if xnv.is_none() {
+                    xnv = parse::parse_xn(text.get("xn").map(String::as_str), top);
+                }
+                if need_title {
+                    let (t, r) = (text.get("title").cloned(), text.get("title_red").cloned());
+                    self.identify(out, t.as_deref(), xnv, r.as_deref());
+                }
             }
         }
         if self.fight.is_some() {
