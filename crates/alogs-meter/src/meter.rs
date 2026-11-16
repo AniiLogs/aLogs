@@ -143,6 +143,8 @@ pub struct Meter {
     pub hit: crate::hits::HitState,
     pub bars: crate::diag::BarDiag,
     pub ocr_check: crate::ocrcheck::OcrCheck,
+    pub presence: Option<alogs_capture::presence::Presence>,
+    pub presence_sent: Option<(String, &'static str, f64)>,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
     /// When the game log last said you left a space (Egg Heist's fade after it is a load).
@@ -265,6 +267,8 @@ impl Meter {
             hit: Default::default(),
             bars: Default::default(),
             ocr_check: Default::default(),
+            presence: None,
+            presence_sent: None,
             hit_at: 0.0,
             egg_space_at: 0.0,
             audio_cue: None,

@@ -488,6 +488,9 @@ fn main() {
         if t - last_status >= 1.0 {
             last_status = t;
             m.link_poll(t);
+            let open = m.hwnd.is_some_and(win::is_window);
+            let front = m.hwnd.is_some_and(win::is_foreground);
+            m.presence_tick(t, open, front);
             m.ocr_recheck(t);
             write_status(&m, submitter.as_deref(), &live, t);
         }

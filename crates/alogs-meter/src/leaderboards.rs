@@ -285,4 +285,35 @@ impl Meter {
             alogs_capture::win::click_at(x as i32, y as i32, false);
         }
     }
+
+    /// Online / AFK on your profile while the game runs: sent when it changes and every 2 minutes, and "offline"
+    /// once the game closes.
+    pub fn presence_tick(&mut self, now: f64, game_open: bool, in_front: bool) {
+        let (Some(sub), Some(uid)) = (self.submitter.clone(), self.uid.clone()) else { return };
+        if self.args.replay {
+            return;
+        }
+        let last = self.presence_sent.clone();
+        if !game_open {
+            if last.as_ref().is_some_and(|l| l.1 != "offline") {
+                self.presence_sent = Some((uid.clone(), "offline", now));
+                sub.presence(&uid, "offline", false);
+            }
+            return;
+        }
+        let p = self.presence.get_or_insert_with(|| alogs_capture::presence::Presence::new(now));
+        let state = p.state(now, in_front);
+        if let Some(l) = &last
+            && l.0 == uid
+            && l.1 == state
+            && now - l.2 < 120.0
+        {
+            return;
+        }
+        if last.as_ref().is_none_or(|l| l.0 != uid || l.1 != state) {
+            log::info!(target: "meter", "presence: {state}");
+        }
+        self.presence_sent = Some((uid.clone(), state, now));
+        sub.presence(&uid, state, false);
+    }
 }

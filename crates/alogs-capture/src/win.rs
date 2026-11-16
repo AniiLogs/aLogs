@@ -82,6 +82,11 @@ mod imp {
         }
     }
 
+    /// Is this still a window?
+    pub fn is_window(hwnd: usize) -> bool {
+        unsafe { IsWindow(hwnd as HWND) != 0 }
+    }
+
     /// The process id of the window's program, or 0.
     pub fn window_pid(hwnd: usize) -> u32 {
         let mut pid = 0u32;
@@ -194,6 +199,9 @@ mod imp {
     pub fn window_pid(_: usize) -> u32 {
         0
     }
+    pub fn is_window(_: usize) -> bool {
+        false
+    }
     pub fn window_modules(_: usize) -> std::collections::BTreeSet<String> {
         Default::default()
     }
@@ -215,7 +223,7 @@ mod imp {
     pub fn key(_: u16) {}
 }
 
-pub use imp::{client_rect, find_window, hide_from_capture, move_to, window_copy, window_modules, window_pid};
+pub use imp::{client_rect, find_window, hide_from_capture, move_to, window_copy, window_modules, window_pid, is_window};
 
 const MOVE: u32 = 0x1;
 const LEFTDOWN: u32 = 0x2;
