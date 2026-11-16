@@ -125,6 +125,7 @@ pub struct Meter {
     pub ss: crate::screens::ScreensState,
     pub auto: crate::leaderboards::AutoState,
     pub sim: crate::sim::SimState,
+    pub egg: crate::egg::EggState,
     /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
     pub icons: Option<alogs_reader::icons::Icons>,
     /// None, 'loading', 'ready', 'failed'.
@@ -231,6 +232,7 @@ impl Meter {
             ss: Default::default(),
             auto: Default::default(),
             sim: Default::default(),
+            egg: Default::default(),
             icons: None,
             icons_state: None,
             icons_job: None,

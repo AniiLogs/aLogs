@@ -340,6 +340,7 @@ impl Meter {
         let shot = self.picture(frames, im, "screens", &format!("{screen}_{}", local(now, "%Y%m%d_%H%M%S")), screen == "challenge_stats" || screen == "battle_prep", true);
         let path = self.env.data.join("logs").join("scores.csv");
         let new = !path.exists();
+        let _ = std::fs::create_dir_all(self.env.data.join("logs"));
         if let Ok(fh) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             let mut w = csv::WriterBuilder::new().terminator(csv::Terminator::CRLF).from_writer(fh);
             if new {

@@ -224,7 +224,10 @@ impl Meter {
 
     /// Hand the screen that's up to its reader.
     pub fn read_screen(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64, heads: &Heads) {
-        // TODO(port): rank_only_after_match, egg_rank_watch, screens_gone, egg_gone, egg_after samples
+        let heads = &self.rank_only_after_match(heads, now);
+        self.egg_rank_watch(frames, out, im, heads, now);
+        self.egg_gone(frames, out, now);
+        // TODO(port): screens_gone, egg_after samples
         let party = self.party_up(heads, now);
         let spotted = screen_spotted(heads).or(if party { Some("party") } else { None });
         if spotted.is_some() && !self.args.replay {
@@ -275,15 +278,22 @@ impl Meter {
             return;
         }
         if g(heads, "cs").contains("challenge") {
-            return; // TODO(port): challenge_stats
+            self.challenge_stats(frames, out, im, now, u, ux, h);
+            return;
         }
         if g(heads, "bs").contains("score") {
             return; // TODO(port): prep_screen
         }
-        if head.to_lowercase().contains("rank info") || title_is(&head, "profile") || party || hl.starts_with("holobattlei") {
-            return; // TODO(port): egg_rank_info, profile_screen, party screens, interlink_screen
+        if head.to_lowercase().contains("rank info") {
+            self.egg_rank_info(frames, out, im, now, u, ux, h);
+            return;
         }
-        // TODO(port): egg_rank_gain, egg_emperor_count, egg_result (Egg Heist)
+        if title_is(&head, "profile") || party || hl.starts_with("holobattlei") {
+            return; // TODO(port): profile_screen, party screens, interlink_screen
+        }
+        if self.egg_screens(frames, out, im, now, u, ux, h, heads) {
+            return;
+        }
         if !is_bd {
             return;
         }
