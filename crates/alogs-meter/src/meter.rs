@@ -144,6 +144,11 @@ pub struct Meter {
     pub bars: crate::diag::BarDiag,
     pub ocr_check: crate::ocrcheck::OcrCheck,
     pub presence: Option<alogs_capture::presence::Presence>,
+    /// Holding the player's keys and mouse buttons (Automation › hold inputs).
+    pub hold: alogs_capture::input::InputBlock,
+    pub focus_guard: alogs_capture::focusguard::FocusGuard,
+    /// The clientRunId inputs are held for until it's sent.
+    pub send_waiting: Option<String>,
     pub presence_sent: Option<(String, &'static str, f64)>,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
@@ -268,6 +273,9 @@ impl Meter {
             bars: Default::default(),
             ocr_check: Default::default(),
             presence: None,
+            hold: Default::default(),
+            focus_guard: Default::default(),
+            send_waiting: None,
             presence_sent: None,
             hit_at: 0.0,
             egg_space_at: 0.0,
@@ -727,6 +735,7 @@ impl Meter {
     pub fn step(&mut self, frames: &mut dyn Frames, out: &mut dyn Out) {
         self.reload_settings(self.env.now());
         self.auto_active();
+        self.result_sent_check();
         let meter_off = !self.args.replay && frames.switched_off();
         let cfg = self.args.cfg.clone();
         self.switches.tick(&self.manifest, &cfg, !meter_off, &mut self.health);
@@ -741,6 +750,10 @@ impl Meter {
             log::info!(target: "meter", "{}", if rest { "the DPS meter and the leaderboards are off: resting" } else { "reading the game again" });
             if rest {
                 self.end_auto("the DPS meter and the leaderboards were switched off");
+                self.hold.stop();
+                if alogs_capture::input::controllers_hidden() {
+                    alogs_capture::input::hide_controllers(false);
+                }
                 if self.fight.is_some() {
                     self.end_fight(out, "the DPS meter was switched off");
                 }

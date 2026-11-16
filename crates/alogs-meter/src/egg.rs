@@ -155,6 +155,9 @@ impl Meter {
         let x = f64::from(self.origin.0) + ux + u * 0.88;
         let y = f64::from(self.origin.1) + h * spot.3;
         log::info!(target: "meter", "Egg Heist: pressing Next ({} layout, try {tries}) at screen ({x:.0}, {y:.0})", spot.0);
+        if self.hold.active() {
+            self.hold.freeze_moves(0.4);
+        }
         if !self.args.replay {
             alogs_capture::win::click_at(x as i32, y as i32, false);
         }
@@ -336,6 +339,9 @@ impl Meter {
             let payload = payloads::egg_match_payload(&Value::Dict(m.clone()), &season, &Value::Str(uid), Some(now), &clock);
             self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: None });
             self.send_result(&payload, shot_rel.as_deref(), None, None, None);
+        }
+        if self.send_waiting.is_none() {
+            self.hold.stop();
         }
         self.screen_settled("egg_result", self.env.now());
         let (outcome, loot, difficulty) = (m.at("outcome").clone(), m.at("loot").as_i64(), m.at("difficulty").clone());

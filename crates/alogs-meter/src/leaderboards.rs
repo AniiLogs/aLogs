@@ -15,6 +15,8 @@ pub const LATE_BATTLE_DATA_S: f64 = 180.0;
 pub const RESULT_PAUSE: f64 = 5.0;
 pub const BATTLE_DATA_PAUSE: f64 = 5.0;
 pub const HOLD_MIN: f64 = RESULT_PAUSE + BATTLE_DATA_PAUSE;
+/// Inputs held at most this long while a result is sent.
+pub const SEND_HOLD_S: f64 = 10.0;
 
 /// The automatic Battle Data session's state.
 #[derive(Default)]
@@ -108,10 +110,26 @@ impl Meter {
     }
 
     pub(crate) fn send_result(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>) {
-        if let Some(s) = &self.submitter {
-            s.enqueue(payload, evidence, battle, party, gizmos);
+        let Some(s) = self.submitter.clone() else { return };
+        s.enqueue(payload, evidence, battle, party, gizmos);
+        let r = self.args.cfg.get("results");
+        if self.args.replay || !alogs_protocol::settings::automation(&self.args.cfg, None) || matches!(r.get("hold_inputs"), Value::Bool(false)) {
+            return;
         }
-        // TODO(port): hold the player's inputs until it's sent (Automation › hold_inputs; InputBlock)
+        if self.hwnd.is_some_and(|w| !alogs_capture::win::is_foreground(w)) {
+            return;
+        }
+        self.send_waiting = Some(payload.get("clientRunId").py_str());
+        self.hold.start(SEND_HOLD_S);
+        log::info!(target: "meter", "holding inputs until this is sent (at most {SEND_HOLD_S} s)");
+    }
+
+    /// Once the sender has nothing waiting: the result is sent, its notice is going up, so inputs come back.
+    pub fn result_sent_check(&mut self) {
+        if self.send_waiting.is_some() && self.submitter.as_ref().is_none_or(|s| s.pending() == 0) {
+            self.send_waiting = None;
+            self.hold.stop();
+        }
     }
 
     /// Battle Data opened after its run went without it: send the run again, once, with it.
@@ -234,7 +252,13 @@ impl Meter {
         a.last_click = now + RESULT_PAUSE - 1.0;
         a.hold_started = now;
         a.bd_hold = false;
-        // TODO(port): hold inputs / hide controllers for the session
+        let until = a.auto_until;
+        if r.get("results").get("hold_inputs").truthy() {
+            self.hold.start(until - now);
+        }
+        if r.get("results").get("hold_controller").truthy() && alogs_capture::input::hidhide_available() {
+            alogs_capture::input::hide_controllers(true);
+        }
     }
 
     pub fn auto_active(&mut self) -> bool {
@@ -249,6 +273,10 @@ impl Meter {
             return;
         }
         self.auto.auto_until = 0.0;
+        self.hold.stop();
+        if alogs_capture::input::controllers_hidden() {
+            alogs_capture::input::hide_controllers(false);
+        }
         log::info!(target: "meter", "automatic Battle Data ended: {why}");
     }
 
@@ -281,6 +309,9 @@ impl Meter {
         self.auto.clicks += 1;
         log::info!(target: "meter", "auto-click {}: View Battle Data at screen ({x:.0}, {y:.0})", self.auto.clicks);
         self.hide_end_note(out);
+        if self.hold.active() {
+            self.hold.freeze_moves(0.4); // the player's mouse can't pull the click away
+        }
         if !self.args.replay {
             alogs_capture::win::click_at(x as i32, y as i32, false);
         }
