@@ -216,6 +216,7 @@ impl Meter {
             return;
         }
         self.rs.last_results = now;
+        self.diag.load.reads += 1;
         self.ss.screen_read_sig = Some(sig);
         let crops = self.screen_crops(im, quick);
         let heads = if crops.is_empty() { IndexMap::new() } else { self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new()) };

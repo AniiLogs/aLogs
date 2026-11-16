@@ -82,6 +82,13 @@ mod imp {
         }
     }
 
+    /// The process id of the window's program, or 0.
+    pub fn window_pid(hwnd: usize) -> u32 {
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd as HWND, &mut pid) };
+        pid
+    }
+
     pub fn window_modules(hwnd: usize) -> std::collections::BTreeSet<String> {
         use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
         let mut out = std::collections::BTreeSet::new();
@@ -184,6 +191,9 @@ mod imp {
     pub fn client_rect(_: usize) -> (i32, i32, i32, i32) {
         (0, 0, 0, 0)
     }
+    pub fn window_pid(_: usize) -> u32 {
+        0
+    }
     pub fn window_modules(_: usize) -> std::collections::BTreeSet<String> {
         Default::default()
     }
@@ -205,7 +215,7 @@ mod imp {
     pub fn key(_: u16) {}
 }
 
-pub use imp::{client_rect, find_window, hide_from_capture, move_to, window_copy, window_modules};
+pub use imp::{client_rect, find_window, hide_from_capture, move_to, window_copy, window_modules, window_pid};
 
 const MOVE: u32 = 0x1;
 const LEFTDOWN: u32 = 0x2;

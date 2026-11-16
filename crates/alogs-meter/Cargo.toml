@@ -13,6 +13,7 @@ alogs-gamelog = { path = "../alogs-gamelog" }
 alogs-protocol = { path = "../alogs-protocol" }
 alogs-pyval = { path = "../alogs-pyval" }
 alogs-capture = { path = "../alogs-capture" }
+alogs-pcstats = { path = "../alogs-pcstats" }
 serde_json.workspace = true
 indexmap = { version = "2", features = ["serde"] }
 csv = "1"

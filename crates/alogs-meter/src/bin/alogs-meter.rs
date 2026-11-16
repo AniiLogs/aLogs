@@ -123,6 +123,23 @@ struct Live {
     audio: alogs_capture::shared::SharedAudio,
     hwnd: Option<usize>,
     look_at: f64,
+    stats: CapStats,
+    said_window: Option<usize>,
+    last_size: (usize, usize),
+    no_pic_since: f64,
+    no_pic_said: f64,
+}
+
+/// How the game is captured since the last capture line.
+#[derive(Default)]
+struct CapStats {
+    source: String,
+    since: f64,
+    n: u64,
+    none: u64,
+    ms: f64,
+    max: f64,
+    app_us: u64,
 }
 
 impl Frames for Live {
@@ -142,13 +159,46 @@ impl Frames for Live {
         if !self.cap.app_present() {
             return None;
         }
-        self.cap.read(hwnd, top)
+        let t0 = std::time::Instant::now();
+        let im = self.cap.read(hwnd, top);
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let source = format!("shared {}", if self.cap.source.is_empty() { "capture" } else { &self.cap.source });
+        if self.stats.source != source {
+            log::info!("capture: {source}");
+            self.stats = CapStats { source, since: now(), ..Default::default() };
+        }
+        match &im {
+            None => self.stats.none += 1,
+            Some(i) => {
+                self.stats.n += 1;
+                self.stats.ms += ms;
+                self.stats.max = self.stats.max.max(ms);
+                self.stats.app_us += u64::from(self.cap.copy_us);
+                if top.is_none() && i.size() != self.last_size {
+                    self.last_size = i.size();
+                    log::info!("frame size {}x{} ({})", i.width, i.height, self.cap.source);
+                }
+            }
+        }
+        self.picture_gap(im.is_none(), now());
+        im
     }
     fn window(&mut self) -> Option<usize> {
         let t = now();
         if self.hwnd.is_none() || t - self.look_at > 2.0 {
             self.look_at = t;
             self.hwnd = win::find_window(&self.title);
+            if self.hwnd.is_none() && self.said_window.is_some() {
+                log::warn!("game window closed");
+                self.said_window = None;
+            }
+            if let Some(h) = self.hwnd
+                && self.said_window != Some(h)
+            {
+                self.said_window = Some(h);
+                log::info!("game window found: hwnd {h}, client {:?}", win::client_rect(h));
+                log::info!("{}", alogs_pcstats::system_line(h)); // the PC behind this log, for lag reports
+            }
         }
         self.hwnd
     }
@@ -167,6 +217,81 @@ impl Frames for Live {
     }
     fn set_clean_until(&mut self, ms: u64) {
         self.cap.set_clean_until(ms);
+    }
+}
+
+impl Live {
+    /// Pictures stopping for 2 s or more, logged with the reader's reason, again every 5 s, and when they come back.
+    fn picture_gap(&mut self, missing: bool, t: f64) {
+        if !missing {
+            if self.no_pic_since != 0.0 && t - self.no_pic_since >= 2.0 {
+                log::info!("game picture back after {:.1} s", t - self.no_pic_since);
+            }
+            self.no_pic_since = 0.0;
+            return;
+        }
+        if self.no_pic_since == 0.0 {
+            self.no_pic_since = t;
+        }
+        if t - self.no_pic_since >= 2.0 && t - self.no_pic_said >= 5.0 {
+            self.no_pic_said = t;
+            log::info!("no game picture for {:.1} s: {} (source {})", t - self.no_pic_since,
+                if self.cap.why.is_empty() { "no reason given" } else { &self.cap.why }, if self.cap.source.is_empty() { "none" } else { &self.cap.source });
+        }
+    }
+
+    /// Once a minute: the capture line, then the load line. True when it was time.
+    fn minute(&mut self, t: f64) -> bool {
+        let st = &mut self.stats;
+        if st.source.is_empty() || t - st.since < 60.0 {
+            return false;
+        }
+        let n = st.n.max(1) as f64;
+        log::info!("capture: {}, {:.1} frames/s, {:.1} ms each (max {:.0}){}{}", st.source, st.n as f64 / (t - st.since), st.ms / n, st.max,
+            if st.app_us != 0 { format!(", the app's copy {:.1} ms", st.app_us as f64 / n / 1000.0) } else { String::new() },
+            if st.none != 0 { format!(", {} without a picture", st.none) } else { String::new() });
+        *st = CapStats { source: std::mem::take(&mut st.source), since: t, ..Default::default() };
+        true
+    }
+}
+
+/// Once a minute: what the last minute cost (CPU, GPU, RAM), the frames copied and text read, and where you were.
+struct Load {
+    cpu: alogs_pcstats::CpuLoad,
+    gpu: alogs_pcstats::GpuLoad,
+    since: f64,
+    discord_said: bool,
+}
+
+fn load_line(load: &mut Load, m: &mut Meter, t: f64) {
+    let fmt = |v: Option<f64>| v.map_or("?".to_string(), |v| format!("{}%", Value::Float(v).py_str().trim_end_matches(".0")));
+    let pid = m.hwnd.map_or(0, win::window_pid);
+    let app = std::env::var("ALOGS_PARENT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+    let cpu = load.cpu.sample(pid, app);
+    let ours: Vec<u32> = [std::process::id(), app, alogs_pcstats::sanctum_pid()].into_iter().filter(|p| *p != 0).collect();
+    let gpu = load.gpu.sample();
+    let gpu_text = gpu.map_or("GPU ?".to_string(), |g| format!("GPU game {:.0}%, aLogs {:.0}%, whole card {:.0}%",
+        g.by_pid.get(&pid).copied().unwrap_or(0.0), ours.iter().map(|q| g.by_pid.get(q).copied().unwrap_or(0.0)).sum::<f64>(), g.total));
+    let ours_mb: f64 = ours.iter().filter_map(|q| alogs_pcstats::process_mb(*q)).sum();
+    let ram_text = alogs_pcstats::ram().map_or("RAM ?".to_string(), |r| format!("RAM {:.1} GB free of {:.0}, aLogs {ours_mb:.0} MB", r.0, r.1));
+    let c = std::mem::take(&mut m.diag.load);
+    let span = if load.since == 0.0 { 60.0 } else { t - load.since };
+    load.since = t;
+    let where_ = if alogs_gamelog::scene_of(m.space.as_deref()) == Some(alogs_meter::meter::HOMELAND_SCENE) { "homeland" }
+        else if m.bossrush_space { "Interlink" } else if m.holosim_space { "Holo-Battle Sim" } else if m.space.is_some() { "world" } else { "?" };
+    let state = if m.fight.is_some() { "fight" } else if m.idle() { "idle" } else { "busy" };
+    let away = if m.hwnd.is_none_or(win::is_foreground) { "" } else { ", tabbed out" };
+    let peak = std::mem::take(&mut m.diag.peak_look);
+    let (pc, me, game, appc) = cpu.map_or((None, None, None, None), |c| (c.pc, c.meter, c.game, c.app));
+    log::info!("load: CPU meter {}, aLogs app {}, game {}, whole PC {} | {:.1} whole frames/s, {:.1} top parts/s, 0.0 box frames/s, {:.1} text reads/s | {where_}, {state}{away} | {gpu_text} | {ram_text} | no PC stalls | longest look {peak:.0} ms",
+        fmt(me), fmt(appc), fmt(game), fmt(pc), c.whole as f64 / span, c.part as f64 / span, c.reads as f64 / span);
+    // Discord's in-game overlay draws inside the game's picture: said once per start
+    if !load.discord_said && let Some(h) = m.hwnd {
+        let mods = win::window_modules(h);
+        if mods.contains("discordhook64.dll") || mods.contains("discordhook.dll") {
+            load.discord_said = true;
+            log::info!("Discord's in-game overlay is loaded in the game: it shows in every capture, proof pictures included");
+        }
     }
 }
 
@@ -347,12 +472,19 @@ fn main() {
     if let Some(u) = &m.uid {
         log::info!("player uid {u} (from the game log)");
     }
-    let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, audio: alogs_capture::shared::SharedAudio::default(), hwnd: None, look_at: 0.0 };
+    let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, audio: alogs_capture::shared::SharedAudio::default(), hwnd: None, look_at: 0.0,
+        stats: CapStats::default(), said_window: None, last_size: (0, 0), no_pic_since: 0.0, no_pic_said: 0.0 };
+    let mut load = Load { cpu: alogs_pcstats::CpuLoad::default(), gpu: alogs_pcstats::GpuLoad::new(), since: 0.0, discord_said: false };
     let mut console = Console::default();
     let mut last_status = 0.0;
     loop {
         let t = now();
+        let look = std::time::Instant::now();
         m.step(&mut live, &mut console);
+        m.diag.peak_look = m.diag.peak_look.max(look.elapsed().as_secs_f64() * 1000.0);
+        if live.minute(now()) {
+            load_line(&mut load, &mut m, now());
+        }
         if t - last_status >= 1.0 {
             last_status = t;
             m.link_poll(t);

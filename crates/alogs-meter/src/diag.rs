@@ -21,8 +21,18 @@ fn test_gap(kind: &str) -> f64 {
     }
 }
 
+/// What the look loop did since the last load line.
+#[derive(Default, Clone, Copy)]
+pub struct LoadCounts {
+    pub whole: i64,
+    pub part: i64,
+    pub reads: i64,
+}
+
 #[derive(Default)]
 pub struct DiagState {
+    pub load: LoadCounts,
+    pub peak_look: f64,
     test_since: Option<f64>,
     test_last: HashMap<String, f64>,
     test_count: i64,

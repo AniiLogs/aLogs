@@ -786,6 +786,11 @@ impl Meter {
             self.status(out, "waiting for the game window".into());
             return;
         };
+        if partial.is_some() {
+            self.diag.load.part += 1;
+        } else {
+            self.diag.load.whole += 1;
+        }
         let Some(mut im) = frames.grab(hwnd, partial) else {
             self.status(out, "can't see the game window".into());
             return;
@@ -809,6 +814,7 @@ impl Meter {
         // TODO(port): top signature, calm pacing, Egg Heist fade, Sim checks and Gizmo tour (live.py 1836-1846)
         if self.bar.as_ref().is_none_or(|b| !bar::verify_bar(&im, b)) {
             if partial.is_some() {
+                self.diag.load.whole += 1;
                 match frames.grab(hwnd, None) {
                     Some(i) => {
                         im = i;
