@@ -1,0 +1,5 @@
+/target
+/reference/
+/log-reports/
+*.exe
+dev-token
