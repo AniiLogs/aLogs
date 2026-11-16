@@ -160,7 +160,7 @@ impl Meter {
     pub fn name_reader(&mut self) -> Option<&NameReader> {
         if self.font_reader.is_none() && !self.font_tried {
             self.font_tried = true;
-            self.font_reader = alogs_reader::gamefont::GameFont::open(&self.env.data, alogs_reader::gamefont::FONT_NAME).map(NameReader::new);
+            self.font_reader = alogs_reader::gamefont::GameFont::open(&self.env.data.join("gamefont"), alogs_reader::gamefont::FONT_NAME).map(NameReader::new);
         }
         self.font_reader.as_ref()
     }

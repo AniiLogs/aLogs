@@ -436,7 +436,19 @@ fn main() {
         cfg,
     };
     let ocr: Box<dyn Reader> = match Ocr::new(&res.join("ocr-helper.exe")) {
-        Ok(o) => Box::new(o),
+        Ok(mut o) => {
+            // Korean player names settled against the game's own fonts (the cache in <data>/gamefont)
+            use alogs_reader::gamefont::{FONT_NAME, GameFont, KOREAN_FONT};
+            let gf = data.join("gamefont");
+            match GameFont::open(&gf, FONT_NAME).map(|l| (l, GameFont::open(&gf, KOREAN_FONT))) {
+                Some((latin, Some(korean))) => {
+                    o.korean = Some(alogs_reader::hangul::KoreanNames::new(Some(latin), Some(korean)));
+                    log::info!("Korean names: on (the game's Korean font)");
+                }
+                _ => log::info!("Korean names: off (game font not readable: no cache from this game version)"),
+            }
+            Box::new(o)
+        }
         Err(e) => {
             log::warn!("OCR helper did not start ({e}): text is not read");
             Box::new(NoOcr)
