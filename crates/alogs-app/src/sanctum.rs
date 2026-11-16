@@ -83,16 +83,26 @@ pub(crate) fn dev_switches() -> (Vec<(String, u64, String)>, Vec<String>) {
     (on, ids(&status["devPersistent"]))
 }
 
-/// The bundled Sanctum Helper (resources/sanctumhelper), or a local build while developing.
-fn exe(app: &AppHandle) -> Option<PathBuf> {
+/// The bundled Sanctum Helper (resources/sanctumhelper, Assets beside it), or, while developing, the workspace's own
+/// Rust build next to this exe (crates/alogs-sanctum), with the reference's Assets (the map art is the game's: never
+/// in the repo). The second value is the Assets folder to pass, when it isn't beside the exe.
+fn exe(app: &AppHandle) -> Option<(PathBuf, Option<PathBuf>)> {
     if let Ok(res) = app.path().resource_dir() {
         let bundled = res.join("resources").join("sanctumhelper").join("SanctumHelper.exe");
         if bundled.exists() {
-            return Some(bundled);
+            return Some((bundled, None));
         }
     }
-    let dev = std::env::current_dir().ok()?.join("..").join("..").join("SanctumHelper").join("build").join("publish").join("SanctumHelper.exe");
-    dev.exists().then_some(dev)
+    let me = std::env::current_exe().ok()?;
+    let dev = me.with_file_name("SanctumHelper.exe");
+    if !dev.exists() {
+        return None;
+    }
+    // target/<profile>/alogs-app.exe -> the workspace
+    let assets = me.parent().and_then(|p| p.parent()).and_then(|p| p.parent())
+        .map(|root| root.join("reference").join("SanctumHelper").join("app").join("SanctumHelper").join("Assets"))
+        .filter(|a| a.exists());
+    Some((dev, assets))
 }
 
 /// Sanctum Helper's own switch alone: it doesn't depend on the DPS meter or the leaderboards (the button over the game
@@ -196,10 +206,13 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
     if !enabled(settings) || gone_for > 0 || now_ms() < state.blocked_until.load(Ordering::SeqCst) {
         return;
     }
-    let Some(path) = exe(app) else { return };
-    if !dotnet_desktop_installed() { return; }                       // the page offers to install the runtime
+    // (the Rust build needs no .NET runtime: nothing to install first)
+    let Some((path, assets)) = exe(app) else { return };
     let mut cmd = Command::new(&path);
     cmd.args(["--hosted", "--parent", &std::process::id().to_string()]).creation_flags(NO_WINDOW);
+    if let Some(a) = assets {
+        cmd.arg("--assets").arg(a);
+    }
     if crate::update::build_beta() > 0 {
         cmd.arg("--dev");   // the Dev tab's persistent switches are only ever loaded on a beta
     }
@@ -263,7 +276,7 @@ pub fn sanctum_state(app: AppHandle, state: State<Sanctum>) -> Value {
     }
     json!({
         "installed": exe(&app).is_some(),
-        "runtimeMissing": !dotnet_desktop_installed(),
+        "runtimeMissing": false,   // the Rust build needs no .NET runtime
         "running": running && fresh,
         "starting": running && !fresh,
         "standaloneRunning": state.blocked.load(Ordering::SeqCst),
@@ -380,7 +393,8 @@ pub fn sanctum_icon(app: AppHandle, name: String) -> Option<String> {
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;
     }
-    let dir = exe(&app)?.parent()?.join("Assets").join("icons");
+    let (path, assets) = exe(&app)?;
+    let dir = assets.unwrap_or_else(|| path.with_file_name("Assets")).join("icons");
     data_url(&dir.join(format!("{name}.png")))
 }
 

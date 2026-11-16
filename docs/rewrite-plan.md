@@ -133,8 +133,12 @@ pcstats (alogs-pcstats), diagnostics, housekeeping (cleanup, game-data refresh),
 clean shutdown. **alogs-app** is moved in (crates/alogs-app, with its ui) and starts the Rust meter; pictures of the game
 the UI shows are git-ignored. **alogs-sanctum** is started: settings, layouts and chest sets, the game log, the OpenCV subset Sanctum Helper uses (cv.rs, cv2.rs: byte-for-byte against OpenCvSharp 4.10 goldens from tools/cv-goldens), vision.rs (map art, minimap and island trackers, door locator, floor refiner, icons, heading) and features.rs (ORB, Hamming kNN, RANSAC similarity; MapMatcher), Lang, Windows OCR, the region placement and the party screen reader (Detectors), capture (game window, PrintWindow, screen, magnifier, the app's shared picture), the key hook and controller, and the engine (Engine.cs: main and heading loops, tracking, layout guess, run timer, full-map alignment; smoke-tested without a game).
 
-Still to port, in order: Sanctum Helper's OverlayWindow.cs, Hosted.cs (the `--hosted`
-contract), SharedNotices, ToastWindow, ChestPrompt, Analyzer,
-the app entry; then point alogs-app's sanctum.rs at it. In the meter: OcrWorker / names_first threads and the
-top-only / box-part captures and calm pacing (performance; behaviour is the same without them), dmgnumbers (paused in
-B16). Sanctum Helper's Dev switches are beta-only and all off by default: the port keeps the default behaviour.
+**alogs-sanctum is ported** and builds SanctumHelper.exe (the drop-in for the C# build, which alogs-app now starts):
+the map overlay (tiny-skia; Segoe UI read from Windows' fonts), hosted mode (settings reload, commands, info/status,
+layout pictures), notices (to the meter, else our own card), single instance. Not ported: the C# tray icon and
+settings window (the aLogs app is the settings UI), the Dev switches (none listed or on in info/status; their default
+behaviour is kept), ChestPrompt (a Dev-only reader), Analyzer and ConeRecord (offline developer tools), the uninstaller.
+Packaging: resources/sanctumhelper needs SanctumHelper.exe with Sanctum Helper's Assets folder beside it (a release
+step for the maintainer); while developing alogs-app runs target/<profile>/SanctumHelper.exe with the reference's
+Assets. Still to port in the meter: OcrWorker / names_first threads and the top-only / box-part captures and calm
+pacing (performance; behaviour is the same without them), dmgnumbers (paused in B16).
