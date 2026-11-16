@@ -14,3 +14,4 @@ pub mod ocr;
 pub mod detectors;
 pub mod shared_capture;
 pub mod capture;
+pub mod input;
