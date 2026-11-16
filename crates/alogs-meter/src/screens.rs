@@ -247,8 +247,24 @@ impl Meter {
         let head = heads.get("h").cloned().unwrap_or_default();
         let hl = letters(&head);
         let is_bd = hl.contains("battle") && hl.contains("dat") && !hl.contains("holo") && !hl.contains("buff");
+        if self.auto_active() && !is_result && !is_bd && now - self.auto.hold_started > 4.0 {
+            self.end_auto("screen changed");
+        }
         if is_result {
-            // TODO(port): the automatic Battle Data session (start_auto, open_battle_data), test_frame
+            let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));
+            if now - self.rs.result_seen >= 30.0 && !self.args.no_auto_click && !self.args.replay && fg {
+                self.start_auto(now); // a new result screen: before anything slow
+            }
+            // the first click once the screen is wholly read (result_ready), else RESULT_PAUSE in; retries every second
+            let ready = self.auto.clicks == 0 && self.rs.result_ready >= self.auto.hold_started;
+            if self.auto_active() && (now - self.auto.last_click > 1.0 || ready) {
+                if self.auto.clicks < 6 {
+                    self.open_battle_data(out, im, u, ux, h, fg);
+                } else {
+                    self.end_auto("Battle Data did not open after 6 clicks");
+                }
+            }
+            // TODO(port): test_frame
             let names = Self::result_names(im, u, ux, h);
             let banner = heads.get("cs").cloned().unwrap_or_default();
             self.result_screen(frames, out, im, now, u, ux, h, &banner, Some(names));

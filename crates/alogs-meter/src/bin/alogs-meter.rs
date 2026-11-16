@@ -287,6 +287,7 @@ fn main() {
         no_submit: argv.iter().any(|a| a == "--no-submit"),
         no_debug_frames: argv.iter().any(|a| a == "--no-debug-frames") || !cfg.get("capture").get("debug_frames").truthy(),
         no_overlay: true,
+        no_auto_click: true,
         player_log: player_log.clone(),
         cfg,
     };
@@ -325,6 +326,7 @@ fn main() {
     loop {
         let t = now();
         m.args.cfg = settings::load(&data); // TODO(port): reload_settings only when settings.json changed
+        m.args.no_auto_click = !settings::automation(&m.args.cfg, Some("auto_open_battle_data"));
         m.step(&mut live, &mut console);
         if t - last_status >= 1.0 {
             last_status = t;

@@ -642,7 +642,11 @@ impl Meter {
         log::info!(target: "meter", "result screen read {}: banner {}, -> {boss}: rating {rating:?}, score {score:?}, time {secs:?}, players {}", self.rs.result_reads, alogs_pyval::str_repr(banner), players_v(&players).repr());
         if rating.is_some() && score.is_some() && secs.is_some() && !players.is_empty() && players.iter().all(|p| !p.at("value").is_none()) && self.rs.result_ready < self.rs.result_seen {
             self.rs.result_ready = now;
-            // TODO(port): click_when_ready -> open_battle_data (the automatic Battle Data click, leaderboards.py)
+            // click_when_ready: the automatic Battle Data click with this frame, at once
+            if self.auto_active() && self.auto.clicks == 0 && !self.args.replay {
+                let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));
+                self.open_battle_data(out, im, u, ux, h, fg);
+            }
         }
         let best = banner.to_lowercase().contains("best");
         let result = |shot: &Option<String>, check: &Option<Value>, players: Value, reads: Option<i64>| {
@@ -996,9 +1000,8 @@ impl Meter {
                 self.fight_summary(&f.0, vec![("battle_data", bd)]);
                 self.last_fight = Some(f);
             }
-            if complete && let Some((p, _)) = self.rs.pending_run.take() {
-                self.rs.pending_run = Some((p, now));
-                // TODO(port): end_auto / send_late_battle_data (leaderboards.py)
+            if complete {
+                self.battle_data_done(lf, now);
             }
             return;
         }
@@ -1021,10 +1024,25 @@ impl Meter {
             self.fight_summary(&f.0, vec![("battle_data", bd)]);
             self.last_fight = Some(f);
         }
-        if complete && let Some((p, _)) = self.rs.pending_run.take() {
-            self.rs.pending_run = Some((p, now));
+        if complete {
+            self.battle_data_done(lf, now);
         }
         self.bd_note(&stamp, &msg, &cards, &text);
+    }
+
+    /// Both pictures are in and two reads agree: the run goes now, the automatic session stops, a sent run gets its
+    /// Battle Data late.
+    fn battle_data_done(&mut self, lf: bool, now: f64) {
+        if let Some((p, _)) = self.rs.pending_run.take() {
+            self.rs.pending_run = Some((p, now));
+        }
+        if self.auto.auto_until != 0.0 {
+            self.end_auto("Battle Data read");
+        }
+        if lf && self.submitter.is_some() {
+            let csv = self.last_fight.as_ref().map(|f| f.0.csv_name.clone()).unwrap_or_default();
+            self.send_late_battle_data(&csv);
+        }
     }
 
     fn bd_note(&self, stamp: &str, msg: &str, cards: &[Dict], text: &str) {

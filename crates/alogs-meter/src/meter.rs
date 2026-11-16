@@ -34,6 +34,7 @@ pub struct Args {
     pub no_submit: bool,
     pub no_debug_frames: bool,
     pub no_overlay: bool,
+    pub no_auto_click: bool,
     pub player_log: std::path::PathBuf,
 }
 
@@ -122,6 +123,7 @@ pub struct Meter {
     /// The end-screen readers' state.
     pub rs: crate::results::ResultsState,
     pub ss: crate::screens::ScreensState,
+    pub auto: crate::leaderboards::AutoState,
     pub submitter: Option<std::sync::Arc<crate::submit::Submitter>>,
     /// Your in-game name (only ever from the game).
     pub character_name: Option<String>,
@@ -221,6 +223,7 @@ impl Meter {
             frames: 0,
             rs: Default::default(),
             ss: Default::default(),
+            auto: Default::default(),
             submitter: None,
             character_name: None,
             font_reader: None,
@@ -674,6 +677,7 @@ impl Meter {
             self.status(out, "In a homeland: the meter is resting".into());
             return;
         }
+        self.check_pending_run(self.now()); // TODO(port): names_waiting (Battle Data waiting for its names counts)
         let now = self.now();
         let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay).then_some(TOP_PART);
         self.band_frame = false;

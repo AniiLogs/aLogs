@@ -3,6 +3,7 @@
 
 pub mod env;
 pub mod fights;
+pub mod leaderboards;
 pub mod meter;
 pub mod payloads;
 pub mod results;

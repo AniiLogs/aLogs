@@ -51,7 +51,7 @@ fn a_world_fight_starts_follows_and_ends() {
         && r["fixed_hp_rate"].contains("3101") && r["puppetId"].starts_with("21")).expect("a wild boss row").clone();
     let title = format!("Lv.55 {}", row["bossTitle_en"]);
     let args = Args { cfg: alogs_protocol::settings::defaults(), duration: 180.0, level: None, boss_id: None, replay: true,
-                      no_submit: true, no_debug_frames: true, no_overlay: true, player_log: PathBuf::new() };
+                      no_submit: true, no_debug_frames: true, no_overlay: true, no_auto_click: true, player_log: PathBuf::new() };
     let mut m = Meter::new(env, args, Box::new(FakeOcr(title, Default::default())), None);
     let full = Image::open_png(&frames_dir.join("bar14_1920x1080.png")).unwrap().convert(Mode::Rgb);   // a world bar, 83% full
     let blank = Image::new(Mode::Rgb, 1920, 1080, &[20, 20, 20]);
@@ -94,7 +94,7 @@ fn a_result_screen_lands_in_the_runs_summary() {
     let row = catalog.iter().find(|r| r["table"] == "puppet_data" && r["in_boss_rush"] != "yes" && r["puppetId"].starts_with("21")
         && r["fixed_hp_rate"].contains("3101") && !r["bossTitle_en"].is_empty()).unwrap().clone();
     let args = Args { cfg: alogs_protocol::settings::defaults(), duration: 180.0, level: None, boss_id: None, replay: true,
-                      no_submit: true, no_debug_frames: true, no_overlay: true, player_log: PathBuf::new() };
+                      no_submit: true, no_debug_frames: true, no_overlay: true, no_auto_click: true, player_log: PathBuf::new() };
     let ocr = Box::new(FakeOcr(format!("Lv.55 {}", row["bossTitle_en"]), Default::default()));
     let screen = ocr.1.lock().unwrap().clone();
     drop(screen);
