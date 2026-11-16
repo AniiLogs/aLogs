@@ -9,4 +9,4 @@ license = "MIT"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["float_roundtrip"] }   # goldens compare floats bit for bit
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }   # floats bit for bit; key order as Python keeps it

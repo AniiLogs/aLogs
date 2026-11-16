@@ -313,19 +313,54 @@ impl Value {
                     if i > 0 {
                         out.push_str(", ");
                     }
-                    let key = match k {
-                        Value::Str(s) => s.clone(),
-                        Value::Float(f) => json_float(*f),
-                        Value::None => "null".into(),
-                        Value::Bool(b) => if *b { "true" } else { "false" }.into(),
-                        other => other.repr(),
-                    };
-                    out.push_str(&json_str(&key));
+                    out.push_str(&json_key(k));
                     out.push_str(": ");
                     v.write_json(out);
                 }
                 out.push('}');
             }
+        }
+    }
+
+    /// `json.dumps(v, indent=n)`: one item per line, `n` spaces a level, `", "` becomes `","`.
+    pub fn json_dumps_indent(&self, n: usize) -> String {
+        let mut s = String::new();
+        self.write_json_indent(&mut s, n, 0);
+        s
+    }
+    fn write_json_indent(&self, out: &mut String, n: usize, level: usize) {
+        let pad = |out: &mut String, l: usize| {
+            out.push(char::from(10u8));
+            out.push_str(&" ".repeat(n * l));
+        };
+        match self {
+            Value::List(l) if !l.is_empty() => {
+                out.push('[');
+                for (i, v) in l.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    pad(out, level + 1);
+                    v.write_json_indent(out, n, level + 1);
+                }
+                pad(out, level);
+                out.push(']');
+            }
+            Value::Dict(d) if !d.is_empty() => {
+                out.push('{');
+                for (i, (k, v)) in d.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    pad(out, level + 1);
+                    out.push_str(&json_key(k));
+                    out.push_str(": ");
+                    v.write_json_indent(out, n, level + 1);
+                }
+                pad(out, level);
+                out.push('}');
+            }
+            v => v.write_json(out),
         }
     }
 
@@ -395,6 +430,17 @@ pub fn float_repr(f: f64) -> String {
         let _ = write!(out, "e{}{:02}", if exp < 0 { '-' } else { '+' }, exp.abs());
     }
     out
+}
+
+fn json_key(k: &Value) -> String {
+    let key = match k {
+        Value::Str(s) => s.clone(),
+        Value::Float(f) => json_float(*f),
+        Value::None => "null".into(),
+        Value::Bool(b) => if *b { "true" } else { "false" }.into(),
+        other => other.repr(),
+    };
+    json_str(&key)
 }
 
 fn json_float(f: f64) -> String {

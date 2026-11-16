@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.bin binary
+*.xdf binary
+*.png binary
+*.onnx binary
