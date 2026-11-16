@@ -3,5 +3,6 @@
 
 pub mod env;
 pub mod fights;
+pub mod payloads;
 pub mod results_parse;
 pub mod team;
