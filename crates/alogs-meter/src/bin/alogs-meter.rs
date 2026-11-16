@@ -466,6 +466,11 @@ fn main() {
     alogs_meter::ocrcheck::ocr_language_note(m.ocr.as_ref());
     m.ocr_check.checked = now();
     m.submitter = submitter.clone();
+    // housekeeping in the background: old screenshots hourly, the game's data every few hours
+    alogs_meter::housekeeping::start_cleanup(data.clone(), stop.clone());
+    let keep: Vec<(String, String)> = m.catalog.iter().filter(|r| r.get("monsterType").map(String::as_str) != Some("2"))
+        .map(|r| (r["table"].clone(), r["puppetId"].clone())).collect();
+    let game_data = alogs_meter::housekeeping::start_refresh(data.clone(), m.env.res.clone(), Some(player_log.clone()), keep, stop.clone());
     if let Some(u) = alogs_gamelog::last_uid(&player_log) {
         m.set_uid(&u);
     }
@@ -479,6 +484,7 @@ fn main() {
     let mut last_status = 0.0;
     loop {
         let t = now();
+        m.take_game_data(&game_data);
         let look = std::time::Instant::now();
         m.step(&mut live, &mut console);
         m.diag.peak_look = m.diag.peak_look.max(look.elapsed().as_secs_f64() * 1000.0);

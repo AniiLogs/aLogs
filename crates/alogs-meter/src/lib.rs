@@ -7,6 +7,7 @@ pub mod eggheist;
 pub mod env;
 pub mod fights;
 pub mod hits;
+pub mod housekeeping;
 pub mod leaderboards;
 pub mod menu;
 pub mod meter;
