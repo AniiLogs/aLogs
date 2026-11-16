@@ -121,14 +121,16 @@ Ported, each with parity tests against goldens written by the B16 Python (tools/
 | alogs-pil | the Pillow 12.3 operations the readers use | 846 cases bit-exact |
 | alogs-reader | reader.py, xn_digits.py, hangulnames.py, namereader.py, icons.py matchers, gamefont field, OCR helper client | 26 synthetic bar frames, name boxes, parsers |
 | alogs-capture | wincapture.py (shared capture reader, audio cues, window and input helpers) | stand-in app test |
-| alogs-meter | fights.py (Fight, Timer, BreakTracker, FightsMixin), results.py parsers, submit.py (payloads, sender), core Teammates/pills/signatures, Meter.step, the alogs-meter binary | scripted fights frame by frame, payloads, local API, step scenario |
+| alogs-meter | fights.py (Fight, Timer, BreakTracker, FightsMixin), results.py (result screen, Battle Data, Holo-Battle Sim Victory screen, Egg Heist screens, Challenge Stats), eggheist.py, leaderboards.py (bests, sending runs, late Battle Data, the automatic Battle Data click), live.py screen readers (prep, Party screens and their pictures, Interlink star caps, menu, Profile, Link character), submit.py (payloads, sender), core Teammates/pills/signatures, Meter.step, the alogs-meter binary | scripted fights frame by frame, payloads, local API, screen scenarios with a stand-in OCR, eggheist goldens |
 
 Known differences (documented where they are): Pillow's quantize (plain median cut here), text drawing (ab_glyph,
 not FreeType), proof JPEG bytes (jpeg-encoder, not libjpeg), font/icon extraction from the game's Unity bundles (the
 Python meter's cache is read).
 
-Still to port, in order: the end-screen readers (results.py ResultsMixin), eggheist.py, the leaderboards plug-in
-(leaderboards.py), live.py's screen readers (prep, Party, menu, profile, icons) and OcrWorker threads, the rest of
-core.py (cleanup, picture writer, cycle refresh), the overlays (dps_overlay.py, notice_window.py, layered.py,
-gamefont.render), focusguard.py, inputblock/controller (HidHide), pcstats.py, presence.py, dmgnumbers.py; then the
-app shell move-in (alogs-app) and Sanctum Helper (C#). `TODO(port)` marks each place the meter calls one of these.
+Still to port, in order: the Holo-Battle Sim Gizmo tour and exit gate (leaderboards.py sim_tour_*, sim_gate), holding
+inputs (inputblock/controller, HidHide, reWASD, focusguard.py), live.py's OcrWorker / names_first threads, profile notes
+(EXP), test pictures and samples, reload_settings, away_note, snapshot/load_line, the OCR language checks, top-signature
+calm pacing, game_events' full handling, the boss kill sound; the rest of core.py (cleanup, picture writer, cycle
+refresh); the overlays (dps_overlay.py, notice_window.py, layered.py, gamefont.render), pcstats.py, presence.py,
+dmgnumbers.py; then the app shell move-in (alogs-app) and Sanctum Helper (C#). `TODO(port)` marks each place the meter
+calls one of these.
