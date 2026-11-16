@@ -19,4 +19,5 @@ pub mod submit;
 pub mod results_parse;
 pub mod screens;
 pub mod sim;
+pub mod sim_tour;
 pub mod team;

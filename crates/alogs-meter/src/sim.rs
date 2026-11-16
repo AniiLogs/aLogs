@@ -28,7 +28,13 @@ pub struct SimState {
     pub test: bool,
     /// The team named from the cards' art (sim_species_team).
     pub species_team: Option<Value>,
-    pub control: bool,
+    pub ctl: Option<crate::sim_tour::SimCtl>,
+    pub tour: Option<crate::sim_tour::Tour>,
+    pub gate: crate::sim_tour::GateState,
+    pub press: alogs_capture::input::PressWatch,
+    pub test_down: bool,
+    /// The test key asks for the open fight to end (step does it).
+    pub test_pending_end: bool,
 }
 
 fn s(v: &str) -> Value {
@@ -233,14 +239,9 @@ impl Meter {
         sim.insert(s("setup"), Value::Dict(setup));
         let shot = self.picture(frames, im, "screens", &format!("sim_{}", local(now, "%Y%m%d_%H%M%S")), true, true);
         self.sim.pending = Some((Value::Dict(sim), shot));
-        if !self.sim_tour_start(now) {
+        if !self.sim_tour_start(out, now) {
             self.sim_send(out, None);
         }
-    }
-
-    /// TODO(port): the Gizmo screen tour (Leaderboards › Automation › read the gizmos). Never starts for now.
-    pub fn sim_tour_start(&mut self, _now: f64) -> bool {
-        false
     }
 
     fn sim_species_team(&mut self, sim: &mut Dict) {
@@ -300,14 +301,6 @@ impl Meter {
         self.sim_release("the run is saved");
     }
 
-    /// TODO(port): control given back (input hold, reWASD, focus guard, controllers).
-    pub fn sim_release(&mut self, why: &str) {
-        if !self.sim.control {
-            return;
-        }
-        self.sim.control = false;
-        log::info!(target: "meter", "Holo-Battle Sim: control given back ({why})");
-    }
 }
 
 /// A `{str: str}` dict's repr.

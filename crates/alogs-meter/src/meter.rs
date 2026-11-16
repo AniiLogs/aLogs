@@ -788,7 +788,7 @@ impl Meter {
         }
         self.check_pending_run(self.now()); // TODO(port): names_waiting (Battle Data waiting for its names counts)
         let now = self.now();
-        let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay).then_some(TOP_PART);
+        let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay && self.sim.tour.is_none()).then_some(TOP_PART);
         self.band_frame = false;
         if partial.is_some() && !self.text_due(now) && self.frame_size.1 != 0 {
             let b = self.bar.as_ref().unwrap();
@@ -828,7 +828,21 @@ impl Meter {
         if !self.quiet {
             self.hit_watch(frames, now);
         }
-        // TODO(port): top signature, calm pacing, Egg Heist fade, Sim checks and Gizmo tour (live.py 1836-1846)
+        // TODO(port): top signature, calm pacing, Egg Heist fade (live.py 1836-1846)
+        self.sim_check(now);
+        if self.holosim_space && !self.args.replay {
+            self.sim_test_key(); // Ctrl+Shift+F11: test the Sim end
+            if std::mem::take(&mut self.sim.test_pending_end) && self.fight.is_some() {
+                self.end_fight(out, "Holo-Battle Sim test");
+            }
+        }
+        // the Gizmo tour first, before any bar search (its list's lines looked like boss bars)
+        if self.sim.tour.is_some() && partial.is_none() && self.sim_tour_step(frames, out, &im, now) {
+            return;
+        }
+        if self.bar.is_none() && self.holosim_space {
+            self.sim_gate(&im, now, fg);
+        }
         if self.bar.as_ref().is_none_or(|b| !bar::verify_bar(&im, b)) {
             if partial.is_some() {
                 self.diag.load.whole += 1;
@@ -924,7 +938,9 @@ impl Meter {
                 if self.fight.is_some() {
                     self.end_fight(out, "boss bar gone");
                 }
-                // TODO(port): sim_tour_step
+                if self.sim_tour_step(frames, out, &im, now) {
+                    return;
+                }
                 self.save_end_screens(&im, now);
                 self.save_nobar(&im, now);
                 self.save_bar_lost(&im, now);
