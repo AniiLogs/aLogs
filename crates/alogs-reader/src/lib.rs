@@ -3,6 +3,9 @@
 
 pub mod bar;
 pub mod boss;
+pub mod gamefont;
+pub mod hangul;
+pub mod ocr;
 pub mod parse;
 pub mod prep;
 pub mod text;
