@@ -3,3 +3,5 @@
 /log-reports/
 *.exe
 dev-token
+/tools/cv-goldens/bin/
+/tools/cv-goldens/obj/
