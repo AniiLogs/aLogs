@@ -1,0 +1,3001 @@
+[2027-01-15 08:00:00.331][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:00:04.050][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:5-100000000001-550
+[2027-01-15 08:00:06.381] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:00:07.795][warn] clearSpace is_destroy:false id:8-200000000002-1201
+[2027-01-15 08:00:08.813][info] 
+[2027-01-15 08:00:09.896][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:00:10.168][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] 
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-200000000002-1201 callerId=123456
+[2027-01-15 08:00:15.625] createVoxelScene new>>>id:1-100000000001-1201
+[2027-01-15 08:00:16.756][info] createVoxelScene new>>>id:7-200000000002-550 callerId=12345
+load scene fb_bossrush_03
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:00:19.180][info] createVoxelScene new>>>id:4-100000000001-1201 callerId=100000000002
+[2027-01-15 08:00:20.269][warn] pl�ain� line with nothing in it
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+info about ][info] in the middle
+[2027-01-15 08:00:23.063][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-100000000001-3301
+[2027-01-15 08:00:25.549] info about ][info] in the middle
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:00:28.147] createVoxelScene new>>>id:5-200000000002-3301 callerId=123456
+[2027-01-15 08:00:29.528] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] pl�ain� line with nothing in it
+[2027-01-15 08:00:31.930][info] clearSpace is_destroy:false id:4-200000000002-3301
+[2027-01-15 08:00:32.627][info] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:00:35.225] clearSpace is_destroy:true id:8-100000000001-1201
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-100000000001-1201 callerId=100000000001
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:00:39.761] createVoxelScene new>>>id:3-100000000001-550
+createVoxelScene new>>>id:8-200000000002-550
+[2027-01-15 08:00:41.021] clearSpace is_destroy:true id:9-100000000001-1201
+[2027-01-15 08:00:42.845][info] clearSpace is_destroy:false id:5-100000000001-1201
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-200000000002-3301
+[2027-01-15 08:00:45.544][info] net request callerId=100000000001 op=Get
+[2027-01-15 08:00:46.794][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:00:47.569] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:00:48.254][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:00:49.575] clearSpace is_destroy:true id:8-200000000002-3301
+[2027-01-15 08:00:50.709][warn] clearSpace is_destroy:false id:9-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:9-100000000001-1201
+[2027-01-15 08:00:52.426] clearSpace is_destroy:false id:8-200000000002-550
+[2027-01-15 08:00:53.438] pl�ain� line with nothing in it
+[2027-01-15 08:00:54.146][warn] download https://cdn.example/prod/other/file ok
+unicode é中 text createVoxelScene new>>>id:
+bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:00:59.524] load scene fb_bossrush_03
+[2027-01-15 08:01:00.278] load scene fb_bossrush_03
+[2027-01-15 08:01:01.415][info] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:01:03.649] load scene fb_bossrush_03
+[2027-01-15 08:01:04.883] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:01:05.948][warn] createVoxelScene new>>>id:1-100000000001-550 callerId=100000000002
+[2027-01-15 08:01:06.268] load scene fb_roguelike_holo
+[2027-01-15 08:01:07.543][info] pl�ain� line with nothing in it
+[2027-01-15 08:01:08.822] clearSpace is_destroy:true id:1-100000000001-550
+unicode é中 text createVoxelScene new>>>id:
+clearSpace is_destroy:true id:9-200000000002-3301
+[2027-01-15 08:01:11.235][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:01:12.857][info] createVoxelScene new>>>id:2-200000000002-1201 callerId=100000000001
+[2027-01-15 08:01:13.056] clearSpace is_destroy:false id:9-200000000002-3301
+[2027-01-15 08:01:14.709][warn] load scene fb_bossrush_03
+[2027-01-15 08:01:15.456] bossrush ui opened
+[2027-01-15 08:01:16.250] net request callerId=123456 op=Get
+clearSpace is_destroy:true id:8-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-200000000002-550
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:01:20.644][info] info about ][info] in the middle
+[2027-01-15 08:01:21.782][warn] createVoxelScene new>>>id:3-200000000002-3301
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-100000000001-550
+[2027-01-15 08:01:24.652][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:01:25.642] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:01:26.816] 
+[2027-01-15 08:01:27.258] createVoxelScene new>>>id:tab	here
+clearSpace is_destroy:true id:8-200000000002-550
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] 
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+download https://cdn.example/prod/pet_jewelry/12345 ok
+createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:01:36.908] info about ][info] in the middle
+[2027-01-15 08:01:37.025][info] load scene fb_roguelike_holo
+[2027-01-15 08:01:38.744][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:01:39.860][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:01:40.962][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:01:42.287] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:01:46.497] bossrush ui opened
+[2027-01-15 08:01:47.288][warn] clearSpace is_destroy:false id:5-200000000002-3301
+createVoxelScene new>>>id:2-100000000001-3301 callerId=12345
+[2027-01-15 08:01:49.076][info] bossrush ui opened
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:01:51.178][warn] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:01:54.510][warn] load scene fb_bossrush_03
+[2027-01-15 08:01:55.918][info] load scene fb_roguelike_holo
+[2027-01-15 08:01:56.869] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+createVoxelScene new>>>id:2-100000000001-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:02:00.001][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:8-200000000002-1201
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] 
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:02:07.947][warn] bossrush ui opened
+load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:02:10.784][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:3-200000000002-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+createVoxelScene new>>>id:6-100000000001-550 callerId=12345
+[2027-01-15 08:02:15.337][info] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:6-200000000002-1201 callerId=12345
+[2027-01-15 08:02:17.111] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:02:18.978] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:02:19.089] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:02:20.197][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:02:22.064] bossrush ui opened
+[2027-01-15 08:02:23.371][warn] bossrush ui opened
+[2027-01-15 08:02:24.946][warn] clearSpace is_destroy:false id:1-100000000001-550
+
+createVoxelScene new>>>id:1-200000000002-3301
+[2027-01-15 08:02:27.621][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:02:28.524][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:02:29.665] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:02:30.904] download https://cdn.example/prod/other/file ok
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+createVoxelScene new>>>id:3-100000000001-550
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+load scene fb_roguelike_holo
+[2027-01-15 08:02:38.238] pl�ain� line with nothing in it
+[2027-01-15 08:02:39.524][info] pl�ain� line with nothing in it
+[2027-01-15 08:02:40.222] clearSpace is_destroy:true id:6-100000000001-550
+[2027-01-15 08:02:41.261] pl�ain� line with nothing in it
+[2026-13-01 00:00:00.5] 
+createVoxelScene new>>>id:7-100000000001-1201
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:02:45.419][warn] pl�ain� line with nothing in it
+info about ][info] in the middle
+[2027-01-15 08:02:47.208] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] pl�ain� line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-1201 callerId=100000000002
+[2027-01-15 08:02:51.533][info] clearSpace is_destroy:true id:2-200000000002-1201
+[2027-01-15 08:02:52.308][info] info about ][info] in the middle
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-200000000002-3301
+createVoxelScene new>>>id:4-100000000001-1201 callerId=100000000002
+[2027-01-15 08:02:55.392][warn] clearSpace is_destroy:true id:3-100000000001-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:7-200000000002-3301
+net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:03:00.856][info] createVoxelScene new>>>id:7-100000000001-550
+download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:03:04.198][info] clearSpace is_destroy:false id:5-100000000001-3301
+[2027-01-15 08:03:05.067][warn] load scene fb_bossrush_03
+load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:6-200000000002-550
+createVoxelScene new>>>id:5-200000000002-1201 callerId=100000000002
+[2027-01-15 08:03:09.811][warn] pl�ain� line with nothing in it
+pl�ain� line with nothing in it
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:03:12.452][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-100000000001-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:7-200000000002-550
+[2027-01-15 08:03:15.500][info] pl�ain� line with nothing in it
+[2027-01-15 08:03:16.311] load scene fb_roguelike_holo
+[2027-01-15 08:03:17.603][info] createVoxelScene new>>>id:6-200000000002-550
+[2027-01-15 08:03:18.014][info] createVoxelScene new>>>id:8-100000000001-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-200000000002-550 callerId=123456
+[2027-01-15 08:03:21.925] createVoxelScene new>>>id:1-100000000001-1201 callerId=100000000001
+[2027-01-15 08:03:22.243][info] clearSpace is_destroy:true id:2-100000000001-3301
+createVoxelScene new>>>id:9-200000000002-3301 callerId=100000000002
+[2027-01-15 08:03:24.520][warn] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:03:28.728] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:03:30.926][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+[2027-01-15 08:03:32.878] info about ][info] in the middle
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+[2027-01-15 08:03:34.114] net request callerId=100000000002 op=Get
+[2027-01-15 08:03:35.031] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:03:37.109][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:5-200000000002-550
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:03:40.267] pl�ain� line with nothing in it
+[2027-01-15 08:03:41.932][warn] net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] pl�ain� line with nothing in it
+[2027-01-15 08:03:45.502] pl�ain� line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:3-200000000002-550
+[2027-01-15 08:03:47.510][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:03:48.643][warn] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:7-100000000001-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:6-200000000002-3301
+load scene fb_bossrush_03
+[2027-01-15 08:03:53.593][info] clearSpace is_destroy:false id:6-200000000002-3301
+[2027-01-15 08:03:54.519][info] createVoxelScene new>>>id:5-100000000001-3301
+[2027-01-15 08:03:55.998][info] clearSpace is_destroy:false id:9-200000000002-550
+[2027-01-15 08:03:56.335][info] download https://cdn.example/prod/other/file ok
+load scene fb_roguelike_holo
+[2027-01-15 08:03:58.445][warn] clearSpace is_destroy:true id:2-100000000001-1201
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:04:00.710][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:04:02.866][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:04:03.320][warn] createVoxelScene new>>>id:7-100000000001-1201 callerId=100000000001
+unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:04:06.929] clearSpace is_destroy:true id:5-100000000001-550
+[2027-01-15 08:04:07.531][warn] 
+[2027-01-15 08:04:08.524] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] pl�ain� line with nothing in it
+[2027-01-15 08:04:10.652] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:04:11.013] load scene fb_bossrush_03
+[2027-01-15 08:04:12.111][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:04:13.217][info] clearSpace is_destroy:false id:2-100000000001-1201
+[2027-01-15 08:04:14.834][info] createVoxelScene new>>>id:7-200000000002-1201
+info about ][info] in the middle
+[2027-01-15 08:04:16.703][warn] load scene fb_bossrush_03
+[2027-01-15 08:04:17.366][info] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:04:19.058] net request callerId=123456 op=Get
+[2027-01-15 08:04:20.673] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:04:21.592][info] createVoxelScene new>>>id:3-200000000002-1201
+
+[2027-01-15 08:04:23.709][info] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+createVoxelScene new>>>id:8-100000000001-1201 callerId=100000000002
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:04:27.681][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-200000000002-1201
+[2027-01-15 08:04:30.034][info] pl�ain� line with nothing in it
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:04:33.413][warn] 
+[2027-01-15 08:04:34.810] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+[2027-01-15 08:04:37.047][info] createVoxelScene new>>>id:1-200000000002-3301
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:04:39.640][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:04:41.883][warn] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2027-01-15 08:04:46.437] download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:5-100000000001-1201 callerId=100000000001
+[2027-01-15 08:04:48.944] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-200000000002-1201 callerId=100000000001
+createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-100000000001-1201 callerId=100000000002
+bossrush ui opened
+[2027-01-15 08:04:54.299][warn] load scene fb_roguelike_holo
+info about ][info] in the middle
+[2027-01-15 08:04:56.616][info] load scene fb_bossrush_03
+createVoxelScene new>>>id:1-200000000002-550
+[2026-13-01 00:00:00.5] 
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+net request callerId=12345 op=Get
+pl�ain� line with nothing in it
+[2027-01-15 08:05:02.790] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:6-200000000002-1201
+[2027-01-15 08:05:05.252] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:05:06.806] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] 
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+clearSpace is_destroy:true id:5-100000000001-1201
+pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:05:12.944] clearSpace is_destroy:false id:5-200000000002-3301
+[2027-01-15 08:05:13.656] pl�ain� line with nothing in it
+[2027-01-15 08:05:14.988][info] pl�ain� line with nothing in it
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:05:16.057] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] pl�ain� line with nothing in it
+createVoxelScene new>>>id:6-200000000002-1201 callerId=100000000001
+[2027-01-15 08:05:19.451][info] clearSpace is_destroy:true id:1-200000000002-3301
+[2027-01-15 08:05:20.818] pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:05:22.643] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-100000000001-1201
+load scene fb_bossrush_03
+[2027-01-15 08:05:26.584][warn] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:05:29.263][info] clearSpace is_destroy:false id:7-200000000002-550
+load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-200000000002-3301
+[2027-01-15 08:05:32.453] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+createVoxelScene new>>>id:5-100000000001-550 callerId=100000000002
+[2027-01-15 08:05:34.534][info] 
+[2027-01-15 08:05:35.779][warn] clearSpace is_destroy:true id:4-100000000001-3301
+[2027-01-15 08:05:36.596][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] 
+[2026-02-30 25:00:00.1] pl�ain� line with nothing in it
+[2027-01-15 08:05:40.037][info] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:2-200000000002-3301
+[2027-01-15 08:05:42.836][warn] 
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:9-100000000001-550
+[2027-01-15 08:05:44.990] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:1-100000000001-3301
+[2027-01-15 08:05:46.267] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:05:47.105][warn] download https://cdn.example/prod/other/file ok
+info about ][info] in the middle
+[2027-01-15 08:05:49.905][info] createVoxelScene new>>>id:tab	here
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:05:52.410][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+[2027-01-15 08:05:54.373] clearSpace is_destroy:true id:2-200000000002-1201
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:05:58.256] load scene fb_roguelike_holo
+[2027-01-15 08:05:59.115][warn] load scene fb_bossrush_03
+createVoxelScene new>>>id:8-100000000001-3301
+[2027-01-15 08:06:01.906][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:06:04.480][warn] clearSpace is_destroy:true id:4-200000000002-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:7-100000000001-1201 callerId=12345
+[2027-01-15 08:06:06.882][info] load scene fb_bossrush_03
+[2027-01-15 08:06:07.291][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:06:08.620][warn] pl�ain� line with nothing in it
+[2027-01-15 08:06:09.753] pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] 
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-200000000002-3301
+[2027-01-15 08:06:13.427][warn] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:06:15.663][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:06:17.595][info] clearSpace is_destroy:false id:6-200000000002-3301
+[2027-01-15 08:06:18.981][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:06:22.537][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] pl�ain� line with nothing in it
+[2027-01-15 08:06:25.325][warn] load scene fb_roguelike_holo
+[2027-01-15 08:06:26.706][warn] clearSpace is_destroy:true id:3-200000000002-3301
+[2027-01-15 08:06:27.517][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] net request callerId=100000000001 op=Get
+[2027-01-15 08:06:30.684] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:06:32.148][info] createVoxelScene new>>>id:1-100000000001-550 callerId=100000000001
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:06:35.173] clearSpace is_destroy:true id:2-100000000001-1201
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:06:37.596] clearSpace is_destroy:false id:1-100000000001-550
+[2027-01-15 08:06:38.045][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:06:41.022][info] info about ][info] in the middle
+[2027-01-15 08:06:42.191] bossrush ui opened
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:06:44.845][warn] load scene fb_roguelike_holo
+[2027-01-15 08:06:45.352][info] net request callerId=12345 op=Get
+[2027-01-15 08:06:46.349][info] load scene fb_bossrush_03
+[2027-01-15 08:06:47.557][info] pl�ain� line with nothing in it
+[2027-01-15 08:06:48.361][info] 
+[2027-01-15 08:06:49.516][info] load scene fb_bossrush_03
+clearSpace is_destroy:true id:9-100000000001-1201
+[2027-01-15 08:06:51.128] info about ][info] in the middle
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:06:53.711][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:06:55.735][warn] info about ][info] in the middle
+[2027-01-15 08:06:56.289][warn] createVoxelScene new>>>id:8-100000000001-1201 callerId=12345
+[2027-01-15 08:06:57.030][warn] createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-200000000002-550 callerId=100000000002
+[2027-01-15 08:07:00.441][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:07:01.565][warn] load scene fb_bossrush_03
+load scene fb_roguelike_holo
+[2027-01-15 08:07:03.922] bossrush ui opened
+[2027-01-15 08:07:04.215][warn] clearSpace is_destroy:false id:7-200000000002-3301
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:9-100000000001-3301
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:07:09.172][warn] load scene fb_roguelike_holo
+[2027-01-15 08:07:10.140][info] clearSpace is_destroy:false id:8-100000000001-3301
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+clearSpace is_destroy:true id:3-200000000002-1201
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:1-200000000002-1201
+[2027-01-15 08:07:15.044] load scene fb_roguelike_holo
+[2027-01-15 08:07:16.458] pl�ain� line with nothing in it
+[2027-01-15 08:07:17.296][info] 
+[2026-02-30 25:00:00.1] 
+pl�ain� line with nothing in it
+[2027-01-15 08:07:20.941] createVoxelScene new>>>id:5-100000000001-550
+[2027-01-15 08:07:21.765] pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:07:23.388][info] createVoxelScene new>>>id:6-100000000001-1201
+[2027-01-15 08:07:24.564][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:5-100000000001-550
+[2027-01-15 08:07:27.167][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:07:28.490][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:07:29.146][warn] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:07:30.449] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] bossrush ui opened
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:07:33.830] 
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:07:35.868][info] pl�ain� line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:07:37.405][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:07:38.226][warn] 
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-200000000002-3301 callerId=100000000001
+[2027-01-15 08:07:42.991][info] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:07:43.414][info] clearSpace is_destroy:true id:6-100000000001-550
+[2027-01-15 08:07:44.470][warn] clearSpace is_destroy:true id:3-200000000002-550
+[2027-01-15 08:07:45.576] bossrush ui opened
+[2026-02-30 25:00:00.1] pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] pl�ain� line with nothing in it
+[2027-01-15 08:07:48.102][warn] clearSpace is_destroy:false id:2-100000000001-3301
+[2027-01-15 08:07:49.260][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:07:50.116] createVoxelScene new>>>id:2-100000000001-1201 callerId=12345
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] bossrush ui opened
+createVoxelScene new>>>id:1-100000000001-550 callerId=12345
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:07:55.402][info] clearSpace is_destroy:true id:6-200000000002-3301
+[2027-01-15 08:07:56.318][info] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:6-100000000001-550
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:08:00.279] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:08:02.371][warn] bossrush ui opened
+[2027-01-15 08:08:03.757][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:08:04.721][warn] clearSpace is_destroy:false id:8-200000000002-550
+[2027-01-15 08:08:05.357][info] createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:08:07.147][warn] clearSpace is_destroy:true id:5-200000000002-550
+[2027-01-15 08:08:08.597] pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-200000000002-1201 callerId=12345
+[2027-01-15 08:08:10.282][warn] net request callerId=100000000001 op=Get
+[2027-01-15 08:08:11.223] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:08:13.986][info] bossrush ui opened
+[2027-01-15 08:08:14.736][info] net request callerId=100000000001 op=Get
+[2027-01-15 08:08:15.655][warn] net request callerId=100000000001 op=Get
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:08:17.815] info about ][info] in the middle
+bossrush ui opened
+createVoxelScene new>>>id:3-100000000001-550
+[2027-01-15 08:08:20.215][info] pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:08:23.572][warn] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:2-200000000002-550
+[2027-01-15 08:08:25.410] clearSpace is_destroy:true id:3-100000000001-550
+[2027-01-15 08:08:26.568][info] createVoxelScene new>>>id:6-100000000001-550 callerId=123456
+[2027-01-15 08:08:27.541] clearSpace is_destroy:true id:4-200000000002-1201
+[2027-01-15 08:08:28.651][warn] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] pl�ain� line with nothing in it
+[2027-01-15 08:08:30.061][info] clearSpace is_destroy:false id:7-200000000002-3301
+[2027-01-15 08:08:31.031][warn] clearSpace is_destroy:false id:5-200000000002-550
+[2027-01-15 08:08:32.362][info] 
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:08:34.289] createVoxelScene new>>>id:1-200000000002-550 callerId=123456
+[2026-02-30 25:00:00.1] pl�ain� line with nothing in it
+net request callerId=100000000002 op=Get
+[2027-01-15 08:08:37.824] createVoxelScene new>>>id:1-100000000001-1201
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+clearSpace is_destroy:false id:7-200000000002-550
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:1-100000000001-3301
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:08:42.899] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:08:43.002][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:08:44.542][warn] clearSpace is_destroy:false id:2-200000000002-550
+[2027-01-15 08:08:45.748] load scene fb_bossrush_03
+[2027-01-15 08:08:46.070] pl�ain� line with nothing in it
+[2027-01-15 08:08:47.273] load scene fb_roguelike_holo
+[2027-01-15 08:08:48.561][warn] bossrush ui opened
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:08:50.823][info] info about ][info] in the middle
+[2027-01-15 08:08:51.246][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+clearSpace is_destroy:false id:9-200000000002-3301
+[2027-01-15 08:08:57.145] createVoxelScene new>>>id:9-100000000001-3301 callerId=123456
+[2027-01-15 08:08:58.832][warn] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+pl�ain� line with nothing in it
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+createVoxelScene new>>>id:8-200000000002-3301 callerId=100000000001
+[2026-13-01 00:00:00.5] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-200000000002-550 callerId=100000000002
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+clearSpace is_destroy:true id:9-200000000002-550
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:09:09.384][warn] load scene fb_bossrush_03
+[2027-01-15 08:09:10.360][info] plain line with nothing in it
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/pet_jewelry/12345 ok
+clearSpace is_destroy:false id:3-100000000001-3301
+[2027-01-15 08:09:15.758][info] load scene fb_roguelike_holo
+[2027-01-15 08:09:16.567][warn] clearSpace is_destroy:false id:8-100000000001-550
+[2027-01-15 08:09:17.868] clearSpace is_destroy:true id:2-200000000002-550
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-200000000002-550
+[2027-01-15 08:09:20.328][warn] load scene fb_bossrush_03
+[2027-01-15 08:09:21.532][warn] load scene fb_roguelike_holo
+clearSpace is_destroy:false id:1-200000000002-1201
+clearSpace is_destroy:true id:9-200000000002-1201
+[2027-01-15 08:09:24.134] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:09:28.298][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:09:29.208][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:09:30.050][info] createVoxelScene new>>>id:8-100000000001-550 callerId=100000000001
+[2027-01-15 08:09:31.510][info] clearSpace is_destroy:true id:4-100000000001-550
+[2027-01-15 08:09:32.528] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:09:33.424][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:09:35.776][info] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+info about ][info] in the middle
+[2027-01-15 08:09:39.117] download https://cdn.example/prod/pet_jewelry/123456 ok
+clearSpace is_destroy:true id:1-200000000002-550
+[2027-01-15 08:09:41.496][warn] createVoxelScene new>>>id:9-100000000001-550
+[2027-01-15 08:09:42.481][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:09:43.990] load scene fb_roguelike_holo
+[2027-01-15 08:09:44.051][info] clearSpace is_destroy:false id:6-200000000002-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:09:47.472] createVoxelScene new>>>id:1-100000000001-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-200000000002-3301 callerId=123456
+[2027-01-15 08:09:49.368][info] 
+[2027-01-15 08:09:50.310][info] download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:09:52.251][info] clearSpace is_destroy:true id:9-200000000002-1201
+clearSpace is_destroy:false id:3-100000000001-3301
+[2027-01-15 08:09:54.911] clearSpace is_destroy:true id:2-100000000001-1201
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:09:58.841][info] clearSpace is_destroy:true id:6-100000000001-550
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:10:00.606][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:10:01.090][info] plain line with nothing in it
+[2027-01-15 08:10:02.788][info] bossrush ui opened
+[2027-01-15 08:10:03.725] bossrush ui opened
+[2027-01-15 08:10:04.929] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:10:06.138][warn] createVoxelScene new>>>id:1-200000000002-3301 callerId=123456
+load scene fb_bossrush_03
+[2027-01-15 08:10:08.768][info] clearSpace is_destroy:false id:4-200000000002-3301
+bossrush ui opened
+bossrush ui opened
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:10:12.618] load scene fb_roguelike_holo
+[2027-01-15 08:10:13.468][info] plain line with nothing in it
+load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:7-100000000001-550
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:10:17.340][info] info about ][info] in the middle
+info about ][info] in the middle
+[2027-01-15 08:10:19.539] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:10:21.138][warn] load scene fb_bossrush_03
+[2027-01-15 08:10:22.980][warn] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:10:26.140] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:10:27.401][info] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:10:29.707][warn] plain line with nothing in it
+[2027-01-15 08:10:30.915][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:9-200000000002-3301 callerId=12345
+[2027-01-15 08:10:36.797][warn] 
+[2026-13-01 00:00:00.5] plain line with nothing in it
+net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:6-200000000002-1201
+[2027-01-15 08:10:40.907] createVoxelScene new>>>id:7-100000000001-1201 callerId=100000000001
+[2027-01-15 08:10:41.660][info] bossrush ui opened
+createVoxelScene new>>>id:6-200000000002-550
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:10:44.698] clearSpace is_destroy:false id:2-100000000001-3301
+createVoxelScene new>>>id:4-200000000002-3301
+[2027-01-15 08:10:46.154][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:10:48.627][warn] clearSpace is_destroy:true id:9-200000000002-3301
+[2027-01-15 08:10:49.925][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:10:50.368] net request callerId=100000000001 op=Get
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:10:53.229][warn] clearSpace is_destroy:true id:6-100000000001-550
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:10:55.434][warn] download https://cdn.example/prod/other/file ok
+bossrush ui opened
+[2027-01-15 08:10:57.673][warn] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-200000000002-3301
+net request callerId=100000000002 op=Get
+[2027-01-15 08:11:00.449][info] load scene fb_roguelike_holo
+[2027-01-15 08:11:01.765] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-200000000002-3301 callerId=123456
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:11:04.757][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:11:05.791] 
+[2027-01-15 08:11:06.497] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-200000000002-550
+[2027-01-15 08:11:10.013] net request callerId=100000000002 op=Get
+[2027-01-15 08:11:11.832] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:11:12.879][warn] clearSpace is_destroy:true id:9-200000000002-1201
+[2027-01-15 08:11:13.007][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:11:14.605][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:11:15.779] clearSpace is_destroy:false id:8-100000000001-1201
+[2026-02-30 25:00:00.1] 
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:1-100000000001-550
+[2027-01-15 08:11:19.821] clearSpace is_destroy:false id:8-100000000001-1201
+[2027-01-15 08:11:20.963][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:11:22.191][info] info about ][info] in the middle
+[2027-01-15 08:11:23.938] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:11:24.722] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:11:26.213] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:2-100000000001-3301
+[2027-01-15 08:11:28.870] load scene fb_roguelike_holo
+[2027-01-15 08:11:29.780][warn] net request callerId=100000000002 op=Get
+[2027-01-15 08:11:30.080] info about ][info] in the middle
+net request callerId=100000000002 op=Get
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:11:33.452][warn] net request callerId=100000000002 op=Get
+
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:11:36.550] net request callerId=123456 op=Get
+[2027-01-15 08:11:37.788][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:11:38.845][warn] download https://cdn.example/prod/other/file ok
+clearSpace is_destroy:false id:4-100000000001-3301
+net request callerId=100000000001 op=Get
+[2027-01-15 08:11:41.731][warn] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:11:43.263] createVoxelScene new>>>id:4-200000000002-3301
+[2027-01-15 08:11:44.671] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:11:45.747] createVoxelScene new>>>id:2-200000000002-550
+[2027-01-15 08:11:46.570] createVoxelScene new>>>id:9-200000000002-1201 callerId=12345
+[2027-01-15 08:11:47.921] createVoxelScene new>>>id:5-200000000002-1201 callerId=123456
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:8-200000000002-1201
+bossrush ui opened
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:4-100000000001-550 callerId=100000000001
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:5-100000000001-550
+[2027-01-15 08:11:52.492] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+[2027-01-15 08:11:54.274][info] plain line with nothing in it
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:11:56.893][info] clearSpace is_destroy:false id:5-200000000002-550
+[2027-01-15 08:11:57.664][info] 
+[2027-01-15 08:11:58.269] clearSpace is_destroy:false id:2-200000000002-1201
+[2027-01-15 08:11:59.288] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:12:01.491][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:12:02.195] clearSpace is_destroy:false id:6-200000000002-1201
+[2027-01-15 08:12:03.959][warn] clearSpace is_destroy:true id:2-100000000001-1201
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:8-200000000002-3301
+plain line with nothing in it
+[2027-01-15 08:12:08.069] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:8-100000000001-3301
+bossrush ui opened
+[2027-01-15 08:12:11.758] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:12:13.449][info] clearSpace is_destroy:true id:5-200000000002-3301
+[2027-01-15 08:12:14.961] plain line with nothing in it
+
+[2027-01-15 08:12:16.688][info] load scene fb_roguelike_holo
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:12:18.181][warn] clearSpace is_destroy:false id:1-200000000002-550
+[2027-01-15 08:12:19.847] info about ][info] in the middle
+[2027-01-15 08:12:20.140][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:12:21.152][info] clearSpace is_destroy:false id:6-100000000001-550
+[2027-01-15 08:12:22.432][info] clearSpace is_destroy:false id:8-200000000002-1201
+[2027-01-15 08:12:23.880][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:12:24.936] createVoxelScene new>>>id:5-100000000001-1201 callerId=100000000001
+[2027-01-15 08:12:25.891][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:12:26.456][info] clearSpace is_destroy:true id:9-200000000002-3301
+[2027-01-15 08:12:27.446] load scene fb_bossrush_03
+[2027-01-15 08:12:28.658][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:12:30.818] createVoxelScene new>>>id:8-200000000002-3301 callerId=12345
+[2027-01-15 08:12:31.476][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:12:32.410][info] 
+[2027-01-15 08:12:33.785][warn] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:12:36.322][info] plain line with nothing in it
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:9-100000000001-3301
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:12:39.167] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-100000000001-550 callerId=123456
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-100000000001-550 callerId=100000000002
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:12:43.957] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:12:44.534][warn] 
+[2027-01-15 08:12:45.895][warn] createVoxelScene new>>>id:1-100000000001-1201 callerId=123456
+[2027-01-15 08:12:46.271] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:12:48.769][info] net request callerId=12345 op=Get
+[2027-01-15 08:12:49.234][warn] createVoxelScene new>>>id:8-100000000001-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:7-100000000001-550
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:4-200000000002-3301
+[2027-01-15 08:12:55.923][info] createVoxelScene new>>>id:5-200000000002-550 callerId=100000000002
+[2027-01-15 08:12:56.063][info] bossrush ui opened
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:12:58.050][warn] clearSpace is_destroy:false id:3-100000000001-3301
+[2027-01-15 08:12:59.472] plain line with nothing in it
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:13:01.674] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:13:04.633] load scene fb_bossrush_03
+[2027-01-15 08:13:05.136] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+createVoxelScene new>>>id:1-100000000001-1201
+[2027-01-15 08:13:08.542] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:13:09.173][info] bossrush ui opened
+[2027-01-15 08:13:10.371] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+clearSpace is_destroy:true id:4-100000000001-3301
+net request callerId=100000000001 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-1201 callerId=12345
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+[2027-01-15 08:13:16.883][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:13:17.920] plain line with nothing in it
+[2027-01-15 08:13:18.308][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:13:19.965][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+bossrush ui opened
+[2027-01-15 08:13:22.686] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:6-200000000002-1201
+[2027-01-15 08:13:24.746][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:13:25.334] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+plain line with nothing in it
+[2027-01-15 08:13:28.751][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:13:29.426] plain line with nothing in it
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:13:33.224][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+createVoxelScene new>>>id:6-200000000002-1201 callerId=100000000002
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-3301 callerId=100000000001
+[2027-01-15 08:13:36.187] clearSpace is_destroy:true id:6-100000000001-550
+[2027-01-15 08:13:37.517] clearSpace is_destroy:true id:9-200000000002-550
+[2027-01-15 08:13:38.147][info] load scene fb_bossrush_03
+[2027-01-15 08:13:39.618][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:13:40.055] clearSpace is_destroy:false id:6-100000000001-3301
+[2027-01-15 08:13:41.551][warn] createVoxelScene new>>>id:9-100000000001-550 callerId=100000000002
+[2027-01-15 08:13:42.925][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:13:44.889] createVoxelScene new>>>id:3-200000000002-1201 callerId=12345
+[2027-01-15 08:13:45.654][info] clearSpace is_destroy:false id:7-100000000001-550
+createVoxelScene new>>>id:7-200000000002-1201 callerId=123456
+[2027-01-15 08:13:47.650][info] bossrush ui opened
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:8-200000000002-1201
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] plain line with nothing in it
+createVoxelScene new>>>id:6-200000000002-3301
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+createVoxelScene new>>>id:3-100000000001-3301
+[2027-01-15 08:13:55.641][warn] createVoxelScene new>>>id:6-100000000001-1201 callerId=12345
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-550
+[2027-01-15 08:13:57.919] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:13:59.119][warn] plain line with nothing in it
+bossrush ui opened
+clearSpace is_destroy:true id:7-100000000001-550
+[2027-01-15 08:14:02.214] clearSpace is_destroy:false id:3-200000000002-550
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:14:04.791][info] 
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-100000000001-3301 callerId=12345
+[2027-01-15 08:14:06.611][info] createVoxelScene new>>>id:1-100000000001-550 callerId=123456
+[2027-01-15 08:14:07.127] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:14:08.165] clearSpace is_destroy:true id:4-200000000002-3301
+[2027-01-15 08:14:09.369] load scene fb_bossrush_03
+[2027-01-15 08:14:10.456][info] createVoxelScene new>>>id:1-100000000001-550 callerId=12345
+[2027-01-15 08:14:11.914][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+bossrush ui opened
+createVoxelScene new>>>id:1-100000000001-1201 callerId=100000000002
+unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] 
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:14:17.925][info] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:14:19.503] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:14:20.928][warn] createVoxelScene new>>>id:1-100000000001-3301
+load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:14:24.284][warn] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:14:26.767][info] info about ][info] in the middle
+[2027-01-15 08:14:27.878][info] 
+[2027-01-15 08:14:28.026] 
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:5-200000000002-3301 callerId=100000000001
+[2027-01-15 08:14:30.979][info] createVoxelScene new>>>id:3-200000000002-1201 callerId=100000000001
+[2027-01-15 08:14:31.167][info] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:14:32.226][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:14:33.217] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+clearSpace is_destroy:true id:8-200000000002-3301
+[2027-01-15 08:14:35.945][warn] bossrush ui opened
+[2027-01-15 08:14:36.414][info] load scene fb_bossrush_03
+[2027-01-15 08:14:37.576][warn] bossrush ui opened
+[2027-01-15 08:14:38.166][warn] createVoxelScene new>>>id:6-200000000002-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:6-200000000002-3301 callerId=123456
+[2027-01-15 08:14:40.321] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:6-200000000002-3301
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:6-100000000001-3301
+[2027-01-15 08:14:43.307][warn] clearSpace is_destroy:true id:2-200000000002-550
+[2027-01-15 08:14:44.566] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:14:45.700][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+net request callerId=100000000001 op=Get
+clearSpace is_destroy:true id:9-100000000001-550
+[2027-01-15 08:14:48.183][info] bossrush ui opened
+unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:14:52.164][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-100000000001-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+plain line with nothing in it
+[2027-01-15 08:14:57.247] 
+[2027-01-15 08:14:58.783] clearSpace is_destroy:false id:1-200000000002-3301
+[2027-01-15 08:14:59.945] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:15:00.792][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:15:02.442][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:15:03.509] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:15:04.343] info about ][info] in the middle
+[2027-01-15 08:15:05.172][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:15:06.093][info] info about ][info] in the middle
+[2027-01-15 08:15:07.103][info] bossrush ui opened
+[2027-01-15 08:15:08.254][warn] unicode é中 text createVoxelScene new>>>id:
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:15:10.556][info] 
+[2027-01-15 08:15:11.259][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:15:13.447][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:15:14.115][warn] load scene fb_bossrush_03
+[2027-01-15 08:15:15.356][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:15:16.448][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:15:17.885][info] info about ][info] in the middle
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:15:19.086][warn] clearSpace is_destroy:true id:9-200000000002-3301
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:15:24.557][warn] 
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:15:26.465][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:15:28.349][warn] load scene fb_roguelike_holo
+[2027-01-15 08:15:29.823][info] createVoxelScene new>>>id:6-200000000002-550 callerId=123456
+[2027-01-15 08:15:30.499] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:15:31.729][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:15:32.159][warn] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:15:35.114][warn] load scene fb_bossrush_03
+plain line with nothing in it
+[2027-01-15 08:15:37.116][warn] clearSpace is_destroy:true id:3-100000000001-3301
+[2027-01-15 08:15:38.211] clearSpace is_destroy:false id:5-100000000001-550
+bossrush ui opened
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:9-200000000002-550
+clearSpace is_destroy:false id:7-200000000002-550
+[2027-01-15 08:15:42.118][warn] bossrush ui opened
+[2027-01-15 08:15:43.601][info] 
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:15:45.473][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:2-200000000002-1201
+[2027-01-15 08:15:47.709] plain line with nothing in it
+plain line with nothing in it
+[2027-01-15 08:15:49.528][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:15:52.863] bossrush ui opened
+[2027-01-15 08:15:53.690] plain line with nothing in it
+createVoxelScene new>>>id:tab	here
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:15:56.168][warn] bossrush ui opened
+createVoxelScene new>>>id:8-200000000002-550 callerId=100000000001
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:9-200000000002-1201
+load scene fb_roguelike_holo
+[2027-01-15 08:16:01.694][info] createVoxelScene new>>>id:8-200000000002-3301
+[2027-01-15 08:16:02.771][warn] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:9-100000000001-550
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:16:07.067] load scene fb_roguelike_holo
+[2027-01-15 08:16:08.687][warn] load scene fb_bossrush_03
+[2027-01-15 08:16:09.566] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+clearSpace is_destroy:false id:4-200000000002-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-100000000001-1201 callerId=12345
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:16:17.270][warn] info about ][info] in the middle
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:16:19.260][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:16:21.193] createVoxelScene new>>>id:7-100000000001-3301
+[2027-01-15 08:16:22.325][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:3-200000000002-3301
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:16:27.491] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:16:29.261][warn] load scene fb_bossrush_03
+[2027-01-15 08:16:30.000][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:16:31.116][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:16:33.037][warn] load scene fb_roguelike_holo
+[2027-01-15 08:16:34.427] createVoxelScene new>>>id:7-200000000002-1201 callerId=12345
+clearSpace is_destroy:true id:4-100000000001-3301
+[2026-13-01 00:00:00.5] plain line with nothing in it
+
+[2027-01-15 08:16:38.647][info] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:16:40.673][warn] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:16:42.686] createVoxelScene new>>>id:1-200000000002-1201 callerId=123456
+[2027-01-15 08:16:43.118] plain line with nothing in it
+[2027-01-15 08:16:44.721][info] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:16:46.445][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:16:48.268][info] load scene fb_bossrush_03
+[2027-01-15 08:16:49.370][info] clearSpace is_destroy:false id:7-100000000001-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:16:51.679][warn] info about ][info] in the middle
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:16:53.090] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:16:54.834] load scene fb_roguelike_holo
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:16:57.883] clearSpace is_destroy:true id:7-100000000001-3301
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:16:59.021][warn] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:2-200000000002-1201
+[2027-01-15 08:17:01.377] load scene fb_roguelike_holo
+[2027-01-15 08:17:02.382][info] clearSpace is_destroy:false id:9-200000000002-3301
+createVoxelScene new>>>id:4-100000000001-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-200000000002-3301 callerId=100000000001
+[2027-01-15 08:17:05.369][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:17:07.044][info] plain line with nothing in it
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:17:10.037] load scene fb_bossrush_03
+plain line with nothing in it
+[2027-01-15 08:17:12.818][info] clearSpace is_destroy:true id:3-100000000001-550
+[2027-01-15 08:17:13.489][warn] clearSpace is_destroy:false id:9-100000000001-550
+[2027-01-15 08:17:14.868][warn] clearSpace is_destroy:true id:5-100000000001-1201
+[2027-01-15 08:17:15.404] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:17:17.259][info] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-200000000002-1201
+[2027-01-15 08:17:19.993] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-100000000001-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-200000000002-1201 callerId=12345
+[2027-01-15 08:17:22.195] bossrush ui opened
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+createVoxelScene new>>>id:6-100000000001-3301 callerId=12345
+[2027-01-15 08:17:26.828] clearSpace is_destroy:true id:3-100000000001-550
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:17:28.493] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:17:30.516] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:17:31.243][warn] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:17:33.207][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+info about ][info] in the middle
+[2027-01-15 08:17:35.594][warn] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:17:37.674] 
+[2027-01-15 08:17:38.891][warn] net request callerId=100000000001 op=Get
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:6-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-200000000002-1201
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:17:44.783][info] info about ][info] in the middle
+[2027-01-15 08:17:45.857][info] createVoxelScene new>>>id:tab	here
+load scene fb_roguelike_holo
+[2027-01-15 08:17:47.957][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:17:48.958] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:17:49.334][warn] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-200000000002-3301
+[2027-01-15 08:17:51.498] net request callerId=100000000002 op=Get
+[2027-01-15 08:17:52.055][warn] bossrush ui opened
+[2027-01-15 08:17:53.853][info] createVoxelScene new>>>id:6-200000000002-3301
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:5-200000000002-3301 callerId=12345
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2027-01-15 08:17:56.689] bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:17:58.095][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:17:59.955] clearSpace is_destroy:false id:7-100000000001-550
+[2026-02-30 25:00:00.1] net request callerId=100000000001 op=Get
+[2027-01-15 08:18:01.406][warn] plain line with nothing in it
+load scene fb_roguelike_holo
+[2027-01-15 08:18:03.428][warn] bossrush ui opened
+[2027-01-15 08:18:04.455][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:18:05.961] load scene fb_bossrush_03
+[2027-01-15 08:18:06.506][warn] createVoxelScene new>>>id:2-100000000001-3301 callerId=12345
+bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-100000000001-1201
+createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:5-200000000002-1201
+[2027-01-15 08:18:12.437] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:18:15.231] createVoxelScene new>>>id:tab	here
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:18:17.337][warn] createVoxelScene new>>>id:tab	here
+plain line with nothing in it
+[2027-01-15 08:18:19.305] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:18:22.370] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:18:23.229] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:5-200000000002-1201
+[2027-01-15 08:18:25.273][info] plain line with nothing in it
+[2027-01-15 08:18:26.777][info] load scene fb_roguelike_holo
+[2027-01-15 08:18:27.997][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:18:28.568][warn] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:6-200000000002-1201
+[2026-02-30 25:00:00.1] plain line with nothing in it
+net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:8-100000000001-1201
+createVoxelScene new>>>id:5-200000000002-3301
+createVoxelScene new>>>id:5-200000000002-3301 callerId=100000000002
+[2027-01-15 08:18:36.746][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:18:37.303][warn] load scene fb_roguelike_holo
+[2027-01-15 08:18:38.119][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2027-01-15 08:18:40.227][warn] load scene fb_bossrush_03
+[2027-01-15 08:18:41.919][warn] load scene fb_bossrush_03
+[2027-01-15 08:18:42.140][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:18:43.520][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:18:44.510][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:18:46.337][info] clearSpace is_destroy:false id:5-100000000001-550
+[2027-01-15 08:18:47.908][info] 
+clearSpace is_destroy:false id:1-100000000001-3301
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:18:50.042] createVoxelScene new>>>id:6-100000000001-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-100000000001-1201
+[2027-01-15 08:18:52.310][info] bossrush ui opened
+
+[2027-01-15 08:18:54.205][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:18:55.345][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:18:56.420] 
+[2027-01-15 08:18:57.276][warn] 
+[2027-01-15 08:18:58.181] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-100000000001-3301
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:9-100000000001-1201
+[2027-01-15 08:19:02.472][info] load scene fb_bossrush_03
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:19:04.714] createVoxelScene new>>>id:8-100000000001-1201
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:19:06.284][warn] plain line with nothing in it
+[2027-01-15 08:19:07.583] net request callerId=100000000002 op=Get
+[2027-01-15 08:19:08.094][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:19:09.428][info] clearSpace is_destroy:true id:2-200000000002-1201
+createVoxelScene new>>>id:tab	here
+clearSpace is_destroy:true id:1-200000000002-3301
+[2027-01-15 08:19:12.823][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:19:14.671][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:19:15.132][warn] clearSpace is_destroy:false id:7-100000000001-1201
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:19:17.267][warn] bossrush ui opened
+[2027-01-15 08:19:18.738] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:19:19.375] load scene fb_roguelike_holo
+clearSpace is_destroy:false id:1-100000000001-3301
+[2027-01-15 08:19:21.459][warn] clearSpace is_destroy:false id:8-200000000002-550
+[2027-01-15 08:19:22.190][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] 
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:4-200000000002-1201
+[2027-01-15 08:19:26.586][warn] bossrush ui opened
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:19:29.127][warn] createVoxelScene new>>>id:3-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-200000000002-1201
+[2027-01-15 08:19:31.300][warn] clearSpace is_destroy:true id:4-100000000001-3301
+[2027-01-15 08:19:32.454][info] load scene fb_roguelike_holo
+unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:3-200000000002-3301
+[2027-01-15 08:19:35.390][warn] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:19:38.985][warn] 
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:19:42.557][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:19:44.764][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:19:45.239] createVoxelScene new>>>id:7-200000000002-3301 callerId=100000000001
+createVoxelScene new>>>id:5-100000000001-3301 callerId=123456
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-100000000001-3301 callerId=123456
+[2027-01-15 08:19:48.031][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:19:51.800][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:19:53.326][info] info about ][info] in the middle
+[2027-01-15 08:19:54.184][info] bossrush ui opened
+[2027-01-15 08:19:55.565][info] bossrush ui opened
+load scene fb_bossrush_03
+[2027-01-15 08:19:57.624] net request callerId=100000000002 op=Get
+[2027-01-15 08:19:58.551] bossrush ui opened
+[2027-01-15 08:19:59.056][info] bossrush ui opened
+[2027-01-15 08:20:00.667][info] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:20:02.700][warn] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:20:03.820][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:20:05.136][info] net request callerId=100000000001 op=Get
+[2027-01-15 08:20:06.953][info] clearSpace is_destroy:false id:4-100000000001-3301
+[2027-01-15 08:20:07.772][info] info about ][info] in the middle
+bossrush ui opened
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-200000000002-1201
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:20:13.046] info about ][info] in the middle
+[2027-01-15 08:20:14.329][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:20:15.593][warn] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:20:16.423] clearSpace is_destroy:true id:3-200000000002-3301
+[2027-01-15 08:20:17.981][info] net request callerId=100000000002 op=Get
+[2027-01-15 08:20:18.410][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:20:20.475][warn] bossrush ui opened
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:20:23.936][warn] bossrush ui opened
+[2027-01-15 08:20:24.835][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2027-01-15 08:20:29.966][warn] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:20:31.356] clearSpace is_destroy:false id:2-200000000002-1201
+[2027-01-15 08:20:32.993][info] 
+[2027-01-15 08:20:33.685][warn] net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-1201 callerId=100000000001
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-200000000002-1201 callerId=100000000002
+[2027-01-15 08:20:37.731] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:20:38.441][warn] clearSpace is_destroy:true id:4-100000000001-1201
+[2027-01-15 08:20:39.954] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:20:41.956][info] info about ][info] in the middle
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:2-100000000001-3301
+[2027-01-15 08:20:44.685][warn] 
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+clearSpace is_destroy:false id:9-100000000001-550
+[2027-01-15 08:20:49.353][warn] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:20:51.593] createVoxelScene new>>>id:4-100000000001-3301
+[2027-01-15 08:20:52.207][warn] clearSpace is_destroy:true id:6-100000000001-1201
+[2027-01-15 08:20:53.554][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:20:58.018] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:20:59.877] net request callerId=12345 op=Get
+[2027-01-15 08:21:00.398] bossrush ui opened
+[2027-01-15 08:21:01.622] createVoxelScene new>>>id:3-100000000001-550 callerId=12345
+[2027-01-15 08:21:02.768][info] info about ][info] in the middle
+[2027-01-15 08:21:03.880] 
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:21:05.423][info] bossrush ui opened
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:21:07.099] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-100000000001-550
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:21:10.353][info] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:1-200000000002-550
+[2027-01-15 08:21:12.493][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-100000000001-1201 callerId=100000000002
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:21:15.002][warn] load scene fb_bossrush_03
+[2027-01-15 08:21:16.368][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] 
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:21:19.574] clearSpace is_destroy:true id:6-100000000001-3301
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:21:22.354] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:21:24.420] createVoxelScene new>>>id:9-100000000001-550
+[2027-01-15 08:21:25.884][warn] createVoxelScene new>>>id:3-100000000001-1201 callerId=100000000002
+[2027-01-15 08:21:26.211][info] 
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:2-100000000001-1201
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+clearSpace is_destroy:true id:9-100000000001-1201
+[2027-01-15 08:21:31.221][info] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:21:33.742][warn] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:21:36.076] 
+[2027-01-15 08:21:37.512][warn] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:21:39.797][warn] net request callerId=123456 op=Get
+[2027-01-15 08:21:40.152][info] bossrush ui opened
+[2027-01-15 08:21:41.394][info] clearSpace is_destroy:false id:9-100000000001-3301
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+plain line with nothing in it
+[2027-01-15 08:21:44.206][warn] createVoxelScene new>>>id:4-200000000002-1201 callerId=100000000002
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:21:47.504][info] load scene fb_bossrush_03
+[2027-01-15 08:21:48.872][info] clearSpace is_destroy:true id:3-100000000001-550
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:21:50.006] load scene fb_roguelike_holo
+[2027-01-15 08:21:51.881] createVoxelScene new>>>id:1-200000000002-3301 callerId=123456
+[2027-01-15 08:21:52.933][info] 
+[2027-01-15 08:21:53.009][info] load scene fb_roguelike_holo
+[2027-01-15 08:21:54.853] info about ][info] in the middle
+clearSpace is_destroy:false id:5-100000000001-550
+[2027-01-15 08:21:56.518][info] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:21:59.433][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:22:00.331] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:22:02.856][warn] info about ][info] in the middle
+[2027-01-15 08:22:03.108][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:22:04.992][warn] 
+[2027-01-15 08:22:05.121][info] createVoxelScene new>>>id:3-100000000001-3301
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:22:07.587][warn] clearSpace is_destroy:false id:2-100000000001-1201
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-100000000001-550 callerId=100000000001
+[2027-01-15 08:22:10.668] info about ][info] in the middle
+clearSpace is_destroy:false id:8-100000000001-3301
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] bossrush ui opened
+load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:22:16.262][info] 
+[2027-01-15 08:22:17.245][warn] plain line with nothing in it
+[2027-01-15 08:22:18.253][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:22:20.373][info] clearSpace is_destroy:true id:8-100000000001-550
+[2027-01-15 08:22:21.528][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:22:22.480] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+clearSpace is_destroy:true id:1-200000000002-1201
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:9-200000000002-1201
+[2027-01-15 08:22:25.780][info] info about ][info] in the middle
+[2027-01-15 08:22:26.611] net request callerId=100000000001 op=Get
+[2027-01-15 08:22:27.616][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:22:28.558][info] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:22:31.935][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:22:33.720][info] load scene fb_roguelike_holo
+[2027-01-15 08:22:34.726][info] clearSpace is_destroy:false id:5-200000000002-1201
+[2027-01-15 08:22:35.164][info] info about ][info] in the middle
+[2027-01-15 08:22:36.068][warn] load scene fb_roguelike_holo
+[2027-01-15 08:22:37.108] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-100000000001-3301 callerId=12345
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2027-01-15 08:22:41.691][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:22:42.669][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:22:43.824] clearSpace is_destroy:false id:5-200000000002-3301
+[2027-01-15 08:22:44.260] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:22:46.071] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:22:49.367][warn] clearSpace is_destroy:false id:9-100000000001-1201
+[2027-01-15 08:22:50.372][warn] clearSpace is_destroy:true id:4-100000000001-3301
+bossrush ui opened
+[2027-01-15 08:22:52.216] plain line with nothing in it
+bossrush ui opened
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:22:55.733][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:22:57.053] createVoxelScene new>>>id:6-100000000001-3301 callerId=12345
+createVoxelScene new>>>id:tab	here
+clearSpace is_destroy:true id:9-200000000002-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:23:01.417][info] unicode é中 text createVoxelScene new>>>id:
+load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:23:04.040][warn] clearSpace is_destroy:true id:3-200000000002-1201
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:23:06.298][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:23:07.431] plain line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:6-100000000001-550
+[2027-01-15 08:23:09.854][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:23:11.869][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+load scene fb_bossrush_03
+[2027-01-15 08:23:13.021][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:23:14.967][info] plain line with nothing in it
+[2027-01-15 08:23:15.894][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:23:16.595][info] load scene fb_bossrush_03
+clearSpace is_destroy:true id:5-100000000001-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+load scene fb_roguelike_holo
+[2027-01-15 08:23:20.198] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] 
+plain line with nothing in it
+[2027-01-15 08:23:23.045][warn] clearSpace is_destroy:true id:7-100000000001-3301
+[2027-01-15 08:23:24.553] net request callerId=100000000002 op=Get
+[2027-01-15 08:23:25.853][info] createVoxelScene new>>>id:2-200000000002-3301 callerId=100000000002
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:23:27.221] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+plain line with nothing in it
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:23:31.972][info] 
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:7-200000000002-1201
+[2027-01-15 08:23:33.032] createVoxelScene new>>>id:8-100000000001-3301
+[2027-01-15 08:23:34.090] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:23:39.826][info] clearSpace is_destroy:true id:3-200000000002-550
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:23:41.401] unicode é中 text createVoxelScene new>>>id:
+plain line with nothing in it
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:23:44.210][warn] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:23:46.572][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-100000000001-3301 callerId=12345
+[2027-01-15 08:23:48.421][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:23:49.038][warn] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-200000000002-550
+plain line with nothing in it
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:23:53.713] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:23:54.217][warn] plain line with nothing in it
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:23:56.939] clearSpace is_destroy:true id:9-100000000001-550
+[2027-01-15 08:23:57.328] net request callerId=100000000002 op=Get
+[2027-01-15 08:23:58.332] load scene fb_roguelike_holo
+[2027-01-15 08:23:59.519][warn] clearSpace is_destroy:false id:7-200000000002-550
+[2027-01-15 08:24:00.307] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:24:01.336] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:24:02.522][info] createVoxelScene new>>>id:5-200000000002-550 callerId=123456
+net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-100000000001-1201
+[2027-01-15 08:24:06.311][warn] load scene fb_bossrush_03
+[2027-01-15 08:24:07.254] createVoxelScene new>>>id:8-200000000002-1201 callerId=100000000002
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:24:09.864][info] createVoxelScene new>>>id:5-100000000001-3301 callerId=123456
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:8-200000000002-1201
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:24:12.843][info] load scene fb_bossrush_03
+plain line with nothing in it
+[2027-01-15 08:24:14.697] load scene fb_bossrush_03
+[2027-01-15 08:24:15.423] bossrush ui opened
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:1-100000000001-3301
+[2027-01-15 08:24:17.707][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:24:18.576][info] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-200000000002-3301
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:24:24.901][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:24:25.288][warn] net request callerId=123456 op=Get
+[2027-01-15 08:24:26.941][info] bossrush ui opened
+[2027-01-15 08:24:27.294][warn] net request callerId=12345 op=Get
+[2027-01-15 08:24:28.615][warn] bossrush ui opened
+[2027-01-15 08:24:29.945] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:24:31.483] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:24:32.599] 
+createVoxelScene new>>>id:4-200000000002-3301 callerId=12345
+[2027-01-15 08:24:34.062][warn] clearSpace is_destroy:true id:8-200000000002-1201
+[2027-01-15 08:24:35.528][info] createVoxelScene new>>>id:1-200000000002-3301
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+[2027-01-15 08:24:37.802] bossrush ui opened
+[2027-01-15 08:24:38.293][warn] clearSpace is_destroy:false id:8-200000000002-1201
+[2027-01-15 08:24:39.751][warn] load scene fb_roguelike_holo
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:24:41.449][warn] plain line with nothing in it
+[2027-01-15 08:24:42.180][warn] bossrush ui opened
+[2027-01-15 08:24:43.348][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:24:44.230][info] net request callerId=123456 op=Get
+[2027-01-15 08:24:45.851][info] info about ][info] in the middle
+[2027-01-15 08:24:46.149] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+createVoxelScene new>>>id:2-100000000001-3301 callerId=100000000002
+[2027-01-15 08:24:48.184][info] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:24:49.217][info] createVoxelScene new>>>id:1-100000000001-1201
+[2027-01-15 08:24:50.994] load scene fb_roguelike_holo
+[2027-01-15 08:24:51.100] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:24:53.705][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+load scene fb_bossrush_03
+plain line with nothing in it
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:24:58.030][info] createVoxelScene new>>>id:4-200000000002-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-200000000002-1201 callerId=100000000002
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2027-01-15 08:25:01.584][info] createVoxelScene new>>>id:5-100000000001-3301
+[2027-01-15 08:25:02.830][info] load scene fb_bossrush_03
+download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:25:06.539][info] createVoxelScene new>>>id:3-100000000001-1201
+[2027-01-15 08:25:07.724][warn] net request callerId=100000000002 op=Get
+createVoxelScene new>>>id:1-100000000001-550 callerId=100000000001
+[2027-01-15 08:25:09.117][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:25:11.731][warn] net request callerId=100000000001 op=Get
+net request callerId=100000000001 op=Get
+info about ][info] in the middle
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-100000000001-550
+[2027-01-15 08:25:17.985][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:25:18.101][warn] clearSpace is_destroy:true id:8-100000000001-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:25:21.992][info] createVoxelScene new>>>id:tab	here
+load scene fb_bossrush_03
+[2027-01-15 08:25:23.800][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:25:24.504][info] info about ][info] in the middle
+[2027-01-15 08:25:25.651][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] 
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:25:28.681] createVoxelScene new>>>id:3-200000000002-3301
+clearSpace is_destroy:true id:1-200000000002-550
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:25:31.340] clearSpace is_destroy:true id:7-200000000002-1201
+[2027-01-15 08:25:32.899][warn] plain line with nothing in it
+[2027-01-15 08:25:33.511] 
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:25:35.713][warn] load scene fb_bossrush_03
+[2027-01-15 08:25:36.488][warn] bossrush ui opened
+[2027-01-15 08:25:37.613][warn] bossrush ui opened
+[2027-01-15 08:25:38.104][info] clearSpace is_destroy:true id:1-200000000002-1201
+[2027-01-15 08:25:39.185] createVoxelScene new>>>id:4-200000000002-3301
+[2027-01-15 08:25:40.096][warn] createVoxelScene new>>>id:2-200000000002-550
+[2027-01-15 08:25:41.458][info] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+net request callerId=100000000001 op=Get
+[2027-01-15 08:25:44.858] plain line with nothing in it
+[2027-01-15 08:25:45.105][warn] clearSpace is_destroy:false id:2-100000000001-3301
+[2027-01-15 08:25:46.763] load scene fb_roguelike_holo
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:25:48.268][warn] createVoxelScene new>>>id:tab	here
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:25:51.794][info] bossrush ui opened
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-200000000002-550
+[2027-01-15 08:25:55.132] createVoxelScene new>>>id:9-200000000002-3301 callerId=100000000002
+[2026-13-01 00:00:00.5] 
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:7-200000000002-3301
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:25:59.327][warn] clearSpace is_destroy:false id:7-100000000001-3301
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2027-01-15 08:26:02.378][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:26:04.748][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:26:05.298][info] clearSpace is_destroy:false id:6-100000000001-550
+[2027-01-15 08:26:06.704][warn] createVoxelScene new>>>id:3-100000000001-1201
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:26:09.658] createVoxelScene new>>>id:8-100000000001-1201 callerId=100000000002
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:8-200000000002-550
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:7-100000000001-1201
+[2027-01-15 08:26:14.387][info] net request callerId=12345 op=Get
+[2027-01-15 08:26:15.019] createVoxelScene new>>>id:5-200000000002-550
+[2027-01-15 08:26:16.442][info] createVoxelScene new>>>id:8-100000000001-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-200000000002-550 callerId=100000000002
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:26:19.754][warn] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:26:21.373][info] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+info about ][info] in the middle
+[2027-01-15 08:26:24.184] net request callerId=123456 op=Get
+[2027-01-15 08:26:25.159] plain line with nothing in it
+[2027-01-15 08:26:26.809] 
+[2026-13-01 00:00:00.5] 
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:9-100000000001-3301
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+clearSpace is_destroy:false id:7-200000000002-3301
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:26:36.286][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:26:37.661][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:26:38.744][info] bossrush ui opened
+load scene fb_roguelike_holo
+[2027-01-15 08:26:40.962][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:26:42.189] plain line with nothing in it
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:6-100000000001-1201 callerId=12345
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:7-100000000001-1201
+[2027-01-15 08:26:47.318][info] load scene fb_roguelike_holo
+[2027-01-15 08:26:48.274][warn] plain line with nothing in it
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:26:51.684][warn] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+info about ][info] in the middle
+[2027-01-15 08:26:55.923][info] 
+[2027-01-15 08:26:56.225][warn] 
+[2027-01-15 08:26:57.658][info] load scene fb_roguelike_holo
+[2027-01-15 08:26:58.951][warn] clearSpace is_destroy:true id:7-200000000002-3301
+clearSpace is_destroy:true id:2-200000000002-3301
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] 
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:4-100000000001-1201 callerId=100000000001
+[2027-01-15 08:27:07.092] bossrush ui opened
+[2027-01-15 08:27:08.941][info] createVoxelScene new>>>id:4-100000000001-550
+[2027-01-15 08:27:09.876][info] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+bossrush ui opened
+[2027-01-15 08:27:12.637] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:27:13.918][warn] info about ][info] in the middle
+[2027-01-15 08:27:14.051][warn] createVoxelScene new>>>id:1-200000000002-550
+[2027-01-15 08:27:15.961][info] clearSpace is_destroy:false id:4-200000000002-3301
+[2027-01-15 08:27:16.707] plain line with nothing in it
+[2027-01-15 08:27:17.290][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:27:18.644][warn] plain line with nothing in it
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:27:21.780][info] load scene fb_roguelike_holo
+[2027-01-15 08:27:22.557] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:27:23.021][info] bossrush ui opened
+[2027-01-15 08:27:24.047] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:27:27.962] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:27:28.944][info] plain line with nothing in it
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-200000000002-1201
+[2027-01-15 08:27:33.374] 
+[2027-01-15 08:27:34.557] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:4-200000000002-3301 callerId=100000000002
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:27:38.730][warn] unicode é中 text createVoxelScene new>>>id:
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:27:40.265][warn] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:27:41.604][info] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:27:42.777][warn] net request callerId=12345 op=Get
+[2027-01-15 08:27:43.343] download https://cdn.example/prod/other/file ok
+net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+createVoxelScene new>>>id:7-100000000001-3301 callerId=12345
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:27:49.601][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:27:50.533][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:27:52.963] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:27:53.610][info] clearSpace is_destroy:true id:6-200000000002-550
+[2027-01-15 08:27:54.408][warn] load scene fb_roguelike_holo
+[2027-01-15 08:27:55.101][warn] info about ][info] in the middle
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:27:57.973] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:27:58.414] clearSpace is_destroy:true id:1-100000000001-1201
+[2027-01-15 08:27:59.614] load scene fb_bossrush_03
+plain line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:7-200000000002-3301 callerId=100000000002
+[2027-01-15 08:28:02.057][info] 
+[2027-01-15 08:28:03.572] createVoxelScene new>>>id:2-100000000001-3301
+[2027-01-15 08:28:04.067][warn] clearSpace is_destroy:true id:2-100000000001-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:7-200000000002-1201
+[2027-01-15 08:28:07.935][warn] createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+info about ][info] in the middle
+createVoxelScene new>>>id:7-100000000001-1201 callerId=12345
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2027-01-15 08:28:12.963][info] net request callerId=100000000001 op=Get
+createVoxelScene new>>>id:1-100000000001-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:28:15.867][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+net request callerId=100000000001 op=Get
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:28:18.639][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:28:19.491][warn] load scene fb_roguelike_holo
+download https://cdn.example/prod/other/file ok
+plain line with nothing in it
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:7-200000000002-1201
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:28:25.276][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:4-200000000002-3301
+[2027-01-15 08:28:27.143] bossrush ui opened
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+plain line with nothing in it
+[2027-01-15 08:28:30.910][info] net request callerId=123456 op=Get
+info about ][info] in the middle
+[2027-01-15 08:28:32.420] 
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2027-01-15 08:28:34.491] clearSpace is_destroy:false id:6-200000000002-550
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:28:36.761] net request callerId=12345 op=Get
+[2027-01-15 08:28:37.691][warn] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:28:39.360][warn] download https://cdn.example/prod/pet_jewelry/12345 ok
+unicode é中 text createVoxelScene new>>>id:
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:28:42.338][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:28:43.536][warn] bossrush ui opened
+[2027-01-15 08:28:44.893][info] clearSpace is_destroy:false id:3-100000000001-3301
+createVoxelScene new>>>id:8-100000000001-3301
+[2027-01-15 08:28:46.749][warn] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:28:50.954] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-200000000002-3301
+load scene fb_bossrush_03
+[2027-01-15 08:28:54.444][info] clearSpace is_destroy:false id:5-200000000002-3301
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:28:56.994][info] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+plain line with nothing in it
+[2027-01-15 08:28:59.323][info] clearSpace is_destroy:false id:2-200000000002-1201
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+bossrush ui opened
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:29:04.457][warn] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+[2027-01-15 08:29:08.766][warn] clearSpace is_destroy:false id:9-200000000002-3301
+load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:1-100000000001-3301
+[2027-01-15 08:29:11.317][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:29:12.180][info] plain line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:3-200000000002-3301
+[2027-01-15 08:29:14.662][warn] createVoxelScene new>>>id:4-100000000001-550 callerId=100000000002
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:4-100000000001-3301
+bossrush ui opened
+[2027-01-15 08:29:17.444] clearSpace is_destroy:true id:9-200000000002-1201
+[2027-01-15 08:29:18.544][info] load scene fb_roguelike_holo
+[2027-01-15 08:29:19.242] info about ][info] in the middle
+net request callerId=12345 op=Get
+[2027-01-15 08:29:21.104][warn] info about ][info] in the middle
+[2027-01-15 08:29:22.554][info] load scene fb_bossrush_03
+createVoxelScene new>>>id:4-100000000001-550
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:29:25.427] createVoxelScene new>>>id:3-100000000001-3301 callerId=100000000002
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-100000000001-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:29:28.376][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:29:29.661][info] clearSpace is_destroy:false id:3-200000000002-550
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:29:32.653][info] createVoxelScene new>>>id:5-100000000001-3301
+net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:29:35.176] 
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+clearSpace is_destroy:false id:7-100000000001-1201
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+load scene fb_roguelike_holo
+[2027-01-15 08:29:40.906][warn] info about ][info] in the middle
+[2027-01-15 08:29:41.847][warn] 
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+clearSpace is_destroy:true id:4-100000000001-1201
+[2027-01-15 08:29:44.699][info] clearSpace is_destroy:false id:3-200000000002-3301
+info about ][info] in the middle
+[2027-01-15 08:29:46.616][info] plain line with nothing in it
+plain line with nothing in it
+clearSpace is_destroy:true id:8-200000000002-550
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:29:51.838][warn] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:29:54.280][info] bossrush ui opened
+plain line with nothing in it
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:29:57.309][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:29:58.981][warn] plain line with nothing in it
+[2027-01-15 08:29:59.692][warn] createVoxelScene new>>>id:5-100000000001-1201 callerId=123456
+[2027-01-15 08:30:00.104][warn] plain line with nothing in it
+[2027-01-15 08:30:01.555] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:30:02.026][info] 
+plain line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:7-100000000001-550
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:30:08.747][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:30:09.360][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:30:10.174][warn] plain line with nothing in it
+
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:2-100000000001-3301
+[2027-01-15 08:30:13.135] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+[2027-01-15 08:30:15.440][warn] info about ][info] in the middle
+[2027-01-15 08:30:16.379][info] load scene fb_bossrush_03
+bossrush ui opened
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:8-200000000002-550
+[2027-01-15 08:30:19.220][warn] createVoxelScene new>>>id:9-200000000002-3301
+[2027-01-15 08:30:20.915][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:3-100000000001-3301
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+bossrush ui opened
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:30:25.681][warn] plain line with nothing in it
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-200000000002-1201 callerId=100000000002
+load scene fb_bossrush_03
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:30:29.039][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:30:30.619] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:30:31.714][warn] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:30:32.339][warn] clearSpace is_destroy:false id:7-100000000001-1201
+[2027-01-15 08:30:33.908][warn] clearSpace is_destroy:true id:3-100000000001-550
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+info about ][info] in the middle
+[2027-01-15 08:30:36.270][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:4-200000000002-550 callerId=12345
+[2027-01-15 08:30:38.886][warn] createVoxelScene new>>>id:5-200000000002-3301
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:30:42.816][warn] clearSpace is_destroy:true id:3-100000000001-1201
+[2027-01-15 08:30:43.070] createVoxelScene new>>>id:9-200000000002-3301 callerId=123456
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:8-100000000001-1201
+[2027-01-15 08:30:45.991][warn] createVoxelScene new>>>id:6-200000000002-550 callerId=100000000002
+
+[2027-01-15 08:30:47.878] net request callerId=100000000001 op=Get
+[2027-01-15 08:30:48.520][info] createVoxelScene new>>>id:9-200000000002-1201 callerId=12345
+[2027-01-15 08:30:49.540][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:30:50.791][warn] bossrush ui opened
+[2027-01-15 08:30:51.827][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:30:53.443][warn] createVoxelScene new>>>id:5-200000000002-3301 callerId=123456
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:30:56.988][warn] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+[2027-01-15 08:30:58.403][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-100000000001-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:31:01.349] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:31:02.668][info] info about ][info] in the middle
+createVoxelScene new>>>id:8-100000000001-1201 callerId=100000000002
+[2027-01-15 08:31:04.319][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:31:06.227][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:31:07.487] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:31:09.459][info] plain line with nothing in it
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:31:13.799][info] info about ][info] in the middle
+[2027-01-15 08:31:14.476][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+load scene fb_roguelike_holo
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:31:18.100][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:31:19.394] plain line with nothing in it
+[2027-01-15 08:31:20.309][warn] info about ][info] in the middle
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-1201
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-200000000002-3301
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:31:27.141][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:31:29.143] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:31:30.250] bossrush ui opened
+[2027-01-15 08:31:31.340][info] info about ][info] in the middle
+[2027-01-15 08:31:32.567][warn] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:31:35.330][info] load scene fb_roguelike_holo
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:31:40.057] createVoxelScene new>>>id:2-200000000002-1201 callerId=100000000001
+[2027-01-15 08:31:41.688] download https://cdn.example/prod/other/file ok
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:31:43.773][warn] clearSpace is_destroy:false id:3-200000000002-3301
+[2027-01-15 08:31:44.232][warn] plain line with nothing in it
+[2027-01-15 08:31:45.024][info] createVoxelScene new>>>id:6-200000000002-1201
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:31:47.240][info] createVoxelScene new>>>id:4-100000000001-1201 callerId=12345
+[2027-01-15 08:31:48.699][warn] clearSpace is_destroy:false id:4-200000000002-3301
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-100000000001-3301
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:31:52.979] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:9-200000000002-1201
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+clearSpace is_destroy:false id:4-200000000002-1201
+[2027-01-15 08:31:57.140] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:31:58.259] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:32:00.468][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:32:01.513][warn] clearSpace is_destroy:true id:6-200000000002-3301
+[2027-01-15 08:32:02.086] 
+[2027-01-15 08:32:03.084] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:32:04.181][warn] clearSpace is_destroy:true id:2-100000000001-550
+[2027-01-15 08:32:05.690][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:32:06.838][warn] bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+clearSpace is_destroy:true id:9-200000000002-550
+[2027-01-15 08:32:09.977] bossrush ui opened
+[2027-01-15 08:32:10.950][info] 
+[2027-01-15 08:32:11.518][warn] net request callerId=12345 op=Get
+[2027-01-15 08:32:12.721] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:1-100000000001-1201
+[2027-01-15 08:32:14.861][warn] clearSpace is_destroy:true id:3-100000000001-550
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2026-13-01 00:00:00.5] net request callerId=12345 op=Get
+clearSpace is_destroy:false id:7-200000000002-550
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-100000000001-550
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:3-100000000001-1201
+[2027-01-15 08:32:20.868][warn] createVoxelScene new>>>id:7-200000000002-550 callerId=12345
+bossrush ui opened
+[2027-01-15 08:32:22.905] bossrush ui opened
+[2027-01-15 08:32:23.265][warn] clearSpace is_destroy:false id:6-200000000002-550
+[2027-01-15 08:32:24.730][info] bossrush ui opened
+[2027-01-15 08:32:25.780][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:9-200000000002-1201
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:32:29.060][info] load scene fb_bossrush_03
+[2027-01-15 08:32:30.167][warn] 
+[2027-01-15 08:32:31.619][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:32:32.233][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:6-100000000001-550
+createVoxelScene new>>>id:4-100000000001-550
+plain line with nothing in it
+[2027-01-15 08:32:38.492][info] createVoxelScene new>>>id:2-200000000002-3301 callerId=123456
+[2027-01-15 08:32:39.262] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:32:40.848][info] 
+[2027-01-15 08:32:41.761] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:32:42.452][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:32:45.571] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:32:47.066][warn] net request callerId=100000000002 op=Get
+[2027-01-15 08:32:48.595][warn] clearSpace is_destroy:true id:1-100000000001-550
+[2027-01-15 08:32:49.383][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:32:50.153][warn] clearSpace is_destroy:false id:4-100000000001-550
+[2026-13-01 00:00:00.5] bossrush ui opened
+createVoxelScene new>>>id:2-200000000002-550
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+clearSpace is_destroy:false id:9-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-100000000001-1201 callerId=123456
+[2027-01-15 08:32:56.961][info] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:32:59.840][info] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:33:01.979][info] net request callerId=100000000001 op=Get
+[2027-01-15 08:33:02.853][warn] net request callerId=100000000002 op=Get
+[2027-01-15 08:33:03.269][warn] net request callerId=100000000002 op=Get
+[2027-01-15 08:33:04.278][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:33:05.105] plain line with nothing in it
+[2027-01-15 08:33:06.933][warn] load scene fb_bossrush_03
+[2027-01-15 08:33:07.279][info] load scene fb_bossrush_03
+[2027-01-15 08:33:08.732][info] info about ][info] in the middle
+net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:33:11.441][warn] net request callerId=100000000002 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:33:13.310] createVoxelScene new>>>id:7-200000000002-550
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:33:16.357][warn] clearSpace is_destroy:false id:6-100000000001-1201
+[2027-01-15 08:33:17.423][info] load scene fb_bossrush_03
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:33:19.841][warn] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-100000000001-3301 callerId=123456
+[2026-02-30 25:00:00.1] bossrush ui opened
+download https://cdn.example/prod/pet_jewelry/123456 ok
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:33:29.952][info] createVoxelScene new>>>id:9-100000000001-550 callerId=100000000002
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-100000000001-3301
+[2027-01-15 08:33:31.245][info] createVoxelScene new>>>id:1-100000000001-1201
+createVoxelScene new>>>id:7-200000000002-550 callerId=123456
+[2027-01-15 08:33:33.356] clearSpace is_destroy:true id:2-200000000002-550
+[2027-01-15 08:33:34.690][warn] load scene fb_roguelike_holo
+createVoxelScene new>>>id:6-100000000001-1201 callerId=12345
+[2027-01-15 08:33:36.185][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:33:37.630][info] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:33:39.043][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:33:40.203][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:33:41.254][info] createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:33:43.395] info about ][info] in the middle
+[2027-01-15 08:33:44.280][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:33:45.843][info] createVoxelScene new>>>id:9-200000000002-550 callerId=12345
+plain line with nothing in it
+[2027-01-15 08:33:47.812][warn] 
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:5-200000000002-3301
+net request callerId=12345 op=Get
+[2027-01-15 08:33:50.266] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:33:52.910][warn] clearSpace is_destroy:false id:4-200000000002-1201
+[2027-01-15 08:33:53.302][warn] load scene fb_roguelike_holo
+[2027-01-15 08:33:54.101][info] 
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:33:57.104][warn] clearSpace is_destroy:false id:5-200000000002-3301
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-200000000002-3301 callerId=12345
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:34:01.555][warn] load scene fb_roguelike_holo
+[2027-01-15 08:34:02.761][info] net request callerId=100000000001 op=Get
+[2027-01-15 08:34:03.312] 
+[2027-01-15 08:34:04.608][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:34:05.465] createVoxelScene new>>>id:8-100000000001-550 callerId=100000000001
+[2027-01-15 08:34:06.066][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-100000000001-550
+
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+net request callerId=12345 op=Get
+[2027-01-15 08:34:11.305][warn] bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-200000000002-3301 callerId=100000000002
+[2027-01-15 08:34:14.534][info] net request callerId=100000000001 op=Get
+[2027-01-15 08:34:15.660] createVoxelScene new>>>id:4-100000000001-1201 callerId=12345
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:34:17.196][info] createVoxelScene new>>>id:9-100000000001-550
+[2027-01-15 08:34:18.114] 
+[2027-01-15 08:34:19.673][info] info about ][info] in the middle
+[2027-01-15 08:34:20.831][warn] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:8-100000000001-1201
+[2027-01-15 08:34:22.725][info] unicode é中 text createVoxelScene new>>>id:
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:34:24.381][info] net request callerId=100000000002 op=Get
+createVoxelScene new>>>id:1-100000000001-550 callerId=12345
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:34:27.356] load scene fb_bossrush_03
+[2027-01-15 08:34:28.726] info about ][info] in the middle
+[2027-01-15 08:34:29.706][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:34:30.827][info] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:34:32.614] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-100000000001-3301 callerId=12345
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:34:36.323][warn] info about ][info] in the middle
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:34:38.367] createVoxelScene new>>>id:2-200000000002-3301
+[2027-01-15 08:34:39.556][info] createVoxelScene new>>>id:7-100000000001-1201
+[2027-01-15 08:34:40.413][warn] clearSpace is_destroy:false id:1-100000000001-550
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:6-100000000001-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-100000000001-1201
+[2027-01-15 08:34:43.342][warn] bossrush ui opened
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:34:45.936][warn] clearSpace is_destroy:true id:1-200000000002-3301
+createVoxelScene new>>>id:4-100000000001-550 callerId=12345
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:34:49.521][warn] createVoxelScene new>>>id:tab	here
+clearSpace is_destroy:true id:1-200000000002-550
+[2027-01-15 08:34:51.139][warn] plain line with nothing in it
+[2027-01-15 08:34:52.937] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:34:54.619][warn] info about ][info] in the middle
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:34:56.002] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-200000000002-1201
+[2027-01-15 08:35:01.615][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:8-200000000002-1201
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:35:04.058][warn] load scene fb_roguelike_holo
+[2027-01-15 08:35:05.323] net request callerId=12345 op=Get
+[2027-01-15 08:35:06.546][info] clearSpace is_destroy:false id:1-200000000002-550
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:35:09.473][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:35:10.543][info] net request callerId=100000000001 op=Get
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-100000000001-550
+[2027-01-15 08:35:12.953][info] net request callerId=123456 op=Get
+[2027-01-15 08:35:13.037] plain line with nothing in it
+net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:35:16.130][warn] plain line with nothing in it
+[2027-01-15 08:35:17.652] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:35:18.731] clearSpace is_destroy:true id:2-100000000001-3301
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:9-100000000001-1201
+[2027-01-15 08:35:20.536][warn] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:35:22.801] net request callerId=100000000002 op=Get
+load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:35:25.339][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:35:26.626][info] unicode é中 text createVoxelScene new>>>id:
+info about ][info] in the middle
+[2027-01-15 08:35:28.896][warn] createVoxelScene new>>>id:tab	here
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:35:30.665][warn] net request callerId=123456 op=Get
+[2027-01-15 08:35:31.676][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:35:34.609][warn] createVoxelScene new>>>id:4-100000000001-1201
+createVoxelScene new>>>id:4-200000000002-1201
+[2027-01-15 08:35:36.444][info] net request callerId=123456 op=Get
+[2027-01-15 08:35:37.911][warn] createVoxelScene new>>>id:tab	here
+clearSpace is_destroy:false id:1-100000000001-3301
+[2027-01-15 08:35:39.243][warn] load scene fb_bossrush_03
+[2027-01-15 08:35:40.684][info] bossrush ui opened
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-100000000001-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:35:43.167][info] plain line with nothing in it
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-100000000001-3301 callerId=123456
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:35:48.692] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:4-200000000002-550 callerId=100000000002
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-200000000002-550 callerId=123456
+[2027-01-15 08:35:53.646] plain line with nothing in it
+[2026-02-30 25:00:00.1] 
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:35:56.425] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:35:58.118][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:36:00.219][info] clearSpace is_destroy:true id:1-100000000001-550
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-100000000001-1201 callerId=123456
+[2027-01-15 08:36:02.122][warn] 
+[2027-01-15 08:36:03.901] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:9-100000000001-3301
+[2027-01-15 08:36:05.210][info] createVoxelScene new>>>id:1-200000000002-3301 callerId=12345
+info about ][info] in the middle
+[2027-01-15 08:36:07.526][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:36:10.440][info] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:36:11.555] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:3-100000000001-1201 callerId=123456
+[2027-01-15 08:36:13.132][info] 
+[2027-01-15 08:36:14.053][warn] load scene fb_bossrush_03
+bossrush ui opened
+[2027-01-15 08:36:16.322][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:36:17.553] bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:7-200000000002-550
+[2027-01-15 08:36:19.495][info] createVoxelScene new>>>id:8-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:6-200000000002-1201 callerId=123456
+[2027-01-15 08:36:21.156][warn] net request callerId=100000000001 op=Get
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+plain line with nothing in it
+[2027-01-15 08:36:24.607][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:36:25.654] clearSpace is_destroy:true id:9-200000000002-3301
+[2027-01-15 08:36:26.478][warn] clearSpace is_destroy:false id:5-200000000002-550
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:7-100000000001-3301
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:2-200000000002-550
+[2026-13-01 00:00:00.5] bossrush ui opened
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:36:33.478][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:36:35.634][warn] load scene fb_bossrush_03
+[2027-01-15 08:36:36.441] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:36:37.763][warn] load scene fb_bossrush_03
+[2027-01-15 08:36:38.607][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:36:39.251] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:36:41.371][info] 
+[2027-01-15 08:36:42.892] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:36:44.067][info] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:3-200000000002-550
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:36:47.054][info] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:36:48.641] createVoxelScene new>>>id:1-100000000001-1201
+[2027-01-15 08:36:49.080] createVoxelScene new>>>id:1-200000000002-550 callerId=12345
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:36:51.132][info] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:36:54.389][info] createVoxelScene new>>>id:8-200000000002-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:36:56.967][warn] clearSpace is_destroy:false id:2-100000000001-550
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:36:58.435] clearSpace is_destroy:true id:7-200000000002-3301
+[2027-01-15 08:36:59.915][info] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:4-200000000002-550
+createVoxelScene new>>>id:7-200000000002-550 callerId=100000000002
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:37:03.559] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:37:04.679][info] createVoxelScene new>>>id:7-100000000001-1201 callerId=100000000002
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:6-200000000002-550 callerId=12345
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+load scene fb_bossrush_03
+[2027-01-15 08:37:08.871][info] plain line with nothing in it
+[2027-01-15 08:37:09.896][warn] createVoxelScene new>>>id:8-200000000002-550
+[2027-01-15 08:37:10.414][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:4-200000000002-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:37:13.855] 
+[2027-01-15 08:37:14.437][warn] clearSpace is_destroy:false id:4-200000000002-550
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:37:17.635][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:6-200000000002-1201
+[2026-02-30 25:00:00.1] net request callerId=100000000001 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:37:23.105] createVoxelScene new>>>id:5-100000000001-3301
+[2027-01-15 08:37:24.202][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:37:25.161] clearSpace is_destroy:false id:5-100000000001-3301
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:37:27.328] clearSpace is_destroy:true id:5-100000000001-1201
+[2027-01-15 08:37:28.615][warn] info about ][info] in the middle
+[2027-01-15 08:37:29.920][info] clearSpace is_destroy:true id:1-200000000002-3301
+[2027-01-15 08:37:30.915] createVoxelScene new>>>id:7-100000000001-1201
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:37:35.199] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:3-100000000001-3301
+[2027-01-15 08:37:41.852][warn] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:37:43.672] plain line with nothing in it
+[2027-01-15 08:37:44.815][info] info about ][info] in the middle
+[2027-01-15 08:37:45.240][info] createVoxelScene new>>>id:2-200000000002-550 callerId=100000000001
+[2027-01-15 08:37:46.326] net request callerId=123456 op=Get
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:37:48.912][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:37:49.650][info] createVoxelScene new>>>id:1-200000000002-3301 callerId=123456
+[2027-01-15 08:37:50.818] clearSpace is_destroy:false id:5-100000000001-1201
+
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:37:55.716][info] bossrush ui opened
+[2026-13-01 00:00:00.5] 
+bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] plain line with nothing in it
+createVoxelScene new>>>id:4-200000000002-550
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:38:02.406] clearSpace is_destroy:true id:8-100000000001-550
+[2027-01-15 08:38:03.540][warn] bossrush ui opened
+[2027-01-15 08:38:04.470] load scene fb_roguelike_holo
+[2027-01-15 08:38:05.681][info] bossrush ui opened
+net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:38:08.236] createVoxelScene new>>>id:8-200000000002-3301 callerId=123456
+[2027-01-15 08:38:09.265][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:38:10.456][warn] 
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:1-100000000001-550
+[2027-01-15 08:38:12.686][info] clearSpace is_destroy:true id:2-200000000002-550
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:38:14.728] createVoxelScene new>>>id:3-200000000002-1201
+[2027-01-15 08:38:15.158][info] bossrush ui opened
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:8-100000000001-1201
+[2027-01-15 08:38:19.939][warn] clearSpace is_destroy:true id:6-100000000001-550
+[2027-01-15 08:38:20.609][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:38:21.878][info] clearSpace is_destroy:false id:3-200000000002-1201
+load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-200000000002-1201
+[2027-01-15 08:38:24.968] bossrush ui opened
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] 
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-200000000002-1201
+[2027-01-15 08:38:29.945][warn] clearSpace is_destroy:true id:3-200000000002-3301
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:38:31.376][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:6-200000000002-1201
+[2027-01-15 08:38:34.696][info] clearSpace is_destroy:false id:7-100000000001-550
+[2027-01-15 08:38:35.609] plain line with nothing in it
+[2027-01-15 08:38:36.031][warn] load scene fb_roguelike_holo
+[2027-01-15 08:38:37.314][warn] bossrush ui opened
+[2027-01-15 08:38:38.827][warn] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:38:39.137][warn] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:38:40.596][info] bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-100000000001-550
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:38:43.226][warn] clearSpace is_destroy:true id:1-100000000001-1201
+[2027-01-15 08:38:44.365][warn] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:38:45.084] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] plain line with nothing in it
+createVoxelScene new>>>id:5-100000000001-1201
+[2027-01-15 08:38:48.149] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:38:49.977][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:38:50.981][warn] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:38:53.860][warn] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:38:55.822][warn] createVoxelScene new>>>id:9-100000000001-3301 callerId=12345
+[2027-01-15 08:38:56.790][info] load scene fb_roguelike_holo
+[2027-01-15 08:38:57.767][warn] clearSpace is_destroy:false id:2-200000000002-3301
+clearSpace is_destroy:false id:6-100000000001-1201
+[2027-01-15 08:38:59.395][warn] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:39:01.416][info] load scene fb_roguelike_holo
+[2027-01-15 08:39:02.342] info about ][info] in the middle
+[2027-01-15 08:39:03.748][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:39:04.339] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:39:06.418][warn] load scene fb_bossrush_03
+load scene fb_roguelike_holo
+clearSpace is_destroy:true id:4-200000000002-550
+bossrush ui opened
+clearSpace is_destroy:true id:6-200000000002-1201
+[2027-01-15 08:39:11.091] load scene fb_bossrush_03
+[2027-01-15 08:39:12.310][info] clearSpace is_destroy:false id:4-100000000001-3301
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:39:14.017] info about ][info] in the middle
+bossrush ui opened
+[2027-01-15 08:39:16.033][warn] createVoxelScene new>>>id:7-200000000002-3301 callerId=100000000002
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:39:18.141][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-100000000001-550
+[2027-01-15 08:39:21.558][warn] clearSpace is_destroy:true id:1-100000000001-1201
+clearSpace is_destroy:false id:1-200000000002-3301
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:6-100000000001-1201
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:39:25.218] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:39:28.806][info] clearSpace is_destroy:false id:8-100000000001-550
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:2-100000000001-3301
+[2027-01-15 08:39:30.091] load scene fb_roguelike_holo
+plain line with nothing in it
+createVoxelScene new>>>id:9-100000000001-1201 callerId=12345
+clearSpace is_destroy:true id:8-100000000001-1201
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:39:35.075][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:39:36.207] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:39:37.597] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:39:38.033][warn] load scene fb_roguelike_holo
+[2027-01-15 08:39:39.666] net request callerId=12345 op=Get
+[2027-01-15 08:39:40.382][warn] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:39:42.149] clearSpace is_destroy:true id:9-200000000002-550
+net request callerId=12345 op=Get
+info about ][info] in the middle
+[2027-01-15 08:39:45.404] clearSpace is_destroy:true id:3-100000000001-1201
+load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:39:48.898][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:39:49.992][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:39:50.090][warn] clearSpace is_destroy:false id:8-200000000002-3301
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:39:52.250][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:39:53.533][info] load scene fb_roguelike_holo
+[2027-01-15 08:39:54.328][warn] clearSpace is_destroy:false id:1-200000000002-550
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2027-01-15 08:39:56.394][info] bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:39:58.016][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] net request callerId=100000000001 op=Get
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:40:01.548] clearSpace is_destroy:true id:5-100000000001-3301
+[2027-01-15 08:40:02.104][warn] load scene fb_roguelike_holo
+[2027-01-15 08:40:03.472][warn] clearSpace is_destroy:true id:6-100000000001-1201
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:40:05.093][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:40:09.047] 
+[2027-01-15 08:40:10.497] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:40:12.328][warn] createVoxelScene new>>>id:3-100000000001-1201 callerId=12345
+[2027-01-15 08:40:13.389] net request callerId=100000000002 op=Get
+[2027-01-15 08:40:14.099][warn] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:40:16.655][warn] clearSpace is_destroy:true id:3-200000000002-3301
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+plain line with nothing in it
+[2027-01-15 08:40:19.616] clearSpace is_destroy:false id:7-100000000001-3301
+[2027-01-15 08:40:20.951][warn] load scene fb_bossrush_03
+[2027-01-15 08:40:21.601][warn] load scene fb_bossrush_03
+[2027-01-15 08:40:22.093][info] load scene fb_roguelike_holo
+[2027-01-15 08:40:23.987] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:7-200000000002-550
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:40:26.411] load scene fb_bossrush_03
+[2027-01-15 08:40:27.472][info] bossrush ui opened
+[2027-01-15 08:40:28.132] plain line with nothing in it
+[2027-01-15 08:40:29.295][warn] load scene fb_roguelike_holo
+[2027-01-15 08:40:30.371][warn] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:40:32.206] clearSpace is_destroy:false id:5-100000000001-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2027-01-15 08:40:35.942][warn] bossrush ui opened
+[2027-01-15 08:40:36.685][warn] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:5-100000000001-550
+[2027-01-15 08:40:38.036][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:40:39.564][info] load scene fb_bossrush_03
+[2027-01-15 08:40:40.855] load scene fb_roguelike_holo
+[2027-01-15 08:40:41.862][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:40:42.093][warn] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+createVoxelScene new>>>id:5-100000000001-1201
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:40:47.285][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] net request callerId=12345 op=Get
+[2027-01-15 08:40:49.414][warn] bossrush ui opened
+[2027-01-15 08:40:50.019][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+plain line with nothing in it
+[2027-01-15 08:40:52.844] unicode é中 text createVoxelScene new>>>id:
+createVoxelScene new>>>id:5-200000000002-550 callerId=12345
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:40:55.812][info] bossrush ui opened
+[2027-01-15 08:40:56.411][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:40:57.774][info] clearSpace is_destroy:false id:1-100000000001-3301
+[2027-01-15 08:40:58.868][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:40:59.564][info] net request callerId=123456 op=Get
+[2027-01-15 08:41:00.890][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:41:03.015][info] createVoxelScene new>>>id:9-200000000002-550 callerId=12345
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:5-100000000001-550
+[2027-01-15 08:41:06.664][warn] clearSpace is_destroy:true id:7-100000000001-1201
+[2027-01-15 08:41:07.170][warn] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:41:08.360] info about ][info] in the middle
+[2027-01-15 08:41:09.200][warn] clearSpace is_destroy:true id:9-200000000002-3301
+[2027-01-15 08:41:10.881][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:2-200000000002-550
+clearSpace is_destroy:true id:3-100000000001-1201
+[2027-01-15 08:41:14.140][warn] createVoxelScene new>>>id:4-200000000002-550
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+download https://cdn.example/prod/other/file ok
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:41:19.301] createVoxelScene new>>>id:1-100000000001-3301
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:41:22.329][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:41:23.823] bossrush ui opened
+[2027-01-15 08:41:24.362] createVoxelScene new>>>id:5-100000000001-3301
+[2027-01-15 08:41:25.166][info] clearSpace is_destroy:true id:2-100000000001-3301
+[2027-01-15 08:41:26.985][warn] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:41:28.561] load scene fb_bossrush_03
+[2027-01-15 08:41:29.185][info] load scene fb_roguelike_holo
+[2027-01-15 08:41:30.229][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:41:37.300] 
+[2027-01-15 08:41:38.951][warn] clearSpace is_destroy:false id:4-200000000002-550
+load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:3-100000000001-550
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:5-200000000002-550
+[2027-01-15 08:41:42.844][info] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:41:44.228][info] load scene fb_roguelike_holo
+[2027-01-15 08:41:45.987][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:2-100000000001-3301
+[2027-01-15 08:41:47.183] bossrush ui opened
+[2027-01-15 08:41:48.421][info] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:41:51.685] plain line with nothing in it
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:7-200000000002-1201
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:41:54.479] 
+[2027-01-15 08:41:55.695] net request callerId=123456 op=Get
+[2027-01-15 08:41:56.803] clearSpace is_destroy:true id:2-200000000002-1201
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:42:01.664][info] bossrush ui opened
+[2027-01-15 08:42:02.276][warn] net request callerId=100000000002 op=Get
+load scene fb_roguelike_holo
+[2027-01-15 08:42:04.621][warn] createVoxelScene new>>>id:8-200000000002-3301 callerId=123456
+[2027-01-15 08:42:05.701][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-100000000001-1201
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:42:08.326] load scene fb_bossrush_03
+[2027-01-15 08:42:09.693][warn] createVoxelScene new>>>id:8-100000000001-3301 callerId=100000000001
+[2027-01-15 08:42:10.998][info] clearSpace is_destroy:false id:7-100000000001-1201
+[2027-01-15 08:42:11.151] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:42:12.042][info] plain line with nothing in it
+
+createVoxelScene new>>>id:4-100000000001-1201 callerId=12345
+[2027-01-15 08:42:15.782][warn] clearSpace is_destroy:false id:9-100000000001-1201
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:42:18.290][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:42:19.191] createVoxelScene new>>>id:7-100000000001-1201
+[2027-01-15 08:42:20.984] clearSpace is_destroy:false id:1-200000000002-1201
+[2027-01-15 08:42:21.742][info] clearSpace is_destroy:false id:2-100000000001-1201
+[2027-01-15 08:42:22.394][info] createVoxelScene new>>>id:1-100000000001-550 callerId=123456
+createVoxelScene new>>>id:5-100000000001-550
+[2027-01-15 08:42:24.984] createVoxelScene new>>>id:7-100000000001-550
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:42:26.057] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:42:27.069][warn] load scene fb_bossrush_03
+[2027-01-15 08:42:28.582][warn] load scene fb_bossrush_03
+createVoxelScene new>>>id:4-200000000002-3301 callerId=12345
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-100000000001-550 callerId=12345
+createVoxelScene new>>>id:1-100000000001-1201
+[2027-01-15 08:42:33.513][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:42:35.719][warn] info about ][info] in the middle
+createVoxelScene new>>>id:7-100000000001-3301
+net request callerId=12345 op=Get
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:42:41.214][warn] createVoxelScene new>>>id:2-100000000001-1201
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:5-200000000002-550
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:4-200000000002-3301 callerId=100000000002
+[2027-01-15 08:42:46.356][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:42:47.233][warn] createVoxelScene new>>>id:9-200000000002-3301 callerId=100000000002
+load scene fb_roguelike_holo
+[2027-01-15 08:42:49.631][info] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] 
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+bossrush ui opened
+[2027-01-15 08:42:54.188][info] info about ][info] in the middle
+[2027-01-15 08:42:55.756][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+clearSpace is_destroy:true id:6-100000000001-1201
+[2026-02-30 25:00:00.1] 
+[2027-01-15 08:42:59.575][warn] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:43:03.108] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:43:05.661][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:9-200000000002-1201
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:43:11.708][info] plain line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:9-200000000002-3301
+[2027-01-15 08:43:14.299][warn] clearSpace is_destroy:true id:1-200000000002-3301
+clearSpace is_destroy:true id:1-200000000002-1201
+createVoxelScene new>>>id:5-100000000001-1201
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:43:18.911][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:43:19.358] plain line with nothing in it
+[2026-02-30 25:00:00.1] bossrush ui opened
+createVoxelScene new>>>id:4-200000000002-3301
+[2027-01-15 08:43:22.090] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+plain line with nothing in it
+[2027-01-15 08:43:24.505][info] createVoxelScene new>>>id:1-200000000002-550
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+info about ][info] in the middle
+[2027-01-15 08:43:27.624] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] net request callerId=100000000002 op=Get
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:43:31.063][warn] clearSpace is_destroy:false id:1-100000000001-1201
+[2026-13-01 00:00:00.5] 
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:43:34.396][info] unicode é中 text createVoxelScene new>>>id:
+clearSpace is_destroy:false id:4-100000000001-550
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:43:37.302] plain line with nothing in it
+[2027-01-15 08:43:38.830][warn] load scene fb_bossrush_03
+[2027-01-15 08:43:39.952][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:43:41.151][warn] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:43:44.443][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:4-200000000002-3301
+[2027-01-15 08:43:46.881][info] bossrush ui opened
+[2027-01-15 08:43:47.185][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+[2027-01-15 08:43:50.934] plain line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:5-100000000001-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:43:54.429] bossrush ui opened
+[2027-01-15 08:43:55.436][info] info about ][info] in the middle
+bossrush ui opened
+[2027-01-15 08:43:57.001] createVoxelScene new>>>id:4-200000000002-1201 callerId=123456
+[2027-01-15 08:43:58.792][warn] createVoxelScene new>>>id:4-100000000001-3301
+[2027-01-15 08:43:59.077] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:44:00.687][info] createVoxelScene new>>>id:5-100000000001-1201 callerId=12345
+[2027-01-15 08:44:01.901][warn] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2027-01-15 08:44:02.756][warn] bossrush ui opened
+[2027-01-15 08:44:03.351][warn] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:44:07.973][warn] createVoxelScene new>>>id:7-200000000002-550
+createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] 
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:44:11.528][info] createVoxelScene new>>>id:9-100000000001-3301 callerId=100000000001
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2027-01-15 08:44:13.312] bossrush ui opened
+[2027-01-15 08:44:14.208][warn] load scene fb_bossrush_03
+createVoxelScene new>>>id:8-100000000001-550 callerId=100000000002
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:1-200000000002-550
+[2027-01-15 08:44:17.924][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:44:18.967][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+bossrush ui opened
+[2027-01-15 08:44:21.758][info] info about ][info] in the middle
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:44:23.672][info] createVoxelScene new>>>id:4-200000000002-3301 callerId=12345
+[2027-01-15 08:44:24.122][warn] createVoxelScene new>>>id:9-200000000002-550
+[2027-01-15 08:44:25.727] clearSpace is_destroy:false id:3-100000000001-3301
+[2027-01-15 08:44:26.951][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:44:27.653][info] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:44:29.851] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2027-01-15 08:44:31.417][warn] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:44:32.027][info] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+plain line with nothing in it
+[2027-01-15 08:44:34.392] 
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-100000000001-1201
+net request callerId=123456 op=Get
+[2027-01-15 08:44:37.561][info] plain line with nothing in it
+[2027-01-15 08:44:38.219] info about ][info] in the middle
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:6-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:44:41.261] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:44:42.128][info] clearSpace is_destroy:true id:9-200000000002-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:44:44.060] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:44:48.069] clearSpace is_destroy:true id:3-100000000001-3301
+[2027-01-15 08:44:49.167][warn] load scene fb_roguelike_holo
+[2027-01-15 08:44:50.431][warn] plain line with nothing in it
+
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:6-100000000001-1201 callerId=123456
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:44:54.707][info] plain line with nothing in it
+[2027-01-15 08:44:55.005][warn] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:1-100000000001-3301
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:45:00.422][info] bossrush ui opened
+load scene fb_roguelike_holo
+[2027-01-15 08:45:02.516][warn] createVoxelScene new>>>id:9-100000000001-550
+[2027-01-15 08:45:03.605][info] download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:45:05.690][info] 
+[2027-01-15 08:45:06.984][info] 
+[2027-01-15 08:45:07.712][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:45:08.105][info] clearSpace is_destroy:false id:8-200000000002-550
+[2027-01-15 08:45:09.836][warn] net request callerId=100000000002 op=Get
+
+createVoxelScene new>>>id:6-200000000002-1201
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-200000000002-3301
+[2027-01-15 08:45:13.343][warn] load scene fb_roguelike_holo
+[2027-01-15 08:45:14.936][info] info about ][info] in the middle
+[2027-01-15 08:45:15.651][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+clearSpace is_destroy:false id:7-100000000001-550
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:45:19.906] createVoxelScene new>>>id:1-200000000002-550 callerId=100000000002
+[2027-01-15 08:45:20.140][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:45:21.650] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:45:23.436] createVoxelScene new>>>id:5-200000000002-550 callerId=12345
+[2027-01-15 08:45:24.647] info about ][info] in the middle
+createVoxelScene new>>>id:6-200000000002-550
+[2027-01-15 08:45:26.257] createVoxelScene new>>>id:1-100000000001-1201
+[2027-01-15 08:45:27.834][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+load scene fb_roguelike_holo
+bossrush ui opened
+[2027-01-15 08:45:32.008][warn] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] load scene fb_roguelike_holo
+plain line with nothing in it
+[2027-01-15 08:45:35.664][info] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:2-200000000002-1201
+[2027-01-15 08:45:38.305][info] createVoxelScene new>>>id:3-100000000001-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:45:41.199][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:45:43.789] download https://cdn.example/prod/ClientInfo/100000000001_client_info_bin ok
+plain line with nothing in it
+[2027-01-15 08:45:45.107][warn] createVoxelScene new>>>id:6-100000000001-550 callerId=12345
+[2027-01-15 08:45:46.657][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:45:47.925] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:45:49.012][info] createVoxelScene new>>>id:9-100000000001-1201
+[2027-01-15 08:45:50.417][info] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:45:51.815][info] plain line with nothing in it
+[2027-01-15 08:45:52.606][info] net request callerId=12345 op=Get
+[2027-01-15 08:45:53.601][warn] clearSpace is_destroy:false id:3-100000000001-3301
+[2027-01-15 08:45:54.372][warn] bossrush ui opened
+[2027-01-15 08:45:55.143][info] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:45:56.381] load scene fb_bossrush_03
+[2027-01-15 08:45:57.784][info] clearSpace is_destroy:false id:4-100000000001-1201
+[2027-01-15 08:45:58.711][warn] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:8-200000000002-3301
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:46:01.791][warn] createVoxelScene new>>>id:2-100000000001-1201 callerId=123456
+createVoxelScene new>>>id:1-200000000002-550 callerId=123456
+[2027-01-15 08:46:03.169][info] 
+[2027-01-15 08:46:04.122][warn] load scene fb_roguelike_holo
+[2027-01-15 08:46:05.607][warn] plain line with nothing in it
+[2027-01-15 08:46:06.589][warn] createVoxelScene new>>>id:tab	here
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:46:08.916][info] bossrush ui opened
+[2027-01-15 08:46:09.436][info] load scene fb_roguelike_holo
+createVoxelScene new>>>id:5-200000000002-3301
+[2027-01-15 08:46:11.601][info] load scene fb_bossrush_03
+[2027-01-15 08:46:12.340] bossrush ui opened
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:46:17.011] load scene fb_roguelike_holo
+[2027-01-15 08:46:18.499][info] createVoxelScene new>>>id:8-200000000002-550
+[2027-01-15 08:46:19.883][warn] bossrush ui opened
+[2027-01-15 08:46:20.352] net request callerId=100000000001 op=Get
+[2027-01-15 08:46:21.061][warn] 
+[2026-02-30 25:00:00.1] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+clearSpace is_destroy:true id:5-200000000002-3301
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] plain line with nothing in it
+download https://cdn.example/prod/other/file ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/pet_jewelry/123456 ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:46:32.366][warn] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] net request callerId=100000000002 op=Get
+[2027-01-15 08:46:34.283][warn] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:1-200000000002-3301 callerId=123456
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:46:38.894][info] clearSpace is_destroy:true id:5-200000000002-3301
+[2027-01-15 08:46:39.653][warn] net request callerId=12345 op=Get
+[2027-01-15 08:46:40.307] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:4-200000000002-1201
+[2027-01-15 08:46:42.061] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:46:43.034][info] 
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:5-100000000001-1201
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:6-200000000002-1201 callerId=100000000001
+plain line with nothing in it
+[2027-01-15 08:46:47.098] clearSpace is_destroy:true id:5-200000000002-3301
+load scene fb_bossrush_03
+[2027-01-15 08:46:49.110][warn] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] 
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:46:53.399][info] load scene fb_bossrush_03
+[2027-01-15 08:46:54.906][warn] createVoxelScene new>>>id:6-200000000002-3301 callerId=123456
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:46:57.187][info] 
+download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:4-200000000002-3301
+[2027-01-15 08:47:01.119] createVoxelScene new>>>id:8-100000000001-3301 callerId=123456
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2027-01-15 08:47:03.223][info] createVoxelScene new>>>id:7-100000000001-1201 callerId=123456
+[2027-01-15 08:47:04.672][warn] load scene fb_bossrush_03
+[2027-01-15 08:47:05.599][info] load scene fb_roguelike_holo
+[2027-01-15 08:47:06.129] bossrush ui opened
+[2026-02-30 25:00:00.1] bossrush ui opened
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:47:09.745][info] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] bossrush ui opened
+download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:3-200000000002-550 callerId=12345
+[2027-01-15 08:47:14.829] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:6-100000000001-550
+[2027-01-15 08:47:16.527][info] bossrush ui opened
+load scene fb_roguelike_holo
+[2027-01-15 08:47:18.391][info] clearSpace is_destroy:true id:2-100000000001-1201
+download https://cdn.example/prod/other/file ok
+[2027-01-15 08:47:20.751] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:47:21.167][warn] 
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] info about ][info] in the middle
+[2027-01-15 08:47:24.266] unicode é中 text createVoxelScene new>>>id:
+createVoxelScene new>>>id:1-200000000002-1201
+[2027-01-15 08:47:26.553] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:47:27.830] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+net request callerId=100000000002 op=Get
+[2027-01-15 08:47:29.244][info] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:47:30.016][info] plain line with nothing in it
+createVoxelScene new>>>id:5-200000000002-550 callerId=100000000001
+download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2027-01-15 08:47:33.355][warn] load scene fb_bossrush_03
+[2027-01-15 08:47:34.633][warn] createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:47:38.587] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:47:39.566][info] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:47:41.116] 
+net request callerId=100000000001 op=Get
+[2027-01-15 08:47:43.566] createVoxelScene new>>>id:9-200000000002-1201 callerId=100000000001
+[2027-01-15 08:47:44.096][info] clearSpace is_destroy:true id:9-100000000001-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:2-100000000001-550 callerId=100000000001
+[2027-01-15 08:47:47.229][info] clearSpace is_destroy:false id:4-100000000001-1201
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:4-200000000002-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/100000000002 ok
+[2027-01-15 08:47:50.130][warn] plain line with nothing in it
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:6-200000000002-3301
+[2027-01-15 08:47:52.908][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:false id:9-100000000001-3301
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:7-200000000002-3301 callerId=12345
+[2027-01-15 08:47:55.909][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:47:56.459][warn] plain line with nothing in it
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:2-200000000002-550
+[2027-01-15 08:47:58.838] load scene fb_roguelike_holo
+[2027-01-15 08:47:59.222][warn] load scene fb_roguelike_holo
+download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:48:01.077][info] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2026-13-01 00:00:00.5] bossrush ui opened
+[2027-01-15 08:48:04.970][info] load scene fb_roguelike_holo
+[2027-01-15 08:48:05.669][warn] load scene fb_bossrush_03
+
+clearSpace is_destroy:false id:1-200000000002-1201
+[2027-01-15 08:48:08.833] clearSpace is_destroy:false id:4-200000000002-550
+[2027-01-15 08:48:09.172][warn] net request callerId=100000000002 op=Get
+[2026-13-01 00:00:00.5] info about ][info] in the middle
+plain line with nothing in it
+[2027-01-15 08:48:12.989][warn] info about ][info] in the middle
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:48:14.497] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:9-200000000002-3301 callerId=123456
+clearSpace is_destroy:false id:9-100000000001-550
+[2027-01-15 08:48:17.413] clearSpace is_destroy:false id:1-200000000002-550
+[2027-01-15 08:48:18.016][info] bossrush ui opened
+[2027-01-15 08:48:19.462][warn] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2027-01-15 08:48:21.837][info] clearSpace is_destroy:false id:5-100000000001-3301
+[2027-01-15 08:48:22.853][warn] 
+[2027-01-15 08:48:23.538][warn] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:48:24.746][warn] 
+[2027-01-15 08:48:25.994][info] net request callerId=12345 op=Get
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+clearSpace is_destroy:true id:9-100000000001-3301
+[2027-01-15 08:48:28.434][info] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:48:29.693][info] createVoxelScene new>>>id:5-100000000001-1201
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+createVoxelScene new>>>id:9-100000000001-3301 callerId=123456
+info about ][info] in the middle
+[2026-02-30 25:00:00.1] createVoxelScene new>>>id:tab	here
+unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+plain line with nothing in it
+unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:48:38.780][warn] bossrush ui opened
+load scene fb_roguelike_holo
+[2027-01-15 08:48:40.283][warn] load scene fb_bossrush_03
+[2027-01-15 08:48:41.700] load scene fb_roguelike_holo
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:48:43.385][info] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:48:44.897] createVoxelScene new>>>id:tab	here
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:48:46.529][info] load scene fb_bossrush_03
+[2027-01-15 08:48:47.076][info] plain line with nothing in it
+[2027-01-15 08:48:48.369][info] 
+[2026-02-30 25:00:00.1] load scene fb_bossrush_03
+[2026-02-30 25:00:00.1] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:48:51.635] createVoxelScene new>>>id:8-200000000002-550
+[2027-01-15 08:48:52.310][info] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/123456_client_info_bin ok
+[2027-01-15 08:48:54.148][info] download https://cdn.example/prod/other/file ok
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:7-200000000002-1201
+createVoxelScene new>>>id:7-200000000002-550
+plain line with nothing in it
+[2026-13-01 00:00:00.5] createVoxelScene new>>>id:tab	here
+[2027-01-15 08:48:59.423][warn] info about ][info] in the middle
+bossrush ui opened
+clearSpace is_destroy:true id:2-100000000001-550
+createVoxelScene new>>>id:4-200000000002-1201 callerId=100000000002
+[2026-13-01 00:00:00.5] clearSpace is_destroy:true id:2-100000000001-1201
+[2027-01-15 08:49:04.593][info] plain line with nothing in it
+[2027-01-15 08:49:05.291][warn] load scene fb_roguelike_holo
+[2026-13-01 00:00:00.5] 
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/pet_jewelry/12345 ok
+[2027-01-15 08:49:08.214][warn] clearSpace is_destroy:true id:3-100000000001-3301
+[2027-01-15 08:49:09.991][warn] load scene fb_bossrush_03
+createVoxelScene new>>>id:tab	here
+[2027-01-15 08:49:11.818] load scene fb_roguelike_holo
+[2027-01-15 08:49:12.637][warn] plain line with nothing in it
+createVoxelScene new>>>id:6-200000000002-3301
+[2027-01-15 08:49:14.220][info] load scene fb_bossrush_03
+unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] clearSpace is_destroy:false id:2-100000000001-550
+[2027-01-15 08:49:17.659] download https://cdn.example/prod/other/file ok
+[2027-01-15 08:49:18.369][warn] unicode é中 text createVoxelScene new>>>id:
+[2026-13-01 00:00:00.5] 
+[2027-01-15 08:49:20.043][warn] download https://cdn.example/prod/pet_jewelry/100000000001 ok
+[2027-01-15 08:49:21.393][info] clearSpace is_destroy:true id:2-100000000001-1201
+[2027-01-15 08:49:22.216][warn] bossrush ui opened
+[2027-01-15 08:49:23.685][warn] info about ][info] in the middle
+[2027-01-15 08:49:24.286][warn] plain line with nothing in it
+[2026-02-30 25:00:00.1] clearSpace is_destroy:true id:3-200000000002-550
+[2027-01-15 08:49:26.832] createVoxelScene new>>>id:5-200000000002-550
+[2026-13-01 00:00:00.5] download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2026-13-01 00:00:00.5] load scene fb_bossrush_03
+[2027-01-15 08:49:29.153][info] plain line with nothing in it
+[2027-01-15 08:49:30.833][warn] plain line with nothing in it
+bossrush ui opened
+[2027-01-15 08:49:32.288][warn] plain line with nothing in it
+info about ][info] in the middle
+createVoxelScene new>>>id:tab	here
+[2026-02-30 25:00:00.1] load scene fb_roguelike_holo
+[2027-01-15 08:49:36.310][warn] net request callerId=100000000002 op=Get
+[2027-01-15 08:49:37.189][info] download https://cdn.example/prod/pet_jewelry/123456 ok
+unicode é中 text createVoxelScene new>>>id:
+createVoxelScene new>>>id:7-200000000002-3301 callerId=100000000002
+createVoxelScene new>>>id:9-100000000001-550 callerId=123456
+[2027-01-15 08:49:41.721] clearSpace is_destroy:false id:1-200000000002-550
+download https://cdn.example/prod/ClientInfo/100000000002_client_info_bin ok
+[2027-01-15 08:49:43.308][info] info about ][info] in the middle
+[2027-01-15 08:49:44.719][info] clearSpace is_destroy:false id:7-200000000002-550
+[2026-13-01 00:00:00.5] plain line with nothing in it
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2026-02-30 25:00:00.1] download https://cdn.example/prod/ClientInfo/12345_client_info_bin ok
+[2026-02-30 25:00:00.1] plain line with nothing in it
+[2027-01-15 08:49:49.532][info] unicode é中 text createVoxelScene new>>>id:
+clearSpace is_destroy:false id:8-100000000001-3301
+[2026-02-30 25:00:00.1] net request callerId=123456 op=Get
+
+[2026-13-01 00:00:00.5] unicode é中 text createVoxelScene new>>>id:
+[2027-01-15 08:49:54.191][info] clearSpace is_destroy:false id:3-200000000002-550
+
+[2027-01-15 08:49:56.009] 
+[2026-13-01 00:00:00.5] net request callerId=123456 op=Get
+[2026-13-01 00:00:00.5] net request callerId=100000000001 op=Get
+[2027-01-15 08:49:59.549][warn] createVoxelScene new>>>id:1-200000000002-3301
+createVoxelScene new>>>id:unfinished
