@@ -222,13 +222,18 @@ fn write_status(m: &Meter, sub: Option<&Submitter>, live: &Live, t: f64) {
             "character",
             dict([
                 ("uid", m.uid.clone().map_or(Value::None, Value::Str)),
-                ("name", Value::None),
+                ("name", m.character_name.clone().map_or(Value::None, Value::Str)),
                 ("verified", Value::Bool(alogs_meter::team::character_verified(&m.env.data, m.uid.as_deref()))),
                 ("dispute", sub.and_then(|s| s.dispute.lock().unwrap().clone()).unwrap_or(Value::None)),
-                ("link", Value::None),
+                ("link", m.menu.link.as_ref().map_or(Value::None, |l| dict([
+                    ("request", Value::Float(l.request)),
+                    ("state", Value::Str(l.state.into())),
+                    ("name", l.name.clone().map_or(Value::None, Value::Str)),
+                    ("uid", l.uid.clone().map_or(Value::None, Value::Str)),
+                ]))),
             ]),
         ),
-        ("auto_battle_data", Value::Bool(false)),
+        ("auto_battle_data", Value::Bool(m.auto.auto_until != 0.0)),
         (
             "leaderboard",
             dict([
@@ -330,6 +335,7 @@ fn main() {
         m.step(&mut live, &mut console);
         if t - last_status >= 1.0 {
             last_status = t;
+            m.link_poll(t);
             write_status(&m, submitter.as_deref(), &live, t);
         }
         let mut iv = if m.fight.is_some() { m.fight_interval() } else { interval };

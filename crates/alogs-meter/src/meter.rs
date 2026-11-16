@@ -127,6 +127,7 @@ pub struct Meter {
     pub sim: crate::sim::SimState,
     pub egg: crate::egg::EggState,
     pub ps: crate::party::PartyState,
+    pub menu: crate::menu::MenuState,
     /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
     pub icons: Option<alogs_reader::icons::Icons>,
     /// None, 'loading', 'ready', 'failed'.
@@ -235,6 +236,7 @@ impl Meter {
             sim: Default::default(),
             egg: Default::default(),
             ps: Default::default(),
+            menu: Default::default(),
             icons: None,
             icons_state: None,
             icons_job: None,
@@ -621,8 +623,8 @@ impl Meter {
                 Event::Uid(u) => {
                     if self.uid.as_ref() != Some(&u) {
                         log::info!(target: "meter", "player uid {u} (from the game log)");
-                        self.uid = Some(u);
                     }
+                    self.set_uid(&u);
                 }
                 Event::Enter(space, _) => {
                     self.bossrush_space = self.rush_spaces.contains(&space);

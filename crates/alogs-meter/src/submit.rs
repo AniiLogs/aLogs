@@ -74,7 +74,7 @@ pub fn write_json(path: &Path, v: &Value, indent: Option<usize>) -> std::io::Res
     settings::write_whole(path, &text)
 }
 
-fn jpeg(im: &Image, quality: u8) -> Vec<u8> {
+pub(crate) fn jpeg(im: &Image, quality: u8) -> Vec<u8> {
     let rgb = if im.mode == Mode::Rgb { im.clone() } else { im.convert(Mode::Rgb) };
     let mut out = Vec::new();
     let enc = jpeg_encoder::Encoder::new(&mut out, quality);
@@ -460,6 +460,11 @@ impl Submitter {
     }
 
     /// Link your character (with the game menu as proof the site trusts it).
+    /// The next link_character goes even if it matches the last one sent.
+    pub fn forget_linked(&self) {
+        *self.linked.lock().unwrap() = None;
+    }
+
     pub fn link_character(&self, uid: &str, name: &str, proof: Option<&Path>) {
         self.refresh();
         let acct = self.account.lock().unwrap().clone();

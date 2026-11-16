@@ -237,7 +237,8 @@ impl Meter {
         let (w, h) = (im.width as f64, im.height as f64);
         let u = w.min(h * 16.0 / 9.0);
         let ux = (w - u) / 2.0;
-        // TODO(port): menu_name, profile_notes
+        self.menu_name(im, u, ux, h, heads);
+        // TODO(port): profile_notes
         let cc = g(heads, "cc");
         if cc.contains("catch") {
             if now - self.catch_seen > 30.0 {
@@ -291,7 +292,8 @@ impl Meter {
             return;
         }
         if title_is(&head, "profile") {
-            return; // TODO(port): profile_screen
+            self.profile_screen(im, now, u, ux, h);
+            return;
         }
         if party {
             self.party_layout(heads.get("ph").map_or("", String::as_str));

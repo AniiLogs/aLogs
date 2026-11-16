@@ -6,6 +6,7 @@ pub mod eggheist;
 pub mod env;
 pub mod fights;
 pub mod leaderboards;
+pub mod menu;
 pub mod meter;
 pub mod party;
 pub mod payloads;

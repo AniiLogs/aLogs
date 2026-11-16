@@ -24,9 +24,9 @@ ureq = "2"
 jpeg-encoder = "0.6"
 jpeg-decoder = "0.3"
 uuid = { version = "1", features = ["v4"] }
+png = "0.17"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 
 [dev-dependencies]
-png = "0.17"
