@@ -282,14 +282,28 @@ impl Meter {
             return;
         }
         if g(heads, "bs").contains("score") {
-            return; // TODO(port): prep_screen
+            let pill = heads.get("bs").cloned().unwrap_or_default();
+            self.prep_screen(frames, out, im, now, u, ux, h, &pill);
+            return;
         }
         if head.to_lowercase().contains("rank info") {
             self.egg_rank_info(frames, out, im, now, u, ux, h);
             return;
         }
-        if title_is(&head, "profile") || party || hl.starts_with("holobattlei") {
-            return; // TODO(port): profile_screen, party screens, interlink_screen
+        if title_is(&head, "profile") {
+            return; // TODO(port): profile_screen
+        }
+        if party {
+            self.party_layout(heads.get("ph").map_or("", String::as_str));
+            // TODO(port): party_circle (Special Offering, Season Buffs); names_first (the pills read first, on a thread)
+            if now - self.ps.party_seen >= 2.0 {
+                self.party_screen(im, now, u, ux, h);
+            }
+            return;
+        }
+        if hl.starts_with("holobattlei") {
+            self.interlink_screen(im, now, u, ux, h);
+            return;
         }
         if self.egg_screens(frames, out, im, now, u, ux, h, heads) {
             return;
