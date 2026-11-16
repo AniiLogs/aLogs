@@ -127,10 +127,14 @@ Known differences (documented where they are): Pillow's quantize (plain median c
 not FreeType), proof JPEG bytes (jpeg-encoder, not libjpeg), font/icon extraction from the game's Unity bundles (the
 Python meter's cache is read).
 
-Still to port, in order: the Holo-Battle Sim Gizmo tour and exit gate (leaderboards.py sim_tour_*, sim_gate), holding
-inputs (inputblock/controller, HidHide, reWASD, focusguard.py), live.py's OcrWorker / names_first threads, profile notes
-(EXP), test pictures and samples, reload_settings, away_note, snapshot/load_line, the OCR language checks, top-signature
-calm pacing, game_events' full handling, the boss kill sound; the rest of core.py (cleanup, picture writer, cycle
-refresh); the overlays (dps_overlay.py, notice_window.py, layered.py, gamefont.render), pcstats.py, presence.py,
-dmgnumbers.py; then the app shell move-in (alogs-app) and Sanctum Helper (C#). `TODO(port)` marks each place the meter
-calls one of these.
+Since then: the Holo-Battle Sim exit gate and Gizmo tour, input holds (alogs-capture input, focusguard, rewasd), presence,
+pcstats (alogs-pcstats), diagnostics, housekeeping (cleanup, game-data refresh), the OCR language checks, the overlay
+(gamefont.render bit-exact; layered windows; DPS window, HP labels, end notes, the alert, notices), the stop event and a
+clean shutdown. **alogs-app** is moved in (crates/alogs-app, with its ui) and starts the Rust meter; pictures of the game
+the UI shows are git-ignored. **alogs-sanctum** is started: settings, layouts and chest sets, the game log.
+
+Still to port, in order: Sanctum Helper's Vision.cs (OpenCV ops), Engine.cs, OverlayWindow.cs, Hosted.cs (the `--hosted`
+contract), SharedCapture/SharedNotices/OwnOverlays, KeyHook, Gamepad, ToastWindow, ChestPrompt, Analyzer, Detectors,
+Lang, the app entry; then point alogs-app's sanctum.rs at it. In the meter: OcrWorker / names_first threads and the
+top-only / box-part captures and calm pacing (performance; behaviour is the same without them), dmgnumbers (paused in
+B16). Sanctum Helper's Dev switches are beta-only and all off by default: the port keeps the default behaviour.
