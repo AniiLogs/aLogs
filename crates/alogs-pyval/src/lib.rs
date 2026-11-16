@@ -74,6 +74,10 @@ impl Dict {
     pub fn get_str(&self, k: &str) -> Option<&Value> {
         self.map.get(&Norm::Str(k.to_string())).map(|(_, v)| v)
     }
+    /// `d.pop(k, None)`: the rest keep their order.
+    pub fn pop(&mut self, k: &str) -> Option<Value> {
+        self.map.shift_remove(&Norm::Str(k.to_string())).map(|(_, v)| v)
+    }
     /// `d.get(k)` with a missing key as None.
     pub fn at(&self, k: &str) -> &Value {
         self.get_str(k).unwrap_or(&Value::None)

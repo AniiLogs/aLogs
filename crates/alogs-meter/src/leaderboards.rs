@@ -107,9 +107,9 @@ impl Meter {
         better
     }
 
-    fn send_result(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>) {
+    pub(crate) fn send_result(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>) {
         if let Some(s) = &self.submitter {
-            s.enqueue(payload, evidence, battle, party, None);
+            s.enqueue(payload, evidence, battle, party, gizmos);
         }
         // TODO(port): hold the player's inputs until it's sent (Automation › hold_inputs; InputBlock)
     }
@@ -135,7 +135,7 @@ impl Meter {
         let late = s.at("late_result").py_str();
         let b = bd.get("screenshot").as_str().map(String::from);
         let party = s.at("party_screenshot").as_str().map(String::from);
-        self.send_result(&p, Some(&late), b.as_deref(), party.as_deref());
+        self.send_result(&p, Some(&late), b.as_deref(), party.as_deref(), None);
     }
 
     fn sweep_late_results(&self) {
@@ -193,7 +193,7 @@ impl Meter {
         let p = payloads::run_payload(&Value::Dict(s.clone()), &self.uid.clone().map_or(Value::None, Value::Str), &self.env.schedule, &clock);
         let b = s.at("battle_data").get("screenshot").as_str().map(String::from);
         let party = s.at("party_screenshot").as_str().map(String::from);
-        self.send_result(&p, shot.as_deref(), b.as_deref(), party.as_deref());
+        self.send_result(&p, shot.as_deref(), b.as_deref(), party.as_deref(), None);
     }
 
     /// A record reached the leaderboards: its notice over the game, unless turned off.

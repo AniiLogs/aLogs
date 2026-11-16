@@ -55,12 +55,12 @@ pub struct ResultsState {
     pub last_results: f64,
 }
 
-fn local(now: f64, fmt: &str) -> String {
+pub(crate) fn local(now: f64, fmt: &str) -> String {
     use chrono::TimeZone;
     chrono::Local.timestamp_opt(now as i64, 0).single().map_or_else(String::new, |d| d.format(fmt).to_string())
 }
 
-fn rel(data: &Path, p: &Path) -> String {
+pub(crate) fn rel(data: &Path, p: &Path) -> String {
     p.strip_prefix(data).map_or_else(|_| p.to_string_lossy().into_owned(), |r| r.to_string_lossy().into_owned())
 }
 

@@ -125,6 +125,11 @@ fn fade_of(kind: &str) -> (&'static str, f64) {
 }
 
 impl Icons {
+    /// Are the Holo-Battle Sim pictures cached?
+    pub fn has_sim_art(&self) -> bool {
+        !self.sim_art.is_empty()
+    }
+
     /// The cached pictures in `cache_dir`, or None when the cache is missing or from another version.
     pub fn open(cache_dir: &Path) -> Option<Icons> {
         let meta: J = serde_json::from_str(&std::fs::read_to_string(cache_dir.join("icons.json")).ok()?).ok()?;

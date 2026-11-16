@@ -124,6 +124,12 @@ pub struct Meter {
     pub rs: crate::results::ResultsState,
     pub ss: crate::screens::ScreensState,
     pub auto: crate::leaderboards::AutoState,
+    pub sim: crate::sim::SimState,
+    /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
+    pub icons: Option<alogs_reader::icons::Icons>,
+    /// None, 'loading', 'ready', 'failed'.
+    pub icons_state: Option<String>,
+    icons_job: Option<std::sync::mpsc::Receiver<Option<alogs_reader::icons::Icons>>>,
     pub submitter: Option<std::sync::Arc<crate::submit::Submitter>>,
     /// Your in-game name (only ever from the game).
     pub character_name: Option<String>,
@@ -224,6 +230,10 @@ impl Meter {
             rs: Default::default(),
             ss: Default::default(),
             auto: Default::default(),
+            sim: Default::default(),
+            icons: None,
+            icons_state: None,
+            icons_job: None,
             submitter: None,
             character_name: None,
             font_reader: None,
@@ -677,6 +687,10 @@ impl Meter {
             self.status(out, "In a homeland: the meter is resting".into());
             return;
         }
+        if !self.args.replay {
+            self.load_icons(); // every reader of them comes after this
+        }
+        self.poll_icons();
         self.check_pending_run(self.now()); // TODO(port): names_waiting (Battle Data waiting for its names counts)
         let now = self.now();
         let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay).then_some(TOP_PART);
@@ -948,4 +962,34 @@ pub fn last_rush_level(data: &std::path::Path) -> Option<i64> {
         }
     }
     None
+}
+
+impl Meter {
+    /// The game's own pictures (icons.py's cache in <data>/icons), loaded once in the background. Extracting them
+    /// from the game (UnityPy) isn't ported: the cache the Python meter wrote is read.
+    pub fn load_icons(&mut self) {
+        if self.icons_state.is_some() {
+            return;
+        }
+        self.icons_state = Some("loading".into());
+        let dir = self.env.data.join("icons");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(alogs_reader::icons::Icons::open(&dir));
+        });
+        self.icons_job = Some(rx);
+    }
+
+    fn poll_icons(&mut self) {
+        let Some(rx) = &self.icons_job else { return };
+        if let Ok(ic) = rx.try_recv() {
+            self.icons_job = None;
+            match &ic {
+                Some(i) => log::info!(target: "meter", "game icons: {} Aniimo, {} buffs (game build {})", i.heads.len(), i.buffs.len(), i.build),
+                None => log::info!(target: "meter", "game icons: not readable (no cache from this game version)"),
+            }
+            self.icons_state = Some(if ic.is_some() { "ready" } else { "failed" }.into());
+            self.icons = ic;
+        }
+    }
 }

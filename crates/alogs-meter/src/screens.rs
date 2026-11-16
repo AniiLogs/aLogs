@@ -271,7 +271,8 @@ impl Meter {
             return;
         }
         if g(heads, "sv").contains("battle time") {
-            return; // TODO(port): sim_result
+            self.sim_result(frames, out, im, now, u, ux, h);
+            return;
         }
         if g(heads, "cs").contains("challenge") {
             return; // TODO(port): challenge_stats
