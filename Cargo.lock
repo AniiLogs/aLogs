@@ -67,6 +67,7 @@ dependencies = [
 name = "alogs-meter"
 version = "0.1.37"
 dependencies = [
+ "alogs-capture",
  "alogs-gamedata",
  "alogs-gamelog",
  "alogs-pil",
