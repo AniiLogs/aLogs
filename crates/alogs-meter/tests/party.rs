@@ -85,3 +85,11 @@ fn the_party_screen_reads_players_and_ai() {
     assert_eq!(p[1].get("aniimo_level").as_i64(), Some(52));
     assert_eq!(p[1].get("nickname").py_str(), "Spark");
 }
+
+#[test]
+fn a_portrait_counts_only_clearly_ahead() {
+    use alogs_meter::party_icons::tile_sure;
+    let m = |s: f64, a: f64| Some(("Leafy".to_string(), s, a, String::new()));
+    assert!(tile_sure(&m(0.55, 0.15)) && tile_sure(&m(0.68, 0.10)));
+    assert!(!tile_sure(&m(0.60, 0.12)) && !tile_sure(&m(0.9, 0.09)) && !tile_sure(&None));
+}

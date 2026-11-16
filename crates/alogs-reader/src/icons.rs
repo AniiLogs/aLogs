@@ -125,6 +125,11 @@ fn fade_of(kind: &str) -> (&'static str, f64) {
 }
 
 impl Icons {
+    /// Is this fade ('team', 'lead') in the cache?
+    pub fn has_fade(&self, kind: &str) -> bool {
+        self.fades.contains_key(kind)
+    }
+
     /// Are the Holo-Battle Sim pictures cached?
     pub fn has_sim_art(&self) -> bool {
         !self.sim_art.is_empty()

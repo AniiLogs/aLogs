@@ -297,7 +297,8 @@ impl Meter {
         }
         if party {
             self.party_layout(heads.get("ph").map_or("", String::as_str));
-            // TODO(port): party_circle (Special Offering, Season Buffs); names_first (the pills read first, on a thread)
+            self.party_circle(im, now, u, ux, h);
+            // TODO(port): names_first (the pills read first, on a thread)
             if now - self.ps.party_seen >= 2.0 {
                 self.party_screen(im, now, u, ux, h);
             }

@@ -128,6 +128,7 @@ pub struct Meter {
     pub egg: crate::egg::EggState,
     pub ps: crate::party::PartyState,
     pub menu: crate::menu::MenuState,
+    pub icon: crate::party_icons::IconState,
     /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
     pub icons: Option<alogs_reader::icons::Icons>,
     /// None, 'loading', 'ready', 'failed'.
@@ -237,6 +238,7 @@ impl Meter {
             egg: Default::default(),
             ps: Default::default(),
             menu: Default::default(),
+            icon: Default::default(),
             icons: None,
             icons_state: None,
             icons_job: None,
@@ -905,6 +907,12 @@ impl Meter {
             if f.phases.len() != bosses {
                 let seg = f.seg;
                 self.boss_handed_over(out, &format!("its bar came back at x{}", seg.map_or("None".into(), |s| s.to_string())));
+            }
+            // an Interlink fight: your team from the fight's right side while the Party screen left a slot blank
+            if self.fight.as_ref().is_some_and(|f| f.bossrush) && partial.is_none() {
+                let (w, h) = (im.width as f64, im.height as f64);
+                let u = w.min(h * 16.0 / 9.0);
+                self.fight_team(&im, now, u, (w - u) / 2.0, h);
             }
             self.emit_fight(out, &b);
         }

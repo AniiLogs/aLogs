@@ -436,14 +436,15 @@ impl Meter {
         log::info!(target: "meter", "Party screen: OCR {} -> boss {}", str_map_repr(&t), if boss.is_empty() { "?" } else { &boss });
         let mut members = self.own_slots(members, now);
         members.sort_by_key(|m| m.at("slot").as_i64().unwrap_or(0));
-        self.set_party(members, now);
+        self.set_party(members.clone(), now);
         if let Some(Value::Dict(p)) = &mut self.party {
             p.insert("egg".into(), Value::Bool(self.ps.egg_party));
         }
         if self.party.is_some() {
             self.party_picture = Some(im.clone());
         }
-        // TODO(port): read_party_icons (each card's lead and team from their portraits)
+        let cards: Vec<(i64, usize)> = members.iter().map(|m| (m.at("slot").as_i64().unwrap_or(0), m.at("pill").as_i64().unwrap_or(0) as usize)).collect();
+        self.read_party_icons(im, &cards, u, ux, h);
     }
 
     /// This run's party, each slot's name voted over a few reads.

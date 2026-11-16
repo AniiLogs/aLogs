@@ -9,6 +9,7 @@ pub mod leaderboards;
 pub mod menu;
 pub mod meter;
 pub mod party;
+pub mod party_icons;
 pub mod payloads;
 pub mod results;
 pub mod submit;
