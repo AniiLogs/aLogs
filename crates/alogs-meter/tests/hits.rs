@@ -78,3 +78,15 @@ fn a_misread_flipping_back_and_forth_is_not_a_hit() {
     feed(&mut m, &mut f, &text, &["11356/12694"; 3], &mut t);      // the same two again: a flip
     assert_eq!(m.hit_at, 0.0);
 }
+
+#[test]
+fn the_kill_sound_counts_in_its_window_once() {
+    let (mut m, _) = meter("hits-kill");
+    if let alogs_pyval::Value::Dict(d) = &mut m.args.cfg { d.insert("audio_cues".into(), alogs_pyval::dict([("boss_kill", alogs_pyval::Value::Bool(true))])); }
+    m.catch_seen = 1000.0;
+    m.audio_cue = Some((7, 996.0, 0.8));
+    assert_eq!(m.kill_sound(), Some(996.0));
+    assert_eq!(m.kill_sound(), None, "one cue dates one kill");
+    m.audio_cue = Some((8, 999.0, 0.8));
+    assert_eq!(m.kill_sound(), None, "too close to the countdown");
+}

@@ -120,11 +120,20 @@ struct Live {
     title: String,
     cap: SharedCapture,
     hp_cap: Option<SharedCapture>,
+    audio: alogs_capture::shared::SharedAudio,
     hwnd: Option<usize>,
     look_at: f64,
 }
 
 impl Frames for Live {
+    fn audio_want(&mut self, now: f64) {
+        self.audio.want(now, 3.0);
+    }
+
+    fn audio_cue(&self) -> Option<(u32, f64, f32)> {
+        self.audio.cue()
+    }
+
     fn hp_strip(&mut self, hwnd: usize, area: (f64, f64, f64, f64)) -> Option<Image> {
         self.hp_cap.get_or_insert_with(|| SharedCapture::new(2)).read_area(hwnd, area, 1)
     }
@@ -336,7 +345,7 @@ fn main() {
     if let Some(u) = &m.uid {
         log::info!("player uid {u} (from the game log)");
     }
-    let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, hwnd: None, look_at: 0.0 };
+    let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, audio: alogs_capture::shared::SharedAudio::default(), hwnd: None, look_at: 0.0 };
     let mut console = Console::default();
     let mut last_status = 0.0;
     loop {

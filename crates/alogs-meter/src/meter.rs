@@ -70,6 +70,12 @@ pub trait Frames {
     fn hp_strip(&mut self, _hwnd: usize, _area: (f64, f64, f64, f64)) -> Option<Image> {
         None
     }
+    /// Keep the app listening for the boss kill sound until `now` + 3 s.
+    fn audio_want(&mut self, _now: f64) {}
+    /// The app's newest audio cue: (its number, when it started (unix s), how well it matched), or None.
+    fn audio_cue(&self) -> Option<(u32, f64, f32)> {
+        None
+    }
 }
 
 pub struct Meter {
@@ -138,6 +144,10 @@ pub struct Meter {
     pub bars: crate::diag::BarDiag,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
+    /// When the game log last said you left a space (Egg Heist's fade after it is a load).
+    pub egg_space_at: f64,
+    /// The app's newest audio cue (Frames::audio_cue), as of the last look.
+    pub audio_cue: Option<(u32, f64, f32)>,
     /// A second OCR reader for the HP number (hit_watch), set by the binary.
     pub hp_ocr: Option<Box<dyn Reader>>,
     /// The game's head portraits, cards and Sim pictures (icons.py), once loaded.
@@ -254,6 +264,8 @@ impl Meter {
             hit: Default::default(),
             bars: Default::default(),
             hit_at: 0.0,
+            egg_space_at: 0.0,
+            audio_cue: None,
             hp_ocr: None,
             icons: None,
             icons_state: None,
@@ -575,11 +587,14 @@ impl Meter {
             self.fight_ended_at = now;
             let left = if f.boss_hp != 0 { (f.max_hp - f.damage) as f64 / f.boss_hp as f64 } else { 1.0 };
             if why.starts_with("caught") && !f.bossrush && f.hit && f.timer.as_ref().is_none_or(|t| t.predict(now).is_none()) {
-                // TODO(port): the boss kill sound (kill_sound, needs the app's audio cue reader in the meter)
-                let kill = self.catch_seen - crate::fights::KILL_TO_COUNTDOWN;
+                // the boss kill sound, when heard, dates the blow itself
+                let heard = self.kill_sound();
+                let (kill, how) = match heard {
+                    Some(at) => (at, "by its sound".to_string()),
+                    None => (self.catch_seen - crate::fights::KILL_TO_COUNTDOWN, format!("{:.0} s before the Catch Countdown", crate::fights::KILL_TO_COUNTDOWN)),
+                };
                 if kill - f.t0 > f.elapsed {
-                    log::info!(target: "meter", "fight {}: the bar was last read at {:.1}s; the kill, {:.0} s before the Catch Countdown, at {:.1}s",
-                        f.title, f.elapsed, crate::fights::KILL_TO_COUNTDOWN, kill - f.t0);
+                    log::info!(target: "meter", "fight {}: the bar was last read at {:.1}s; the kill, {how}, at {:.1}s", f.title, f.elapsed, kill - f.t0);
                     f.elapsed = kill - f.t0;
                 }
             }
@@ -636,41 +651,68 @@ impl Meter {
     pub fn game_events(&mut self, out: &mut dyn Out) {
         let Some(rx) = &self.events else { return };
         let evs: Vec<Event> = rx.try_iter().collect();
+        let said = |kind: &str, sid: Option<&str>, delay: Option<f64>| {
+            log::info!(target: "meter", "game log: {kind} {}{}", sid.unwrap_or(""), delay.map_or(String::new(), |d| format!(" (seen {d:.1}s after the game wrote it)")));
+        };
         for e in evs {
             match e {
                 Event::Uid(u) => {
                     if self.uid.as_ref() != Some(&u) {
-                        log::info!(target: "meter", "player uid {u} (from the game log)");
+                        said("uid", Some(&u), None);
                     }
                     self.set_uid(&u);
                 }
-                Event::Enter(space, _) => {
+                Event::Enter(space, delay) => {
+                    said("enter", Some(&space), delay);
+                    // someone's home is theirs: only before any UID
+                    if self.uid.is_none()
+                        && let Some(c) = regex::Regex::new(r"^\d+-(\d+)-\d+$").unwrap().captures(&space)
+                    {
+                        let u = c[1].to_string();
+                        self.set_uid(&u);
+                    }
                     self.bossrush_space = self.rush_spaces.contains(&space);
                     self.holosim_space = self.sim_spaces.contains(&space);
                     self.space = Some(space);
-                    // TODO(port): game_events' full handling (live.py 1448): ending a fight on leaving its space, the
-                    // Egg Heist/Sim state, screen-read pacing
-                    let _ = &out;
-                }
-                Event::Leave(space, _) => {
-                    if self.space.as_ref() == Some(&space) {
-                        self.bossrush_space = false;
-                        self.holosim_space = false;
+                    self.duds.clear();
+                    self.dud_cand = None;
+                    // the timer check may already have ended this fight; the log only ends it if it is still running
+                    if self.fight.as_ref().is_some_and(|f| self.env.now() - f.created > 5.0) {
+                        self.end_fight(out, "scene changed (game log)");
                     }
+                    self.bar = None;
                 }
-                Event::BossRush(Some(space), _) => {
-                    self.rush_spaces.insert(space.clone());
-                    if self.space.as_ref() == Some(&space) {
+                Event::Leave(space, delay) => {
+                    said("leave", Some(&space), delay);
+                    // the fade that follows is a load, not a match's end (egg_fade)
+                    self.egg_space_at = self.env.now();
+                }
+                Event::BossRush(sid, delay) => {
+                    said("bossrush", sid.as_deref(), delay);
+                    let sid = sid.or_else(|| self.space.clone());
+                    if let Some(s) = &sid {
+                        self.rush_spaces.insert(s.clone());
+                    }
+                    if sid.is_some() && sid == self.space {
                         self.bossrush_space = true;
+                        if let Some(f) = self.fight.as_mut()
+                            && f.bossrush
+                        {
+                            f.scene_ok = true;
+                        }
                     }
                 }
-                Event::HoloSim(Some(space), _) => {
-                    self.sim_spaces.insert(space.clone());
-                    if self.space.as_ref() == Some(&space) {
+                Event::HoloSim(sid, delay) => {
+                    said("holosim", sid.as_deref(), delay);
+                    let sid = sid.or_else(|| self.space.clone());
+                    if let Some(s) = &sid {
+                        self.sim_spaces.insert(s.clone());
+                    }
+                    if sid.is_some() && sid == self.space {
                         self.holosim_space = true;
                     }
+                    self.load_icons(); // the Victory screen's gizmo row needs them
                 }
-                _ => {}
             }
         }
     }
@@ -718,6 +760,13 @@ impl Meter {
             self.load_icons(); // every reader of them comes after this
         }
         self.poll_icons();
+        // out in the world, keep the app listening for the boss kill sound while a fight is on
+        if !self.args.replay {
+            if self.fight.as_ref().is_some_and(|f| !f.bossrush) && self.args.cfg.get("audio_cues").get("boss_kill").truthy() {
+                frames.audio_want(self.env.now());
+            }
+            self.audio_cue = frames.audio_cue();
+        }
         self.check_pending_run(self.now()); // TODO(port): names_waiting (Battle Data waiting for its names counts)
         let now = self.now();
         let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay).then_some(TOP_PART);
@@ -1039,5 +1088,28 @@ impl Meter {
             self.icons_state = Some(if ic.is_some() { "ready" } else { "failed" }.into());
             self.icons = ic;
         }
+    }
+}
+
+/// The boss kill sound counts when it started this many seconds before the Catch Countdown.
+pub const KILL_SOUND_WINDOW: (f64, f64) = (2.5, 6.0);
+
+impl Meter {
+    /// When the boss kill sound started, if the app heard one in the seconds before the Catch Countdown.
+    pub fn kill_sound(&mut self) -> Option<f64> {
+        if !self.args.cfg.get("audio_cues").get("boss_kill").truthy() {
+            return None;
+        }
+        let (n, at, score) = self.audio_cue?;
+        if self.kill_sound_used == Some(n) {
+            return None;
+        }
+        let before = self.catch_seen - at;
+        if !(KILL_SOUND_WINDOW.0..=KILL_SOUND_WINDOW.1).contains(&before) {
+            return None;
+        }
+        self.kill_sound_used = Some(n);
+        log::info!(target: "meter", "boss kill sound heard {before:.1}s before the Catch Countdown (match {score:.2})");
+        Some(at)
     }
 }
