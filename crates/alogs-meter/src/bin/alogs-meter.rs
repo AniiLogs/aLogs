@@ -148,6 +148,12 @@ impl Frames for Live {
     fn is_foreground(&self, hwnd: usize) -> bool {
         win::is_foreground(hwnd)
     }
+    fn screen_copy(&self) -> bool {
+        self.cap.screen_copy
+    }
+    fn set_clean_until(&mut self, ms: u64) {
+        self.cap.set_clean_until(ms);
+    }
 }
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -308,6 +314,7 @@ fn main() {
     };
     let env = Env::new(res, data.clone());
     let mut m = Meter::new(env, args, ocr, Some(rx));
+    m.submitter = submitter.clone();
     m.uid = alogs_gamelog::last_uid(&player_log);
     if let Some(u) = &m.uid {
         log::info!("player uid {u} (from the game log)");

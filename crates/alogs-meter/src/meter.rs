@@ -59,6 +59,12 @@ pub trait Frames {
     fn is_foreground(&self, _hwnd: usize) -> bool {
         true
     }
+    /// The last picture was a copy of the screen (our overlays and anything on top may be in it).
+    fn screen_copy(&self) -> bool {
+        false
+    }
+    /// Ask every aLogs program to keep its overlays out of screen captures until then (unix ms).
+    fn set_clean_until(&mut self, _ms: u64) {}
 }
 
 pub struct Meter {
@@ -113,6 +119,17 @@ pub struct Meter {
     pub status_text: String,
     pub kill_sound_used: Option<u32>,
     pub frames: u64,
+    /// The end-screen readers' state.
+    pub rs: crate::results::ResultsState,
+    pub ss: crate::screens::ScreensState,
+    pub submitter: Option<std::sync::Arc<crate::submit::Submitter>>,
+    /// Your in-game name (only ever from the game).
+    pub character_name: Option<String>,
+    pub font_reader: Option<alogs_reader::names::NameReader>,
+    pub font_tried: bool,
+    pub team: crate::team::Teammates,
+    /// The Party screen this run started from, kept as proof.
+    pub party_picture: Option<Image>,
 }
 
 /// A bar-like shape that never named a boss (`dud_check`).
@@ -202,6 +219,14 @@ impl Meter {
             status_text: "starting".into(),
             kill_sound_used: None,
             frames: 0,
+            rs: Default::default(),
+            ss: Default::default(),
+            submitter: None,
+            character_name: None,
+            font_reader: None,
+            font_tried: false,
+            team: crate::team::Teammates::load(env.data.join("teammates.json")),
+            party_picture: None,
             env,
             args,
         }
@@ -730,7 +755,9 @@ impl Meter {
                 let grace = if f.bossrush && (self.bossrush_space || f.partner.is_some()) { BAR_GONE_GRACE * 4.0 } else { BAR_GONE_GRACE };
                 now - self.bar_seen < grace
             } {
-                // TODO(port): watch_end_note, leader_ended_note, check_battle_data (Catch Countdown, end screens)
+                self.watch_end_note(out, &im);
+                self.leader_ended_note(&im, now);
+                self.check_battle_data(frames, out, &im, now);
                 if self.fight.is_some() && self.catch_seen >= self.bar_seen - 2.0 {
                     self.end_fight(out, "caught (Catch Countdown)");
                     return;
@@ -769,8 +796,10 @@ impl Meter {
                 if self.fight.is_some() {
                     self.end_fight(out, "boss bar gone");
                 }
-                // TODO(port): sim_tour_step, watch_end_note, leader_ended_note, check_battle_data, save_end_screens,
-                // save_nobar, save_bar_lost (the end screens are read here)
+                // TODO(port): sim_tour_step, save_end_screens, save_nobar, save_bar_lost
+                self.watch_end_note(out, &im);
+                self.leader_ended_note(&im, now);
+                self.check_battle_data(frames, out, &im, now);
                 self.status(out, "waiting for a boss bar".into());
                 return;
             }

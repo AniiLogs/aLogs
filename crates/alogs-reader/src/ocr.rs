@@ -65,6 +65,10 @@ pub trait Reader: Send {
     fn cached(&self, images: &IndexMap<String, Image>, names: &IndexMap<String, usize>) -> bool;
     fn language(&self) -> Option<String>;
     fn started(&self) -> bool;
+    /// Is this name box's read in the name cache for good (`results.sure_read`)?
+    fn sure(&self, _img: &Image) -> bool {
+        false
+    }
 }
 
 pub struct Ocr {
@@ -187,6 +191,9 @@ impl Ocr {
 }
 
 impl Reader for Ocr {
+    fn sure(&self, img: &Image) -> bool {
+        self.name_cache.lock().unwrap().get(&name_signature(img)).is_some_and(|h| h.1.is_none())
+    }
     fn language(&self) -> Option<String> {
         self.language.lock().unwrap().clone()
     }
