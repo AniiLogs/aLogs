@@ -163,7 +163,7 @@ impl Meter {
         }
         if !self.pacing.game_only_said {
             self.pacing.game_only_said = true;
-            log::info!(target: "meter", "window capture did not open for the {spotted} screen: reading the screen");
+            log::info!(target: "meter", "the game window alone did not come for the {spotted} screen: reading the screen");
         }
         false
     }
@@ -173,7 +173,7 @@ impl Meter {
     pub fn game_only_wanted(&self, now: f64) -> bool {
         // aLogs has the screen: the Sim's end and its Gizmo tour, the automatic Battle Data session (while its time
         // runs: it is closed lazily), Egg Heist's hold. Each of these ends by itself within a minute or two, so the
-        // window capture (and Windows 10's yellow border with it) can't stay on.
+        // slower pictures of the game window alone can't stay on.
         let auto = self.auto.auto_until != 0.0 && now <= self.auto.auto_until;
         let script = self.sim.ctl.is_some() || self.sim.tour.is_some() || auto || self.egg.hold.is_some();
         // the Sim's Victory screen comes within a second or two of its last fight (17 Nov: 0.4 s). The last level is
@@ -184,12 +184,13 @@ impl Meter {
     }
 
     /// Asks for the game window alone while `game_only_wanted`, again every 0.5 s. On Windows 10 the picture is
-    /// otherwise a copy of the screen, and the app changes to window capture only when a reader asks, for
-    /// GAME_ONLY_HOLD_S from the last ask. Asked only by `game_only`, from a spotted screen's read, it came late and
-    /// ran out early (17 Nov, app.log): the Sim's Victory screen was read once from the screen, the capture started
-    /// again, and the read was made a second time (0.3 s); and the Gizmo tour, which reads no screens, let it run out,
-    /// so the capture started again 1.5 s into the tour. Where the picture is always the window (Windows 11, or
-    /// General Settings > Capture only the game window) asking changes nothing.
+    /// otherwise a copy of the screen, and the app hands out the game window alone only when a reader asks, for
+    /// GAME_ONLY_HOLD_S from the last ask (by the window copy, which draws no border; by window capture with its
+    /// border only where that copy shows nothing). Asked only by `game_only`, from a spotted screen's read, it came
+    /// late and ran out early (17 Nov, app.log): the Sim's Victory screen was read once from the screen and then a
+    /// second time (0.3 s); and the Gizmo tour, which reads no screens, let it run out, so the pictures changed
+    /// back to the screen copy 1.5 s into the tour. Where the picture is always the window (Windows 11, or General
+    /// Settings > Capture only the game window) asking changes nothing.
     pub fn game_only_keep(&mut self, frames: &mut dyn Frames, now: f64) {
         if self.args.replay || !self.game_only_wanted(now) || now - self.pacing.game_only_asked <= 0.5 {
             return;

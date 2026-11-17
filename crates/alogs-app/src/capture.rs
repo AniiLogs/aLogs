@@ -10,6 +10,11 @@
 //! yellow border round the game: only the game, never other programs' overlays. The border shows only while
 //! something reads pictures; nobody asking closes the capture (and the border with it).
 //!
+//! A reader's burst of the game window alone on the screen copy ("game only until": a result, Party or menu screen
+//! is up, or a script has the screen): the window copy (PrintWindow) serves it. No window capture, so no border; at
+//! most 12 copies a second (35 ms each at 4K, measured 17 Nov), Desktop Duplication staying open for after. Window
+//! capture with its border serves a burst only where that copy comes out black while the screen shows a picture.
+//!
 //! Not in front on Windows 10: while no window shows over the game, Desktop Duplication goes on (the screen still
 //! shows all of it). With a window over it, the game window alone is taken as on Windows 11, by window capture with
 //! Windows 10's yellow border (behind whatever covers the game), closed as soon as the game is uncovered or back in
@@ -111,6 +116,25 @@ const NOT_READY_MS: u64 = 4;
 const RETRY_BETTER_MS: u64 = 60_000;
 /// Tabbed out on Windows 10: at most one copy of the game window this often.
 const AWAY_MS: u64 = 250;
+/// A burst of the game window alone served by the window copy: at least this long between copies (12 a second at
+/// most; each takes 30 to 70 ms and the game holds a frame longer for it).
+const BURST_COPY_MS: u64 = 80;
+/// A burst's window copy black this long while the screen shows a picture: the copy doesn't work for this game window.
+const COPY_BLACK_MS: u64 = 1_000;
+
+/// Does a burst's window copy fail here? It came back black (`copy_black`) in a round where the screen copy did
+/// show a picture (`screen_shows`), and has for COPY_BLACK_MS (`since`: when that began, 0 while it doesn't). A game
+/// that is black on the screen too (a fade, a loading screen) is no failure of the copy.
+fn copy_fails(copy_black: bool, screen_shows: bool, since: &mut u64, now: u64) -> bool {
+    if !(copy_black && screen_shows) {
+        *since = 0;
+        return false;
+    }
+    if *since == 0 {
+        *since = now;
+    }
+    now - *since >= COPY_BLACK_MS
+}
 const PW_CLIENTONLY: u32 = 1;
 const PW_RENDERFULLCONTENT: u32 = 2;
 
@@ -1280,6 +1304,13 @@ pub fn start() {
             let mut away_last = 0u64;
             let mut away_said = false;
             let mut on_screen_said = false; // said that it stays on the screen though the game isn't in front
+            // a burst of the game window alone on the screen copy: the window copy, no border (see BURST_COPY_MS)
+            let mut burst_copy: Option<WindowCopy> = None;
+            let mut burst_border = false; // the window copy shows nothing for this game window: bursts by window capture
+            let mut burst_last = 0u64;
+            let mut burst_said = false;
+            let mut copy_black_since = 0u64; // since when the window copy is black while the screen shows a picture
+            let mut served_by_copy = false; // the readers' pictures are the window copy's (not the screen copy's)
             loop {
                 let now = now_ms();
                 shared.put_u64(HEARTBEAT, now); // alive (readers notice when the app is gone)
@@ -1292,9 +1323,14 @@ pub fn start() {
                         (kind, source, tries, black_since) = (best, None, 0, 0);
                     }
                 }
-                // a reader's burst of the game window alone starts or runs out: start again the way that's best now
+                // A reader's burst of the game window alone. On the screen copy (Windows 10) it is served by the window
+                // copy further down: no window capture, so no yellow border, and the screen copy stays open for
+                // after. Only where that copy shows nothing (`burst_border`) does a burst start window capture, with
+                // its border, as every burst did until 17 Nov: then the way that's best is started again as the
+                // burst starts and runs out.
                 let burst = now < shared.get_u64(GAME_ONLY_UNTIL);
-                if BURST.swap(burst, Ordering::Relaxed) != burst && best_kind() != best {
+                let bordered = burst && burst_border;
+                if BURST.swap(bordered, Ordering::Relaxed) != bordered && best_kind() != best {
                     best = best_kind();
                     (kind, source, tries, black_since) = (best, None, 0, 0);
                 }
@@ -1330,6 +1366,7 @@ pub fn start() {
                     last_find = now;
                     (kind, source, tries, black_since) = (best, None, 0, 0); // a new game window: the best way first again
                     (away_copy, away_window, away_border, away_black_since, away_tries) = (None, None, true, 0, 0);
+                    (burst_copy, burst_border, copy_black_since) = (None, false, 0);
                 }
                 let usable = unsafe { !hwnd.is_null() && IsWindow(hwnd) != 0 && IsIconic(hwnd) == 0 };
                 let wait = |shared: &Shared, readers: &mut [Reader; SLOTS]| {
@@ -1451,6 +1488,62 @@ pub fn start() {
                     (away_copy, away_window, away_said) = (None, None, false);
                     forget(&shared, &mut readers);
                 }
+                // A burst while the picture is a copy of the screen: the game window alone by the window copy
+                // (PrintWindow), which draws no border. It is slower than the card's ways (a copy of a 4K window takes
+                // tens of ms and the game holds a frame longer for each), so it serves only these moments, on result and
+                // menu screens, never a fight. A black copy is handed to nobody: this round goes to the screen copy
+                // below, which tells a game that is really black from a copy that fails here.
+                let by_copy = burst && !burst_border && kind.needs_front();
+                let mut copy_black = false;
+                if by_copy {
+                    if now < burst_last + BURST_COPY_MS {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    burst_last = now;
+                    let Some((width, height, origin)) = client(hwnd) else {
+                        wait(&shared, &mut readers);
+                        continue;
+                    };
+                    if burst_copy.as_ref().map_or(true, |c| (c.width, c.height) != (width, height)) {
+                        burst_copy = WindowCopy::new(width, height);
+                    }
+                    if !served_by_copy {
+                        served_by_copy = true;
+                        forget(&shared, &mut readers); // another source's pictures: each reader's is written again
+                    }
+                    let shown = match burst_copy.as_mut() {
+                        Some(c) => {
+                            if c.take(hwnd) {
+                                serve(&shared, c, Kind::PRINT_FLAGS, false, hwnd, (origin.x, origin.y), &mut readers, only)
+                            } else {
+                                Some(false)
+                            }
+                        }
+                        None => Some(false),
+                    };
+                    match shown {
+                        Some(true) => {
+                            copy_black_since = 0;
+                            if !burst_said {
+                                burst_said = true;
+                                crate::app_log("shared capture: the game window alone for a moment, by window copy (no border)");
+                            }
+                            continue;
+                        }
+                        Some(false) => copy_black = true,
+                        None => {
+                            wait(&shared, &mut readers);
+                            continue;
+                        }
+                    }
+                } else if burst_copy.is_some() {
+                    (burst_copy, burst_said, copy_black_since) = (None, false, 0);
+                }
+                if served_by_copy {
+                    served_by_copy = false; // back on the screen copy (the burst is over, or its copy was black)
+                    forget(&shared, &mut readers);
+                }
                 if source.is_none() {
                     match Source::open(kind, hwnd) {
                         Ok(s) => {
@@ -1500,8 +1593,15 @@ pub fn start() {
                             announced = Some(kind);
                             crate::app_log(&format!("shared capture: using {}", kind.name()));
                         }
+                        // the screen shows the game and this burst's window copy showed nothing: on this PC the copy
+                        // doesn't work for this game window, so its bursts go by window capture, border and all
+                        if copy_fails(copy_black, true, &mut copy_black_since, now) {
+                            (burst_border, burst_copy, burst_said) = (true, None, false);
+                            crate::app_log("shared capture: the window copy shows nothing of the game window; window capture (with its border) when the game window alone is asked for");
+                        }
                     }
                     Some(false) => {
+                        copy_fails(copy_black, false, &mut copy_black_since, now); // black on the screen too: the game is
                         STAT_BLACK.fetch_add(1, Ordering::Relaxed);
                         black_since = if black_since == 0 { now } else { black_since };
                         if now - black_since >= BLACK_MS {
@@ -1548,6 +1648,61 @@ mod tests {
         release.send(()).unwrap();
         owner.join().unwrap();
         assert!(came_back, "the search waited on a window of our own that wasn't answering");
+    }
+
+    /// A burst of the game window alone is served by the window copy, with no border. Its pictures must count as the
+    /// game window alone for readers (no "copy of the screen" bit), or the meter would go on waiting for one.
+    #[test]
+    fn the_window_copy_is_the_game_window_alone() {
+        const SCREEN_COPY: u32 = 2;
+        assert_eq!(Kind::PRINT_FLAGS & SCREEN_COPY, 0, "the window copy");
+        assert_eq!(Kind::Window.flags() & SCREEN_COPY, 0, "window capture");
+        assert_ne!(Kind::Duplication.flags() & SCREEN_COPY, 0, "the screen copy");
+        assert!(Kind::Duplication.needs_front() && !Kind::Window.needs_front(), "only the screen copy needs a burst served another way");
+    }
+
+    /// A burst's window copy that comes back black has failed only if the screen shows a picture meanwhile, and only
+    /// once that has lasted: then bursts go by window capture (with its border) for this game window. A game that is
+    /// black on the screen too (a fade, a loading screen) proves nothing against the copy.
+    #[test]
+    fn a_black_window_copy_fails_only_while_the_screen_shows_a_picture() {
+        let mut since = 0;
+        assert!(!copy_fails(false, true, &mut since, 1_000));
+        assert_eq!(since, 0, "the copy shows the game");
+        assert!(!copy_fails(true, true, &mut since, 1_000), "black just now");
+        assert_eq!(since, 1_000);
+        assert!(!copy_fails(true, true, &mut since, 1_000 + COPY_BLACK_MS - 1));
+        assert!(copy_fails(true, true, &mut since, 1_000 + COPY_BLACK_MS), "black for COPY_BLACK_MS beside a picture on the screen");
+        assert!(!copy_fails(true, false, &mut since, 5_000), "the screen is black too: the game is");
+        assert_eq!(since, 0, "and the count starts over");
+        assert!(!copy_fails(true, true, &mut since, 6_000));
+        assert!(!copy_fails(false, true, &mut since, 6_500), "the copy shows the game again");
+        assert_eq!(since, 0);
+    }
+
+    /// By hand, with the game running: how long a window copy of it takes at its real size, and that it isn't black
+    /// (a burst is served this way where the picture is otherwise a copy of the screen):
+    /// `cargo test --bin alogs-app capture::tests::window_copy_of_the_game_now -- --exact --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn window_copy_of_the_game_now() {
+        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let hwnd = find_game();
+        assert!(!hwnd.is_null(), "the game window");
+        let (w, h, _) = client(hwnd).expect("its client area");
+        let mut copy = WindowCopy::new(w, h).expect("window copy");
+        for i in 0..10 {
+            let t = Instant::now();
+            assert!(copy.take(hwnd), "PrintWindow");
+            let took = t.elapsed();
+            let bits = unsafe { std::slice::from_raw_parts(copy.bits, (w * h * 4) as usize) };
+            // (colour only: the fourth byte of each pixel is not part of the picture)
+            let sampled: Vec<u64> = bits.chunks_exact(4).step_by(1009).map(|p| u64::from(p[0]) + u64::from(p[1]) + u64::from(p[2])).collect();
+            let level = sampled.iter().sum::<u64>() / (3 * sampled.len() as u64).max(1);
+            println!("copy {i}: {w}x{h} in {:.0} ms, mean level {level}", took.as_secs_f64() * 1000.0);
+            assert!(level > 3, "a black copy");
+            std::thread::sleep(Duration::from_millis(BURST_COPY_MS));
+        }
     }
 
     /// Two small readers spread over the pool leave no gap for a whole 4K frame (the meter on the result screen):
