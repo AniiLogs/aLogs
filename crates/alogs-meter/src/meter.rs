@@ -134,6 +134,8 @@ pub struct Meter {
     pub early: Vec<(f64, f64, [u8; 3], [u8; 3])>,
     /// The span and height of the bar those readings are of.
     pub early_geom: Option<(f64, i64)>,
+    /// The overlay was told of a bar with no fight yet (emit_bar).
+    pub bar_shown: bool,
     pub events: Option<Receiver<Event>>,
     pub catch_seen: f64,
     pub last_fight: Option<(Fight, f64)>,
@@ -277,6 +279,7 @@ impl Meter {
             hidden_drop: None,
             early: vec![],
             early_geom: None,
+            bar_shown: false,
             events,
             catch_seen: 0.0,
             last_fight: None,
@@ -642,6 +645,46 @@ impl Meter {
         }
     }
 
+    /// Is a fight known to have started on a bar at this place (bar_spot.json holds only such places)?
+    pub fn known_spot(&self, b: &Bar) -> bool {
+        self.bar_spots.iter().any(|s| s.frame == b.frame && (s.yc - b.yc as f64).abs() <= 2.0 && (s.track_left - b.track_left as f64).abs() <= 2.0)
+    }
+
+    /// A boss bar is up and its fight hasn't started (its boss's name is still being read): the overlay is told at
+    /// once, so the HP % stands on the bar from the bar's first look and not from the name's read (the owner, 17
+    /// Nov: "I want the hp labels to appear right away"). The % is the bar's own fill; the HP numbers need the
+    /// boss and come with the fight. Only at a place where a fight started before: 85% of what the finder takes
+    /// for a bar is no bar (menu art, orange things in the world), and a label must not flash on those. Not for
+    /// Interlink: its fights start with their bar, and its % is of all the bar's layers, not of the one showing.
+    pub fn emit_bar(&mut self, out: &mut dyn Out, b: &Bar, fill: f64, fill_rgb: [u8; 3]) {
+        let live = fill_rgb[0] >= 225 && (80..=140).contains(&fill_rgb[1]) && (75..=135).contains(&fill_rgb[2]);
+        if !live || !b.world || self.bossrush_space || self.args.replay || !self.known_spot(b) {
+            return;
+        }
+        self.last_screen = Some((self.origin.0, self.origin.1, self.frame_size.0, self.frame_size.1));
+        out.out("bar", dict([
+            ("fill", Value::Float(fill)),
+            ("bar", Value::List(vec![
+                Value::Float(f64::from(self.origin.0) + b.left_bracket),
+                Value::Float(f64::from(self.origin.1) + b.yc as f64),
+                Value::Float(bar::label_span(b.left_bracket, b.span, self.frame_size.0 as f64)),
+            ])),
+            ("screen", screen_value(self.last_screen)),
+        ]));
+        self.bar_shown = true;
+    }
+
+    /// The bar the overlay was told of is gone and no fight came of it: the overlay takes its label away.
+    pub fn bar_gone_check(&mut self, out: &mut dyn Out) {
+        if !self.bar_shown || (self.bar.is_some() && self.fight.is_none()) {
+            return;
+        }
+        self.bar_shown = false;
+        if self.fight.is_none() {
+            out.out("bar_gone", Value::None);
+        }
+    }
+
     /// A bar with no fight yet (its boss's name is still being read): what it reads is kept, EARLY_S at most, for
     /// the fight that starts on it. Another bar (a different place or size), or EARLY_GAP_S without this one,
     /// starts the keeping over.
@@ -831,6 +874,7 @@ impl Meter {
     /// One look at the game: keep the bar locked, follow the fight, read its text.
     pub fn step(&mut self, frames: &mut dyn Frames, out: &mut dyn Out) {
         self.reload_settings(self.env.now());
+        self.bar_gone_check(out);
         // holds end on time even without a picture
         if self.egg.hold.as_ref().is_some_and(|h| self.env.now() > h.0) {
             self.egg_hold_end("time limit");
@@ -1211,6 +1255,7 @@ impl Meter {
             self.emit_fight(out, &b);
         } else {
             self.keep_early(&b, frames.frame_time().unwrap_or(now), fill, fill_rgb, edge_rgb);
+            self.emit_bar(out, &b, fill, fill_rgb);
         }
     }
 }
@@ -1225,6 +1270,11 @@ fn load_spots(path: &std::path::Path) -> Vec<Spot> {
         .map(|l| {
             l.iter()
                 .filter_map(|s| {
+                    // (places kept before 17 Nov were of every find, most of them no bar: only a place marked as
+                    // a fight's is taken, since the HP labels now show at such a place at once)
+                    if !s.get("fight").truthy() {
+                        return None;
+                    }
                     let f = s.get("frame").as_list()?;
                     Some(Spot {
                         frame: (f.first()?.as_i64()? as usize, f.get(1)?.as_i64()? as usize),
@@ -1252,6 +1302,7 @@ fn save_spots(path: &std::path::Path, spots: &[Spot]) {
                     ("left_bracket", n(s.left_bracket)),
                     ("span", n(s.span)),
                     ("thickness", n(s.thickness)),
+                    ("fight", Value::Bool(true)),
                     ("frame", Value::List(vec![Value::Int(s.frame.0 as i64), Value::Int(s.frame.1 as i64)])),
                 ])
             })
