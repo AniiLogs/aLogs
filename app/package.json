@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.1.37",
   "scripts": {
-    "ocr:build": "cargo build --release --manifest-path ocr-helper/Cargo.toml && node -e \"require('fs').copyFileSync('ocr-helper/target/release/ocr-helper.exe', '../bossbar/ocr-helper.exe')\"",
-    "check:data": "cargo run --release --quiet --manifest-path ../Cargo.toml -p alogs-gamedata --example check_data -- ../bossbar",
+    "ocr:build": "cargo build --release --manifest-path ocr-helper/Cargo.toml",
+    "check:data": "cargo run --release --quiet --manifest-path ../Cargo.toml -p alogs-gamedata --example check_data -- ../crates/alogs-meter/res",
     "meter:build": "npm run ocr:build && npm run check:data && cargo build --release --manifest-path ../Cargo.toml -p alogs-meter",
     "sanctum:build": "cargo build --release --manifest-path ../Cargo.toml -p alogs-sanctum",
     "resources": "node resources.mjs",

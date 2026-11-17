@@ -43,6 +43,9 @@ fn meter(name: &str, ocr: &[(&str, &str)]) -> Meter {
     let ocr: IndexMap<String, String> = ocr.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     let mut m = Meter::new(env, args, Box::new(FakeOcr(ocr)), None);
     m.uid = Some("1".into());
+    // the stand-in OCR reads the numbers too: no game font, which on a PC with the game installed would be extracted
+    // from it and read the blank picture instead (no loot, no defeats: the reads never agree)
+    m.font_tried = true;
     m
 }
 

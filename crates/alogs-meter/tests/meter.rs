@@ -83,7 +83,7 @@ fn a_world_fight_starts_follows_and_ends() {
 #[test]
 fn a_result_screen_lands_in_the_runs_summary() {
     let res = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/aLogs/bossbar");
-    if !res.exists() { return; }
+    if !res.exists() { eprintln!("skipped: reference/ not cloned"); return; }
     let frames_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../alogs-reader/tests/data/frames");
     let data = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("meter-result");
     let _ = std::fs::remove_dir_all(&data);

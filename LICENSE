@@ -20,6 +20,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Not covered by this license: bossbar/vendor/hidhide (HidHide by Nefarius, under its own license in that folder)
+Not covered by this license: crates/alogs-app/vendor/hidhide (HidHide by Nefarius, under its own license in that folder)
 and Sanctum Helper (github.com/sargeeva/SanctumHelper, under its own terms). Aniimo and its art belong to their
 owners; aLogs is an unofficial community project, not affiliated with Aniimo or its developers.

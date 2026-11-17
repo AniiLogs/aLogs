@@ -32,7 +32,7 @@ Both are Apache-2.0 (`LICENSE-model.txt`), copyright PaddlePaddle Authors, from 
   `paddle2onnx.export('inference.json', 'inference.pdiparams', 'korean_rec.onnx', opset_version=13)`, then the same
   renaming and shape clearing for tract.
 
-The meter (`bossbar/hangulnames.py`) checks every Korean letter the model reads against the game's own Korean font,
+The meter (`crates/alogs-reader/src/hangul.rs`) checks every Korean letter the model reads against the game's own Korean font,
 so a letter the game draws almost like a Latin one (ㄱ and 7, ㄴ and L) comes out right.
 
 ## Dictionaries
@@ -41,4 +41,4 @@ so a letter the game draws almost like a Latin one (ㄱ and 7, ㄴ and L) comes 
 CTC's blank, classes 1 to N are these lines, and the last class is a space.
 
 Numbers (scores, stars, Battle Data values) aren't read by any of these: the meter matches them digit by digit against
-the game's own font (`bossbar/namereader.py`, `NameReader.number`), which read all of them right where OCR slipped.
+the game's own font (`crates/alogs-reader/src/names.rs`, `NameReader::number`), which read all of them right where OCR slipped.
