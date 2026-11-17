@@ -822,9 +822,7 @@ impl Meter {
             }
             self.audio_cue = frames.audio_cue();
         }
-        if !self.names_waiting() {
-            self.check_pending_run(self.now()); // (Battle Data waiting for its names counts)
-        }
+        self.check_pending_run(self.now()); // (Battle Data waiting for its names counts)
         let now = self.now();
         let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay && self.sim.tour.is_none()).then_some(TOP_PART);
         self.band_frame = false;

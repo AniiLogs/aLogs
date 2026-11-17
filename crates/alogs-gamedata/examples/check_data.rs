@@ -5,8 +5,11 @@
 //!
 //!     cargo run --release -p alogs-gamedata --example check_data -- <folder with boss_catalog.csv>
 //!
-//! (aLogs' `npm run meter:build` runs it on `bossbar/`.) Without a game install only what can be checked without
-//! it is: every boss in the shipped week schedule has a boss row. Exit code 1 when anything differs.
+//! (aLogs' `npm run meter:build` runs it on `crates/alogs-meter/res`.) Without a game install only what can be checked
+//! without it is: every boss in the shipped week schedule has a boss row. Exit code 1 when anything differs.
+//!
+//! Nothing in the workspace rewrites the two files yet: the B16 build's `gamedata.py catalog` / `grades` does (in a
+//! checkout of the old commit, e.g. reference/aLogs/bossbar; it writes next to itself), then copy the file over.
 use alogs_gamedata::gamedata as g;
 use alogs_gamedata::pmdata::PmData;
 use std::path::PathBuf;
@@ -37,7 +40,7 @@ fn main() {
         for line in drift.iter().take(40) {
             println!("  {line}");
         }
-        println!("  fix: `python bossbar/gamedata.py {fix}` (and read the diff), or update the game first");
+        println!("  fix: `python gamedata.py {fix}` in the B16 meter's folder (a checkout of the old commit, e.g. reference/aLogs/bossbar), copy {name} into crates/alogs-meter/res and read the diff; or update the game first");
         stop = true;
     }
     if stop {

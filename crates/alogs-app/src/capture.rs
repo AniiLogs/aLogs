@@ -293,7 +293,7 @@ unsafe extern "system" fn each_window(hwnd: HWND, lparam: LPARAM) -> i32 {
     if wide(&buf).to_lowercase() != search.title {
         return 1;
     }
-    // the largest of them, like the meter's find_window (bossbar/wincapture.py), so both take the same window
+    // the largest of them, like the meter's find_window (alogs-capture's win.rs), so both take the same window
     let mut rect: RECT = std::mem::zeroed();
     GetClientRect(hwnd, &mut rect);
     let area = (rect.right as i64) * (rect.bottom as i64);
@@ -1768,8 +1768,9 @@ mod tests {
         println!("game in front: {}, uncovered: {free}, the look took {:?}", unsafe { GetForegroundWindow() } == hwnd, t.elapsed());
     }
 
-    /// The meter's reader (bossbar/wincapture.py) against pictures served here from Desktop Duplication of the
-    /// window in front, alongside a fast small-area reader like Sanctum Helper's:
+    /// The B16 meter's reader (`bossbar/wincapture.py` in the reference checkout of the old commit, reference/aLogs,
+    /// with Python and Pillow) against pictures served here from Desktop Duplication of the window in front, alongside
+    /// a fast small-area reader like Sanctum Helper's:
     /// `cargo test --bin alogs-app capture::tests::meter_reads_asked_area -- --exact --ignored --nocapture`
     #[test]
     #[ignore]
@@ -1778,37 +1779,6 @@ mod tests {
         let hwnd = unsafe { GetForegroundWindow() };
         let mut source = Source::open(Kind::Duplication, hwnd).expect("Desktop Duplication");
         meter_reader_beside_corner(hwnd, |shared, readers| {
-            if source.update().is_ok() {
-                let origin = source.origin(hwnd);
-                serve(shared, source.gpu(), Kind::Duplication.flags(), true, hwnd, origin, readers, None);
-            }
-        });
-    }
-
-    /// The damage-number recorder (bossbar/dmgnumbers.py) on Desktop Duplication of the window in front, for 4 s:
-    /// `cargo test --bin alogs-app capture::tests::damage_number_recorder -- --exact --ignored --nocapture`
-    #[test]
-    #[ignore]
-    fn damage_number_recorder() {
-        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-        let hwnd = unsafe { GetForegroundWindow() };
-        let mut source = Source::open(Kind::Duplication, hwnd).expect("Desktop Duplication");
-        let script = r#"
-import sys, time, os, tempfile, logging, glob
-sys.path.insert(0, sys.argv[2])   # bossbar, next to the app (given by the test)
-logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
-import dmgnumbers as N
-here = tempfile.mkdtemp(); N.BURST_S = 4
-r = N.Recorder(here, logging.getLogger('t'))
-r.fight_started(int(sys.argv[1]), 'Test Boss')
-r.thread.join(); t = time.time()
-folder = glob.glob(os.path.join(here, 'logs', 'test_frames', '*', 'numbers', '*'))[0]
-while glob.glob(os.path.join(folder, '*.rgb')) and time.time() - t < 120: time.sleep(0.5)
-files = sorted(glob.glob(os.path.join(folder, '*.rgb.z')))
-mb = sum(os.path.getsize(f) for f in files) / 1e6
-print(len(files), 'files compressed in', round(time.time() - t, 1), 's,', round(mb), 'MB, size', N.load_frame(files[0]).size if files else None, flush=True)
-"#;
-        python_beside_corner(hwnd, script, |shared, readers| {
             if source.update().is_ok() {
                 let origin = source.origin(hwnd);
                 serve(shared, source.gpu(), Kind::Duplication.flags(), true, hwnd, origin, readers, None);
@@ -1841,7 +1811,7 @@ print(len(files), 'files compressed in', round(time.time() - t, 1), 's,', round(
 
     const READER: &str = r#"
 import sys, time
-sys.path.insert(0, sys.argv[2])   # bossbar, next to the app (given by the test)
+sys.path.insert(0, sys.argv[2])   # the B16 meter's folder (given by the test)
 import wincapture as wc
 hwnd = int(sys.argv[1])
 for part in (0.42, None, 0.42):
@@ -1884,7 +1854,7 @@ print(f'parts: {ok} frames in 1.5 s, {ms / max(ok, 1) * 1000:.1f} ms per read, s
         }
         shared.put_u32(at + 8, 1);
         let child = std::process::Command::new("python")
-            .args(["-c", script, &(hwnd as usize).to_string(), concat!(env!("CARGO_MANIFEST_DIR"), "/../../bossbar")])
+            .args(["-c", script, &(hwnd as usize).to_string(), concat!(env!("CARGO_MANIFEST_DIR"), "/../../reference/aLogs/bossbar")])
             .stdout(std::process::Stdio::piped())
             .spawn()
             .expect("python");

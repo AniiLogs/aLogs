@@ -4,7 +4,8 @@
 use alogs_pyval::{Dict, Value};
 use std::collections::{HashMap, VecDeque};
 
-/// The plugins.json B16 ships, for builds and tests that don't have one next to them.
+/// The list of plug-ins: this crate's plugins.json, the one copy (the app builds it in too, and the installer ships it
+/// beside the meter, crates/alogs-app/resources/meter), for builds and tests that don't have one next to them.
 pub const BUNDLED: &str = include_str!("../plugins.json");
 
 pub struct Manifest {

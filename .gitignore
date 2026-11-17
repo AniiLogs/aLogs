@@ -8,32 +8,23 @@ node_modules/
 target/
 /builds/
 /release/
-/app/src-tauri/resources/
-/app/src-tauri/build.json
-/bossbar/build/
-/bossbar/dist/
-/bossbar/ocr-helper.exe
-/bossbar/*.bak-*
 __pycache__/
 *.pyc
 
+# the folders of the B16 app (the Python meter in bossbar/, the app shell in app/src-tauri/ and its UI in app/ui/),
+# taken out of the repository on 17 Nov 2026: a checkout from before keeps its own leftovers in them (logs, settings,
+# test pictures, the game's font and map art, build output), never committed. app/paths.mjs still reads the last RC
+# number from app/src-tauri/target.
+/bossbar/
+/app/src-tauri/
+/app/ui/
+
 # your own data: logs, records, captures, settings and state (they live in %LOCALAPPDATA%\aLogs when installed)
-/bossbar/logs/
 /real-logs/
 /notes/
-/bossbar/status.json
-/bossbar/bar_spot.json
-/bossbar/game_cycles.json
-/bossbar/game_cycles.uploaded
-/bossbar/settings.json
-/bossbar/overlay_positions.json
 *.local.json
 
-# material from the game itself: screenshots, extracted data, the game's font (read from your own install)
-/bossbar/test_shots/
-/bossbar/gamefont/
-/bossbar/icons/
-/bossbar/end_frames.png
+# material from the game itself: extracted data (read from your own install)
 /aniimo_data/
 
 # helper scripts for one PC

@@ -28,11 +28,23 @@ struct FileLog {
     file: Mutex<std::fs::File>,
 }
 
+/// Whether a line goes in meter.log: the meter's own (its crates' modules, and the "meter" targets) at every level,
+/// other libraries' only warnings and errors. The web library (ureq, with rustls under it) writes about twenty debug
+/// lines per request to the leaderboard server, which filled most of the 5 MB file and turned it over before the
+/// lines about fights could be read.
+fn kept(meta: &log::Metadata) -> bool {
+    let target = meta.target();
+    meta.level() <= log::Level::Warn || target.starts_with("meter") || target.starts_with("alogs_")
+}
+
 impl log::Log for FileLog {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        true
+    fn enabled(&self, meta: &log::Metadata) -> bool {
+        kept(meta)
     }
     fn log(&self, r: &log::Record) {
+        if !kept(r.metadata()) {
+            return;
+        }
         let now = chrono::Local::now();
         let level = match r.level() {
             log::Level::Error => "ERROR",
@@ -676,5 +688,23 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
     }
     if let Some(v) = &view {
         v.lock().unwrap().running = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::kept;
+    use log::{Level, Metadata};
+
+    #[test]
+    fn the_web_librarys_lines_only_from_warnings_up() {
+        let line = |target: &str, level: Level| kept(&Metadata::builder().target(target).level(level).build());
+        for target in ["meter", "meter.dps", "alogs_meter::submit", "alogs_reader::ocr", "alogs_capture::shared"] {
+            assert!(line(target, Level::Debug) && line(target, Level::Info), "{target}");
+        }
+        for target in ["ureq::unit", "ureq::pool", "rustls::client::hs"] {
+            assert!(!line(target, Level::Debug) && !line(target, Level::Info), "{target}");
+            assert!(line(target, Level::Warn) && line(target, Level::Error), "{target}");
+        }
     }
 }

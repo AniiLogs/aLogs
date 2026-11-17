@@ -29,7 +29,7 @@ mod site;
 mod update;
 mod watchdog;
 
-const APP_DIR: &str = "aLogs"; // the suite's short name: data folder, tray; must match bossbar/settings.py
+const APP_DIR: &str = "aLogs"; // the suite's short name: data folder, tray; must match alogs-protocol's settings.rs
 const FULL_NAME: &str = "aLogs: Aniiloger's Companion App";
 const NO_WINDOW: u32 = 0x0800_0000;
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
@@ -176,7 +176,8 @@ pub(crate) fn read_settings() -> Value {
 }
 
 /// The packaged meter (resources/meter/alogs-meter.exe, the Rust meter; meter.exe in a build from before it); while
-/// developing, the workspace's own build next to this exe, with the reference's shipped data (boss list, xN digits).
+/// developing, the workspace's own build next to this exe, with the data files it ships (boss list, xN digits) from
+/// crates/alogs-meter/res.
 fn meter_command(app: &AppHandle) -> Option<Command> {
     if let Ok(res) = app.path().resource_dir() {
         for name in ["alogs-meter.exe", "meter.exe"] {
@@ -194,7 +195,7 @@ fn meter_command(app: &AppHandle) -> Option<Command> {
     let mut cmd = Command::new(exe);
     // target/<profile>/alogs-app.exe -> the workspace
     if let Some(root) = me.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
-        let res = root.join("reference").join("aLogs").join("bossbar");
+        let res = root.join("crates").join("alogs-meter").join("res");
         if res.exists() {
             cmd.arg("--res").arg(res);
         }

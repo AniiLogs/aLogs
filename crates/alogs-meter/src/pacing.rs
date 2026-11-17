@@ -1,8 +1,9 @@
 //! How much of the game's picture each look copies, and when a screen read is due. Between fights only the top part
 //! is copied (where a boss bar appears; ~3x cheaper at 4K) unless a whole frame is needed; a screen read alone gets
 //! just its boxes. A screen read from a copy of the screen (Windows 10) waits for window capture. Port of
-//! `full_frame_due`, `screen_parts`, `screen_read_due`, `game_only`, `game_only_gone` and `names_waiting` in aLogs
-//! B16 `bossbar/live.py` (Dev switches off: no calm pacing, no quiet-top-only, no egg-top-only).
+//! `full_frame_due`, `screen_parts`, `screen_read_due`, `game_only` and `game_only_gone` in aLogs B16
+//! `bossbar/live.py` (Dev switches off: no calm pacing, no quiet-top-only, no egg-top-only). Its `names_waiting` is
+//! left out: the Rust meter reads new names in place (no `names_first`), so no screen ever waits for them.
 
 use crate::meter::{Frames, Meter, TOP_PART};
 use crate::screens::SCREEN_BOXES;
@@ -50,12 +51,6 @@ pub struct Pacing {
 }
 
 impl Meter {
-    /// A screen reader waiting for its players' names read on a helper first (names_first). The Rust meter reads
-    /// names in place, so nothing ever waits.
-    pub fn names_waiting(&self) -> bool {
-        false
-    }
-
     /// Time for the next screen read: 0.1 s after the last when the screen changed (seen on the top part every look
     /// has), about every 1.5 s when it didn't, at once in quick mode.
     pub fn screen_read_due(&mut self, now: f64, quick: bool) -> bool {
@@ -113,7 +108,7 @@ impl Meter {
         if cap.get("nobar_frames").truthy() && self.bossrush_space && now - self.bars.last_nobar >= 5.0 && self.bars.nobar_count < 30 {
             return Due::Whole;
         }
-        if !self.names_waiting() && self.screen_read_due(now, false) {
+        if self.screen_read_due(now, false) {
             // only for a screen read: just its boxes, unless a screen is up (then whole frames until it's gone)
             return if now < self.ss.full_until { Due::Whole } else { Due::Screen };
         }

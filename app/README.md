@@ -1,11 +1,17 @@
 # aLogs: Aniiloger's Companion App (desktop app)
 
 The suite's desktop app. "aLogs" is its short name: the program, install and data folders, and the updater use it
-(`src-tauri/tauri.conf.json`, `src-tauri/src/main.rs` `APP_DIR`, `bossbar/settings.py` `APP_DIR`,
-`installer-hooks.nsh`), so it must not change; the full name is what people see (window, About, installer, releases).
+(`../crates/alogs-app/tauri.conf.json`, `../crates/alogs-app/src/main.rs` `APP_DIR`,
+`../crates/alogs-protocol/src/settings.rs` `APP_DIR`, `../crates/alogs-app/installer-hooks.nsh`), so it must not
+change; the full name is what people see (window, About, installer, releases).
 
-- **Tauri 2** shell (Rust, `src-tauri/`) with a plain HTML/JS interface (`ui/`) — WebView2 comes with Windows.
-- Runs the boss DPS meter as a helper process (`resources/meter/meter.exe`, packaged from `../bossbar`).
+This folder holds the scripts that build and publish it, its patch notes (`CHANGELOG.md`), the beta bookkeeping
+(`betas.json`) and the native OCR helper (`ocr-helper/`). The app itself is in the Rust workspace:
+
+- **Tauri 2** shell (Rust, `../crates/alogs-app`) with a plain HTML/JS interface (`../crates/alogs-app/ui`) — WebView2
+  comes with Windows.
+- Runs the boss DPS meter as a helper process (`resources/meter/alogs-meter.exe`, built from `../crates/alogs-meter`,
+  with the data files in `../crates/alogs-meter/res`).
 - Menus: Dashboard (live status), Meter & overlay, Results (auto View Battle Data, input hold, controller),
   Captures & logs, Leaderboards & account (opt-in submissions, desktop token, character link), General, About.
 - First run asks whether to submit to the leaderboards (off by default).
@@ -27,7 +33,8 @@ npm run build          # the same after bumping the version (bump-version.mjs)
 
 Output: `../target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe` and its `.sig`, and the build's map in
 `../target/release/bundle/maps/`. Two PCs build betas, so the RC number is one past the highest of this PC's last
-build of that version (the B16 app's `src-tauri/target/release/bundle/rc-<version>.txt` too), the RC `betas.json`
+build of that version (and the B16 app's counter in `src-tauri/target/release/bundle/rc-<version>.txt`, left in a
+checkout from before that app left the repository), the RC `betas.json`
 records as published, and the one the beta feed announces (`rc-number.mjs`, tested by `npm test`); the beta number is
 one past `betas.json`. `npm run beta` refuses a build whose RC the feed already has, and records the new RC in
 `betas.json` with the beta number.
@@ -45,5 +52,5 @@ The Companion page on the site downloads `releases/latest/download/AniiLogs-Comp
 release is what players get. `npm run release -- --notes-only` rewrites an existing release's notes.
 
 The installer is per-user (no admin). Controller blocking uses HidHide's signed driver (Nefarius, MIT; the driver
-files are bundled from `bossbar/vendor/hidhide/`): the app installs just the driver when you press Results > Controller >
+files are bundled from `../crates/alogs-app/vendor/hidhide/`): the app installs just the driver when you press Results > Controller >
 Set up (one admin prompt; no HidHide program, shortcut or Programs entry) and the uninstaller removes it again.

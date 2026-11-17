@@ -32,7 +32,7 @@ publishing a beta) and emergencies. Everything else, the maintainer's work inclu
 
 | Repository | Check a PR must pass | What a merge does |
 | --- | --- | --- |
-| `aLogs` | `meter` (meter tests) | Nothing reaches players until the maintainer builds and publishes a beta. |
+| `aLogs` | `meter` (the Rust workspace's tests and the build scripts' tests; the name is from when it ran the Python meter's) | Nothing reaches players until the maintainer builds and publishes a beta. |
 | `aniilogs.github.io` | `site` (syntax, tests, repository boundary, release pin) | Deploys the public pages right away. The API is **not** deployed by merging: whoever merged a change to `src/`, `migrations/` or `wrangler.jsonc` deploys it (see the site's AGENTS.md). A change to `public/` re-pins `release-review.json` in the same PR. |
 | `SanctumHelper` | none yet | Its author owns it. |
 
@@ -59,7 +59,8 @@ Which parts of aLogs belong to which plug-in: [plugins.md](plugins.md).
 ## Files that conflict often
 
 - `app/CHANGELOG.md`: add your own line to the right section. On a conflict, keep both sides' lines.
-- `app/ui/patch-notes.js` is generated. On a conflict, take either side, then run `npm run notes` in `app/`.
+- `crates/alogs-app/ui/patch-notes.js` is generated. On a conflict, take either side, then run `npm run notes` in
+  `app/`.
 - `app/betas.json`: the maintainer's only. Don't edit it.
 
 ## For AI agents: keep it cheap
@@ -76,8 +77,9 @@ Which parts of aLogs belong to which plug-in: [plugins.md](plugins.md).
 - Open the PR with `gh pr create --fill` and `gh pr merge --auto --squash`, then stop: don't watch the checks.
 - Resolve a conflict by reading only the conflicted parts (`git diff --name-only --diff-filter=U`). Ask the developer
   when both sides changed the same logic; don't guess.
-- Run the tests for the part you changed, not the whole suite (`bossbar/tests/two_boss.py` is slow). GitHub runs
-  the rest, except four that need files kept out of git (the game's fonts, `test_shots`, the built OCR helper):
-  `red_level`, `one_char_names`, `ocr_language` and `sim_victory_open_fight` run only on a PC with the game and a
-  build. Run those yourself when you touch OCR or the result screens.
+- Run the tests for the crate you changed (`cargo test -p alogs-meter`), not the whole workspace. GitHub runs all of
+  them (`cargo test --workspace`, and `npm test` in `app/`) and lists in the run's summary what skipped itself and why.
+  Skipped there, so run them yourself when you touch their part: the parity tests that need the reference checkouts
+  (`reference/`, see [rewrite-plan.md](rewrite-plan.md)), and the shared-capture test, which needs aLogs not running.
+  The `#[ignore]` tests are run by hand, with the game open (each says how).
 - Answer briefly: what changed, the commit, and whether the tests pass.

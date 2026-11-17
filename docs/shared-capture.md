@@ -1,9 +1,10 @@
 # Shared game capture
 
 The aLogs app captures the game once for every module (the meter, Sanctum Helper, later ones) and shares the
-pictures through the named shared memory `Local\aLogs.Capture.v2`. Writer: `app/src-tauri/src/capture.rs` (with
-`gpu_capture.rs`). Readers: `bossbar/wincapture.py` (`SharedCapture`) and
-`SanctumHelper/app/SanctumHelper/SharedCapture.cs`.
+pictures through the named shared memory `Local\aLogs.Capture.v2`. Writer: `crates/alogs-app/src/capture.rs` (with
+`gpu_capture.rs`). Readers: the meter's `crates/alogs-capture/src/shared.rs` (`SharedCapture`) and Sanctum Helper's
+`crates/alogs-sanctum/src/shared_capture.rs` (ports of B16's `bossbar/wincapture.py` and Sanctum Helper's
+`SharedCapture.cs`).
 
 ## How pictures are taken
 Both ways keep the picture on the graphics card and copy into memory only the areas readers ask for:
@@ -32,7 +33,7 @@ A reader that needs several separate parts of the frame (since B8) writes up to 
 2056 + 120·i, their count first, then the box around them all in the picture slot and the new request id. The app
 copies each part in the same pass and writes them one after another from the slot's offset (stride 0; each part
 w·4 bytes a row), with each part's x, y, w, h in client pixels next to its shares. An app from before B8 ignores the
-parts and sends the box around them, so the reader handles both (bossbar/wincapture.py `read_rects`). The meter uses
+parts and sends the box around them, so the reader handles both (alogs-capture's `read_rects`). The meter uses
 this for screen reads between fights: the top band plus the screens' text boxes, about half of a 4K frame.
 
 ## Overlays in captures (B9)
@@ -49,8 +50,9 @@ While a result, Party or menu screen is up on Windows 10, the meter asks for win
 not what's on top of it, and closes it when the time runs out. Windows 11 always uses window capture.
 
 A reader can also ask the graphics card to shrink its area first (picture slot byte 60: 2 or 4; byte 61 says what
-was used): the card averages it down through mip levels and only the smaller picture leaves it. The damage-number
-recorder (bossbar/dmgnumbers.py) uses this to keep 60 frames a second of a 4K screen's middle at 1080p size.
+was used): the card averages it down through mip levels and only the smaller picture leaves it (alogs-capture's
+`read_area`). B16's damage-number recorder used it to keep 60 frames a second of a 4K screen's middle at 1080p size;
+that recorder wasn't ported and is dropped for now.
 
 Each reader's picture is written at its own pace into its own buffer, so a fast small reader never interrupts a slow
 big one. Field offsets are listed at the top of `capture.rs`.

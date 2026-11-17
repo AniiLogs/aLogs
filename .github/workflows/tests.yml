@@ -14,27 +14,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The ruleset on main requires a check named exactly "meter" (pull requests merge themselves once it passes), so the
+  # job keeps the name from when it ran the Python meter's tests. Since 17 Nov 2026 it runs the Rust workspace's tests
+  # (the app, the meter and Sanctum Helper, crates/) and the build scripts' tests (app/). Don't rename it.
+  #
+  # A clean runner has no game install, no reference/ checkouts, no SanctumHelper/ checkout, no aLogs running, no
+  # real graphics card and maybe no English OCR: the tests that need any of those skip themselves with a line saying
+  # why ("skipped: ..."), or are #[ignore] (run by hand). The summary of the run lists both.
   meter:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"     # no debug info: a smaller build and cache, the same tests
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Rust (stable)
+        run: rustup update stable --no-self-update && rustup default stable && rustc --version
+      - uses: Swatinem/rust-cache@v2     # the dependencies' build, kept between runs (saved from main)
         with:
-          python-version: "3.12"
-      - name: Install Pillow
-        run: python -m pip install --disable-pip-version-check pillow
-      - name: Meter tests (made-up data only)
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Rust tests (cargo test --workspace)
         shell: bash
-        working-directory: bossbar
-        # These need what stays out of git (the game's fonts, test_shots, the built ocr-helper.exe): run them locally
         run: |
-          local_only=" sim_victory_open_fight.py red_level.py one_char_names.py ocr_language.py "
-          failed=0
-          for t in tests/*.py; do
-            case "$local_only" in *" $(basename "$t") "*) echo "skipped (local only): $t"; continue;; esac
-            echo "::group::$t"
-            if python "$t"; then echo "ok: $t"; else echo "::error::$t failed"; failed=1; fi
-            echo "::endgroup::"
-          done
-          exit $failed
+          set -o pipefail
+          cargo test --workspace --locked --no-fail-fast -- --show-output 2>&1 | tee "$RUNNER_TEMP/cargo-test.log"
+      - name: Build scripts' tests (npm test in app/)
+        working-directory: app
+        run: npm test
+      - name: What ran, what was skipped and why
+        if: always()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/cargo-test.log"
+          [ -f "$log" ] || exit 0
+          {
+            awk '/^test result:/ { p += $4; f += $6; i += $8 } END { printf "**Rust tests:** %d passed, %d failed, %d ignored (run by hand)\n\n", p, f, i }' "$log"
+            echo "**Skipped by themselves** (passed, but checked nothing here):"
+            echo
+            awk '/^ *Running / && match($0, /[\\\/]([A-Za-z0-9_]+)-[0-9a-f]+\.exe\)/, m) { bin = m[1] }
+                 /^---- .* std(out|err) ----$/ { name = $2 }
+                 /^skipped/ { print "- `" bin "` `" name "`: " $0 }' "$log" | sort -u
+            echo
+            echo "**Ignored:**"
+            echo
+            grep -E '^test .* \.\.\. ignored' "$log" | sed -E 's/^test (.*) \.\.\. ignored(, )?/- `\1` /' | sort -u
+          } >> "$GITHUB_STEP_SUMMARY"

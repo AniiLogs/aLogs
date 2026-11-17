@@ -22,7 +22,8 @@ export const version = () => JSON.parse(readFileSync(conf, "utf8")).version;
 
 /** Where a version's RC numbers are counted (the number of its last build), so they keep counting up. */
 export const counter = (v) => join(bundle, `rc-${v}.txt`);
-// the B16 app's counter, from when betas were built in app/src-tauri: the Rust build carries on from its number
+// the B16 app's counter, from when betas were built in app/src-tauri: the Rust build carries on from its number. That
+// app left the repository on 17 Nov 2026; a checkout from before keeps the folder (git-ignored), a fresh one has none.
 const oldCounter = (v) => join(appDir, "src-tauri", "target", "release", "bundle", `rc-${v}.txt`);
 
 /** The last RC number built of a version, by either build: the next one is one past it. */
