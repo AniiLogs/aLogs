@@ -7,6 +7,7 @@ pub mod grab;
 pub mod guess;
 pub mod heading;
 pub mod map;
+pub mod named;
 pub mod run;
 pub mod track;
 
@@ -274,6 +275,14 @@ pub struct Core {
     pub misfit_since: Option<Instant>,
     pub guesses: guess::Guesses,
     pub guess_task: Option<()>,
+    /// When the candidates' maps are loaded, unless the log names the Sanctum first (named.rs).
+    pub preload_due: Option<Instant>,
+    /// Tells a load of candidates under way which layout became known.
+    pub preload_known: Option<Arc<AtomicI64>>,
+    /// A scene the log named that no layout has: said once.
+    pub unknown_scene: Option<i64>,
+    /// A line naming a Sanctum scene in a wording not read: said once.
+    pub unread_mention: Option<String>,
     pub timer_template: Option<Option<Mat>>,
     pub red_timer: Option<Option<(Mat, Mat)>>,
     pub last_run_seen: Option<Instant>,
@@ -432,6 +441,7 @@ impl Core {
         self.current_layout = Some(l.clone());
         self.layout_source = source.to_string();
         self.misfit_since = None;
+        self.end_preload(Some(l.number));
         // the layout says the difficulty when it belongs to just one: corrects a stale reading
         if self.settings().difficulty == "Auto" && l.difficulties.len() == 1 && Some(&l.difficulties[0]) != self.detected_difficulty.as_ref() {
             let d = l.difficulties[0].clone();
@@ -471,6 +481,7 @@ impl Core {
             t.release();
         }
         self.clear_guesses();
+        self.end_preload(None);
         self.release_maps(|_| false);
         {
             let mut s = self.settings_mut();
@@ -612,7 +623,10 @@ impl Core {
             for (place, new_run) in std::mem::take(&mut self.game_log.changes) {
                 self.on_game_log_changed(place, new_run);
             }
+            // the log names the Sanctum as it loads: its layout is taken here, before any picture is looked at
+            self.layout_from_log();
         }
+        self.preload_when_due();
         if now >= *next_window {
             *next_window = now + 1000;
             let found = self.game.refresh(&s.window_title);
@@ -886,6 +900,10 @@ impl Engine {
             misfit_since: None,
             guesses: guess::Guesses::default(),
             guess_task: None,
+            preload_due: None,
+            preload_known: None,
+            unknown_scene: None,
+            unread_mention: None,
             timer_template: None,
             red_timer: None,
             last_run_seen: None,
