@@ -422,6 +422,7 @@ fn write_status(m: &Meter, sub: Option<&Submitter>, live: &Live, t: f64) {
 }
 
 fn main() {
+    alogs_capture::win::real_pixels();
     let argv: Vec<String> = std::env::args().collect();
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_default();
     let res = arg(&argv, "--res").map(PathBuf::from).unwrap_or_else(|| exe_dir.clone());

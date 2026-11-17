@@ -49,6 +49,7 @@ fn single_instance() -> bool {
 }
 
 fn main() {
+    alogs_capture::win::real_pixels();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let assets = hosted::assets_dir(&args);
     if args.first().map(String::as_str) == Some("--challenge-test") && args.len() >= 3 {

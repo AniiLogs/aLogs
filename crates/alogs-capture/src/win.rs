@@ -354,3 +354,21 @@ mod stop_imp {
         false
     }
 }
+
+#[cfg(windows)]
+#[link(name = "shcore")]
+unsafe extern "system" {
+    fn SetProcessDpiAwareness(value: i32) -> i32;
+}
+
+/// Real pixels on scaled displays, for the whole program: call first thing in `main`, before any window exists.
+/// B16's `wincapture.py` did this on import (`SetProcessDpiAwareness(2)`). Without it Windows treats the program as
+/// unaware of display scaling: on a 4K screen at 150% it reports a 2560x1440 desktop and stretches every window we
+/// draw by 1.5, while the pictures of the game we size them from are in real pixels, so overlays came out too big
+/// and off the screen.
+pub fn real_pixels() {
+    #[cfg(windows)]
+    unsafe {
+        SetProcessDpiAwareness(2); // per monitor; fails harmlessly if already set
+    }
+}
