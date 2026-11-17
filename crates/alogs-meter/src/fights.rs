@@ -15,6 +15,15 @@ pub const XN_STALE: f64 = 40.0;
 pub const OVERTIME_S: i64 = 60;
 pub const MAX_CLOCK: f64 = 900.0;
 pub const CONFIRM_GAP: f64 = 0.09;
+/// A reading more than 15 points under the last is taken once it has stood this long, every reading in between
+/// agreeing (the live meter's rule; `Fight::low_confirm`). At CONFIRM_GAP, two readings 0.09 s apart were enough,
+/// and since HP only drops a wrong one stayed for the rest of the fight: one row at 0.51% put a fight 219,000
+/// damage ahead for 44.7 s (17 Nov).
+pub const LOW_CONFIRM_S: f64 = 0.3;
+/// A bar's readings from before its fight started are kept this long, and are one bar's while no longer than
+/// EARLY_GAP_S apart (Meter::keep_early).
+pub const EARLY_S: f64 = 10.0;
+pub const EARLY_GAP_S: f64 = 2.0;
 pub const HANDOFF_XN: i64 = 3;
 pub const TOP_BAR: f64 = 0.15;
 pub const FIGHT_CSV: [&str; 14] = [
@@ -284,6 +293,9 @@ pub struct Fight {
     pub first_damage: Option<i64>,
     pub last_at: f64,
     pub low_pending: Option<(f64, f64)>,
+    /// How long a much lower reading must stand before it is taken (CONFIRM_GAP as in the Python; the live meter
+    /// sets LOW_CONFIRM_S).
+    pub low_confirm: f64,
     pub rise_at: Option<f64>,
     pub away: f64,
     pub seg: Option<i64>,
@@ -385,6 +397,7 @@ impl Fight {
             first_damage: None,
             last_at: now,
             low_pending: None,
+            low_confirm: CONFIRM_GAP,
             rise_at: None,
             away: 0.0,
             seg: None,
@@ -425,7 +438,8 @@ impl Fight {
         }
     }
 
-    /// One frame of the fight. `slide_in`: the Dev switch fight-bar-slide-in is on.
+    /// One frame of the fight. `slide_in`: a low first reading followed by a much fuller one before anyone has hit is
+    /// dropped (the live meter always asks for it; it was the Dev switch fight-bar-slide-in).
     #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
@@ -530,7 +544,7 @@ impl Fight {
         {
             let lp = self.low_pending;
             let agrees = lp.is_some_and(|l| f <= l.0 + 0.02);
-            if f < self.seg_fill - 0.15 && !(agrees && now - lp.unwrap().1 >= CONFIRM_GAP) {
+            if f < self.seg_fill - 0.15 && !(agrees && now - lp.unwrap().1 >= self.low_confirm) {
                 if !agrees {
                     self.low_pending = Some((f, now));
                 }

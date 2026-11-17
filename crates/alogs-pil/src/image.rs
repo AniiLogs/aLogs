@@ -96,6 +96,10 @@ impl Image {
             }
             _ => px[..color.len().min(b)].copy_from_slice(&color[..color.len().min(b)]),
         }
+        // one value in every band (black, white, a grey): filled in one go (a black 4K picture took 22 ms a pixel at a time)
+        if px.iter().all(|v| *v == px[0]) {
+            return Image { mode, width, height, data: vec![px[0]; width * height * b] };
+        }
         let mut data = Vec::with_capacity(width * height * b);
         for _ in 0..width * height {
             data.extend_from_slice(&px);
@@ -336,6 +340,34 @@ impl Image {
 
     /// `paste(im, (x, y), mask)`: with an L/1 mask the pasted pixels blend by it; an RGBA mask uses its alpha.
     pub fn paste_mask(&mut self, im: &Image, x: i64, y: i64, mask: Option<&Image>) {
+        // No mask: whole rows are copied, straight from the other image when its mode is this one's. Pixel by pixel,
+        // from a copy of the other image and with an allocation a pixel, the top part of a 4K frame took 150 ms to
+        // put into a whole frame, on every look between fights (17 Nov): the look that first sees a boss bar.
+        if mask.is_none() {
+            let converted;
+            let src = if im.mode == self.mode {
+                im
+            } else {
+                converted = im.convert(self.mode);
+                &converted
+            };
+            let b = self.bands();
+            let (x0, x1) = (x.max(0), (x + src.width as i64).min(self.width as i64));
+            if x1 <= x0 {
+                return;
+            }
+            let n = (x1 - x0) as usize * b;
+            for sy in 0..src.height as i64 {
+                let dy = y + sy;
+                if dy < 0 || dy >= self.height as i64 {
+                    continue;
+                }
+                let from = (sy as usize * src.width + (x0 - x) as usize) * b;
+                let to = (dy as usize * self.width + x0 as usize) * b;
+                self.data[to..to + n].copy_from_slice(&src.data[from..from + n]);
+            }
+            return;
+        }
         let src = if im.mode == self.mode { im.clone() } else { im.convert(self.mode) };
         let b = self.bands();
         for sy in 0..src.height as i64 {

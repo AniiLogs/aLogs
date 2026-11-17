@@ -6,7 +6,7 @@
 //! Left out: the Dev switches' calm pacing (busy-half-pace), and the damage-number recorder (paused in B16).
 
 use crate::env::Env;
-use crate::fights::{CONFIRM_GAP, FIGHT_INTERVAL, Fight, LEVEL_CONFIRM, TOP_BAR};
+use crate::fights::{CONFIRM_GAP, EARLY_GAP_S, EARLY_S, FIGHT_INTERVAL, Fight, LEVEL_CONFIRM, LOW_CONFIRM_S, TOP_BAR};
 use alogs_gamelog::{Event, scene_of};
 use alogs_pil::Image;
 use alogs_protocol::devflags::DevFlags;
@@ -130,6 +130,10 @@ pub struct Meter {
     pub duds: Vec<Dud>,
     pub dud_cand: Option<Dud>,
     pub hidden_drop: Option<(f64, i64, f64)>,
+    /// What a bar with no fight yet has read: (frame time, fill, fill colour, edge colour) (keep_early).
+    pub early: Vec<(f64, f64, [u8; 3], [u8; 3])>,
+    /// The span and height of the bar those readings are of.
+    pub early_geom: Option<(f64, i64)>,
     pub events: Option<Receiver<Event>>,
     pub catch_seen: f64,
     pub last_fight: Option<(Fight, f64)>,
@@ -271,6 +275,8 @@ impl Meter {
             duds: vec![],
             dud_cand: None,
             hidden_drop: None,
+            early: vec![],
+            early_geom: None,
             events,
             catch_seen: 0.0,
             last_fight: None,
@@ -366,7 +372,9 @@ impl Meter {
     /// Time to read the bar's text: about once a second, the name every 8 s.
     pub fn text_due(&self, now: f64) -> bool {
         let need_title = self.fight.is_none() || now - self.last_title > self.title_gap();
-        need_title || now - self.last_text >= 1.0
+        // (and only while the helper is free, as in the Python: a job handed to a busy helper is dropped, but its
+        // crops were made, 25 to 30 ms a look at 4K, and the read was stamped as made)
+        (need_title || now - self.last_text >= 1.0) && !self.ocr_bg.as_ref().is_some_and(|w| w.busy())
     }
 
     /// A boss bar spans at least ~28% of the 16:9 width; during a fight only the fight's own bar counts.
@@ -608,9 +616,12 @@ impl Meter {
         let name = if t.is_empty() { title.to_string() } else { t.to_string() };
         let mut f = Fight::new(&self.env, &name, level, row.clone(), hp, bossrush, !self.args.no_debug_frames, partner.clone(), order);
         f.scene_ok = bossrush && self.bossrush_space;
-        if let Some(b) = &self.bar {
+        if let Some(b) = self.bar.clone() {
             f.bar_geom = Some((b.span, b.yc as f64));
+            self.remember_spot(&b);
         }
+        f.low_confirm = LOW_CONFIRM_S;
+        self.replay_early(&mut f);
         let msg = format!("fight started: {} Lv {level}, max HP {}{}", f.title, thousands(hp), if bossrush { " (Interlink)" } else { "" });
         log::info!(target: "meter", "fight details: puppetId {}, {how}, bossrush space {}{}{}", get(&row, "puppetId"),
             if self.bossrush_space { "True" } else { "False" },
@@ -618,6 +629,53 @@ impl Meter {
             partner.as_ref().map_or(String::new(), |p| format!(", two-boss fight: {} ({}) comes next", get(p, "bossTitle_en"), partner_id.clone().unwrap_or_default())));
         self.fight = Some(f);
         self.status(out, msg);
+    }
+
+    /// A fight started on this bar: its place is kept, and looked at first by the next search (`bar_at`). Kept at
+    /// every find, three of the four places held on 17 Nov were of things that were no bar (85% of all finds are).
+    fn remember_spot(&mut self, b: &Bar) {
+        let spot = Spot { frame: b.frame, yc: b.yc as f64, thickness: b.thickness as f64, left_bracket: b.left_bracket, span: b.span, track_left: b.track_left as f64 };
+        if !self.bar_spots.iter().any(|s| (s.yc - spot.yc).abs() <= 2.0 && (s.track_left - spot.track_left).abs() <= 2.0 && s.frame == spot.frame) {
+            self.bar_spots.insert(0, spot);
+            self.bar_spots.truncate(4);
+            save_spots(&self.env.data.join("bar_spot.json"), &self.bar_spots);
+        }
+    }
+
+    /// A bar with no fight yet (its boss's name is still being read): what it reads is kept, EARLY_S at most, for
+    /// the fight that starts on it. Another bar (a different place or size), or EARLY_GAP_S without this one,
+    /// starts the keeping over.
+    pub fn keep_early(&mut self, b: &Bar, at: f64, fill: f64, fill_rgb: [u8; 3], edge_rgb: [u8; 3]) {
+        let same = self.early_geom.is_some_and(|(span, yc)| (span - b.span).abs() <= span * 0.03 && (yc - b.yc).abs() <= 6)
+            && self.early.last().is_some_and(|l| (0.0..=EARLY_GAP_S).contains(&(at - l.0)));
+        if !same {
+            self.early.clear();
+        }
+        self.early_geom = Some((b.span, b.yc));
+        self.early.push((at, fill, fill_rgb, edge_rgb));
+        let from = self.early.iter().position(|r| at - r.0 <= EARLY_S).unwrap_or(0);
+        self.early.drain(..from);
+    }
+
+    /// The fight starts at its bar's first sight, not when its boss's name is read: what the bar read before that is
+    /// put through the fight as if it had been there. Thrown away, a hit landed before the name was read cost the
+    /// fight its real start: the damage was all counted (it is read off the bar) but the clock began at the first
+    /// hit seen after, so the DPS came out too high (17 Nov: a bar first seen at 55% gave 187,157 damage in 9 s).
+    /// Not for Interlink, whose fights start with their bar and take their time from the game's timer.
+    pub fn replay_early(&mut self, f: &mut Fight) {
+        let early = std::mem::take(&mut self.early);
+        self.early_geom = None;
+        let Some(first) = early.first().map(|r| r.0) else { return };
+        if f.bossrush || self.env.now() - first > EARLY_S + EARLY_GAP_S {
+            return;
+        }
+        (f.created, f.t0, f.last_at) = (first, first, first);
+        let grades = self.grades.clone();
+        let n = early.len();
+        for (at, fill, fill_rgb, edge_rgb) in early {
+            f.update(&self.env, Some(fill), fill_rgb, edge_rgb, None, None, &grades, self.args.duration, Some(at), true);
+        }
+        log::info!(target: "meter", "fight: counted from its bar's first sight, {:.2} s before its name was read ({n} readings)", self.env.now() - first);
     }
 
     /// Interlink: the prep screen named the boss, so its fight starts on the first frame of its bar.
@@ -930,6 +988,12 @@ impl Meter {
                 match frames.grab(hwnd, None) {
                     Some(i) => {
                         im = i;
+                        // this picture too: taken as it came, our own HP label ("42.2%", drawn on the bar) was read as
+                        // the end of the fill, and the damage jumped a quarter of the boss's HP ahead and stood still
+                        // for 8 to 11 s (3 of B19's 4 fights, 17 Nov). The Python covered every picture in its grab.
+                        if !self.args.replay && frames.screen_copy() {
+                            self.mask_own(frames, &mut im);
+                        }
                         self.frame_size = im.size();
                         // a whole frame now, as the Python's grab said: the result screen and the leader's line are
                         // read from it straight away, not only once the bar has been gone a second
@@ -953,7 +1017,9 @@ impl Meter {
             if let Some(fd) = found.clone() {
                 if fd.world && (self.fight.as_ref().is_some_and(|f| f.bossrush) || self.bossrush_space) {
                     found = Some(bar::as_bossrush_bar(&fd));
-                } else if !self.bossrush_space && scene_of(self.space.as_deref()).is_some() && !self.args.replay {
+                } else if !self.bossrush_space && (scene_of(self.space.as_deref()).is_some() || self.holosim_space) && !self.args.replay {
+                    // (a Holo-Battle Sim room too: its bars are world bars. Left to the right-end test, a white
+                    // hit flash there made one an xN bar, whose track ends at 91% of the span)
                     found = Some(bar::as_world_bar(&fd));
                 }
             }
@@ -965,11 +1031,13 @@ impl Meter {
                 if changed {
                     log::info!(target: "meter", "boss bar found: span {:.0}px, y {:.0}, frame {}x{}", fd.span, fd.yc, im.width, im.height);
                 }
-                let spot = Spot { frame: fd.frame, yc: fd.yc as f64, thickness: fd.thickness as f64, left_bracket: fd.left_bracket, span: fd.span, track_left: fd.track_left as f64 };
-                if !self.bar_spots.iter().any(|s| (s.yc - spot.yc).abs() <= 2.0 && (s.track_left - spot.track_left).abs() <= 2.0 && s.frame == spot.frame) {
-                    self.bar_spots.insert(0, spot);
-                    self.bar_spots.truncate(4);
-                    save_spots(&self.env.data.join("bar_spot.json"), &self.bar_spots);
+                // a title read still waiting was made for another shape (a false bar, lost a moment ago): it is not
+                // this bar's. Taken as its first read it said "Lv None" and cost the real read a turn (15 times in
+                // the 17 Nov logs).
+                if self.bar.is_none()
+                    && let Some(w) = &self.ocr_bg
+                {
+                    w.forget();
                 }
                 self.bar = Some(fd);
                 self.end_auto("boss bar is back");
@@ -1002,7 +1070,7 @@ impl Meter {
                     }
                     if ok {
                         self.hidden_drop = None;
-                        let slide = self.dev.on("fight-bar-slide-in");
+                        let slide = true;
                         let at = frames.frame_time();
                         let grades = self.grades.clone();
                         let f = self.fight.as_mut().unwrap();
@@ -1119,7 +1187,9 @@ impl Meter {
                 let (gauge, kind, _) = bar::measure_break(&im, &b);
                 self.fight.as_mut().unwrap().brk.feed(gauge, kind, now);
             }
-            let slide = self.dev.on("fight-bar-slide-in");
+            // A low first reading that is followed by a much fuller one, before anyone has hit, is dropped: always
+            // (it was the Dev switch fight-bar-slide-in; a wrong reading kept is no trade-off to choose).
+            let slide = true;
             let at = frames.frame_time();
             let grades = self.grades.clone();
             let f = self.fight.as_mut().unwrap();
@@ -1139,6 +1209,8 @@ impl Meter {
                 self.fight_team(&im, now, u, (w - u) / 2.0, h);
             }
             self.emit_fight(out, &b);
+        } else {
+            self.keep_early(&b, frames.frame_time().unwrap_or(now), fill, fill_rgb, edge_rgb);
         }
     }
 }
