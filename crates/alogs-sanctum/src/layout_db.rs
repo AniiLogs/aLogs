@@ -175,6 +175,11 @@ impl LayoutDb {
     pub fn island(&self) -> Option<&Layout> {
         self.layouts.iter().find(|l| l.is_island())
     }
+
+    /// The Sanctum layout of a game scene (200NN is Layout NN), as the game's log names it while loading it.
+    pub fn by_scene(&self, scene: i64) -> Option<&Layout> {
+        self.layouts.iter().find(|l| l.scene == scene && !l.is_island())
+    }
 }
 
 /// How far a chest seen may be from a set's chest and still be it, in metres.

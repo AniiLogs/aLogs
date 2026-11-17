@@ -21,7 +21,13 @@ pub enum Place {
 const PENDING_FOR: f64 = 3.0;
 static CONNECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"connect to worldx-[a-z]+-[a-z]+-([a-z]+)-").unwrap());
 static SCENE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"createVoxelScene new>>>id:(\S+)").unwrap());
-static SANCTUM_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"scene='Level_FB_Random_Map_(\d+)'").unwrap());
+// The Sanctum's scene, in what the game's light-probe loader logs while loading it (it ships no probe data for the
+// Sanctums). As first read (9 Nov 2026) the line had scene='Level_FB_Random_Map_20054'. The loader's lines seen since
+// (17 Nov, for the lobby) read Scene='<id>', Config='<level>_BakingConfig', ... BrickData='.../<level folder>/XGIProbe/..':
+// a Sanctum's own line in that wording hasn't been seen yet, so the level is taken from any of the three.
+static SANCTUM_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:scene='|Config='|[\\/](?:Runtime)?)Level_FB_Random_Map_(\d+)(?:'|_BakingConfig'|[\\/]XGIProbe[\\/])").unwrap());
+static SANCTUM_MENTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Level_FB_Random_Map_\d+").unwrap());
 static HOMELAND_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+-\d+-550$").unwrap());
 
 pub struct GameLog {
@@ -30,6 +36,9 @@ pub struct GameLog {
     /// The game scene of this run's Sanctum as the game named it while loading (200NN is Layout NN), or None.
     pub sanctum_scene: Option<i64>,
     pub sanctum_named_at: f64,
+    /// A line that names a Sanctum scene in a wording not read as its name (the words around it, for the helper's
+    /// log): the first one while in this run's Sanctum with no name read. Never used as the layout.
+    pub sanctum_mention: Option<String>,
     pub visit: i64,
     /// Changes seen live (not while catching up at startup): (new place, a new run).
     pub changes: Vec<(Place, bool)>,
@@ -51,11 +60,23 @@ fn now() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
 }
 
+/// A scene's name in a line with the few words on either side of it: plain letters, digits and marks only, and of a
+/// file path nothing before the name's own folder (a path can hold the PC's user name).
+fn around(line: &str, start: usize, end: usize) -> String {
+    let plain = |c: char| if c.is_ascii_graphic() || c == ' ' { c } else { '?' };
+    let mut before: String = line[..start].chars().rev().take(28).map(plain).collect::<Vec<_>>().into_iter().rev().collect();
+    if let Some(i) = before.rfind(['/', '\\']) {
+        before.drain(..i);
+    }
+    let after: String = line[end..].chars().take(20).map(plain).collect();
+    format!("{before}{}{after}", &line[start..end])
+}
+
 impl GameLog {
     pub fn new(path: Option<PathBuf>) -> GameLog {
         let path = path.unwrap_or_else(|| PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("AppData").join("LocalLow").join("Aniimo").join("Aniimo").join("Player.log"));
         GameLog {
-            place: Place::Unknown, available: false, sanctum_scene: None, sanctum_named_at: 0.0, visit: 0, changes: vec![],
+            place: Place::Unknown, available: false, sanctum_scene: None, sanctum_named_at: 0.0, sanctum_mention: None, visit: 0, changes: vec![],
             interlink: false, pending_id: None, pending_at: 0.0, outside: HashSet::new(),
             path, pos: 0, partial: vec![], server: None, island_id: None, sanctum_id: None, catching_up: true, clock: Box::new(now),
         }
@@ -70,6 +91,14 @@ impl GameLog {
     /// The island id of the current run.
     pub fn run_id(&self) -> Option<&str> {
         self.island_id.as_deref()
+    }
+
+    /// The scene the log named for the Sanctum the player is in now, and how many seconds ago it did.
+    pub fn named_sanctum(&self) -> Option<(i64, f64)> {
+        if self.place != Place::Sanctum {
+            return None;
+        }
+        self.sanctum_scene.map(|s| (s, (self.clock)() - self.sanctum_named_at))
     }
 
     /// Reads what the game added since last time (the whole log the first time, to know where a run already stands).
@@ -87,7 +116,7 @@ impl GameLog {
             self.island_id = None;
             self.sanctum_id = None;
             self.pending_id = None;
-            self.sanctum_scene = None;
+            self.forget_name();
             self.set(Place::Unknown, false);
         }
         self.available = true;
@@ -127,17 +156,24 @@ impl GameLog {
             self.interlink = false;
             if s != "dungeon" {
                 self.pending_id = None;
-                self.sanctum_scene = None;
+                self.forget_name();
             }
             self.server = Some(s);
             return;
         }
         if line.contains("Level_FB_Random_Map_") {
-            if let Some(n) = SANCTUM_NAME.captures(line).and_then(|m| m[1].parse::<i64>().ok())
-                && self.place == Place::Sanctum
-            {
+            if self.place != Place::Sanctum {
+                return;
+            }
+            if let Some(n) = SANCTUM_NAME.captures(line).and_then(|m| m[1].parse::<i64>().ok()) {
                 self.sanctum_scene = Some(n);
-                self.sanctum_named_at = t;
+                // read while catching up on an old log, the name is old: the player may be anywhere in the Sanctum
+                self.sanctum_named_at = if self.catching_up { 0.0 } else { t };
+            } else if self.sanctum_scene.is_none()
+                && self.sanctum_mention.is_none()
+                && let Some(m) = SANCTUM_MENTION.find(line)
+            {
+                self.sanctum_mention = Some(around(line, m.start(), m.end()));
             }
             return;
         }
@@ -146,7 +182,7 @@ impl GameLog {
         }
         if line.contains("fb_bossrush") || line.contains("fb_roguelike") {
             self.pending_id = None;
-            self.sanctum_scene = None;
+            self.forget_name();
             if !self.interlink {
                 self.interlink = true;
                 self.island_id = None;
@@ -199,6 +235,11 @@ impl GameLog {
         }
     }
 
+    fn forget_name(&mut self) {
+        self.sanctum_scene = None;
+        self.sanctum_mention = None;
+    }
+
     /// The screen showed what Egg Heist never has: this dungeon area isn't Egg Heist after all.
     pub fn not_egg_heist(&mut self) {
         self.pending_id = None;
@@ -216,7 +257,7 @@ impl GameLog {
         self.island_id = Some(p);
         self.sanctum_id = None;
         self.pending_id = None;
-        self.sanctum_scene = None;
+        self.forget_name();
         self.set(Place::Island, true);
     }
 

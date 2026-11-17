@@ -426,15 +426,10 @@ impl Core {
             crate::log::write("game log: new run, forgetting the last layout");
             self.reset_run();
         }
-        // Into a Sanctum with its layout still unknown: load the candidates' map art now, in the background.
+        // Into a Sanctum with its layout still unknown: the candidates' map art is loaded in the background, once the
+        // log has had its moment to name the one layout that's needed (named.rs).
         if place == Place::Sanctum && self.current_layout.is_none() && forced == 0 {
-            let cands: Vec<Layout> = self.db.candidates(self.effective_difficulty().as_deref()).into_iter().cloned().collect();
-            let arts = self.arts.clone();
-            std::thread::spawn(move || {
-                for l in &cands {
-                    arts.get(l, 0);
-                }
-            });
+            self.preload_due = Some(Instant::now() + super::named::NAME_WAIT);
         }
         match place {
             Place::Sanctum if self.on_island => {

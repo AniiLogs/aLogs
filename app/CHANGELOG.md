@@ -21,6 +21,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The program file says which build it is:** alogs-app's Properties › Details shows the beta and build under Product version ("0.1.37 B15 (RC22)"), not only "0.1.37".
 - **Sanctum Helper says the difficulty you chose each time you open the party screen** ("Normal Mode chosen."), not only when it changes.
 - **Sanctum Helper runs with the game:** it starts within a few seconds of the game opening and stops a minute after the game closes (a minimized game keeps it running), instead of running whenever aLogs is open. Its page still works with the game closed, and says it starts with the game.
+- **Sanctum Helper knows a Sanctum's layout as it loads:** the game's own log names each Sanctum while loading it, and the map now takes the layout from that, instead of working it out from the minimap (6 to 30 seconds, and now and then a wrong first guess). If the game doesn't name it, the minimap decides as before.
 - **Fewer pictures saved on your PC:** the sample screens the meter kept for checking its readers, and the copies of each leaderboard proof with the DPS window drawn on it, are now saved only while Captures & logs › Save test pictures is on. The proof that's sent is the same.
 - **Priority (General Settings › Performance) is the one control and does what it says:** Higher runs aLogs, the meter and Sanctum Helper above normal; the meter's text readers run below normal with Lower, normal otherwise. The two Dev menu switches that changed this are gone.
 
