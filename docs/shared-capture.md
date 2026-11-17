@@ -50,7 +50,10 @@ until" (1792, unix ms) a few seconds ahead, so those screens are read from the g
 On the screen copy the app serves that by the window copy (PrintWindow): no window capture, so no yellow border, at
 most 12 copies a second (35 ms each at 4K, measured 17 Nov), the screen copy staying open for after. Only where that
 copy comes out black while the screen shows a picture does the app open window capture, border and all, for those
-moments. Windows 11 always uses window capture.
+moments. A script (aLogs has the screen: the Sim's end and its Gizmo tour, the automatic Battle Data session, Egg
+Heist's hold) also keeps "game fast until" (1800, unix ms) a second ahead: its burst goes by window capture, quicker a
+picture, with the border for those seconds, the window copy serving until window capture has its first picture.
+Windows 11 always uses window capture.
 
 A reader can also ask the graphics card to shrink its area first (picture slot byte 60: 2 or 4; byte 61 says what
 was used): the card averages it down through mip levels and only the smaller picture leaves it (alogs-capture's

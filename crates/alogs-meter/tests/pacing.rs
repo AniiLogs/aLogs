@@ -8,14 +8,17 @@ use alogs_pil::Image;
 use alogs_reader::ocr::NoOcr;
 use std::path::PathBuf;
 
+#[derive(Default)]
 struct ScreenCopy {
     asked: u64,
+    fast: u64,
 }
 impl Frames for ScreenCopy {
     fn grab(&mut self, _: usize, _: Option<f64>) -> Option<Image> { None }
     fn window(&mut self) -> Option<usize> { Some(1) }
     fn screen_copy(&self) -> bool { true }
     fn set_game_only_until(&mut self, ms: u64) { self.asked = ms; }
+    fn set_game_fast_until(&mut self, ms: u64) { self.fast = ms; }
 }
 
 fn meter(name: &str) -> Meter {
@@ -62,7 +65,7 @@ fn between_fights_only_the_top_part_unless_something_needs_more() {
 #[test]
 fn a_spotted_screen_waits_for_window_capture_then_gives_up() {
     let mut m = meter("pacing-game-only");
-    let mut f = ScreenCopy { asked: 0 };
+    let mut f = ScreenCopy::default();
     let now = 1_800_000_000.0;
     assert!(m.game_only(&mut f, "result", now), "waits");
     assert!(f.asked > 0, "asks the app for window capture");
@@ -169,13 +172,14 @@ fn the_game_window_alone_is_kept_through_a_script() {
     m.args.replay = false;
     let t = 1_800_000_000.0;
     let until = |at: f64| ((at + GAME_ONLY_HOLD_S) * 1000.0) as u64;
-    let mut f = ScreenCopy { asked: 0 };
+    let mut f = ScreenCopy::default();
     m.game_only_keep(&mut f, t);
     assert_eq!(f.asked, 0, "nothing on: not asked");
     // the Gizmo tour
     m.sim.tour = Some(Default::default());
     m.game_only_keep(&mut f, t);
     assert_eq!(f.asked, until(t), "asked at the tour's first look");
+    assert_eq!(f.fast, ((t + alogs_meter::pacing::GAME_FAST_HOLD_S) * 1000.0) as u64, "and quick pictures with it: a script has the screen");
     m.game_only_keep(&mut f, t + 0.3);
     assert_eq!(f.asked, until(t), "not again within 0.5 s");
     m.game_only_keep(&mut f, t + 0.6);
@@ -188,6 +192,7 @@ fn the_game_window_alone_is_kept_through_a_script() {
     (m.holosim_space, m.sim.gate.last, m.fight_ended_at) = (true, true, t + 9.0);
     m.game_only_keep(&mut f, t + 10.0);
     assert_eq!(f.asked, until(t + 10.0), "the Victory screen is expected");
+    assert!(f.fast < ((t + 5.0) * 1000.0) as u64, "no script yet: no window capture, so no border in play");
     f.asked = 0;
     m.game_only_keep(&mut f, t + 9.0 + SIM_VICTORY_SOON_S + 1.0);
     assert_eq!(f.asked, 0, "no Victory screen came: not held open");

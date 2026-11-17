@@ -13,7 +13,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
-     "**No more yellow border flashing on Windows 10:** result, Party, menu and Battle Data screens are still read from the game window alone, but aLogs now copies it a way that makes Windows draw no border. The border only shows with Capture only the game window switched on, while a window covers the game when you are tabbed out, or on a PC where the new copy comes out black.",
+     "**The yellow border is gone from menus on Windows 10:** result, Party, menu and Battle Data screens are still read from the game window alone, but aLogs now copies it a way that makes Windows draw no border. The border only shows for the few seconds aLogs takes control to record a leaderboard run, with Capture only the game window switched on, while a window covers the game when you are tabbed out, or on a PC where the new copy comes out black.",
      "**The meter and Sanctum Helper are rebuilt, with less to install:** they work as before, and the download is about 46 MB instead of 80.",
      "**Sanctum Helper no longer needs Microsoft's .NET runtime:** the installer no longer asks to download it.",
      "**Seven tested speed-ups from the Dev menu are now standard** (and leave it): faster boss HP and xN counter reads in fights, a cheaper screen-change check, proof pictures made once when a record is sent again, no update check or photo upload during a boss fight, and fewer repeated capture lines in the log. Same readings as before.",

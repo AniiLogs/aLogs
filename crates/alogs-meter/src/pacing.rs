@@ -14,6 +14,9 @@ pub const EGG_AFTER_S: f64 = 45.0;
 pub const GAME_ONLY_SCREENS: [&str; 10] = ["result", "Holo-Battle Sim result", "challenge", "battle prep", "Egg Heist rank", "profile", "party", "Egg Heist", "menu", "Battle Data"];
 pub const GAME_ONLY_HOLD_S: f64 = 3.0;
 pub const GAME_ONLY_WAIT_S: f64 = 1.5;
+/// A script's ask for quick pictures of the game window alone holds this long past its last ask (made every 0.5 s),
+/// so window capture, and Windows 10's border with it, is gone a second after the script.
+pub const GAME_FAST_HOLD_S: f64 = 1.0;
 /// After the Sim's last fight, how long its Victory screen is expected (the game window alone asked for meanwhile).
 pub const SIM_VICTORY_SOON_S: f64 = 6.0;
 
@@ -47,6 +50,7 @@ pub enum Due {
 pub struct Pacing {
     pub game_only_since: f64,
     pub game_only_asked: f64,
+    pub game_fast_asked: f64,
     pub game_only_spot: Option<(&'static str, f64)>,
     pub game_only_said: bool,
     pub parts_said: f64,
@@ -170,12 +174,15 @@ impl Meter {
 
     /// Is a script on the screen, or its screen about to come? Then the game window alone is wanted the whole time,
     /// not only from the look that spots a screen.
-    pub fn game_only_wanted(&self, now: f64) -> bool {
-        // aLogs has the screen: the Sim's end and its Gizmo tour, the automatic Battle Data session (while its time
-        // runs: it is closed lazily), Egg Heist's hold. Each of these ends by itself within a minute or two, so the
-        // slower pictures of the game window alone can't stay on.
+    /// Does aLogs have the screen: the Sim's end and its Gizmo tour, the automatic Battle Data session (while its time
+    /// runs: it is closed lazily), Egg Heist's hold. Each of these ends by itself within a minute or two.
+    pub fn script_has_the_screen(&self, now: f64) -> bool {
         let auto = self.auto.auto_until != 0.0 && now <= self.auto.auto_until;
-        let script = self.sim.ctl.is_some() || self.sim.tour.is_some() || auto || self.egg.hold.is_some();
+        self.sim.ctl.is_some() || self.sim.tour.is_some() || auto || self.egg.hold.is_some()
+    }
+
+    pub fn game_only_wanted(&self, now: f64) -> bool {
+        let script = self.script_has_the_screen(now);
         // the Sim's Victory screen comes within a second or two of its last fight (17 Nov: 0.4 s). The last level is
         // known only with the gate watch on; without it every level's last fight counts.
         let last_level = self.sim.gate.last || !alogs_protocol::settings::automation(&self.args.cfg, Some("sim_gate"));
@@ -191,8 +198,23 @@ impl Meter {
     /// second time (0.3 s); and the Gizmo tour, which reads no screens, let it run out, so the pictures changed
     /// back to the screen copy 1.5 s into the tour. Where the picture is always the window (Windows 11, or General
     /// Settings > Capture only the game window) asking changes nothing.
+    ///
+    /// While a script has the screen it also says so ("game fast until", GAME_FAST_HOLD_S ahead): the window copy
+    /// takes 35 ms a picture at 4K, which a script that looks 10 to 20 times a second would feel, so its burst goes
+    /// by window capture. The border shows for those seconds only (the owner, 17 Nov: fine for submissions, never
+    /// in play, and nothing slower).
     pub fn game_only_keep(&mut self, frames: &mut dyn Frames, now: f64) {
-        if self.args.replay || !self.game_only_wanted(now) || now - self.pacing.game_only_asked <= 0.5 {
+        if self.args.replay {
+            return;
+        }
+        if self.script_has_the_screen(now) && now - self.pacing.game_fast_asked > 0.5 {
+            self.pacing.game_fast_asked = now;
+            self.pacing.game_only_asked = now;
+            frames.set_game_only_until(((now + GAME_ONLY_HOLD_S) * 1000.0) as u64);
+            frames.set_game_fast_until(((now + GAME_FAST_HOLD_S) * 1000.0) as u64);
+            return;
+        }
+        if !self.game_only_wanted(now) || now - self.pacing.game_only_asked <= 0.5 {
             return;
         }
         self.pacing.game_only_asked = now;

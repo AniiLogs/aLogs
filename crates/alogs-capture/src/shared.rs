@@ -24,6 +24,8 @@ pub const OVERLAY_BLOCK: usize = 144;
 pub const OVERLAY_MAX: usize = 8;
 pub const OVERLAY_STALE: u64 = 3000;
 pub const GAME_ONLY_UNTIL: usize = 1792;
+/// "Game fast until" (unix ms): the burst of the game window alone is a script's, which wants its pictures quickly.
+pub const GAME_FAST_UNTIL: usize = 1800;
 pub const OWNER_METER: usize = 0;
 pub const OWNER_SANCTUM: usize = 1;
 pub const OWNER_APP: usize = 2;
@@ -620,6 +622,13 @@ impl SharedCapture {
     pub fn set_game_only_until(&mut self, ms: u64) {
         if self.open(now_s()) {
             self.view.as_ref().unwrap().set_u64(GAME_ONLY_UNTIL, ms);
+        }
+    }
+    /// A script has the screen until then (unix ms): its pictures of the game window alone come the quick way
+    /// (on Windows 10 window capture, with its border), not by the slower window copy.
+    pub fn set_game_fast_until(&mut self, ms: u64) {
+        if self.open(now_s()) {
+            self.view.as_ref().unwrap().set_u64(GAME_FAST_UNTIL, ms);
         }
     }
     pub fn set_clean_until(&mut self, ms: u64) {

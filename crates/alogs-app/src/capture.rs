@@ -13,7 +13,9 @@
 //! A reader's burst of the game window alone on the screen copy ("game only until": a result, Party or menu screen
 //! is up, or a script has the screen): the window copy (PrintWindow) serves it. No window capture, so no border; at
 //! most 12 copies a second (35 ms each at 4K, measured 17 Nov), Desktop Duplication staying open for after. Window
-//! capture with its border serves a burst only where that copy comes out black while the screen shows a picture.
+//! capture with its border serves a burst only for a script ("game fast until": aLogs has the screen and looks 10
+//! to 20 times a second), the window copy bridging its start, and where that copy comes out black while the screen
+//! shows a picture.
 //!
 //! Not in front on Windows 10: while no window shows over the game, Desktop Duplication goes on (the screen still
 //! shows all of it). With a window over it, the game window alone is taken as on Windows 11, by window capture with
@@ -49,6 +51,7 @@
 //!      out of screen captures until then (B9)
 //!   1792 u64 game only until (unix ms), a reader's ask on Windows 10: while a result, Party or menu screen is up, window
 //!      capture, border and all, so what's read is the game and not what's on top of it. Closed again when it runs out
+//!   1800 u64 game fast until (unix ms): that burst is a script's (aLogs has the screen), served by window capture
 //!   1352 overlay windows (B9): 3 x 144 { u64 updated (unix ms), u32 pid, u32 count (<= 8), 8 x i32 x0, y0, x1, y1
 //!      (screen px) }, owners 0 the meter, 1 Sanctum Helper, 2 the app (the button over the game). Overlays stay in
 //!      screenshots and recordings; every reader of a screen copy covers all of them in its own picture. A block not
@@ -121,6 +124,21 @@ const AWAY_MS: u64 = 250;
 const BURST_COPY_MS: u64 = 80;
 /// A burst's window copy black this long while the screen shows a picture: the copy doesn't work for this game window.
 const COPY_BLACK_MS: u64 = 1_000;
+
+/// One window copy of the game (made the game's size first) handed to the readers that are due. Some(true): they
+/// have a picture of the game window alone; Some(false): the copy failed or came out black, and nobody was given
+/// it; None: the game window has no area now, or the pictures couldn't be written.
+fn serve_window_copy(shared: &Shared, copy: &mut Option<WindowCopy>, hwnd: HWND, readers: &mut [Reader; SLOTS], only: Option<usize>) -> Option<bool> {
+    let (width, height, origin) = client(hwnd)?;
+    if copy.as_ref().map_or(true, |c| (c.width, c.height) != (width, height)) {
+        *copy = WindowCopy::new(width, height);
+    }
+    let Some(c) = copy.as_mut() else { return Some(false) };
+    if !c.take(hwnd) {
+        return Some(false);
+    }
+    serve(shared, c, Kind::PRINT_FLAGS, false, hwnd, (origin.x, origin.y), readers, only)
+}
 
 /// Does a burst's window copy fail here? It came back black (`copy_black`) in a round where the screen copy did
 /// show a picture (`screen_shows`), and has for COPY_BLACK_MS (`since`: when that began, 0 while it doesn't). A game
@@ -408,6 +426,10 @@ static GAME_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// A reader asked for the game window alone just now (GAME_ONLY_UNTIL).
 static BURST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 const GAME_ONLY_UNTIL: usize = 1792;
+/// "Game fast until" (unix ms): a burst asked for by a script (aLogs has the screen: the Sim's end and its Gizmo
+/// tour, the automatic Battle Data session, Egg Heist's hold), which wants its pictures quickly: window capture
+/// serves it, border and all.
+const GAME_FAST_UNTIL: usize = 1800;
 
 /// General Settings › Capture only the game window, on Windows 10 (Windows 11 always does): window capture with
 /// Windows' yellow border instead of Desktop Duplication. Read from settings.json every 2 s by the capture thread.
@@ -1325,11 +1347,12 @@ pub fn start() {
                 }
                 // A reader's burst of the game window alone. On the screen copy (Windows 10) it is served by the window
                 // copy further down: no window capture, so no yellow border, and the screen copy stays open for
-                // after. Only where that copy shows nothing (`burst_border`) does a burst start window capture, with
-                // its border, as every burst did until 17 Nov: then the way that's best is started again as the
-                // burst starts and runs out.
+                // after. A burst starts window capture, with its border, as every burst did until 17 Nov, only for a
+                // script (`fast`: aLogs has the screen and wants its pictures quickly) and where that copy shows
+                // nothing (`burst_border`): then the way that's best is started again as that starts and runs out.
                 let burst = now < shared.get_u64(GAME_ONLY_UNTIL);
-                let bordered = burst && burst_border;
+                let fast = burst && now < shared.get_u64(GAME_FAST_UNTIL);
+                let bordered = burst && (burst_border || fast);
                 if BURST.swap(bordered, Ordering::Relaxed) != bordered && best_kind() != best {
                     best = best_kind();
                     (kind, source, tries, black_since) = (best, None, 0, 0);
@@ -1490,65 +1513,53 @@ pub fn start() {
                 }
                 // A burst while the picture is a copy of the screen: the game window alone by the window copy
                 // (PrintWindow), which draws no border. It is slower than the card's ways (a copy of a 4K window takes
-                // tens of ms and the game holds a frame longer for each), so it serves only these moments, on result and
+                // 35 ms and the game holds a frame longer for each), so it serves only these moments, on result and
                 // menu screens, never a fight. A black copy is handed to nobody: this round goes to the screen copy
                 // below, which tells a game that is really black from a copy that fails here.
+                //
+                // A script's burst (`fast`) goes by window capture, quicker a picture, with its border for as long as
+                // aLogs has the screen. The window copy serves until window capture has its first picture (`bridging`),
+                // so nothing waits for it to start.
                 let by_copy = burst && !burst_border && kind.needs_front();
+                let bridging = burst && fast && !burst_border && kind == Kind::Window && !source.as_mut().is_some_and(|s| s.gpu().has_image());
                 let mut copy_black = false;
-                if by_copy {
-                    if now < burst_last + BURST_COPY_MS {
-                        std::thread::sleep(Duration::from_millis(5));
-                        continue;
-                    }
+                if (by_copy || bridging) && now >= burst_last + BURST_COPY_MS {
                     burst_last = now;
-                    let Some((width, height, origin)) = client(hwnd) else {
-                        wait(&shared, &mut readers);
-                        continue;
-                    };
-                    if burst_copy.as_ref().map_or(true, |c| (c.width, c.height) != (width, height)) {
-                        burst_copy = WindowCopy::new(width, height);
-                    }
                     if !served_by_copy {
                         served_by_copy = true;
                         forget(&shared, &mut readers); // another source's pictures: each reader's is written again
                     }
-                    let shown = match burst_copy.as_mut() {
-                        Some(c) => {
-                            if c.take(hwnd) {
-                                serve(&shared, c, Kind::PRINT_FLAGS, false, hwnd, (origin.x, origin.y), &mut readers, only)
-                            } else {
-                                Some(false)
-                            }
-                        }
-                        None => Some(false),
-                    };
-                    match shown {
+                    match serve_window_copy(&shared, &mut burst_copy, hwnd, &mut readers, only) {
                         Some(true) => {
                             copy_black_since = 0;
                             if !burst_said {
                                 burst_said = true;
                                 crate::app_log("shared capture: the game window alone for a moment, by window copy (no border)");
                             }
-                            continue;
+                            if by_copy {
+                                continue;
+                            }
                         }
-                        Some(false) => copy_black = true,
-                        None => {
+                        Some(false) => copy_black = by_copy, // (while bridging, a black copy is only not used)
+                        None if by_copy => {
                             wait(&shared, &mut readers);
                             continue;
                         }
+                        None => {}
                     }
-                } else if burst_copy.is_some() {
+                } else if by_copy {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                } else if !burst && burst_copy.is_some() {
                     (burst_copy, burst_said, copy_black_since) = (None, false, 0);
-                }
-                if served_by_copy {
-                    served_by_copy = false; // back on the screen copy (the burst is over, or its copy was black)
-                    forget(&shared, &mut readers);
                 }
                 if source.is_none() {
                     match Source::open(kind, hwnd) {
                         Ok(s) => {
                             source = Some(s);
-                            forget(&shared, &mut readers);
+                            if !served_by_copy {
+                                forget(&shared, &mut readers); // (a window copy's pictures stay until this source has one)
+                            }
                         }
                         Err(e) => {
                             tries += 1;
@@ -1569,7 +1580,16 @@ pub fn start() {
                 stats_line(now, kind.name());
                 let result = match s.update() {
                     Err(_) => None,
+                    // this source has no picture yet and the readers hold the window copy's: they keep those
+                    Ok(_) if served_by_copy && !copy_black && !s.gpu().has_image() => {
+                        std::thread::sleep(Duration::from_millis(2));
+                        Some(true)
+                    }
                     Ok(_) => {
+                        if served_by_copy {
+                            served_by_copy = false; // from here on this source's pictures (the burst is over, window
+                            forget(&shared, &mut readers); // capture has started, or the copy was black)
+                        }
                         let image_origin = s.origin(hwnd);
                         serve(&shared, s.gpu(), kind.flags(), true, hwnd, image_origin, &mut readers, only).or(Some(false))
                     }
