@@ -249,6 +249,9 @@ impl Meter {
             self.ss.full_until = now + FULL_HOLD_S;
             let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));
             self.egg_screen_hold(spotted, heads, now, fg);
+            if sp == "Holo-Battle Sim result" {
+                self.sim_spot_control(now, fg); // before window capture is waited for or the frame is read again whole
+            }
             if self.game_only(frames, sp, now) {
                 self.rs.last_results = 0.0;
                 return;

@@ -59,3 +59,27 @@ fn the_named_art_scores_as_the_full_search_does() {
     assert_eq!(icons.card_of(&im, window, at, 36, "Nobody"), None);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Every art's part for a card slot can be made ahead of the match, a few a call: the match then finds them ready and
+/// gives the same answer.
+#[test]
+fn the_arts_for_a_slot_are_made_ready_a_few_at_a_time() {
+    let (dir, icons) = cache();
+    let at = (200.0, 100.0, 160.0, 262.0);
+    let (im, window) = screen(1, at);
+    let mut budget = 3;
+    assert_eq!(icons.warm_cards(window, at, 36, &mut budget), 1, "four arts, three made");
+    assert_eq!(budget, 0);
+    let mut budget = 10;
+    assert_eq!(icons.warm_cards(window, at, 36, &mut budget), 0, "the last one made");
+    assert_eq!(budget, 9, "only the one still missing was made");
+    assert_eq!(icons.warm_cards(window, at, 36, &mut budget), 0);
+    assert_eq!(budget, 9, "nothing made twice");
+    let warm = icons.card(&im, window, at, 36).expect("a card");
+    let (dir2, fresh) = cache();
+    let cold = fresh.card(&im, window, at, 36).expect("a card");
+    assert_eq!((warm.0.as_str(), warm.1, warm.2), (cold.0.as_str(), cold.1, cold.2), "ready or not, the same match");
+    assert_eq!(warm.0, "Alpha");
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(dir2);
+}
