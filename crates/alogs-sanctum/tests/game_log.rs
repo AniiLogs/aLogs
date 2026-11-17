@@ -85,6 +85,60 @@ fn the_scene_is_read_in_each_wording_of_the_loader() {
     assert_eq!((g.sanctum_scene, g.sanctum_mention.clone()), (None, None));
 }
 
+/// A real Player.log replayed line by line with its own clock (ALOGS_PLAYER_LOG; run by hand): prints every change of
+/// place with the log's time, each Sanctum name read and each mention not read. Places, times and scene numbers only.
+#[test]
+#[ignore]
+fn replay_of_a_real_log() {
+    let Some(src) = std::env::var_os("ALOGS_PLAYER_LOG") else {
+        eprintln!("skipped: ALOGS_PLAYER_LOG not set");
+        return;
+    };
+    let text = String::from_utf8_lossy(&std::fs::read(src).unwrap()).into_owned();
+    let p = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sanctum-player-replay.log");
+    std::fs::write(&p, "start\n").unwrap();
+    let t = Arc::new(Mutex::new(0.0));
+    let t2 = t.clone();
+    let mut g = GameLog::new(Some(p.clone())).with_clock(Box::new(move || *t2.lock().unwrap()));
+    g.poll();
+    let stamp = regex::Regex::new(r"^\[(\d+\.\d+)\]\[").unwrap();
+    let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+    let (mut named, mut said, mut lines, mut kept) = (None, None, 0, 0);
+    for line in text.lines() {
+        lines += 1;
+        // only the lines the reader acts on are written (the rest is most of a log and changes nothing)
+        if !["connect to worldx-", "createVoxelScene", "Level_FB_Random_Map_", "Level_BW_GrabEggs", "fb_bossrush", "fb_roguelike"].iter().any(|k| line.contains(k)) {
+            continue;
+        }
+        kept += 1;
+        // the log's own time: what waited (the 3 s an Interlink scene is given to be named) settles before the line
+        if let Some(m) = stamp.captures(line) {
+            *t.lock().unwrap() = m[1].parse::<f64>().unwrap();
+            g.poll();
+        }
+        writeln!(f, "{line}").unwrap();
+        g.poll();
+        let at = *t.lock().unwrap();
+        for (place, new_run) in std::mem::take(&mut g.changes) {
+            eprintln!("{at:9.1} s  {place:?}{}", if new_run { " (new run)" } else { "" });
+        }
+        if g.sanctum_scene != named {
+            named = g.sanctum_scene;
+            eprintln!("{at:9.1} s  Sanctum named: {named:?}");
+        }
+        if g.sanctum_mention != said {
+            said = g.sanctum_mention.clone();
+            eprintln!("{at:9.1} s  mention not read: {said:?}");
+        }
+    }
+    *t.lock().unwrap() += 3.5;
+    g.poll();
+    for (place, new_run) in std::mem::take(&mut g.changes) {
+        eprintln!("   at the end  {place:?}{}", if new_run { " (new run)" } else { "" });
+    }
+    eprintln!("{lines} lines, {kept} of them the reader's; it ends in {:?}", g.place);
+}
+
 /// Sanctum Helper started in the middle of a run: the log already holds the Sanctum and its name. The name still
 /// says which layout it is, but not that the player stands at the door: it counts as named long ago.
 #[test]
