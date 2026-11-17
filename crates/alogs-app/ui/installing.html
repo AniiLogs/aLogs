@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Installing aLogs</title>
+  <!-- the first-install window (main.rs --install-splash): the choices and Install, then the installer runs silently
+       behind it. Same look as the updating window. -->
+  <link rel="stylesheet" href="updating.css">
+  <link rel="stylesheet" href="alogs-loader.css">
+</head>
+<body class="choosing">
+  <main class="splash" data-tauri-drag-region>
+    <button class="close" data-cancel title="Cancel" aria-label="Cancel">&times;</button>
+    <div class="mark-wrap" data-loader data-tauri-drag-region></div>
+    <h1>Installing aLogs</h1>
+    <p class="step" data-step>Aniiloger's Companion App</p>
+    <div class="choices">
+      <label class="opt"><input type="checkbox" data-desktop checked> Desktop shortcut</label>
+      <label class="opt"><input type="checkbox" data-autostart> Start with Windows</label>
+      <button class="go" data-go>Install</button>
+    </div>
+    <div class="bar"><span></span></div>
+    <p class="to" data-to></p>
+  </main>
+  <script src="alogs-loader-art.js"></script>
+  <script src="alogs-loader.js"></script>
+  <script src="installing.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# (the reference checkouts have Rust projects of their own, e.g. aLogs' OCR helper, built on their own; so do the
+# B16 app and its OCR helper in app/, which betas and releases are still built from)
+exclude = ["reference", "app/src-tauri", "app/ocr-helper"]
+
+[workspace.package]
+version = "0.1.37"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }   # floats bit for bit; key order as Python keeps it
+
+# release builds: whole-program optimised and stripped; the app small (its own opt-level), the meter fast
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.release.package.alogs-app]
+opt-level = "s"

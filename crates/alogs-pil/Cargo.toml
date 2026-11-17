@@ -1,0 +1,14 @@
+[package]
+name = "alogs-pil"
+description = "The Pillow operations aLogs' screen readers use, matching Pillow 12.3 pixel for pixel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+png = "0.17"
+
+[dev-dependencies]
+serde_json.workspace = true
+sha2 = "0.10"
+md5 = "0.7"

@@ -1,0 +1,10 @@
+[package]
+name = "alogs-pyval"
+description = "Python-like values for porting aLogs' Python meter: dict key equality, repr(), str(), json.dumps()"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+indexmap = "2"
+serde_json.workspace = true

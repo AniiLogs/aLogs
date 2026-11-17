@@ -1,0 +1,14 @@
+# The Rust rewrite's files are stored and checked out with LF line endings on every PC: its tests compare files byte
+# for byte. Only its own paths, so nothing changes for the rest of the repository.
+/crates/** text=auto eol=lf
+/tools/gen_*.py text=auto eol=lf
+/tools/unitypy_sample_md5.py text=auto eol=lf
+/tools/package-preview.ps1 text=auto eol=lf
+/tools/cv-goldens/** text=auto eol=lf
+/docs/rewrite-plan.md text=auto eol=lf
+/Cargo.toml text=auto eol=lf
+/Cargo.lock text=auto eol=lf
+*.bin binary
+*.xdf binary
+*.png binary
+*.onnx binary

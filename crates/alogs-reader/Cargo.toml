@@ -1,0 +1,24 @@
+[package]
+name = "alogs-reader"
+description = "Reading the game's screen: the boss bar, its fill, break gauge and texts, the xN counter (port of reader.py, xn_digits.py)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alogs-pil = { path = "../alogs-pil" }
+alogs-gamedata = { path = "../alogs-gamedata" }
+alogs-gamelog = { path = "../alogs-gamelog" }
+alogs-pyval = { path = "../alogs-pyval" }
+alogs-unity = { path = "../alogs-unity" }
+serde_json.workspace = true
+regex = "1"
+csv = "1"
+indexmap = { version = "2", features = ["serde"] }
+log = "0.4"
+ab_glyph = "0.2"
+
+
+[dev-dependencies]
+sha2 = "0.10"
+md5 = "0.7"
