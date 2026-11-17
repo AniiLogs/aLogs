@@ -38,8 +38,13 @@ use windows::Win32::Graphics::Gdi::{MonitorFromWindow, HMONITOR, MONITOR_DEFAULT
 use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 
+use std::time::{Duration, Instant};
+
 /// How long a copy the card hasn't finished stays queued for its reader (Gpu::ready) before it's started again.
 const KEEP_QUEUED: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// At most this many combined copies on their way off the card at once (may_start).
+const IN_FLIGHT: usize = 2;
 
 /// Staging textures kept between frames (one per area size the readers ask for), the least recently used going first.
 const STAGING_KEPT: usize = 24;
@@ -165,10 +170,12 @@ pub struct Gpu {
     shrinkers: Vec<(u32, u32, u32, ID3D11Texture2D, ID3D11ShaderResourceView)>,
     /// Counts new images, so the caller can tell an unchanged one from a new one.
     pub generation: u64,
-    /// Areas whose copy off the card is on its way (queue): (x, y, w, h, shrink), its staging texture, the picture's
-    /// size and when it was queued. A copy the card hasn't finished (ready) stays queued into later rounds, so it
-    /// isn't started again over and over; one not read within KEEP_QUEUED is dropped.
-    queued: Vec<((u32, u32, u32, u32, u32), ID3D11Texture2D, u32, u32, std::time::Instant)>,
+    /// Areas whose copy off the card is on its way (queue), shrunk ones: a copy the card hasn't finished (ready) stays
+    /// queued into later rounds, so it isn't started again over and over; one not read within KEEP_QUEUED is dropped.
+    queued: Vec<Queued>,
+    /// The image the last read() came from (generation) and when Windows captured it: with the card busy, an older
+    /// copy than the newest image can be the one finished (Copies::serving).
+    last_read: (u64, Option<Instant>),
     /// When Windows captured the newest image (window capture's own frame time), if known.
     pub captured_at: Option<std::time::Instant>,
     /// Dev switch capture-hold-frame: `cache` is the screen's own texture, held from Desktop Duplication, not a copy
@@ -183,10 +190,10 @@ pub struct Gpu {
     /// something flushes it, and a look that doesn't wait (ready) doesn't: they could sit there unsent, round after round.
     unflushed: bool,
     /// The full-size areas asked for this round (queue), copied off the card together as one box (union).
-    round_want: Vec<(u32, u32, u32, u32)>,
-    /// Combined copies on their way or done, newest last: the box (x, y, w, h), its staging texture, the image it was
-    /// copied from (generation), when, and its memory while mapped this round (data, row pitch).
-    unions: Vec<Union>,
+    round_want: Vec<Rect>,
+    /// Combined copies on their way or done, and what decides when one may start, which serves a reader and when a
+    /// held frame can go back (Copies).
+    copies: Copies<ID3D11Texture2D>,
     /// Staging textures for combined copies, kept for reuse by size.
     union_staging: Vec<(u32, u32, ID3D11Texture2D)>,
     /// Since when a reader has been asking for an area that can't be copied (`lost`).
@@ -200,28 +207,302 @@ pub struct Gpu {
     /// over, kept open as the image (`cache` is its own texture, `borrowed`), so the whole frame isn't first copied on
     /// the card. None with the switch off, and on Desktop Duplication.
     frame: Option<Direct3D11CaptureFrame>,
-    /// ...and the frames it replaced, each closed (back to Windows, which draws the next frame into it) only once the
-    /// card has done every copy queued from it: an event query issued after the last of them reports done. Closed
-    /// any sooner, an area still being copied could come out half old frame, half new.
+    /// ...and the frames it replaced that a copy may still be reading, each closed (back to Windows, which draws the
+    /// next frame into it) only once the card has done every copy queued from it: an event query issued after the
+    /// last of them reports done. Closed any sooner, an area still being copied could come out half old frame, half
+    /// new. A replaced frame nothing was copied from goes back at once (retire_frame).
     retiring: Vec<(Direct3D11CaptureFrame, ID3D11Query)>,
+    /// For the frame-hold line in app.log once a minute: replaced frames that went straight back, and the most that
+    /// waited in `retiring` at once.
+    frames_back: u32,
+    most_waiting: usize,
 }
 
-/// One combined copy of a round's areas (Gpu::unions).
-struct Union {
-    rect: (u32, u32, u32, u32),
-    staging: ID3D11Texture2D,
+/// An area of the image: x, y, w, h (pixels).
+type Rect = (u32, u32, u32, u32);
+
+/// Whether `outer` holds all of `inner`.
+fn holds(outer: Rect, inner: Rect) -> bool {
+    let ((ux, uy, uw, uh), (x, y, w, h)) = (outer, inner);
+    x >= ux && y >= uy && x + w <= ux + uw && y + h <= uy + uh
+}
+
+/// One combined copy of a round's areas (Copies::unions); `S` is its staging texture (a number in the tests).
+struct Union<S> {
+    rect: Rect,
+    staging: S,
+    /// The image it was copied from, and when Windows captured that image (window capture says; None otherwise).
     generation: u64,
-    at: std::time::Instant,
+    captured: Option<Instant>,
+    /// When it was queued.
+    at: Instant,
+    /// Its memory while mapped this round for a reader (data, row pitch).
     mapped: Option<(*const u8, usize)>,
-    /// The card has finished it (it was mapped once).
+    /// The card has finished it (seen once, whoever looked: Copies::poll, Copies::serving).
     done: bool,
 }
 
-impl Union {
-    fn holds(&self, x: u32, y: u32, w: u32, h: u32) -> bool {
-        let (ux, uy, uw, uh) = self.rect;
-        x >= ux && y >= uy && x + w <= ux + uw && y + h <= uy + uh
+/// What the box of a round's areas needs (Copies::plan).
+#[derive(Debug, PartialEq)]
+enum Plan {
+    /// Nothing asked for this round, or none of it on the image.
+    Nothing,
+    /// A copy of this image already holds it all, finished or on its way.
+    Held,
+    /// It waits: a copy on its way holds an area a reader is asking for (it serves them once it's back), or another
+    /// may not start beside the ones on their way (may_start). It starts once one is back.
+    Wait,
+    /// A copy of this box starts now.
+    Start(Rect),
+}
+
+/// The copies off the card without the card: when a combined copy may start, which copy serves a reader, and when a
+/// held frame can go back to Windows. Gpu does the card's side around it; the tests drive it with a pretend slow card.
+struct Copies<S> {
+    /// Combined copies on their way or done, newest last.
+    unions: Vec<Union<S>>,
+    /// frame-hold (window capture): the held frame's image (generation) and how many copies started from it the
+    /// card hasn't been seen to finish. None while no frame is held.
+    frame: Option<(u64, u32)>,
+    /// For app.log (COPY_STATS, merged each round).
+    stats: CopyStats,
+}
+
+impl<S> Copies<S> {
+    fn new() -> Copies<S> {
+        Copies { unions: Vec::new(), frame: None, stats: CopyStats::new() }
     }
+
+    /// Looks at every combined copy still on its way, without waiting (`card`: whether the card has finished this
+    /// one), whoever asked for it. Seen only when a reader asked for an area inside its box, a copy nobody wanted any
+    /// more (the meter gives up a look after 120 ms and asks for another box) was never seen finished, and nothing new
+    /// started behind it until KEEP_QUEUED ran out: gaps of 2.1 s at 120 fps (17 Nov).
+    fn poll(&mut self, now: Instant, card: &mut dyn FnMut(&S) -> bool) {
+        for i in 0..self.unions.len() {
+            if !self.unions[i].done && card(&self.unions[i].staging) {
+                self.finished(i, now);
+            }
+        }
+    }
+
+    /// The card has finished copy `i` (seen at `now`).
+    fn finished(&mut self, i: usize, now: Instant) {
+        let u = &mut self.unions[i];
+        if u.done {
+            return;
+        }
+        u.done = true;
+        let (generation, took) = (u.generation, now.saturating_duration_since(u.at));
+        self.stats.came_back(took);
+        self.copy_done(generation);
+    }
+
+    /// What `want`, the full-size areas asked for this round, need: the box around them on the image (`size`), and
+    /// whether a copy of it starts now. The copies on their way are looked at first (poll).
+    fn plan(&mut self, want: &[Rect], generation: u64, size: (u32, u32), now: Instant, card: &mut dyn FnMut(&S) -> bool) -> Plan {
+        if want.is_empty() {
+            return Plan::Nothing;
+        }
+        let x0 = want.iter().map(|a| a.0).min().unwrap();
+        let y0 = want.iter().map(|a| a.1).min().unwrap();
+        let x1 = want.iter().map(|a| a.0 + a.2).max().unwrap().min(size.0);
+        let y1 = want.iter().map(|a| a.1 + a.3).max().unwrap().min(size.1);
+        if x1 <= x0 || y1 <= y0 {
+            return Plan::Nothing;
+        }
+        let rect = (x0, y0, x1 - x0, y1 - y0);
+        if self.unions.iter().any(|u| u.generation == generation && holds(u.rect, rect)) {
+            return Plan::Held;
+        }
+        self.poll(now, card);
+        if may_start(&self.unions, want, generation, self.frame.is_some()) { Plan::Start(rect) } else { Plan::Wait }
+    }
+
+    /// A copy (Plan::Start) is on its way.
+    fn started(&mut self, union: Union<S>) {
+        if self.unions.iter().any(|u| !u.done) {
+            self.stats.beside += 1;
+        }
+        self.copy_from(union.generation);
+        self.unions.push(union);
+    }
+
+    /// The copy that serves a reader's `area` now: the newest finished one holding it, from whichever image (those
+    /// holding it still on their way looked at first, without waiting). None: the area waits for a later round.
+    fn serving(&mut self, area: Rect, now: Instant, card: &mut dyn FnMut(&S) -> bool) -> Option<usize> {
+        for i in (0..self.unions.len()).rev() {
+            if !self.unions[i].done && holds(self.unions[i].rect, area) && card(&self.unions[i].staging) {
+                self.finished(i, now);
+            }
+        }
+        (0..self.unions.len()).rev().find(|&i| self.unions[i].done && holds(self.unions[i].rect, area))
+    }
+
+    /// The round is over: what was mapped is let go (`unmap`); copies older than the newest one read are gone, and one
+    /// still on its way stays for the next rounds, up to KEEP_QUEUED (counted as dropped unfinished if the card, asked
+    /// once more, hasn't finished it: `card`).
+    fn end_round(&mut self, now: Instant, unmap: &mut dyn FnMut(&S), card: &mut dyn FnMut(&S) -> bool) {
+        let newest_read = self.unions.iter().rposition(|u| u.mapped.is_some());
+        for u in self.unions.iter_mut() {
+            if u.mapped.take().is_some() {
+                unmap(&u.staging);
+            }
+        }
+        if let Some(n) = newest_read {
+            self.unions.drain(..n);
+        }
+        let dropped = &mut self.stats.dropped;
+        self.unions.retain(|u| {
+            let keep = now.saturating_duration_since(u.at) < KEEP_QUEUED;
+            *dropped += (!keep && !u.done && !card(&u.staging)) as u32;
+            keep
+        });
+    }
+
+    /// frame-hold: the frame of image `generation` is held now (None: no frame is), and nothing was copied from it yet.
+    fn frame_held(&mut self, generation: Option<u64>) {
+        self.frame = generation.map(|g| (g, 0));
+    }
+
+    /// A copy (combined or shrunk) was started from image `generation`.
+    fn copy_from(&mut self, generation: u64) {
+        if let Some((g, n)) = self.frame.as_mut() {
+            *n += (*g == generation) as u32;
+        }
+    }
+
+    /// The card was seen to finish a copy from image `generation`.
+    fn copy_done(&mut self, generation: u64) {
+        if let Some((g, n)) = self.frame.as_mut() {
+            if *g == generation {
+                *n = n.saturating_sub(1);
+            }
+        }
+    }
+
+    /// How many copies started from the held frame may still be reading it. 0: when it's replaced it goes straight back
+    /// to Windows, no event query to wait for behind the card's other work (retire_frame). A copy dropped before it
+    /// was seen finished still counts: the card may not be done with it.
+    fn frame_reads(&self) -> u32 {
+        self.frame.map_or(0, |f| f.1)
+    }
+}
+
+/// Whether a copy of a new box may start beside the combined copies on their way (`unions`), for the round's areas
+/// `want` from image `generation`; `holding_frame`: frame-hold, the copies read straight from Windows' frames.
+fn may_start<S>(unions: &[Union<S>], want: &[Rect], generation: u64, holding_frame: bool) -> bool {
+    let on_way: Vec<&Union<S>> = unions.iter().filter(|u| !u.done).collect();
+    if on_way.is_empty() {
+        return true;
+    }
+    if on_way.len() >= IN_FLIGHT {
+        return false;
+    }
+    // One holding an area a reader is asking for serves it once it's back, so the next box waits for it: with the
+    // card full (120 Hz, 16 Nov) a copy a frame queued up behind the game, each held its frame open, and Windows ran
+    // out of buffers to send new ones (2 a second).
+    if on_way.iter().any(|u| want.iter().any(|&a| holds(u.rect, a))) {
+        return false;
+    }
+    // One nobody is asking for: the new box starts beside it, unless that keeps a second frame from Windows (frame-hold,
+    // the one on its way reads a frame already replaced: with that one waiting too, the pool's 3 buffers are all
+    // taken). The card does one device's copies in order, so the new one wouldn't be back sooner there; it starts the
+    // round the old one is seen finished (poll).
+    !holding_frame || on_way.iter().all(|u| u.generation == generation)
+}
+
+/// A shrunk area's copy off the card (Gpu::queued).
+struct Queued {
+    /// (x, y, w, h, shrink) as asked for.
+    key: (u32, u32, u32, u32, u32),
+    staging: ID3D11Texture2D,
+    /// The picture's size (shrunk).
+    width: u32,
+    height: u32,
+    /// When it was queued, the image it was copied from and when Windows captured that image.
+    at: Instant,
+    generation: u64,
+    captured: Option<Instant>,
+    /// The card was seen to finish it.
+    done: bool,
+}
+
+/// What the copies off the card did since app.log last said (the capture line once a minute, capture.rs).
+pub struct CopyStats {
+    /// Copies seen finished, how long each took from queued to seen finished (ms; up to TOOK_KEPT of them a minute)
+    /// and the longest.
+    back: u32,
+    took_ms: Vec<u32>,
+    longest_ms: u32,
+    /// Dropped unfinished after KEEP_QUEUED.
+    dropped: u32,
+    /// Combined copies started beside one on its way that nobody was asking for (may_start).
+    beside: u32,
+}
+
+const TOOK_KEPT: usize = 50_000;
+
+impl CopyStats {
+    const fn new() -> CopyStats {
+        CopyStats { back: 0, took_ms: Vec::new(), longest_ms: 0, dropped: 0, beside: 0 }
+    }
+
+    fn came_back(&mut self, took: Duration) {
+        let ms = took.as_millis().min(u32::MAX as u128) as u32;
+        self.back += 1;
+        if self.took_ms.len() < TOOK_KEPT {
+            self.took_ms.push(ms);
+        }
+        self.longest_ms = self.longest_ms.max(ms);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.back == 0 && self.dropped == 0 && self.beside == 0
+    }
+
+    fn add(&mut self, other: CopyStats) {
+        self.back += other.back;
+        let room = TOOK_KEPT.saturating_sub(self.took_ms.len());
+        self.took_ms.extend(other.took_ms.into_iter().take(room));
+        self.longest_ms = self.longest_ms.max(other.longest_ms);
+        self.dropped += other.dropped;
+        self.beside += other.beside;
+    }
+
+    /// The numbers for app.log, and they start over.
+    fn line(&mut self) -> String {
+        let mut took = std::mem::take(&mut self.took_ms);
+        took.sort_unstable();
+        let typical = took.get(took.len() / 2).copied().unwrap_or(0);
+        let line = format!(
+            "copies off the card: {} back (typical {typical} ms, longest {} ms), {} dropped unfinished after {} s, {} started beside one nobody wanted",
+            self.back,
+            self.longest_ms,
+            self.dropped,
+            KEEP_QUEUED.as_secs(),
+            self.beside
+        );
+        *self = CopyStats::new();
+        line
+    }
+}
+
+/// Every Gpu's copies (window capture, Desktop Duplication, the tabbed-out window capture), merged at each round's end.
+static COPY_STATS: std::sync::Mutex<CopyStats> = std::sync::Mutex::new(CopyStats::new());
+
+/// The copies' numbers since the last time (for the capture line in app.log once a minute), and they start over.
+pub fn copy_stats_line() -> String {
+    COPY_STATS.lock().unwrap_or_else(|e| e.into_inner()).line()
+}
+
+/// Whether the card has finished the copy into `staging`, without waiting (mapped and let go again at once).
+fn finished_on_card(context: &ID3D11DeviceContext, staging: &ID3D11Texture2D) -> bool {
+    let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+    let got = unsafe { context.Map(staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)) };
+    if got.is_ok() {
+        unsafe { context.Unmap(staging, 0) };
+    }
+    got.is_ok()
 }
 
 impl Gpu {
@@ -229,7 +510,10 @@ impl Gpu {
         Gpu {
             unflushed: false,
             round_want: Vec::new(),
-            unions: Vec::new(),
+            copies: Copies::new(),
+            last_read: (0, None),
+            frames_back: 0,
+            most_waiting: 0,
             union_staging: Vec::new(),
             prio_set: false,
             device,
@@ -252,7 +536,7 @@ impl Gpu {
 
     /// Dev switch capture-frame-hold: window capture's `frame` (its texture `source`, the window's `width` x `height`
     /// of it) is the newest image as it is, with no copy of the whole frame on the card; areas are copied straight out
-    /// of it. The frame it replaces is retired (closed once its copies are done).
+    /// of it. The frame it replaces is retired (closed at once, or once its copies are done).
     fn hold_frame(&mut self, frame: Direct3D11CaptureFrame, source: &ID3D11Texture2D, width: u32, height: u32) -> Result<()> {
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { source.GetDesc(&mut desc) };
@@ -266,13 +550,24 @@ impl Gpu {
         (self.borrowed, self.lost, self.starved) = (true, false, None);
         self.frame = Some(frame);
         self.generation += 1;
+        self.copies.frame_held(Some(self.generation));
         Ok(())
     }
 
-    /// The held frame (if any) is no longer the image: an event query after everything asked of the card so far
-    /// (so after every copy out of it), and it waits in `retiring` until that's done.
+    /// The held frame (if any) is no longer the image. Nothing copied from it still on the card (Copies::frame_reads):
+    /// it goes straight back to Windows. Otherwise an event query after everything asked of the card so far (so after
+    /// every copy out of it), and it waits in `retiring` until that's done. Every replaced frame waited for one before:
+    /// each query waited behind whatever the card hadn't done for us yet, and with two waiting the pool (3 buffers)
+    /// had none left for the next frame (17 Nov at 120 fps: 6,585 updates in a minute found one still waiting, and
+    /// Windows handed over 2 frames a second).
     fn retire_frame(&mut self) -> Result<()> {
         let Some(frame) = self.frame.take() else { return Ok(()) };
+        if self.copies.frame_reads() == 0 {
+            let _ = frame.Close();
+            self.copies.frame_held(None);
+            self.frames_back += 1;
+            return Ok(());
+        }
         let mut query = None;
         let made = unsafe { self.device.CreateQuery(&D3D11_QUERY_DESC { Query: D3D11_QUERY_EVENT, MiscFlags: 0 }, Some(&mut query)) };
         match (made, query) {
@@ -282,6 +577,8 @@ impl Gpu {
                     self.context.Flush();
                 }
                 self.retiring.push((frame, query));
+                self.copies.frame_held(None);
+                self.most_waiting = self.most_waiting.max(self.retiring.len());
                 Ok(())
             }
             (made, _) => {
@@ -313,6 +610,7 @@ impl Gpu {
         if let Some(frame) = self.frame.take() {
             let _ = frame.Close();
         }
+        self.copies.frame_held(None);
         for (frame, _) in self.retiring.drain(..) {
             let _ = frame.Close();
         }
@@ -404,35 +702,24 @@ impl Gpu {
             return Ok(());
         }
         let Some((cache, cw, ch)) = self.cache.as_ref() else { return Err(E_FAIL.into()) };
-        let (cw, ch) = (*cw, *ch);
-        let x0 = want.iter().map(|a| a.0).min().unwrap();
-        let y0 = want.iter().map(|a| a.1).min().unwrap();
-        let x1 = want.iter().map(|a| a.0 + a.2).max().unwrap().min(cw);
-        let y1 = want.iter().map(|a| a.1 + a.3).max().unwrap().min(ch);
-        if x1 <= x0 || y1 <= y0 {
-            return Ok(());
-        }
-        let rect = (x0, y0, x1 - x0, y1 - y0);
-        let generation = self.generation;
-        if self.unions.iter().any(|u| u.generation == generation && u.holds(rect.0, rect.1, rect.2, rect.3)) {
-            return Ok(());
-        }
-        // One copy on its way at a time: with the card full (120 Hz, 16 Nov) a copy a frame queued up behind the game,
-        // each held its frame open, and Windows ran out of buffers to send new ones (2 a second). Readers keep the last
-        // finished picture meanwhile; one that hasn't come back in KEEP_QUEUED is dropped (end_round).
-        if self.unions.last().is_some_and(|u| !u.done) {
-            return Ok(());
-        }
-        let cache = cache.clone();
-        let (w, h) = (rect.2, rect.3);
-        let free = self.union_staging.iter().position(|s| s.0 == w && s.1 == h && !self.unions.iter().any(|u| u.staging == s.2));
+        let (cache, size) = (cache.clone(), (*cw, *ch));
+        // Readers keep the last finished picture while a copy is on its way; may_start says when the next may start
+        // beside it, and one that hasn't come back in KEEP_QUEUED is dropped (end_round).
+        let context = &self.context;
+        let rect = match self.copies.plan(&want, self.generation, size, Instant::now(), &mut |s| finished_on_card(context, s)) {
+            Plan::Start(rect) => rect,
+            Plan::Nothing | Plan::Held | Plan::Wait => return Ok(()),
+        };
+        let (x0, y0, w, h) = rect;
+        let unions = &self.copies.unions;
+        let free = self.union_staging.iter().position(|s| s.0 == w && s.1 == h && !unions.iter().any(|u| u.staging == s.2));
         let staging = match free {
             Some(i) => self.union_staging[i].2.clone(),
             None => {
                 let mut texture = None;
                 unsafe { self.device.CreateTexture2D(&texture_desc(w, h, true), None, Some(&mut texture))? };
                 let texture = texture.ok_or(E_FAIL)?;
-                let busy: Vec<ID3D11Texture2D> = self.unions.iter().map(|u| u.staging.clone()).collect();
+                let busy: Vec<ID3D11Texture2D> = unions.iter().map(|u| u.staging.clone()).collect();
                 self.union_staging.retain(|s| busy.contains(&s.2) || (s.0, s.1) == (w, h));
                 if self.union_staging.len() >= 8 {
                     self.union_staging.retain(|s| busy.contains(&s.2));
@@ -441,36 +728,31 @@ impl Gpu {
                 texture
             }
         };
-        let area = D3D11_BOX { left: x0, top: y0, front: 0, right: x1, bottom: y1, back: 1 };
+        let area = D3D11_BOX { left: x0, top: y0, front: 0, right: x0 + w, bottom: y0 + h, back: 1 };
         unsafe { self.context.CopySubresourceRegion(&staging, 0, 0, 0, 0, &cache, 0, Some(&area)) };
         self.unflushed = true;
-        self.unions.push(Union { rect, staging, generation, at: std::time::Instant::now(), mapped: None, done: false });
+        let (generation, captured) = (self.generation, self.captured_at);
+        self.copies.started(Union { rect, staging, generation, captured, at: Instant::now(), mapped: None, done: false });
         Ok(())
     }
 
     /// The newest combined copy holding this area that the card has finished (mapped for the rest of the round), or
     /// None: then the area waits for the next round, reading the copy a round or a frame later instead of waiting.
+    /// It can be a copy of an older image than the newest: its generation says which (Copies::serving).
     fn union_ready(&mut self, x: u32, y: u32, w: u32, h: u32) -> Option<usize> {
         if self.unflushed {
             self.unflushed = false;
             unsafe { self.context.Flush() };
         }
-        for i in (0..self.unions.len()).rev() {
-            if !self.unions[i].holds(x, y, w, h) {
-                continue;
-            }
-            if self.unions[i].mapped.is_some() {
-                return Some(i);
-            }
+        let context = &self.context;
+        let i = self.copies.serving((x, y, w, h), Instant::now(), &mut |s| finished_on_card(context, s))?;
+        let u = &mut self.copies.unions[i];
+        if u.mapped.is_none() {
             let mut m = D3D11_MAPPED_SUBRESOURCE::default();
-            let got = unsafe { self.context.Map(&self.unions[i].staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)) };
-            if got.is_ok() {
-                self.unions[i].mapped = Some((m.pData as *const u8, m.RowPitch as usize));
-                self.unions[i].done = true;
-                return Some(i);
-            }
+            unsafe { context.Map(&u.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)) }.ok()?;
+            u.mapped = Some((m.pData as *const u8, m.RowPitch as usize));
         }
-        None
+        Some(i)
     }
 
     pub fn has_image(&self) -> bool {
@@ -485,16 +767,19 @@ impl Gpu {
     /// Copies the area `x, y, width, height` of the newest image into memory at `out` (rows `stride`
     /// bytes apart, BGRA). Only this area leaves the graphics card. With `shrink` 2 or 4 the card first averages it
     /// down to half or a quarter (its mip levels), and only that smaller picture leaves it: width / shrink by
-    /// height / shrink (rounded down).
+    /// height / shrink (rounded down). The image it came from: `served`.
     pub fn read(&mut self, x: u32, y: u32, width: u32, height: u32, out: *mut u8, stride: usize, shrink: u32) -> Result<()> {
+        self.last_read = (self.generation, self.captured_at);
         if shrink <= 1 {
             self.union()?;
             let Some(i) = self.union_ready(x, y, width, height) else {
                 // callers ask ready() first; asked anyway: nothing finished holds it yet
                 return Err(E_FAIL.into());
             };
-            let (ux, uy, _, _) = self.unions[i].rect;
-            let (data, pitch) = self.unions[i].mapped.unwrap();
+            let u = &self.copies.unions[i];
+            let (ux, uy, _, _) = u.rect;
+            let (data, pitch) = u.mapped.unwrap();
+            self.last_read = (u.generation, u.captured);
             unsafe {
                 for row in 0..height as usize {
                     std::ptr::copy_nonoverlapping(
@@ -507,14 +792,16 @@ impl Gpu {
             return Ok(());
         }
         let key = (x, y, width, height, shrink);
-        if !self.queued.iter().any(|q| q.0 == key) {
+        if !self.queued.iter().any(|q| q.key == key) {
             self.queue(x, y, width, height, shrink)?;
         }
-        let Some(i) = self.queued.iter().position(|q| q.0 == key) else {
+        let Some(i) = self.queued.iter().position(|q| q.key == key) else {
             // an empty area; or nothing to copy it from (callers ask ready() first, which says so)
             return if self.lost { Err(E_FAIL.into()) } else { Ok(()) };
         };
-        let (_, staging, width, height, _) = self.queued.remove(i);
+        let q = self.queued.remove(i);
+        self.last_read = (q.generation, q.captured);
+        let (staging, width, height) = (q.staging, q.width, q.height);
         unsafe {
             // the first map of a round waits for the card once; the copies queued with it are done by then
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
@@ -525,6 +812,10 @@ impl Gpu {
             let ms = waited.elapsed().as_millis();
             if ms >= 1000 {
                 crate::app_log(&format!("capture: the graphics card took {ms} ms to hand over a picture ({width}x{height})"));
+            }
+            if !q.done {
+                self.copies.stats.came_back(q.at.elapsed());
+                self.copies.copy_done(q.generation);
             }
             let source = mapped.pData as *const u8;
             for row in 0..height as usize {
@@ -543,36 +834,47 @@ impl Gpu {
     /// game keeping the card busy, a whole 4K picture took it 500-850 ms on an Interlink result screen (7 Nov); waited
     /// for, that left the reader's picture "being written" the whole time and the meter without one for 5-13 s. The
     /// caller asks again next round and keeps the finished picture it has readable meanwhile.
-    pub fn ready(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<bool> {
+    ///
+    /// Some(generation): ready, from that image, which with the card busy can be older than the newest (a reader that
+    /// already has that image's picture has nothing new: capture.rs `is_new`). None: not yet.
+    pub fn ready(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<Option<u64>> {
+        let now = (!self.lost).then_some(self.generation);
         if shrink <= 1 {
             if width == 0 || height == 0 {
-                return Ok(!self.lost);
+                return Ok(now);
             }
-            if !self.unions.iter().any(|u| u.generation == self.generation && u.holds(x, y, width, height)) {
+            if !self.copies.unions.iter().any(|u| u.generation == self.generation && holds(u.rect, (x, y, width, height))) {
                 self.queue(x, y, width, height, 1)?;
             }
             self.union()?;
-            return Ok(self.union_ready(x, y, width, height).is_some());
+            return Ok(self.union_ready(x, y, width, height).map(|i| self.copies.unions[i].generation));
         }
         let key = (x, y, width, height, shrink);
-        if !self.queued.iter().any(|q| q.0 == key) {
+        if !self.queued.iter().any(|q| q.key == key) {
             self.queue(x, y, width, height, shrink)?;
         }
         // an empty area; or the held image was given back and no newer one came: asked again next round
-        let Some(q) = self.queued.iter().find(|q| q.0 == key) else { return Ok(!self.lost) };
+        let Some(i) = self.queued.iter().position(|q| q.key == key) else { return Ok(now) };
         // the copies queued are sent to the card now (once), or a look that doesn't wait could find them never started:
         // at 1440p with the game keeping the card busy, 22,000 looks a minute found copies unfinished (16 Nov)
         if self.unflushed {
             self.unflushed = false;
             unsafe { self.context.Flush() };
         }
+        let q = &mut self.queued[i];
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-        match unsafe { self.context.Map(&q.1, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
+        match unsafe { self.context.Map(&q.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
             Ok(()) => {
-                unsafe { self.context.Unmap(&q.1, 0) };
-                Ok(true)
+                unsafe { self.context.Unmap(&q.staging, 0) };
+                if !q.done {
+                    q.done = true;
+                    let (took, generation) = (q.at.elapsed(), q.generation);
+                    self.copies.stats.came_back(took);
+                    self.copies.copy_done(generation);
+                }
+                Ok(Some(self.queued[i].generation))
             }
-            Err(e) if e.code() == DXGI_ERROR_WAS_STILL_DRAWING => Ok(false),
+            Err(e) if e.code() == DXGI_ERROR_WAS_STILL_DRAWING => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -587,18 +889,26 @@ impl Gpu {
         if !self.retiring.is_empty() {
             self.retire_done();
         }
-        self.queued.retain(|q| q.4.elapsed() < KEEP_QUEUED);
+        let now = Instant::now();
+        let (context, mut dropped) = (&self.context, 0);
+        // (a shrunk area's copy is looked at only by its reader: one left behind by a new area may be long finished)
+        self.queued.retain(|q| {
+            let keep = now.saturating_duration_since(q.at) < KEEP_QUEUED;
+            dropped += (!keep && !q.done && !finished_on_card(context, &q.staging)) as u32;
+            keep
+        });
+        self.copies.stats.dropped += dropped;
         self.round_want.clear();
-        let newest_read = self.unions.iter().rposition(|u| u.mapped.is_some());
-        for u in self.unions.iter_mut() {
-            if u.mapped.take().is_some() {
-                unsafe { self.context.Unmap(&u.staging, 0) };
-            }
+        self.copies.end_round(now, &mut |s| unsafe { context.Unmap(s, 0) }, &mut |s| finished_on_card(context, s));
+        if !self.copies.stats.is_empty() {
+            let stats = std::mem::replace(&mut self.copies.stats, CopyStats::new());
+            COPY_STATS.lock().unwrap_or_else(|e| e.into_inner()).add(stats);
         }
-        if let Some(n) = newest_read {
-            self.unions.drain(..n);
-        }
-        self.unions.retain(|u| u.at.elapsed() < KEEP_QUEUED);
+    }
+
+    /// The image (generation) the last read() came from, and when Windows captured it (None: the source doesn't say).
+    pub fn served(&self) -> (u64, Option<Instant>) {
+        self.last_read
     }
 
     /// Starts copying the area `x, y, width, height` (shrunk by `shrink`) off the card into a staging texture of its
@@ -612,7 +922,7 @@ impl Gpu {
             return Ok(());
         }
         let key = (x, y, width, height, shrink);
-        if self.queued.iter().any(|q| q.0 == key) {
+        if self.queued.iter().any(|q| q.key == key) {
             return Ok(()); // already on its way (from an earlier round, not finished yet)
         }
         if self.lost {
@@ -668,7 +978,7 @@ impl Gpu {
             (texture.clone(), level, width >> level, height >> level)
         };
         // a staging texture of this size that no other queued area is using
-        let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height && !self.queued.iter().any(|q| q.1 == s.2)) {
+        let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height && !self.queued.iter().any(|q| q.staging == s.2)) {
             Some(i) => {
                 let used = self.staging.remove(i);
                 self.staging.push(used);
@@ -690,7 +1000,9 @@ impl Gpu {
                 self.context.CopySubresourceRegion(&staging, 0, 0, 0, 0, &source, sub, None);
             }
         }
-        self.queued.push((key, staging, width, height, std::time::Instant::now()));
+        let (generation, captured) = (self.generation, self.captured_at);
+        self.queued.push(Queued { key, staging, width, height, at: Instant::now(), generation, captured, done: false });
+        self.copies.copy_from(generation);
         self.unflushed = true;
         Ok(())
     }
@@ -953,12 +1265,14 @@ impl WindowCapture {
         if self.counted_since.elapsed().as_secs() >= 60 {
             if self.counts[0] > 0 {
                 let [held, copied, busy] = self.counts;
+                let (back, most) = (self.gpu.frames_back, self.gpu.most_waiting);
                 let interval = self.interval_set.map_or("Windows' own".to_string(), |ms| format!("{ms} ms"));
                 crate::app_log(&format!(
-                    "capture: frame-hold, last minute: {held} frames held, {copied} copied, {busy} updates with a replaced frame still being copied from; update interval {interval}"
+                    "capture: frame-hold, last minute: {held} frames held, {copied} copied, {busy} updates with a replaced frame still being copied from, {back} replaced frames given straight back, at most {most} waiting to go back at once; update interval {interval}"
                 ));
             }
             (self.counts, self.counted_since) = ([0; 3], std::time::Instant::now());
+            (self.gpu.frames_back, self.gpu.most_waiting) = (0, self.gpu.retiring.len());
         }
     }
 
@@ -1129,7 +1443,7 @@ mod tests {
                 held += d.gpu.held.is_some() as u32;
                 // an area asked for until it's read (as serve does), then a new one: the hard case while nothing is held
                 let t = std::time::Instant::now();
-                if d.gpu.ready(x, 0, 600, 400, 1).expect("ready") {
+                if d.gpu.ready(x, 0, 600, 400, 1).expect("ready").is_some() {
                     d.gpu.read(x, 0, 600, 400, buf.as_mut_ptr(), 600 * 4, 1).expect("read");
                     assert!(buf.chunks(4).step_by(97).any(|p| p[..3] != [0, 0, 0]), "a black picture");
                     read += 1;
@@ -1178,7 +1492,7 @@ mod tests {
                 busy += w.gpu.retiring.len();
                 let x = (round * 7) % (iw - aw).max(1);
                 let t = std::time::Instant::now();
-                if w.gpu.ready(x, 0, aw, ah, 1).expect("ready") {
+                if w.gpu.ready(x, 0, aw, ah, 1).expect("ready").is_some() {
                     w.gpu.read(x, 0, aw, ah, buf.as_mut_ptr(), aw as usize * 4, 1).expect("read");
                     read += 1;
                 } else {
@@ -1201,5 +1515,241 @@ mod tests {
     #[ignore]
     fn window_capture_available() {
         println!("borderless window capture supported: {}", WindowCapture::borderless_supported());
+    }
+
+    // A slow graphics card without a game: copies that come back only some rounds after they were queued.
+
+    const TOP: Rect = (0, 0, 1920, 450);
+    const WHOLE: Rect = (0, 0, 1920, 1080);
+    const ICON: Rect = (1800, 1000, 100, 60);
+
+    fn union(rect: Rect, staging: usize, generation: u64, at: Instant) -> Union<usize> {
+        Union { rect, staging, generation, captured: None, at, mapped: None, done: false }
+    }
+
+    /// A pretend graphics card for Copies: copy `n` (its staging "texture" is its number) is finished `late` rounds
+    /// after it was queued, and never before the ones queued earlier (one device's copies are done in order).
+    struct SlowCard {
+        late: u32,
+        round: u32,
+        ready_at: Vec<u32>,
+    }
+
+    impl SlowCard {
+        fn new(late: u32) -> SlowCard {
+            SlowCard { late, round: 0, ready_at: Vec::new() }
+        }
+        fn copy(&mut self) -> usize {
+            let after = self.ready_at.last().copied().unwrap_or(0);
+            self.ready_at.push((self.round + self.late).max(after));
+            self.ready_at.len() - 1
+        }
+        fn finished(&self, n: usize) -> bool {
+            self.round >= self.ready_at[n]
+        }
+        /// When an event query issued now is answered: once every copy queued so far is done.
+        fn query(&self) -> u32 {
+            self.ready_at.last().copied().unwrap_or(0).max(self.round)
+        }
+    }
+
+    /// One round as serve and Gpu do it: the due readers' `areas` asked for, the box planned (and started on the card),
+    /// then each area looked for. The image each one's copy came from, if one is back.
+    fn round(copies: &mut Copies<usize>, card: &mut SlowCard, now: Instant, generation: u64, areas: &[Rect]) -> Vec<Option<u64>> {
+        let plan = copies.plan(areas, generation, (1920, 1080), now, &mut |s| card.finished(*s));
+        if let Plan::Start(rect) = plan {
+            let n = card.copy();
+            copies.started(union(rect, n, generation, now));
+        }
+        let got = areas
+            .iter()
+            .map(|&a| {
+                let i = copies.serving(a, now, &mut |s| card.finished(*s))?;
+                copies.unions[i].mapped = Some((std::ptr::null(), 0)); // read this round (end_round)
+                Some(copies.unions[i].generation)
+            })
+            .collect();
+        copies.end_round(now, &mut |_| {}, &mut |s| card.finished(*s));
+        got
+    }
+
+    #[test]
+    fn when_a_new_box_may_start() {
+        let t = Instant::now();
+        let on_way = |rect, generation| union(rect, 0, generation, t);
+        let back = |rect, generation| Union { done: true, ..union(rect, 0, generation, t) };
+        assert!(may_start::<usize>(&[], &[TOP], 5, true), "nothing on its way");
+        assert!(may_start(&[back(TOP, 5)], &[WHOLE], 5, true), "the one before is back");
+        assert!(!may_start(&[on_way(TOP, 5)], &[(10, 10, 100, 100)], 6, true), "on its way with an area a reader asks for: it serves that one");
+        assert!(may_start(&[on_way(TOP, 5)], &[ICON], 5, true), "nobody asks for anything in it, same frame: beside it");
+        assert!(!may_start(&[on_way(TOP, 4)], &[ICON], 5, true), "nobody's, but it reads a replaced frame: that would hold a second one");
+        assert!(may_start(&[on_way(TOP, 4)], &[ICON], 5, false), "...which only matters with frame-hold");
+        assert!(!may_start(&[on_way(TOP, 5), on_way(ICON, 5)], &[(0, 600, 100, 100)], 5, false), "two on their way already");
+    }
+
+    /// Change 2: a copy on its way that holds nothing a due reader asks for doesn't hold up a new box.
+    #[test]
+    fn a_copy_nobody_wants_doesnt_hold_up_a_new_box() {
+        let t = Instant::now();
+        let mut card = SlowCard::new(100);
+        let mut copies: Copies<usize> = Copies::new();
+        copies.frame_held(Some(1));
+        round(&mut copies, &mut card, t, 1, &[TOP]);
+        card.round = 1;
+        assert_eq!(copies.plan(&[TOP, ICON], 1, (1920, 1080), t, &mut |s| card.finished(*s)), Plan::Wait, "its reader still asks: it waits");
+        assert_eq!(round(&mut copies, &mut card, t, 1, &[ICON]), vec![None], "nobody asks for the top part: the icon row starts beside it");
+        assert_eq!((copies.unions.len(), copies.stats.beside), (2, 1));
+        assert_eq!(copies.frame_reads(), 2, "both read the held frame: it waits for them once it's replaced");
+        card.round = 2;
+        assert_eq!(copies.plan(&[(0, 600, 10, 10)], 1, (1920, 1080), t, &mut |s| card.finished(*s)), Plan::Wait, "two on their way");
+        // Desktop Duplication (no frame held): beside one of an older image too
+        let mut copies: Copies<usize> = Copies::new();
+        round(&mut copies, &mut card, t, 1, &[TOP]);
+        assert_eq!(copies.plan(&[ICON], 2, (1920, 1080), t, &mut |s| card.finished(*s)), Plan::Start(ICON));
+    }
+
+    /// Change 1: the copy on its way is seen finished whoever asked for it, so the next box starts behind it.
+    #[test]
+    fn a_copy_nobody_reads_is_seen_finished() {
+        let t = Instant::now();
+        let mut card = SlowCard::new(10);
+        let mut copies: Copies<usize> = Copies::new();
+        copies.frame_held(Some(1));
+        assert_eq!(round(&mut copies, &mut card, t, 1, &[TOP]), vec![None]);
+        // the meter gave up on the top part and asks for the whole frame; the frame was replaced meanwhile
+        copies.frame_held(Some(2));
+        for r in 1..10 {
+            card.round = r;
+            assert_eq!(copies.plan(&[WHOLE], 2, (1920, 1080), t, &mut |s| card.finished(*s)), Plan::Wait, "round {r}");
+        }
+        card.round = 10;
+        assert_eq!(copies.plan(&[WHOLE], 2, (1920, 1080), t, &mut |s| card.finished(*s)), Plan::Start(WHOLE), "the round it's back");
+        assert!(copies.unions[0].done, "seen finished with nobody asking for anything in it");
+    }
+
+    #[test]
+    fn the_newest_finished_copy_serves_and_says_its_image() {
+        let t = Instant::now();
+        let mut card = SlowCard::new(5);
+        let mut copies: Copies<usize> = Copies::new();
+        copies.started(union(WHOLE, card.copy(), 3, t));
+        card.round = 5;
+        copies.started(union(TOP, card.copy(), 7, t));
+        assert_eq!(copies.serving(ICON, t, &mut |s| card.finished(*s)), Some(0), "only the whole frame holds it");
+        let i = copies.serving((0, 0, 100, 100), t, &mut |s| card.finished(*s)).unwrap();
+        assert_eq!(copies.unions[i].generation, 3, "the top part of image 7 isn't back: the older copy, saying so");
+        card.round = 10;
+        let i = copies.serving((0, 0, 100, 100), t, &mut |s| card.finished(*s)).unwrap();
+        assert_eq!(copies.unions[i].generation, 7, "back now: the newest");
+        assert_eq!(copies.serving((0, 1070, 10, 10), t, &mut |s| card.finished(*s)), Some(0));
+    }
+
+    /// Change 3: a replaced frame waits for the card only while a copy started from it may still be reading it.
+    #[test]
+    fn a_replaced_frame_goes_back_at_once_unless_a_copy_reads_it() {
+        let t = Instant::now();
+        let mut copies: Copies<usize> = Copies::new();
+        copies.frame_held(Some(1));
+        assert_eq!(copies.frame_reads(), 0, "nothing copied from it: straight back");
+        copies.frame_held(Some(2));
+        copies.started(union(TOP, 0, 2, t));
+        assert_eq!(copies.frame_reads(), 1, "a copy on its way reads it: it waits for its event query");
+        copies.poll(t, &mut |_| true);
+        assert_eq!(copies.frame_reads(), 0, "seen finished: straight back");
+        copies.frame_held(Some(3));
+        copies.started(union(TOP, 1, 3, t));
+        copies.end_round(t + KEEP_QUEUED, &mut |_| {}, &mut |_| false);
+        assert!(copies.unions.is_empty(), "dropped after KEEP_QUEUED");
+        assert_eq!(copies.stats.dropped, 1);
+        assert_eq!(copies.frame_reads(), 1, "dropped before it was seen finished: the card may still be reading the frame");
+        // shrunk areas' copies count too (Gpu::queue, Gpu::ready); a copy of another image doesn't
+        copies.frame_held(Some(4));
+        copies.copy_from(4);
+        copies.copy_from(3);
+        assert_eq!(copies.frame_reads(), 1);
+        copies.copy_done(3);
+        assert_eq!(copies.frame_reads(), 1);
+        copies.copy_done(4);
+        assert_eq!(copies.frame_reads(), 0);
+    }
+
+    /// Changes 1-3 together on a card that hands every copy back 160 ms late (over the 120 ms a meter look waits),
+    /// a new frame every 8 ms (120 fps), frame-hold's pool of 3 buffers, rounds 4 ms apart: the meter reading the top
+    /// part and, once a look gives up, the whole frame until it gets one; and a slower reader low on the screen.
+    /// Before, the whole frame waited for the top part's copy, which nobody read any more, to be dropped (2 s), and
+    /// every replaced frame waited behind the card.
+    #[test]
+    fn a_slow_card_never_strands_readers() {
+        const LATE: u32 = 40; // rounds (4 ms each)
+        const GIVE_UP: u32 = 30; // the meter's 120 ms
+        const ICON_EVERY: u32 = 25;
+        let t = Instant::now();
+        let at = |r: u32| t + Duration::from_millis(4 * r as u64);
+        let mut card = SlowCard::new(LATE);
+        let mut copies: Copies<usize> = Copies::new();
+        let (mut generation, mut retiring) = (1u64, Vec::<u32>::new());
+        copies.frame_held(Some(generation));
+        let (mut frames, mut dry, mut most) = (0, 0, 0);
+        // per reader: the image of its picture, the round it last got a new one, the longest wait
+        let mut meter = (0u64, 0u32, 0u32);
+        let mut icon = (0u64, 0u32, 0u32);
+        let mut box_ = TOP;
+        for r in 0..3000u32 {
+            card.round = r;
+            retiring.retain(|&answered| r < answered); // retire_done
+            if r % 2 == 0 {
+                // Windows hands over a frame only into a buffer of the pool's 3 that isn't held
+                if 1 + retiring.len() < 3 {
+                    if copies.frame_reads() > 0 {
+                        retiring.push(card.query()); // retire_frame: waits for its copies
+                    }
+                    generation += 1;
+                    copies.frame_held(Some(generation));
+                    frames += 1;
+                } else {
+                    dry += 1;
+                }
+            }
+            most = most.max(retiring.len());
+            if r - meter.1 >= GIVE_UP {
+                box_ = WHOLE; // a look gave up: the whole frame next (and until one comes)
+            }
+            let icon_due = r % ICON_EVERY == 0 || r - icon.1 > ICON_EVERY;
+            let areas: Vec<Rect> = if icon_due { vec![box_, ICON] } else { vec![box_] };
+            let got = round(&mut copies, &mut card, at(r), generation, &areas);
+            for (reader, image) in [(&mut meter, got[0]), (&mut icon, got.get(1).copied().flatten())] {
+                if let Some(image) = image.filter(|&g| g > reader.0) {
+                    reader.2 = reader.2.max(r - reader.1);
+                    (reader.0, reader.1) = (image, r);
+                }
+            }
+            if meter.1 == r {
+                box_ = TOP; // a picture came: back to the top part
+            }
+        }
+        println!("meter waited at most {} rounds, the icon reader {}; {frames} frames, {dry} times no buffer, at most {most} waiting; {}", meter.2, icon.2, copies.stats.line());
+        assert!(meter.2 <= 3 * LATE, "the meter waited {} rounds for a picture", meter.2);
+        assert!(icon.2 <= 3 * LATE + ICON_EVERY, "the icon reader waited {} rounds", icon.2);
+        assert_eq!(copies.stats.dropped, 0, "no copy left to run out");
+        assert_eq!(dry, 0, "Windows always had a buffer for the next frame");
+        assert!(most <= 1, "at most one frame waiting to go back");
+        assert!(generation - meter.0 <= 2 * LATE as u64, "the meter's picture is recent (image {} of {generation})", meter.0);
+    }
+
+    #[test]
+    fn copy_numbers_for_app_log() {
+        let mut stats = CopyStats::new();
+        for ms in [12, 30, 5, 400, 18] {
+            stats.came_back(Duration::from_millis(ms));
+        }
+        stats.dropped = 2;
+        stats.beside = 1;
+        let mut all = CopyStats::new();
+        all.add(stats);
+        assert_eq!(
+            all.line(),
+            "copies off the card: 5 back (typical 18 ms, longest 400 ms), 2 dropped unfinished after 2 s, 1 started beside one nobody wanted"
+        );
+        assert_eq!(all.line(), "copies off the card: 0 back (typical 0 ms, longest 0 ms), 0 dropped unfinished after 2 s, 0 started beside one nobody wanted");
     }
 }

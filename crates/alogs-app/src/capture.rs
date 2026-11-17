@@ -325,6 +325,9 @@ static STAT_NOT_READY: AtomicU64 = AtomicU64::new(0);
 static STAT_BLACK: AtomicU64 = AtomicU64::new(0);
 static STAT_BROKEN: AtomicU64 = AtomicU64::new(0);
 static STAT_READ_US: AtomicU64 = AtomicU64::new(0);
+/// The longest a picture's write mark (its seq odd: readers wait, then give up with "the picture was being written")
+/// was held, microseconds.
+static STAT_WRITE_MAX_US: AtomicU64 = AtomicU64::new(0);
 static STAT_SAID: AtomicU64 = AtomicU64::new(0);
 
 fn stats_line(now: u64, kind: &str) {
@@ -338,11 +341,15 @@ fn stats_line(now: u64, kind: &str) {
     }
     STAT_SAID.store(now, Ordering::Relaxed);
     let t = |a: &AtomicU64| a.swap(0, Ordering::Relaxed);
-    let (rounds, new, served, same, not_ready, black, broken, us) =
-        (t(&STAT_ROUNDS), t(&STAT_NEW_IMAGE), t(&STAT_SERVED), t(&STAT_SAME), t(&STAT_NOT_READY), t(&STAT_BLACK), t(&STAT_BROKEN), t(&STAT_READ_US));
+    let (rounds, new, served, same, not_ready, black, broken, us, write_max) = (
+        t(&STAT_ROUNDS), t(&STAT_NEW_IMAGE), t(&STAT_SERVED), t(&STAT_SAME), t(&STAT_NOT_READY), t(&STAT_BLACK), t(&STAT_BROKEN),
+        t(&STAT_READ_US), t(&STAT_WRITE_MAX_US),
+    );
     crate::app_log(&format!(
-        "capture, last minute ({kind}): {rounds} rounds, {new} new game images, {served} pictures written ({:.1} ms each), {same} kept as current, {not_ready} not ready on the card yet, {black} black rounds, {broken} broken",
-        if served > 0 { us as f64 / served as f64 / 1000.0 } else { 0.0 }
+        "capture, last minute ({kind}): {rounds} rounds, {new} new game images, {served} pictures written ({:.1} ms each, write mark held at most {:.1} ms), {same} kept as current, {not_ready} not ready on the card yet, {black} black rounds, {broken} broken; {}",
+        if served > 0 { us as f64 / served as f64 / 1000.0 } else { 0.0 },
+        write_max as f64 / 1000.0,
+        crate::gpu_capture::copy_stats_line(),
     ));
 }
 
@@ -460,14 +467,32 @@ trait Picture {
     fn size(&self) -> (u32, u32);
     fn generation(&self) -> u64;
     fn read(&mut self, x: u32, y: u32, w: u32, h: u32, out: *mut u8, stride: usize, shrink: u32) -> bool;
-    /// Whether read() of this area can go without waiting for the graphics card (Gpu::ready); the others always can.
-    fn ready(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) -> bool { true }
+    /// Whether read() of this area can go without waiting for the graphics card (Gpu::ready), and from which image
+    /// (generation): with the card busy, the copy finished can be of an older image than the newest. None: not yet.
+    /// The others are always ready, from the newest.
+    fn ready(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) -> Option<u64> { Some(self.generation()) }
     /// Starts an area's copy ahead of read() (the graphics card: all of a round's copies, then one wait).
     fn queue(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) {}
     /// The round is over: copies queued but not read are dropped.
     fn end_round(&mut self) {}
     /// When the newest image was captured, if the source says (window capture does).
     fn captured_at(&self) -> Option<Instant> { None }
+    /// The image (generation) the last read() came from and when it was captured: the newest, except on the card.
+    fn served(&self) -> (u64, Option<Instant>) { (self.generation(), self.captured_at()) }
+}
+
+/// How old an image captured at `captured` is at `now` (ms, for bytes 62-63 of a picture: readers take the picture's
+/// time minus this as when the game showed it). 0 when the source doesn't say.
+fn age_ms(captured: Option<Instant>, now: Instant) -> u16 {
+    captured.map_or(0, |t| now.saturating_duration_since(t).as_millis().min(u16::MAX as u128) as u16)
+}
+
+/// Whether a copy of image `copy` is a new picture for reader `r`, asking for `request` at `shrink` (`has`: its
+/// picture is of that request now). One no newer than the picture it has is not: with the card busy, the copy finished
+/// can be of an older image than the newest, and written again and stamped as new, the reader took an old picture for
+/// a new one (and was then kept on it as current until the next image came).
+fn is_new(r: &Reader, request: u32, shrink: u32, has: bool, copy: u64) -> bool {
+    !(has && r.request == request && r.shrink == shrink && copy <= r.generation)
 }
 
 impl Picture for Gpu {
@@ -486,14 +511,17 @@ impl Picture for Gpu {
     fn queue(&mut self, x: u32, y: u32, w: u32, h: u32, shrink: u32) {
         let _ = Gpu::queue(self, x, y, w, h, shrink);
     }
-    fn ready(&mut self, x: u32, y: u32, w: u32, h: u32, shrink: u32) -> bool {
-        Gpu::ready(self, x, y, w, h, shrink).unwrap_or(true) // an error: read() says so
+    fn ready(&mut self, x: u32, y: u32, w: u32, h: u32, shrink: u32) -> Option<u64> {
+        Gpu::ready(self, x, y, w, h, shrink).unwrap_or(Some(self.generation)) // an error: read() says so
     }
     fn end_round(&mut self) {
         Gpu::end_round(self);
     }
     fn captured_at(&self) -> Option<Instant> {
         self.captured_at
+    }
+    fn served(&self) -> (u64, Option<Instant>) {
+        Gpu::served(self)
     }
 }
 
@@ -688,10 +716,13 @@ fn painted(pixels: *const u8, w: u32, h: u32, stride: usize) -> bool {
 struct Reader {
     /// When its picture was last written or confirmed current.
     last: u64,
-    /// The request, image generation and shrink in its picture now.
+    /// The request, image generation and shrink in its picture now: the image its copy came from, which with the card
+    /// busy can be older than the newest (Picture::served).
     request: u32,
     generation: u64,
     shrink: u32,
+    /// When that image was captured (window capture says; None otherwise).
+    captured: Option<Instant>,
     /// Its part of the pool (bytes from the pool's start), kept until its area grows.
     offset: usize,
     room: usize,
@@ -702,7 +733,7 @@ struct Reader {
 /// written over another reader's part while that reader may still be copying it.
 fn forget(shared: &Shared, readers: &mut [Reader; SLOTS]) {
     for (i, r) in readers.iter_mut().enumerate() {
-        (r.request, r.generation, r.last) = (0, 0, 0);
+        (r.request, r.generation, r.last, r.captured) = (0, 0, 0, None);
         shared.write(PICTURE_BASE + i * PICTURE_SIZE + 16, || shared.put_u32(PICTURE_BASE + i * PICTURE_SIZE + 12, 0));
     }
 }
@@ -852,7 +883,17 @@ fn serve(
     shared: &Shared, gpu: &mut dyn Picture, flags: u32, trust_black: bool, hwnd: HWND, image_origin: (i32, i32),
     readers: &mut [Reader; SLOTS], only: Option<usize>,
 ) -> Option<bool> {
-    let (width, height, origin) = client(hwnd)?;
+    let client = client(hwnd)?;
+    serve_client(shared, gpu, flags, trust_black, hwnd, client, image_origin, readers, only)
+}
+
+/// serve, with the game window's client size and its position on screen (`client`) already known.
+#[allow(clippy::too_many_arguments)]
+fn serve_client(
+    shared: &Shared, gpu: &mut dyn Picture, flags: u32, trust_black: bool, hwnd: HWND, client: (u32, u32, POINT),
+    image_origin: (i32, i32), readers: &mut [Reader; SLOTS], only: Option<usize>,
+) -> Option<bool> {
+    let (width, height, origin) = client;
     if !gpu.has_image() {
         return None;
     }
@@ -908,17 +949,21 @@ fn serve(
             4 => 4,
             _ => 1,
         };
-        if r.request == request && r.generation == generation && r.shrink == shrink && shared.get_u32(at + 12) == request {
+        let has = shared.get_u32(at + 12) == request;
+        if r.request == request && r.generation == generation && r.shrink == shrink && has {
             STAT_SAME.fetch_add(1, Ordering::Relaxed);
-            shared.put_u64(at + 24, now); // same image, same area: still current
+            // same image, same area: still current. Its age moves on with its time, so time minus age still says when
+            // its image was captured (with the age left as it was, a picture kept current looked newer each time)
+            shared.put_u16(at + 62, age_ms(r.captured, Instant::now()));
+            shared.put_u64(at + 24, now);
             readers[slot].last = now;
             continue;
         }
         if let Some(parts) = shared.rects(slot, width, height) {
             match serve_parts(shared, gpu, slot, &parts, (cx, cy, iw, ih), (width, height), flags, trust_black, readers, &active, request, now) {
-                Some(Some(shown)) => {
+                Some(Some((shown, from, captured))) => {
                     result = Some(result.unwrap_or(false) || shown);
-                    readers[slot] = Reader { last: now, request, generation, shrink: 1, ..readers[slot] };
+                    readers[slot] = Reader { last: now, request, generation: from, captured, shrink: 1, ..readers[slot] };
                 }
                 Some(None) => {}
                 None => {
@@ -938,25 +983,29 @@ fn serve(
         let shrink = if w / shrink == 0 || h / shrink == 0 { 1 } else { shrink };
         let (pw, ph) = (w / shrink, h / shrink); // the picture's own size
         let (stride, bytes) = (pw as usize * 4, pw as usize * 4 * ph as usize);
+        // the card hasn't finished copying it off (busy with the game), or only a copy no newer than the picture the
+        // reader has: it keeps that one, readable and where it is, and this one is looked at again in a few ms - never
+        // waited for with the picture marked "being written"
+        let fresh = gpu.ready(x0 as u32, y0 as u32, w, h, shrink).filter(|&copy| is_new(&r, request, shrink, has, copy));
+        if fresh.is_none() {
+            STAT_NOT_READY.fetch_add(1, Ordering::Relaxed);
+            readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
+            continue;
+        }
         if readers[slot].room < bytes || r.request != request {
             match place_or_make_room(shared, readers, &active, slot, bytes) {
                 Some(offset) => (readers[slot].offset, readers[slot].room) = (offset, bytes),
                 None => continue, // bigger than the whole pool
             }
         }
-        // the card hasn't finished copying it off (busy with the game): the reader keeps the picture it has, readable,
-        // and this one is looked at again in a few ms - never waited for with the picture marked "being written"
-        if !gpu.ready(x0 as u32, y0 as u32, w, h, shrink) {
-            STAT_NOT_READY.fetch_add(1, Ordering::Relaxed);
-            readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
-            continue;
-        }
         let started = Instant::now();
         let out = unsafe { shared.pool().add(readers[slot].offset) };
+        let mut from = (generation, None);
         let ok = shared.write(at + 16, || {
             if !gpu.read(x0 as u32, y0 as u32, w, h, out, stride, shrink) {
                 return false;
             }
+            from = gpu.served();
             let shown = painted(out, pw, ph, stride);
             unsafe { *shared.base.add(at + 61) = shrink as u8 };
             shared.put_u64(at + 24, now);
@@ -969,19 +1018,22 @@ fn serve(
             shared.put_u32(at + 52, started.elapsed().as_micros().min(u32::MAX as u128) as u32);
             shared.put_u16(at + 56, width as u16);
             shared.put_u16(at + 58, height as u16);
-            // how old the image already was (ms, from its capture time; 0 when the source doesn't say): bytes 62-63
-            shared.put_u16(at + 62, gpu.captured_at().map_or(0, |t| t.elapsed().as_millis().min(u16::MAX as u128) as u16));
+            // how old the image already was (ms, from its capture time; 0 when the source doesn't say): bytes 62-63.
+            // The image its copy came from, not the newest one: with the card busy that can be an older one
+            shared.put_u16(at + 62, age_ms(from.1, Instant::now()));
             shared.put_u32(at + 12, request);
             result = Some(result.unwrap_or(false) || shown);
             true
         });
+        let held = started.elapsed().as_micros() as u64; // the picture's write mark (seq odd) was held this long
+        STAT_WRITE_MAX_US.fetch_max(held, Ordering::Relaxed);
         if !ok {
             gpu.end_round(); // copies queued for the rest of the round go with it
             return None;
         }
         STAT_SERVED.fetch_add(1, Ordering::Relaxed);
-        STAT_READ_US.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
-        readers[slot] = Reader { last: now, request, generation, shrink, ..readers[slot] };
+        STAT_READ_US.fetch_add(held, Ordering::Relaxed);
+        readers[slot] = Reader { last: now, request, generation: from.0, captured: from.1, shrink, ..readers[slot] };
     }
     gpu.end_round();
     if let Some(shown) = result {
@@ -999,17 +1051,34 @@ fn on_image(area: Area, cx: i32, cy: i32, iw: u32, ih: u32) -> Option<Area> {
 }
 
 /// Writes a reader's picture made of several parts (see the layout: rectangles), one after another in its part
-/// of the pool. Some(Some(shown)): written; Some(None): skipped this time (nothing on the image, no room);
+/// of the pool. Some(Some((shown, image, captured))): written, as old as its oldest part (the image that one came from
+/// and when that was captured); Some(None): skipped this time (nothing on the image, not ready, no room);
 /// None: the graphics card failed.
 #[allow(clippy::too_many_arguments)]
 fn serve_parts(
     shared: &Shared, gpu: &mut dyn Picture, slot: usize, parts: &[Area], image: (i32, i32, u32, u32), size: (u32, u32),
     flags: u32, trust_black: bool, readers: &mut [Reader; SLOTS], active: &[bool; SLOTS], request: u32, now: u64,
-) -> Option<Option<bool>> {
+) -> Option<Option<(bool, u64, Option<Instant>)>> {
     let (cx, cy, iw, ih) = image;
     let on: Vec<Option<Area>> = parts.iter().map(|p| on_image(*p, cx, cy, iw, ih)).collect();
     let bytes: usize = on.iter().flatten().map(|p| p.w as usize * p.h as usize * 4).sum();
     if bytes == 0 {
+        return Some(None);
+    }
+    let at = PICTURE_BASE + slot * PICTURE_SIZE;
+    // as in serve: parts the card hasn't finished copying off, or a picture no newer than the one the reader has
+    // (from its oldest part), are looked at again shortly, never waited for
+    let mut oldest = Some(u64::MAX);
+    for p in on.iter().flatten() {
+        oldest = oldest.zip(gpu.ready(p.x, p.y, p.w, p.h, 1)).map(|(a, b)| a.min(b));
+        if oldest.is_none() {
+            break;
+        }
+    }
+    let has = shared.get_u32(at + 12) == request;
+    if oldest.filter(|&copy| is_new(&readers[slot], request, 1, has, copy)).is_none() {
+        STAT_NOT_READY.fetch_add(1, Ordering::Relaxed);
+        readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
         return Some(None);
     }
     if readers[slot].room < bytes || readers[slot].request != request {
@@ -1018,16 +1087,10 @@ fn serve_parts(
             None => return Some(None),
         }
     }
-    // as in serve: parts the card hasn't finished copying off are looked at again shortly, never waited for
-    if on.iter().flatten().any(|p| !gpu.ready(p.x, p.y, p.w, p.h, 1)) {
-        STAT_NOT_READY.fetch_add(1, Ordering::Relaxed);
-        readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
-        return Some(None);
-    }
-    let at = PICTURE_BASE + slot * PICTURE_SIZE;
     let rects = RECT_BASE + slot * RECT_SIZE;
     let started = Instant::now();
     let mut shown = false;
+    let mut from: (u64, Option<Instant>) = (u64::MAX, None);
     let ok = shared.write(at + 16, || {
         let (mut offset, mut bx0, mut by0, mut bx1, mut by1) = (readers[slot].offset, i32::MAX, i32::MAX, i32::MIN, i32::MIN);
         for (k, p) in on.iter().enumerate() {
@@ -1040,6 +1103,10 @@ fn serve_parts(
             let out = unsafe { shared.pool().add(offset) };
             if !gpu.read(p.x, p.y, p.w, p.h, out, p.w as usize * 4, 1) {
                 return false;
+            }
+            let part = gpu.served();
+            if part.0 < from.0 {
+                from = part;
             }
             shown |= painted(out, p.w, p.h, p.w as usize * 4);
             let (x, y) = (p.x as i32 - cx, p.y as i32 - cy);
@@ -1060,11 +1127,12 @@ fn serve_parts(
         shared.put_u32(at + 52, started.elapsed().as_micros().min(u32::MAX as u128) as u32);
         shared.put_u16(at + 56, size.0 as u16);
         shared.put_u16(at + 58, size.1 as u16);
-        shared.put_u16(at + 62, gpu.captured_at().map_or(0, |t| t.elapsed().as_millis().min(u16::MAX as u128) as u16));
+        shared.put_u16(at + 62, age_ms(from.1, Instant::now())); // (serve: the image its oldest part came from)
         shared.put_u32(at + 12, request);
         true
     });
-    ok.then_some(Some(shown))
+    STAT_WRITE_MAX_US.fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+    ok.then_some(Some((shown, from.0, from.1)))
 }
 
 /// The app's own reader (the capture button over the game, overlay_button.rs): request slot SLOTS - 1, kept under
@@ -1474,6 +1542,153 @@ mod tests {
             readers[i].room = 0;
         }
         assert_eq!(place(&readers, &active, 0, full), Some(0));
+    }
+
+    impl Shared {
+        /// A mapping of the same size with no name, for tests: never the app's own (Local\aLogs.Capture.v2), which a
+        /// running aLogs and its readers are using. (Left open: the test process ends soon.)
+        fn private() -> Shared {
+            unsafe {
+                let handle = CreateFileMappingW(INVALID_HANDLE_VALUE, null(), PAGE_READWRITE, (SIZE >> 32) as u32, SIZE as u32, null());
+                assert!(!handle.is_null(), "a private mapping");
+                let view = MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, SIZE);
+                assert!(!view.Value.is_null(), "its view");
+                Shared { base: view.Value as *mut u8 }
+            }
+        }
+    }
+
+    /// A pretend graphics card for serve: `newest` is the newest image, and the copy the card has finished is of image
+    /// `back`, which lags behind on a busy card (Gpu::ready offers the newest finished copy, from whichever image).
+    /// Image g was captured at `captured[g]`; a picture's pixels are all its image's number.
+    struct LateCard {
+        newest: u64,
+        back: Option<u64>,
+        captured: Vec<Instant>,
+        last: u64,
+    }
+
+    impl Picture for LateCard {
+        fn has_image(&self) -> bool {
+            self.newest > 0
+        }
+        fn size(&self) -> (u32, u32) {
+            (640, 480)
+        }
+        fn generation(&self) -> u64 {
+            self.newest
+        }
+        fn ready(&mut self, _x: u32, _y: u32, _w: u32, _h: u32, _shrink: u32) -> Option<u64> {
+            self.back
+        }
+        fn read(&mut self, _x: u32, _y: u32, w: u32, h: u32, out: *mut u8, stride: usize, _shrink: u32) -> bool {
+            let Some(back) = self.back else { return false };
+            for row in 0..h as usize {
+                unsafe { std::ptr::write_bytes(out.add(row * stride), back as u8, w as usize * 4) };
+            }
+            self.last = back;
+            true
+        }
+        fn captured_at(&self) -> Option<Instant> {
+            Some(self.captured[self.newest as usize])
+        }
+        fn served(&self) -> (u64, Option<Instant>) {
+            (self.last, Some(self.captured[self.last as usize]))
+        }
+    }
+
+    /// Change 4: with the card behind, a reader is given the older image's copy with that image's age, its record keeps
+    /// that image, and it isn't handed the same copy again as a new picture. Reader 0 asks for one area, reader 1 for
+    /// two parts (serve_parts).
+    #[test]
+    fn an_older_copy_is_never_passed_on_as_new() {
+        let shared = Shared::private();
+        for slot in [0, 1] {
+            shared.put_u64(SLOT_BASE + slot * 16, now_ms() + 60_000);
+            shared.put_u32(SLOT_BASE + slot * 16 + 8, 16);
+            shared.put_u32(PICTURE_BASE + slot * PICTURE_SIZE + 8, 1); // request 1 (area 0: the whole frame)
+        }
+        let parts = RECT_BASE + RECT_SIZE;
+        shared.put_u32(parts, 2);
+        for (k, share) in [[0u16, 0, 20000, 20000], [30000, 30000, 60000, 60000]].into_iter().enumerate() {
+            for (j, v) in share.into_iter().enumerate() {
+                shared.put_u16(parts + 8 + 16 * k + 2 * j, v);
+            }
+        }
+        let t = Instant::now();
+        // image g captured (1000 - 100 g) ms before the test started
+        let captured = (0..6).map(|g| t - Duration::from_millis(1000 - 100 * g)).collect();
+        let mut card = LateCard { newest: 1, back: Some(1), captured, last: 0 };
+        let mut readers = [Reader::default(); SLOTS];
+        let round = |card: &mut LateCard, readers: &mut [Reader; SLOTS]| {
+            for r in readers.iter_mut() {
+                r.last = 0; // due now
+            }
+            serve_client(&shared, card, 0, true, null_mut(), (640, 480, POINT { x: 0, y: 0 }), (0, 0), readers, None);
+        };
+        let seq = |slot: usize| shared.get_u64(PICTURE_BASE + slot * PICTURE_SIZE + 16);
+        let age = |slot: usize| shared.get_u16(PICTURE_BASE + slot * PICTURE_SIZE + 62) as u128;
+        let time = |slot: usize| shared.get_u64(PICTURE_BASE + slot * PICTURE_SIZE + 24);
+        let pixel = |slot: usize| unsafe { *shared.pool().add(shared.get_u32(PICTURE_BASE + slot * PICTURE_SIZE + 32) as usize) } as u64;
+        let since = |g: u128| t.elapsed().as_millis() + 1000 - 100 * g; // image g's age now
+        let near = |a: u128, b: u128| a.abs_diff(b) <= 3;
+
+        round(&mut card, &mut readers);
+        for slot in [0, 1] {
+            assert_eq!((shared.get_u32(PICTURE_BASE + slot * PICTURE_SIZE + 12), pixel(slot), readers[slot].generation), (1, 1, 1));
+            assert!(near(age(slot), since(1)), "image 1's age: {}", age(slot));
+        }
+
+        // a new image; the card hasn't finished copying it
+        card.newest = 2;
+        let before = [(seq(0), time(0)), (seq(1), time(1))];
+        std::thread::sleep(Duration::from_millis(20));
+        round(&mut card, &mut readers);
+        for slot in [0, 1] {
+            assert_eq!((seq(slot), time(slot)), before[slot], "the same copy isn't written again, nor its time moved on as if current");
+            assert_eq!(readers[slot].generation, 1);
+        }
+
+        // two more images; the card has finished image 2's copy only
+        (card.newest, card.back) = (4, Some(2));
+        round(&mut card, &mut readers);
+        for slot in [0, 1] {
+            assert_eq!((pixel(slot), readers[slot].generation), (2, 2));
+            assert!(near(age(slot), since(2)), "image 2's age ({}), not the newest one's ({})", age(slot), since(4));
+        }
+        let before = [seq(0), seq(1)];
+        round(&mut card, &mut readers);
+        assert_eq!([seq(0), seq(1)], before, "image 2 again: nothing new");
+
+        // the newest is back
+        card.back = Some(4);
+        round(&mut card, &mut readers);
+        let shown = |slot: usize| time(slot) as u128 - age(slot); // when its image was captured, as readers take it
+        let first = [shown(0), shown(1)];
+        assert_eq!((pixel(0), readers[0].generation, pixel(1), readers[1].generation), (4, 4, 4, 4));
+        // kept as current: the time moves on, the age with it
+        std::thread::sleep(Duration::from_millis(30));
+        let before = time(0);
+        round(&mut card, &mut readers);
+        assert!(time(0) >= before + 30, "still current: its time moves on");
+        for slot in [0, 1] {
+            assert!(near(shown(slot), first[slot]), "...and its age with it, so it still says when image 4 was captured");
+        }
+    }
+
+    #[test]
+    fn a_new_picture_is_a_newer_image_or_another_area() {
+        let r = Reader { request: 7, generation: 5, shrink: 1, ..Reader::default() };
+        assert!(!is_new(&r, 7, 1, true, 5), "the image it has");
+        assert!(!is_new(&r, 7, 1, true, 4), "an older one");
+        assert!(is_new(&r, 7, 1, true, 6), "a newer one");
+        assert!(is_new(&r, 8, 1, true, 4), "another area: whatever is finished");
+        assert!(is_new(&r, 7, 2, true, 5), "shrunk otherwise");
+        assert!(is_new(&r, 7, 1, false, 5), "its picture was taken away (moved, a new source)");
+        let now = Instant::now();
+        assert_eq!(age_ms(None, now), 0, "the source doesn't say");
+        assert_eq!(age_ms(Some(now - Duration::from_millis(250)), now), 250);
+        assert_eq!(age_ms(Some(now - Duration::from_secs(100)), now), u16::MAX);
     }
 
     /// What counts as a window over the game (a 4K game at 0,0).
