@@ -261,6 +261,9 @@ impl Frames for Live {
     fn set_game_only_until(&mut self, ms: u64) {
         self.cap.set_game_only_until(ms);
     }
+    fn set_game_fast_until(&mut self, ms: u64) {
+        self.cap.set_game_fast_until(ms);
+    }
 }
 
 impl Live {

@@ -74,8 +74,12 @@ pub trait Frames {
     fn grab_parts(&mut self, _hwnd: usize, _rects: &[(f64, f64, f64, f64)]) -> Option<Image> {
         None
     }
-    /// Ask the app for window capture until then (unix ms): pictures of the game alone (Windows 10, with its border).
+    /// Ask the app for pictures of the game window alone until then (unix ms). Windows 10: by the window copy, which
+    /// draws no border.
     fn set_game_only_until(&mut self, _ms: u64) {}
+    /// A script has the screen until then (unix ms): those pictures are wanted quickly (Windows 10: by window
+    /// capture, with its border, not the slower window copy).
+    fn set_game_fast_until(&mut self, _ms: u64) {}
     /// The other aLogs programs' windows on screen (Sanctum Helper's, the app's button), to cover in a screen copy.
     fn other_overlays(&mut self) -> Vec<(i32, i32, i32, i32)> {
         vec![]

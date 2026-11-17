@@ -9,6 +9,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **A Dev menu in the Beta Menu (betas only):** a tab each for Core, the DPS meter and the leaderboards: proposed changes to their speed, smoothness, accuracy and memory, each with its own switch, with filters by risk and type, so each can be tested alone. Anyone on a beta sees it. All are off at every start unless you make one Persistent, which starts it on through restarts and updates until you undo it or that setting changes in an update. Only make one Persistent once you've tested it and decided it's no risk for you. With all off, it works as in 0.1.36.
 
 ### Improved
+- **The yellow border is gone from menus on Windows 10:** result, Party, menu and Battle Data screens are still read from the game window alone, but aLogs now copies it a way that makes Windows draw no border. The border only shows for the few seconds aLogs takes control to record a leaderboard run, with Capture only the game window switched on, while a window covers the game when you are tabbed out, or on a PC where the new copy comes out black.
 - **The meter and Sanctum Helper are rebuilt, with less to install:** they work as before, and the download is about 46 MB instead of 80.
 - **Sanctum Helper no longer needs Microsoft's .NET runtime:** the installer no longer asks to download it.
 - **Seven tested speed-ups from the Dev menu are now standard** (and leave it): faster boss HP and xN counter reads in fights, a cheaper screen-change check, proof pictures made once when a record is sent again, no update check or photo upload during a boss fight, and fewer repeated capture lines in the log. Same readings as before.
@@ -40,7 +41,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Holo-Battle Sim: your team is known by its pictures:** each Aniimo on the Victory screen is read from its card art, so the right species goes with your run even when you gave it a nickname (the nickname rides along). An equipment card in a team slot is no longer taken for an Aniimo.
 - **Holo-Battle Sim: every gizmo count is read:** the numbers under the gizmo icons are read one by one against the game's own digits. A lone 1 used to be missed, or two counts run together (7 1 2 4 1 read as 71, 24, 11), and the run went without its counts.
 - **Block from the fade to black is off until you turn it on:** its switch showed off, but on installs that had never changed it the meter blocked button presses anyway.
-- **Settings text:** "Capture only the game window" now says the yellow border can still show briefly with it off, and "Block from the fade to black" no longer says it's off by default.
+- **Settings text:** "Block from the fade to black" no longer says it's off by default.
 
 ## 0.1.36
 
