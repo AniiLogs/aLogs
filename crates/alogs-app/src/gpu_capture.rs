@@ -61,7 +61,54 @@ fn make_room<T>(kept: &mut Vec<T>, size: impl Fn(&T) -> (u32, u32), width: u32, 
     }
 }
 
+/// The graphics adapter showing `hwnd`'s monitor, and its name. On a PC with more than one (integrated graphics beside
+/// a graphics card, or a virtual display driver) the default adapter can be another one: window capture's pictures then
+/// cross from one to the other, and under load the copies barely finished (16 Nov: a new 1440p screen, 25,000 copies a
+/// minute not ready, the meter without a picture for up to 22 s).
+fn window_adapter(hwnd: HWND) -> Option<(IDXGIAdapter, String)> {
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
+        let mut a = 0;
+        while let Ok(adapter) = factory.EnumAdapters1(a) {
+            a += 1;
+            let mut o = 0;
+            while let Ok(output) = adapter.EnumOutputs(o) {
+                o += 1;
+                if output.GetDesc().ok().is_some_and(|d| d.Monitor == monitor) {
+                    let name = adapter.GetDesc1().map(|d| String::from_utf16_lossy(&d.Description).trim_end_matches('\0').to_string()).unwrap_or_default();
+                    return Some((adapter.cast::<IDXGIAdapter>().ok()?, name));
+                }
+            }
+        }
+        None
+    }
+}
+
+#[link(name = "gdi32")]
+unsafe extern "system" {
+    fn D3DKMTSetProcessSchedulingPriorityClass(process: *mut core::ffi::c_void, class: i32) -> i32;
+}
+
+/// The app's GPU scheduling class above normal (once), as screen recorders do: with a game keeping the card full, the
+/// capture's copies otherwise wait behind every frame it draws. HIGH where Windows allows it, else ABOVE_NORMAL.
+pub fn raise_gpu_class() {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| {
+        let me = unsafe { windows::Win32::System::Threading::GetCurrentProcess() };
+        for (class, name) in [(4, "high"), (3, "above normal")] {
+            let status = unsafe { D3DKMTSetProcessSchedulingPriorityClass(me.0, class) };
+            if status == 0 {
+                crate::app_log(&format!("capture: GPU scheduling class {name}"));
+                return;
+            }
+        }
+        crate::app_log("capture: GPU scheduling class not raised (Windows refused)");
+    });
+}
+
 fn device(adapter: Option<&IDXGIAdapter>) -> Result<(ID3D11Device, ID3D11DeviceContext)> {
+    raise_gpu_class();
     let (mut device, mut context) = (None, None);
     let driver = if adapter.is_some() { D3D_DRIVER_TYPE_UNKNOWN } else { D3D_DRIVER_TYPE_HARDWARE };
     unsafe {
@@ -132,11 +179,23 @@ pub struct Gpu {
     /// ...and once it's given back there's nothing to copy a new area from until the next image (queue, ready).
     /// Areas already on their way are unaffected.
     lost: bool,
+    /// Copies were queued since the card was last sent its commands. Direct3D 11 keeps them in its own buffer until
+    /// something flushes it, and a look that doesn't wait (ready) doesn't: they could sit there unsent, round after round.
+    unflushed: bool,
+    /// The full-size areas asked for this round (queue), copied off the card together as one box (union).
+    round_want: Vec<(u32, u32, u32, u32)>,
+    /// Combined copies on their way or done, newest last: the box (x, y, w, h), its staging texture, the image it was
+    /// copied from (generation), when, and its memory while mapped this round (data, row pitch).
+    unions: Vec<Union>,
+    /// Staging textures for combined copies, kept for reuse by size.
+    union_staging: Vec<(u32, u32, ID3D11Texture2D)>,
     /// Since when a reader has been asking for an area that can't be copied (`lost`).
     starved: Option<std::time::Instant>,
     /// General Settings › Performance › Screen capture on the graphics card = Lowest: this device's work on the card
     /// goes behind the game's (LOW_PRIORITY).
     low: bool,
+    /// The priority was set once on this device (low_priority).
+    prio_set: bool,
     /// Dev switch capture-frame-hold (window capture; 14 Nov, the owner's call to try it): the frame Windows handed
     /// over, kept open as the image (`cache` is its own texture, `borrowed`), so the whole frame isn't first copied on
     /// the card. None with the switch off, and on Desktop Duplication.
@@ -147,9 +206,32 @@ pub struct Gpu {
     retiring: Vec<(Direct3D11CaptureFrame, ID3D11Query)>,
 }
 
+/// One combined copy of a round's areas (Gpu::unions).
+struct Union {
+    rect: (u32, u32, u32, u32),
+    staging: ID3D11Texture2D,
+    generation: u64,
+    at: std::time::Instant,
+    mapped: Option<(*const u8, usize)>,
+    /// The card has finished it (it was mapped once).
+    done: bool,
+}
+
+impl Union {
+    fn holds(&self, x: u32, y: u32, w: u32, h: u32) -> bool {
+        let (ux, uy, uw, uh) = self.rect;
+        x >= ux && y >= uy && x + w <= ux + uw && y + h <= uy + uh
+    }
+}
+
 impl Gpu {
     fn new(device: ID3D11Device, context: ID3D11DeviceContext) -> Gpu {
         Gpu {
+            unflushed: false,
+            round_want: Vec::new(),
+            unions: Vec::new(),
+            union_staging: Vec::new(),
+            prio_set: false,
             device,
             context,
             cache: None,
@@ -239,14 +321,18 @@ impl Gpu {
     /// Lowest (LOW_PRIORITY) or not: the copies this device asks of the graphics card are done after
     /// the game's own work (the lowest of the priorities a program may give itself), or as before.
     fn low_priority(&mut self, low: bool) {
-        if low == self.low {
+        // (applied the first time too: the default is no longer the card's normal priority)
+        if low == self.low && self.prio_set {
             return;
         }
-        self.low = low;
-        let set = self.device.cast::<IDXGIDevice>().and_then(|d| unsafe { d.SetGPUThreadPriority(if low { -7 } else { 0 }) });
+        (self.low, self.prio_set) = (low, true);
+        // (Normal otherwise. Tried the highest, +7, on 16 Nov with the game keeping the card at ~90% at 1440p: fewer
+        // new images came and the readers waited longer, so not that.)
+        let want = if low { -7 } else { 0 };
+        let set = self.device.cast::<IDXGIDevice>().and_then(|d| unsafe { d.SetGPUThreadPriority(want) });
         match set {
-            Ok(()) => crate::app_log(&format!("capture: graphics card priority {}", if low { "lowest (Performance)" } else { "normal again" })),
-            Err(e) => crate::app_log(&format!("capture: graphics card priority not changed ({e})")),
+            Ok(()) => crate::app_log(&format!("capture: graphics card priority {}", if low { "lowest (Performance)" } else { "normal" })),
+            Err(e) => crate::app_log(&format!("capture: graphics card priority {want} not set ({e})")),
         }
     }
 
@@ -305,6 +391,88 @@ impl Gpu {
         Ok(())
     }
 
+    /// One copy off the card of the box around every full-size area asked for this round, unless a copy of this
+    /// image already holds it all. Readers' areas are cut out of it on the CPU: one job for the card a round instead of
+    /// one per reader (16 Nov: at 1440p with the game keeping the card at ~90%, separate copies waited up to a second).
+    fn union(&mut self) -> Result<()> {
+        if self.round_want.is_empty() {
+            return Ok(());
+        }
+        let want = std::mem::take(&mut self.round_want);
+        if self.lost {
+            self.starved.get_or_insert_with(std::time::Instant::now);
+            return Ok(());
+        }
+        let Some((cache, cw, ch)) = self.cache.as_ref() else { return Err(E_FAIL.into()) };
+        let (cw, ch) = (*cw, *ch);
+        let x0 = want.iter().map(|a| a.0).min().unwrap();
+        let y0 = want.iter().map(|a| a.1).min().unwrap();
+        let x1 = want.iter().map(|a| a.0 + a.2).max().unwrap().min(cw);
+        let y1 = want.iter().map(|a| a.1 + a.3).max().unwrap().min(ch);
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        let rect = (x0, y0, x1 - x0, y1 - y0);
+        let generation = self.generation;
+        if self.unions.iter().any(|u| u.generation == generation && u.holds(rect.0, rect.1, rect.2, rect.3)) {
+            return Ok(());
+        }
+        // One copy on its way at a time: with the card full (120 Hz, 16 Nov) a copy a frame queued up behind the game,
+        // each held its frame open, and Windows ran out of buffers to send new ones (2 a second). Readers keep the last
+        // finished picture meanwhile; one that hasn't come back in KEEP_QUEUED is dropped (end_round).
+        if self.unions.last().is_some_and(|u| !u.done) {
+            return Ok(());
+        }
+        let cache = cache.clone();
+        let (w, h) = (rect.2, rect.3);
+        let free = self.union_staging.iter().position(|s| s.0 == w && s.1 == h && !self.unions.iter().any(|u| u.staging == s.2));
+        let staging = match free {
+            Some(i) => self.union_staging[i].2.clone(),
+            None => {
+                let mut texture = None;
+                unsafe { self.device.CreateTexture2D(&texture_desc(w, h, true), None, Some(&mut texture))? };
+                let texture = texture.ok_or(E_FAIL)?;
+                let busy: Vec<ID3D11Texture2D> = self.unions.iter().map(|u| u.staging.clone()).collect();
+                self.union_staging.retain(|s| busy.contains(&s.2) || (s.0, s.1) == (w, h));
+                if self.union_staging.len() >= 8 {
+                    self.union_staging.retain(|s| busy.contains(&s.2));
+                }
+                self.union_staging.push((w, h, texture.clone()));
+                texture
+            }
+        };
+        let area = D3D11_BOX { left: x0, top: y0, front: 0, right: x1, bottom: y1, back: 1 };
+        unsafe { self.context.CopySubresourceRegion(&staging, 0, 0, 0, 0, &cache, 0, Some(&area)) };
+        self.unflushed = true;
+        self.unions.push(Union { rect, staging, generation, at: std::time::Instant::now(), mapped: None, done: false });
+        Ok(())
+    }
+
+    /// The newest combined copy holding this area that the card has finished (mapped for the rest of the round), or
+    /// None: then the area waits for the next round, reading the copy a round or a frame later instead of waiting.
+    fn union_ready(&mut self, x: u32, y: u32, w: u32, h: u32) -> Option<usize> {
+        if self.unflushed {
+            self.unflushed = false;
+            unsafe { self.context.Flush() };
+        }
+        for i in (0..self.unions.len()).rev() {
+            if !self.unions[i].holds(x, y, w, h) {
+                continue;
+            }
+            if self.unions[i].mapped.is_some() {
+                return Some(i);
+            }
+            let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+            let got = unsafe { self.context.Map(&self.unions[i].staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)) };
+            if got.is_ok() {
+                self.unions[i].mapped = Some((m.pData as *const u8, m.RowPitch as usize));
+                self.unions[i].done = true;
+                return Some(i);
+            }
+        }
+        None
+    }
+
     pub fn has_image(&self) -> bool {
         self.cache.is_some()
     }
@@ -319,6 +487,25 @@ impl Gpu {
     /// down to half or a quarter (its mip levels), and only that smaller picture leaves it: width / shrink by
     /// height / shrink (rounded down).
     pub fn read(&mut self, x: u32, y: u32, width: u32, height: u32, out: *mut u8, stride: usize, shrink: u32) -> Result<()> {
+        if shrink <= 1 {
+            self.union()?;
+            let Some(i) = self.union_ready(x, y, width, height) else {
+                // callers ask ready() first; asked anyway: nothing finished holds it yet
+                return Err(E_FAIL.into());
+            };
+            let (ux, uy, _, _) = self.unions[i].rect;
+            let (data, pitch) = self.unions[i].mapped.unwrap();
+            unsafe {
+                for row in 0..height as usize {
+                    std::ptr::copy_nonoverlapping(
+                        data.add((y - uy) as usize * pitch + row * pitch + (x - ux) as usize * 4),
+                        out.add(row * stride),
+                        width as usize * 4,
+                    );
+                }
+            }
+            return Ok(());
+        }
         let key = (x, y, width, height, shrink);
         if !self.queued.iter().any(|q| q.0 == key) {
             self.queue(x, y, width, height, shrink)?;
@@ -357,12 +544,28 @@ impl Gpu {
     /// for, that left the reader's picture "being written" the whole time and the meter without one for 5-13 s. The
     /// caller asks again next round and keeps the finished picture it has readable meanwhile.
     pub fn ready(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<bool> {
+        if shrink <= 1 {
+            if width == 0 || height == 0 {
+                return Ok(!self.lost);
+            }
+            if !self.unions.iter().any(|u| u.generation == self.generation && u.holds(x, y, width, height)) {
+                self.queue(x, y, width, height, 1)?;
+            }
+            self.union()?;
+            return Ok(self.union_ready(x, y, width, height).is_some());
+        }
         let key = (x, y, width, height, shrink);
         if !self.queued.iter().any(|q| q.0 == key) {
             self.queue(x, y, width, height, shrink)?;
         }
         // an empty area; or the held image was given back and no newer one came: asked again next round
         let Some(q) = self.queued.iter().find(|q| q.0 == key) else { return Ok(!self.lost) };
+        // the copies queued are sent to the card now (once), or a look that doesn't wait could find them never started:
+        // at 1440p with the game keeping the card busy, 22,000 looks a minute found copies unfinished (16 Nov)
+        if self.unflushed {
+            self.unflushed = false;
+            unsafe { self.context.Flush() };
+        }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         match unsafe { self.context.Map(&q.1, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
             Ok(()) => {
@@ -385,12 +588,29 @@ impl Gpu {
             self.retire_done();
         }
         self.queued.retain(|q| q.4.elapsed() < KEEP_QUEUED);
+        self.round_want.clear();
+        let newest_read = self.unions.iter().rposition(|u| u.mapped.is_some());
+        for u in self.unions.iter_mut() {
+            if u.mapped.take().is_some() {
+                unsafe { self.context.Unmap(&u.staging, 0) };
+            }
+        }
+        if let Some(n) = newest_read {
+            self.unions.drain(..n);
+        }
+        self.unions.retain(|u| u.at.elapsed() < KEEP_QUEUED);
     }
 
     /// Starts copying the area `x, y, width, height` (shrunk by `shrink`) off the card into a staging texture of its
     /// own, without waiting: every reader's area is queued first, then read() takes them one after another, so a
     /// round waits for the card once instead of once per reader (each wait was a small stall; B8).
     pub fn queue(&mut self, x: u32, y: u32, width: u32, height: u32, shrink: u32) -> Result<()> {
+        if shrink <= 1 {
+            if width > 0 && height > 0 {
+                self.round_want.push((x, y, width, height));
+            }
+            return Ok(());
+        }
         let key = (x, y, width, height, shrink);
         if self.queued.iter().any(|q| q.0 == key) {
             return Ok(()); // already on its way (from an earlier round, not finished yet)
@@ -471,6 +691,7 @@ impl Gpu {
             }
         }
         self.queued.push((key, staging, width, height, std::time::Instant::now()));
+        self.unflushed = true;
         Ok(())
     }
 }
@@ -662,12 +883,19 @@ impl WindowCapture {
                 return Err(E_FAIL.into());
             }
         }
-        let (d3d, context) = device(None)?;
+        // on the adapter that shows the game's monitor (the default one only when that can't be found or used)
+        let (d3d, context) = match window_adapter(hwnd).and_then(|(a, name)| device(Some(&a)).ok().map(|d| (d, name))) {
+            Some((d, name)) => {
+                crate::app_log(&format!("capture: window capture on {name} (the adapter showing the game's screen)"));
+                d
+            }
+            None => device(None)?,
+        };
         let device: IDirect3DDevice = unsafe { CreateDirect3D11DeviceFromDXGIDevice(&d3d.cast::<IDXGIDevice>()?)? }.cast()?;
         let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
         let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(hwnd)? };
         let size = item.Size()?;
-        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size)?;
+        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size)?;
         let session = pool.CreateCaptureSession(&item)?;
         if let Err(e) = session.SetIsBorderRequired(false) {
             if !border_ok {
@@ -740,7 +968,8 @@ impl WindowCapture {
     /// closed only once a newer frame has come and the card has done every copy queued from it (Gpu::retire_frame),
     /// while the pool's other buffer takes the next frame. Off: exactly as before.
     pub fn update(&mut self) -> Result<bool> {
-        self.update_as(crate::dev::on("capture-frame-hold"))
+        // On by default since 16 Nov (at 1440p the copy of every whole frame was the biggest job asked of a busy card)
+        self.update_as(true)
     }
 
     /// `hold`: the Dev switch capture-frame-hold (update).
@@ -794,7 +1023,7 @@ impl WindowCapture {
             }
             if resized {
                 self.size = content; // the window was resized: buffers at the new size from now on
-                self.pool.Recreate(&self.device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, content)?;
+                self.pool.Recreate(&self.device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, content)?;
             }
             Ok(true)
         })();

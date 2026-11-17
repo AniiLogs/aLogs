@@ -316,6 +316,38 @@ pub(crate) fn borderless_capture() -> bool {
     *KNOWN.get_or_init(WindowCapture::borderless_supported)
 }
 
+/// What the capture did for its readers in the last minute (said in app.log once a minute: where pictures stall).
+static STAT_ROUNDS: AtomicU64 = AtomicU64::new(0);
+static STAT_NEW_IMAGE: AtomicU64 = AtomicU64::new(0);
+static STAT_SERVED: AtomicU64 = AtomicU64::new(0);
+static STAT_SAME: AtomicU64 = AtomicU64::new(0);
+static STAT_NOT_READY: AtomicU64 = AtomicU64::new(0);
+static STAT_BLACK: AtomicU64 = AtomicU64::new(0);
+static STAT_BROKEN: AtomicU64 = AtomicU64::new(0);
+static STAT_READ_US: AtomicU64 = AtomicU64::new(0);
+static STAT_SAID: AtomicU64 = AtomicU64::new(0);
+
+fn stats_line(now: u64, kind: &str) {
+    let said = STAT_SAID.load(Ordering::Relaxed);
+    if said == 0 {
+        STAT_SAID.store(now, Ordering::Relaxed);
+        return;
+    }
+    if now < said + 60_000 {
+        return;
+    }
+    STAT_SAID.store(now, Ordering::Relaxed);
+    let t = |a: &AtomicU64| a.swap(0, Ordering::Relaxed);
+    let (rounds, new, served, same, not_ready, black, broken, us) =
+        (t(&STAT_ROUNDS), t(&STAT_NEW_IMAGE), t(&STAT_SERVED), t(&STAT_SAME), t(&STAT_NOT_READY), t(&STAT_BLACK), t(&STAT_BROKEN), t(&STAT_READ_US));
+    crate::app_log(&format!(
+        "capture, last minute ({kind}): {rounds} rounds, {new} new game images, {served} pictures written ({:.1} ms each), {same} kept as current, {not_ready} not ready on the card yet, {black} black rounds, {broken} broken",
+        if served > 0 { us as f64 / served as f64 / 1000.0 } else { 0.0 }
+    ));
+}
+
+static GEN_SEEN: AtomicU64 = AtomicU64::new(u64::MAX);
+
 static GAME_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// A reader asked for the game window alone just now (GAME_ONLY_UNTIL).
 static BURST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -829,6 +861,10 @@ fn serve(
     let (iw, ih) = gpu.size();
     let (cx, cy) = (origin.x - image_origin.0, origin.y - image_origin.1); // the client area inside the image
     let generation = gpu.generation();
+    STAT_ROUNDS.fetch_add(1, Ordering::Relaxed);
+    if GEN_SEEN.swap(generation, Ordering::Relaxed) != generation {
+        STAT_NEW_IMAGE.fetch_add(1, Ordering::Relaxed);
+    }
     let active: [bool; SLOTS] = std::array::from_fn(|i| shared.active(i, now));
     // a reader that stopped asking gives up its part of the pool, and its picture is no longer current: when it
     // comes back, its picture is written again first (its old part may hold someone else's by then)
@@ -873,6 +909,7 @@ fn serve(
             _ => 1,
         };
         if r.request == request && r.generation == generation && r.shrink == shrink && shared.get_u32(at + 12) == request {
+            STAT_SAME.fetch_add(1, Ordering::Relaxed);
             shared.put_u64(at + 24, now); // same image, same area: still current
             readers[slot].last = now;
             continue;
@@ -910,6 +947,7 @@ fn serve(
         // the card hasn't finished copying it off (busy with the game): the reader keeps the picture it has, readable,
         // and this one is looked at again in a few ms - never waited for with the picture marked "being written"
         if !gpu.ready(x0 as u32, y0 as u32, w, h, shrink) {
+            STAT_NOT_READY.fetch_add(1, Ordering::Relaxed);
             readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
             continue;
         }
@@ -941,6 +979,8 @@ fn serve(
             gpu.end_round(); // copies queued for the rest of the round go with it
             return None;
         }
+        STAT_SERVED.fetch_add(1, Ordering::Relaxed);
+        STAT_READ_US.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
         readers[slot] = Reader { last: now, request, generation, shrink, ..readers[slot] };
     }
     gpu.end_round();
@@ -980,6 +1020,7 @@ fn serve_parts(
     }
     // as in serve: parts the card hasn't finished copying off are looked at again shortly, never waited for
     if on.iter().flatten().any(|p| !gpu.ready(p.x, p.y, p.w, p.h, 1)) {
+        STAT_NOT_READY.fetch_add(1, Ordering::Relaxed);
         readers[slot].last = now.saturating_sub(shared.interval(slot)).saturating_add(NOT_READY_MS);
         return Some(None);
     }
@@ -1122,7 +1163,7 @@ pub fn start() {
             unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
             let _ = unsafe { windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED) };
             let Some(shared) = Shared::create() else {
-                eprintln!("shared capture: could not create {NAME}");
+                crate::app_log(&format!("shared capture: could not create {NAME}"));
                 return;
             };
             GAME_ONLY.store(crate::read_settings().pointer("/capture/game_window_only").and_then(serde_json::Value::as_bool).unwrap_or(false), Ordering::Relaxed);
@@ -1226,9 +1267,9 @@ pub fn start() {
                 if on_screen != on_screen_said {
                     on_screen_said = on_screen;
                     if on_screen {
-                        eprintln!("shared capture: another window has the focus but none covers the game; staying on the screen");
+                        crate::app_log(&format!("shared capture: another window has the focus but none covers the game; staying on the screen"));
                     } else if away {
-                        eprintln!("shared capture: a window covers the game; copying the game window");
+                        crate::app_log(&format!("shared capture: a window covers the game; copying the game window"));
                     }
                 }
                 if away && !on_screen {
@@ -1290,7 +1331,7 @@ pub fn start() {
                         }
                     };
                     if away_border && away_tries >= GPU_TRIES {
-                        eprintln!("shared capture: window capture can't start while a window covers the game; copying the game window");
+                        crate::app_log(&format!("shared capture: window capture can't start while a window covers the game; copying the game window"));
                         (away_border, away_window, away_said, away_black_since) = (false, None, false, 0);
                     }
                     match result {
@@ -1298,13 +1339,13 @@ pub fn start() {
                             (away_black_since, away_tries) = (0, 0);
                             if !away_said {
                                 away_said = true;
-                                eprintln!("shared capture: a window covers the game, using {}", if away_border { "window capture (with border)" } else { "PrintWindow" });
+                                crate::app_log(&format!("shared capture: a window covers the game, using {}", if away_border { "window capture (with border)" } else { "PrintWindow" }));
                             }
                         }
                         Some(false) if away_border => {
                             away_black_since = if away_black_since == 0 { now } else { away_black_since };
                             if now - away_black_since >= BLACK_MS / 2 {
-                                eprintln!("shared capture: window capture shows nothing while a window covers the game; copying the game window");
+                                crate::app_log(&format!("shared capture: window capture shows nothing while a window covers the game; copying the game window"));
                                 (away_border, away_window, away_said, away_black_since) = (false, None, false, 0);
                             }
                         }
@@ -1326,7 +1367,7 @@ pub fn start() {
                         Err(e) => {
                             tries += 1;
                             if tries >= GPU_TRIES {
-                                eprintln!("shared capture: {} can't start ({e}); trying the next way", kind.name());
+                                crate::app_log(&format!("shared capture: {} can't start ({e}); trying the next way", kind.name()));
                                 (kind, tries, black_since) = (kind.next().unwrap_or(kind), 0, 0);
                                 retry_better = now + RETRY_BETTER_MS;
                             }
@@ -1339,6 +1380,7 @@ pub fn start() {
                 if let Source::Window(w) = s {
                     w.fastest_reader(fastest);
                 }
+                stats_line(now, kind.name());
                 let result = match s.update() {
                     Err(_) => None,
                     Ok(_) => {
@@ -1349,11 +1391,12 @@ pub fn start() {
                 match result {
                     // broken (resolution change, fullscreen switch, lost device): start it again, a few times
                     None => {
+                        STAT_BROKEN.fetch_add(1, Ordering::Relaxed);
                         source = None;
                         wait(&shared, &mut readers);
                         tries += 1;
                         if tries >= GPU_TRIES {
-                            eprintln!("shared capture: {} keeps failing; trying the next way", kind.name());
+                            crate::app_log(&format!("shared capture: {} keeps failing; trying the next way", kind.name()));
                             (kind, tries, black_since) = (kind.next().unwrap_or(kind), 0, 0);
                             retry_better = now + RETRY_BETTER_MS;
                         }
@@ -1362,15 +1405,16 @@ pub fn start() {
                         (black_since, tries) = (0, 0);
                         if announced != Some(kind) {
                             announced = Some(kind);
-                            eprintln!("shared capture: using {}", kind.name());
+                            crate::app_log(&format!("shared capture: using {}", kind.name()));
                         }
                     }
                     Some(false) => {
+                        STAT_BLACK.fetch_add(1, Ordering::Relaxed);
                         black_since = if black_since == 0 { now } else { black_since };
                         if now - black_since >= BLACK_MS {
                             black_since = 0;
                             if let Some(next) = kind.next() {
-                                eprintln!("shared capture: {} gives no picture; trying {}", kind.name(), next.name());
+                                crate::app_log(&format!("shared capture: {} gives no picture; trying {}", kind.name(), next.name()));
                                 (kind, source, tries) = (next, None, 0);
                                 retry_better = now + RETRY_BETTER_MS;
                             }

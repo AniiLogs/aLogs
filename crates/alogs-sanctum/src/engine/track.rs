@@ -49,7 +49,13 @@ impl Core {
                 Some(m) => m,
                 None if crate::shared_capture::app_present() => {
                     let still = self.sh.key_showing.load(std::sync::atomic::Ordering::SeqCst);
-                    self.grab(corner, still)
+                    let m = self.grab(corner, still);
+                    // no picture from the app yet: an empty frame says nothing about the screen, and read as "run timer
+                    // and HUD gone" it hid the on-screen map until the next picture (the map flickered, 16 Nov)
+                    if self.grabber.no_picture {
+                        return;
+                    }
+                    m
                 }
                 None => super::grab::screen_part(&self.sh, c, corner),
             },
