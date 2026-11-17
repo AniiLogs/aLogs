@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*"]
 # (the reference checkouts have Rust projects of their own, e.g. aLogs' OCR helper, built on their own; so do the
-# B16 app and its OCR helper in app/, which betas and releases are still built from)
+# B16 app in app/src-tauri, kept for now, and the OCR helper in app/ocr-helper, which betas ship beside the meter)
 exclude = ["reference", "app/src-tauri", "app/ocr-helper"]
 
 [workspace.package]

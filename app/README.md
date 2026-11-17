@@ -16,12 +16,18 @@ the dashboard, plus all logs and records under `logs\`.
 
 ## Build
 
+Betas and releases are built from the Rust workspace (`../crates`, the app in `../crates/alogs-app`); the scripts
+here drive it (`paths.mjs` says where everything is):
+
 ```
 npm install
-npm run build          # packages the meter (PyInstaller), then builds the app + NSIS installer
+npm run build:rc       # a test build: OCR helper, meter, Sanctum Helper, app + NSIS installer, signed for the updater
+npm run build          # the same after bumping the version (bump-version.mjs)
 ```
 
-Output: `src-tauri/target/release/bundle/nsis/aLogs_<version>_x64-setup.exe`.
+Output: `../target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe` and its `.sig`, and the build's map in
+`../target/release/bundle/maps/`. The RC number carries on from the last build of that version (the B16 app's
+`src-tauri/target/release/bundle/rc-<version>.txt` too); the beta number is one past `betas.json`.
 
 ## Release
 

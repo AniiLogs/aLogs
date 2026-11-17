@@ -57,9 +57,10 @@ them like the logs: private, never copied into code, commits, issues or PRs.
 | `settings.json` | The meter's settings (sign-in removed) |
 | `sanctum/` | Sanctum Helper's `log.txt`, settings and state |
 
-Where the code lives: the meter is `bossbar/` (Python; `live.py` runs fights, `reader.py` reads the screen), the app
-is `app/` (Tauri: Rust in `app/src-tauri/src`, UI in `app/ui`). Fight rows are written by `Fight.update` in
-`bossbar/live.py`; the fight's end is in `end_fight`.
+Where the code lives: betas from 17 Nov 2026 on are the Rust workspace in `crates/`: the meter is `crates/alogs-meter`,
+the app `crates/alogs-app` (Rust in `src/`, UI in `ui/`), Sanctum Helper `crates/alogs-sanctum`. Reports from 0.1.37
+B16 and older come from the Python meter in `bossbar/` (`live.py` runs fights, `reader.py` reads the screen; fight rows
+are written by `Fight.update` in `bossbar/live.py`, the fight's end is in `end_fight`) and the app in `app/src-tauri`.
 
 ## Working on a fix
 
@@ -77,14 +78,15 @@ is `app/` (Tauri: Rust in `app/src-tauri/src`, UI in `app/ui`). Fight rows are w
 
 ## A window that froze
 
-When the window doesn't answer for 5 s, the app writes a line to `app.log` (`app/src-tauri/src/watchdog.rs`), and again
+When the window doesn't answer for 5 s, the app writes a line to `app.log` (`crates/alogs-app/src/watchdog.rs`), and again
 at 30 s:
 
     window: not answering for 5 s. The page's last calls: collect_logs 0.4 s ago, ... The window's thread is at:
     ntdll.dll+0xa1024 (NtWaitForSingleObject) < KERNELBASE.dll+0x... < alogs-app.exe+0x1a2b3c < ...
 
 Innermost call first. System files come with the function's name. For `alogs-app.exe+0x...`, look the offset up in that
-build's map: `app/src-tauri/target/release/bundle/maps/aLogs_<version>_RC<n>.map` on the PC that built it (the report's
+build's map: `target/release/bundle/maps/aLogs_<version>_RC<n>.map` on the PC that built it (B16 and older:
+`app/src-tauri/target/release/bundle/maps/`; the report's
 `app.txt` says the RC). In the map, a function's "Rva+Base" minus the preferred load address (the first lines) is its
 offset; the frame is in the function with the largest offset not above the frame's. `window: answering again after N s`
 means it came back by itself; no such line and a new `window: aLogs started` means the player closed it. A `panic on

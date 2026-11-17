@@ -5,7 +5,10 @@
   "identifier": "app.alogs.desktop",
   "build": {
     "frontendDist": "ui",
-    "beforeBundleCommand": ""
+    "beforeBundleCommand": {
+      "script": "node set-exe-version.mjs",
+      "cwd": "../../app"
+    }
   },
   "app": {
     "withGlobalTauri": true,

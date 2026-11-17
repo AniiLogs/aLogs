@@ -1,4 +1,5 @@
-// Publishes the newest test build (src-tauri/target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe) to GitHub.
+// Publishes the newest test build (the workspace's target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe,
+// see paths.mjs) to GitHub.
 // Tester links and the public beta (B1, B2 ...) are pre-releases, never "latest": they reach only players with "Get
 // beta updates" on (the beta feed, beta.json), while the site's Download button and everyone else's update check
 // (latest.json) stay on the real release (release.mjs). The user's rule (2026-10-31): only a pre-release is beta-only.
@@ -11,7 +12,9 @@
 //   a beta also updates the app's beta feed (update-feed.mjs), so testers get it through the app
 //   add --dry-run to print what would happen, publish nothing
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import * as paths from "./paths.mjs";
 import { betaNotes, changelogNotes, feed, feedRelease, putJson } from "./update-feed.mjs";
 
 const REPO = "AniiLogs/aniilogs.github.io";
@@ -20,14 +23,15 @@ const dryRun = process.argv.includes("--dry-run");
 const notesOnly = process.argv.includes("--notes-only");
 if (!mode) throw new Error("Use --test (tester link) or --beta (this version's beta).");
 
-const version = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
-const nsis = "src-tauri/target/release/bundle/nsis";
+process.chdir(paths.appDir);                      // CHANGELOG.md and betas.json are app/'s, wherever this runs from
+const version = paths.version();
+const nsis = paths.nsis;
 const rc = (name) => { const m = /^aLogs_(.+)_RC(\d+)_x64-setup\.exe$/u.exec(name); return m && m[1] === version ? Number(m[2]) : -1; };
-const newest = readdirSync(nsis).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
+const newest = (existsSync(nsis) ? readdirSync(nsis) : []).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
 if (!newest) throw new Error(`No test build of ${version} in ${nsis}: run npm run build:rc first.`);
-const installer = `${nsis}/${newest}`;
+const installer = join(nsis, newest);
 // which beta this build is (B2), from the build itself (tauri-build.mjs); 0 for a build from before betas were numbered
-const built_as = JSON.parse(readFileSync("src-tauri/build.json", "utf8"));
+const built_as = existsSync(paths.buildJson) ? JSON.parse(readFileSync(paths.buildJson, "utf8")) : {};
 const beta = built_as.version === version && built_as.rc === rc(newest) ? built_as.beta ?? 0 : 0;
 const buildName = beta ? `B${beta}` : `RC${rc(newest)}`;
 
@@ -86,6 +90,9 @@ if (notesOnly) {                                  // the notes alone: no build s
   process.exitCode = 0;
 } else {
 console.log(`${dryRun ? "[dry run] " : ""}${name}${fold ? " (updated in place)" : ""}: ${installer} (${(statSync(installer).size / 1048576).toFixed(1)} MB) as ${asset}, tag ${tag}`);
+if (dryRun) console.log(`--- notes ---
+${body}
+---`);   // what the release and the beta feed would say
 for (const r of stale) await remove(r);
 if (!dryRun) await publish();
 }

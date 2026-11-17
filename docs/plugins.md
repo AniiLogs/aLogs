@@ -110,7 +110,9 @@ listed below, so it can change freely inside as long as these hold. The aLogs si
 `app/src-tauri/src/sanctum.rs`. The Sanctum Helper side is `Hosted.cs`, `SharedCapture.cs` and `SharedNotices.cs`.
 
 ### Starting and stopping
-- aLogs bundles it as `resources\sanctumhelper\SanctumHelper.exe` (`app/build-sanctum.ps1`).
+- aLogs bundles it as `resources\sanctumhelper\SanctumHelper.exe`: since 17 Nov 2026 the Rust port
+  (`crates/alogs-sanctum`, laid out with its `Assets` by `app/resources.mjs`), which needs no .NET; B16 and older
+  bundled this project's .NET build (`app/build-sanctum.ps1`).
 - aLogs starts it as `SanctumHelper.exe --hosted --parent <aLogs pid>`, with the working folder set to the exe's
   folder and no console window. Hosted, it has no tray icon or settings window of its own. It quits when the parent
   is gone.

@@ -1,52 +1,39 @@
-# Builds a preview installer of the Rust aLogs (no release, no betas.json, no update signing):
+# Builds a preview installer of aLogs from the Rust workspace without the update-signing key (a developer's PC, or a
+# build for testers that published builds of the same version mustn't replace):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\package-preview.ps1 [-Rc 9000] [-Beta 0]
-# 1. release builds of the meter, Sanctum Helper and the OCR helper (from reference/aLogs/app/ocr-helper);
-# 2. the app's resources folders laid out as the installer expects (all git-ignored: Sanctum Helper's Assets hold the
-#    game's map art, never committed): resources/meter (alogs-meter.exe, the shipped data, ocr-helper.exe),
-#    resources/sanctumhelper (SanctumHelper.exe and its Assets), resources/vendor (HidHide);
-# 3. build.json with a high RC number, so the app's updater doesn't replace this build with the published 0.1.x of the
-#    same version (a newer version still does);
-# 4. `tauri build` (@tauri-apps/cli 2.12.4, as the reference pins) without update artifacts: nothing is signed.
-# The installer lands in target/release/bundle/nsis/.
+# The same steps as `npm run build:rc` in app/ (patch notes, the game-data check, the OCR helper, meter and Sanctum
+# Helper, then app/resources.mjs laying out what the installer carries), then build.json with a high RC number, so the
+# app's updater doesn't replace this build with a published one of the same version (a newer version still does), and
+# `tauri build` without update artifacts: nothing is signed, and no RC counter or betas.json is touched.
+# Needs `npm install` in app/ and Sanctum Helper's checkout as SanctumHelper/ (see app/resources.mjs).
+# The installer lands in target/release/bundle/nsis/ as aLogs_<version>_preview-RC<n>_x64-setup.exe, a name the
+# publish scripts (share.mjs, release.mjs) never pick up.
 param([int]$Rc = 9000, [int]$Beta = 0)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
-$ref = Join-Path $root "reference"
-$app = Join-Path $root "crates\alogs-app"
-$res = Join-Path $app "resources"
+$appDir = Join-Path $root "app"
+$crate = Join-Path $root "crates\alogs-app"
+$cli = Join-Path $appDir "node_modules\@tauri-apps\cli\tauri.js"
+if (-not (Test-Path $cli)) { throw "No Tauri CLI in app\node_modules: run npm install in app\ first." }
 
-Push-Location $root
+Push-Location $appDir
 try {
-    cargo build --release -p alogs-meter -p alogs-sanctum
-    if ($LASTEXITCODE) { throw "cargo build failed" }
-    cargo build --release --manifest-path (Join-Path $ref "aLogs\app\ocr-helper\Cargo.toml")
-    if ($LASTEXITCODE) { throw "ocr-helper build failed" }
-
-    foreach ($d in "meter", "sanctumhelper", "vendor") {
-        $p = Join-Path $res $d
-        if (Test-Path $p) { Get-ChildItem $p -Force | Where-Object { $_.Name -ne ".gitkeep" } | Remove-Item -Recurse -Force }
-        else { New-Item -ItemType Directory $p | Out-Null }
+    foreach ($step in "notes", "meter:build", "sanctum:build", "resources") {
+        npm run $step
+        if ($LASTEXITCODE) { throw "npm run $step failed" }
     }
-    $bossbar = Join-Path $ref "aLogs\bossbar"
-    $meter = Join-Path $res "meter"
-    Copy-Item (Join-Path $root "target\release\alogs-meter.exe") $meter
-    foreach ($f in "plugins.json", "boss_catalog.csv", "boss_rush_grades.csv", "boss_rush_cycles.json", "xn_templates.json", "boss_break.json") {
-        Copy-Item (Join-Path $bossbar $f) $meter
-    }
-    Copy-Item (Join-Path $ref "aLogs\app\ocr-helper\target\release\ocr-helper.exe") $meter
-    Copy-Item (Join-Path $ref "aLogs\app\ocr-helper\model\LICENSE-model.txt") $meter
-    $sanctum = Join-Path $res "sanctumhelper"
-    Copy-Item (Join-Path $root "target\release\SanctumHelper.exe") $sanctum
-    Copy-Item (Join-Path $ref "SanctumHelper\app\SanctumHelper\Assets") (Join-Path $sanctum "Assets") -Recurse
-    Copy-Item (Join-Path $bossbar "vendor\*") (Join-Path $res "vendor") -Recurse
-
-    $version = (Get-Content (Join-Path $app "tauri.conf.json") -Raw | ConvertFrom-Json).version
-    Set-Content (Join-Path $app "build.json") ("{""version"":""$version"",""rc"":$Rc,""beta"":$Beta}") -Encoding ascii -NoNewline
-
-    Push-Location $app
-    try {
-        npx --yes @tauri-apps/cli@2.12.4 build --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'
-        if ($LASTEXITCODE) { throw "tauri build failed" }
-    } finally { Pop-Location }
-    Get-ChildItem (Join-Path $root "target\release\bundle\nsis") -Filter *.exe | ForEach-Object { "installer: $($_.FullName) ({0:N1} MB)" -f ($_.Length / 1MB) }
 } finally { Pop-Location }
+
+$version = (Get-Content (Join-Path $crate "tauri.conf.json") -Raw | ConvertFrom-Json).version
+Set-Content (Join-Path $crate "build.json") ("{""version"":""$version"",""rc"":$Rc,""beta"":$Beta}") -Encoding ascii -NoNewline
+
+Push-Location $crate
+try {
+    node $cli build --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'
+    if ($LASTEXITCODE) { throw "tauri build failed" }
+} finally { Pop-Location }
+$nsis = Join-Path $root "target\release\bundle\nsis"
+$built = Join-Path $nsis "aLogs_${version}_x64-setup.exe"
+$preview = Join-Path $nsis "aLogs_${version}_preview-RC${Rc}_x64-setup.exe"
+Move-Item $built $preview -Force
+"installer: $preview ({0:N1} MB)" -f ((Get-Item $preview).Length / 1MB)

@@ -1,9 +1,12 @@
-// Writes ui/patch-notes.js from CHANGELOG.md: the newest five versions, for the About page. Runs before every build
-// (npm run build), so the notes in the app always match the ones on the GitHub Release.
+// Writes the About page's patch notes from CHANGELOG.md (the newest five versions) into the Rust app's
+// crates/alogs-app/ui/patch-notes.js, the one betas and releases ship, and the B16 app's ui/patch-notes.js. Runs
+// before every build (npm run build, build:rc), so the notes in the app always match the ones on the GitHub Release.
 import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import * as paths from "./paths.mjs";
 
 const KEEP = 5;
-const text = readFileSync("CHANGELOG.md", "utf8").replace(/\r\n/gu, "\n");
+const text = readFileSync(join(paths.appDir, "CHANGELOG.md"), "utf8").replace(/\r\n/gu, "\n");
 const versions = [];
 let block = null;
 for (const line of text.split("\n")) {
@@ -21,5 +24,6 @@ for (const line of text.split("\n")) {
 }
 
 const notes = versions.slice(0, KEEP).map((v) => ({ ...v, intro: v.intro.join(" ") }));
-writeFileSync("ui/patch-notes.js", `// Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.\nwindow.PATCH_NOTES = ${JSON.stringify(notes, null, 1)};\n`);
+const js = `// Generated from CHANGELOG.md by patch-notes.mjs - edit the changelog, not this file.\nwindow.PATCH_NOTES = ${JSON.stringify(notes, null, 1)};\n`;
+for (const ui of [join(paths.crate, "ui"), join(paths.appDir, "ui")]) writeFileSync(join(ui, "patch-notes.js"), js);
 console.log(`patch notes: ${notes.map((v) => v.version).join(", ")}`);
