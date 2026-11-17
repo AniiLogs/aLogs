@@ -1,4 +1,4 @@
-//! aLogs' plug-ins: the one list (bossbar/plugins.json) the app and the meter both read - each plug-in's name, page,
+//! aLogs' plug-ins: the one list (crates/alogs-protocol/plugins.json) the app and the meter both read - each plug-in's name, page,
 //! switch, whether it's opt-in, what it needs and which notices it owns. The button over the game switches the ones it
 //! controls (General Settings › The button over the game: button.controls.<id>), and the app builds its plug-in
 //! controls and statuses from it (`plugins`).

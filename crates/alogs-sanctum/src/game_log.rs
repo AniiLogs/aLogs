@@ -4,7 +4,7 @@
 //! Port of `GameLog.cs`.
 
 use regex::Regex;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -23,7 +23,6 @@ static CONNECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"connect to world
 static SCENE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"createVoxelScene new>>>id:(\S+)").unwrap());
 static SANCTUM_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"scene='Level_FB_Random_Map_(\d+)'").unwrap());
 static HOMELAND_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+-\d+-550$").unwrap());
-static MESH: LazyLock<Regex> = LazyLock::new(|| Regex::new("Convex Mesh from source mesh \"([^\"]+)\"").unwrap());
 
 pub struct GameLog {
     pub place: Place,
@@ -32,14 +31,8 @@ pub struct GameLog {
     pub sanctum_scene: Option<i64>,
     pub sanctum_named_at: f64,
     pub visit: i64,
-    pub mesh_seq: i64,
-    pub mesh_at: f64,
-    /// Dev switches rock-log and log-island.
-    pub rock_log: bool,
-    pub log_island: bool,
     /// Changes seen live (not while catching up at startup): (new place, a new run).
     pub changes: Vec<(Place, bool)>,
-    meshes: BTreeSet<String>,
     interlink: bool,
     pending_id: Option<String>,
     pending_at: f64,
@@ -62,8 +55,8 @@ impl GameLog {
     pub fn new(path: Option<PathBuf>) -> GameLog {
         let path = path.unwrap_or_else(|| PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("AppData").join("LocalLow").join("Aniimo").join("Aniimo").join("Player.log"));
         GameLog {
-            place: Place::Unknown, available: false, sanctum_scene: None, sanctum_named_at: 0.0, visit: 0, mesh_seq: 0, mesh_at: 0.0, rock_log: false,
-            log_island: false, changes: vec![], meshes: BTreeSet::new(), interlink: false, pending_id: None, pending_at: 0.0, outside: HashSet::new(),
+            place: Place::Unknown, available: false, sanctum_scene: None, sanctum_named_at: 0.0, visit: 0, changes: vec![],
+            interlink: false, pending_id: None, pending_at: 0.0, outside: HashSet::new(),
             path, pos: 0, partial: vec![], server: None, island_id: None, sanctum_id: None, catching_up: true, clock: Box::new(now),
         }
     }
@@ -77,10 +70,6 @@ impl GameLog {
     /// The island id of the current run.
     pub fn run_id(&self) -> Option<&str> {
         self.island_id.as_deref()
-    }
-
-    pub fn meshes(&self) -> Vec<String> {
-        self.meshes.iter().cloned().collect()
     }
 
     /// Reads what the game added since last time (the whole log the first time, to know where a run already stands).
@@ -131,15 +120,6 @@ impl GameLog {
 
     fn line(&mut self, line: &str) {
         let t = (self.clock)();
-        if self.rock_log && !self.catching_up && line.contains("Convex Mesh from source mesh") {
-            if let Some(m) = MESH.captures(line)
-                && self.meshes.insert(m[1].to_string())
-            {
-                self.mesh_seq += 1;
-                self.mesh_at = t;
-            }
-            return;
-        }
         if line.contains("connect to worldx-")
             && let Some(c) = CONNECT.captures(line)
         {
@@ -162,9 +142,6 @@ impl GameLog {
             return;
         }
         if line.contains("Level_BW_GrabEggs") {
-            if self.pending_id.is_some() && self.log_island {
-                self.settle(true);
-            }
             return;
         }
         if line.contains("fb_bossrush") || line.contains("fb_roguelike") {
@@ -185,7 +162,6 @@ impl GameLog {
         let id = m[1].to_string();
         if self.pending_id.as_ref() != Some(&id) {
             self.visit += 1;
-            self.meshes.clear();
         }
         let dungeon = self.server.as_deref() == Some("dungeon");
         if !dungeon {

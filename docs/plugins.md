@@ -4,9 +4,11 @@ aLogs is a core with plug-ins. Each plug-in has its own switch and settings page
 None depends on another being on. The core is what they share: the game reader, the screen capture, the notices
 window and the button over the game.
 
-The list of plug-ins is [`bossbar/plugins.json`](../bossbar/plugins.json). The app reads it through
-`app/src-tauri/src/plugins.rs` (the `plugins` command) and the meter through `bossbar/plugins.py`. Everything that
-treats the plug-ins as a set uses this list, so a new plug-in doesn't need new wiring there:
+The list of plug-ins is [`crates/alogs-protocol/plugins.json`](../crates/alogs-protocol/plugins.json), the one copy:
+the app builds it in (`crates/alogs-app/src/plugins.rs`, the `plugins` command), so does the meter
+(`crates/alogs-protocol/src/plugins.rs`, which reads the copy the installer puts beside it first), and
+`app/resources.mjs` ships it. Everything that treats the plug-ins as a set uses this list, so a new plug-in doesn't
+need new wiring there:
 - the button over the game, and its choice of which plug-ins it controls;
 - the sidebar statuses;
 - the toast owners;
@@ -16,16 +18,16 @@ treats the plug-ins as a set uses this list, so a new plug-in doesn't need new w
 
 | Part | Owner | Code |
 | --- | --- | --- |
-| Reading loop, OCR, game log, names, settings, diagnostics | core | `bossbar/live.py`, `core.py` |
-| Following a boss fight on its HP bar | core (the DPS meter shows it; the leaderboards send it) | `bossbar/fights.py` |
-| Reading end screens into runs (result, Battle Data, Holo-Battle Sim, Egg Heist, Challenge Stats) | core (the DPS meter keeps them as your results; the leaderboards send them) | `bossbar/results.py` |
-| Notices over the game, for every plug-in | core | `bossbar/notice_window.py` |
-| The button over the game | core | `app/src-tauri/src/overlay_button.rs` |
-| The boss kill sound (Audio cues, on the DPS meter's page) | DPS meter | `app/src-tauri/src/audio.rs` |
-| Screen capture | core | `app/src-tauri/src/capture.rs`, [shared-capture.md](shared-capture.md) |
-| DPS window, HP labels, end-screen notes, "You're being attacked" | DPS meter | `bossbar/dps_overlay.py` |
-| Deciding and sending runs, proof automation, character link, online status | Leaderboards | `bossbar/leaderboards.py`, `submit.py` |
-| The Lost Sanctum layout, nests, key rooms | Sanctum Helper | its own program (`SanctumHelper/`) |
+| Reading loop, OCR, game log, names, settings, diagnostics | core | `crates/alogs-meter/src/meter.rs`, `screens.rs`, `diag.rs`; `crates/alogs-reader`, `alogs-gamelog`, `alogs-protocol` |
+| Following a boss fight on its HP bar | core (the DPS meter shows it; the leaderboards send it) | `crates/alogs-meter/src/fights.rs` |
+| Reading end screens into runs (result, Battle Data, Holo-Battle Sim, Egg Heist, Challenge Stats) | core (the DPS meter keeps them as your results; the leaderboards send them) | `crates/alogs-meter/src/results.rs`, `sim.rs`, `egg.rs` |
+| Notices over the game, for every plug-in | core | `crates/alogs-meter/src/overlay.rs`, `crates/alogs-protocol/src/notices.rs` |
+| The button over the game | core | `crates/alogs-app/src/overlay_button.rs` |
+| The boss kill sound (Audio cues, on the DPS meter's page) | DPS meter | `crates/alogs-app/src/audio.rs` |
+| Screen capture | core | `crates/alogs-app/src/capture.rs`, [shared-capture.md](shared-capture.md) |
+| DPS window, HP labels, end-screen notes, "You're being attacked" | DPS meter | `crates/alogs-meter/src/overlay.rs` |
+| Deciding and sending runs, proof automation, character link, online status | Leaderboards | `crates/alogs-meter/src/leaderboards.rs`, `submit.rs` |
+| The Lost Sanctum layout, nests, key rooms | Sanctum Helper | its own program, ported to Rust in `crates/alogs-sanctum` (its map art from the `SanctumHelper/` checkout) |
 
 ## The list's fields
 
@@ -65,12 +67,15 @@ treats the plug-ins as a set uses this list, so a new plug-in doesn't need new w
 
 ## Adding a plug-in
 
-1. Add it to `bossbar/plugins.json`. The Rust test `plugins::tests::the_list_reads` lists the ids, so update it too.
-2. Give it a page in `app/ui/index.html`, with `data-page` matching `page`, and a sidebar switch.
+1. Add it to `crates/alogs-protocol/plugins.json`. The app's test `plugins::tests::the_list_reads` lists the ids, so
+   update it too.
+2. Give it a page in `crates/alogs-app/ui/index.html`, with `data-page` matching `page`, and a sidebar switch.
 3. If it runs inside the meter:
-   - Put its code in its own file, with a mixin the `Meter` takes (see `leaderboards.py`).
-   - Use `log = logging.getLogger('meter.<log>')`.
-   - Wrap the methods the core calls with `guarded('<id>', fallback)`.
+   - Put its code in a module of its own in `crates/alogs-meter/src/`, an `impl Meter` block (see `leaderboards.rs`).
+   - Log with `log::info!(target: "meter", ...)`.
+   - Wrap the methods the core calls with `Health::guarded` (`crates/alogs-protocol/src/plugins.rs`, tested in
+     `alogs-protocol`'s tests). B16's meter wrapped each plug-in's methods this way; the Rust meter doesn't call it
+     yet, so wire it in with the new plug-in.
 4. If it's its own program: start and stop it from the app like Sanctum Helper (below). It reads the game picture
    from the shared capture ([shared-capture.md](shared-capture.md)) and hands its notices over the same way.
 
@@ -79,14 +84,15 @@ treats the plug-ins as a set uses this list, so a new plug-in doesn't need new w
 A proposed change that testers can try alone (Beta Menu › Dev, beta builds only). With its switch off, the code does exactly
 what it did before. All are off at every start, except what a tester made Persistent.
 
-1. Add it to [`app/ui/dev-options.json`](../app/ui/dev-options.json), in its section's place: `id`; `plugin` (`core`, `dps`
+1. Add it to [`crates/alogs-app/ui/dev-options.json`](../crates/alogs-app/ui/dev-options.json), in its section's place: `id`; `plugin` (`core`, `dps`
    or `leaderboards`, whoever owns the code in the table above); `section` (`No known risk`, `Low risk`, `High risk`);
    `area` (`CPU`, `Smoothness`, `Accuracy`, `Memory`, `Speed`); `title`, `what`, `gain`, `risk`, `tested` for players, in plain
    words, no file names; `revision` (1). Be honest: `tested` says `Not tested yet` unless you tested it, and what you
    tested it on.
-2. Guard the change: `devflags.on('<id>')` in the meter (at most one look at the file a second, never raises; put cheap
-   conditions first), `crate::dev::on("<id>")` in the app.
-3. Test it on and off (`bossbar/tests/dev_switches.py`). That test also fails on an id the list doesn't have.
+2. Guard the change: `self.dev.on("<id>")` in the meter (`DevFlags`, `crates/alogs-protocol/src/devflags.rs`: at most
+   one look at the file a second, never fails; put cheap conditions first), `crate::dev::on("<id>")` in the app.
+3. Test it on and off. `dev::tests::the_list_is_complete` (`crates/alogs-app`) checks the list's fields; nothing checks
+   yet that an id the code asks for is in the list (B16's Python test did).
 
 **Raise `revision` only when the switch's behaviour changes.** That turns it off for everyone who made it Persistent, and
 the tab says which changed so they can test it again. Rewording its text isn't a change. A new id starts fresh.
@@ -101,18 +107,20 @@ be seen in the logs can't become the default.
 
 On a release build `dev::start` loads nothing, every switch reads off and the meter isn't told about the list
 (`ALOGS_DEV_ON`). Files, in the meter's data folder: `dev-persistent.json` (`{id: revision}`) and `dev-on.json` (what's on
-now, for the meter). Sanctum Helper has its own switches and tab data (`Dev.cs`); the tab draws both the same way.
+now, for the meter). Sanctum Helper's own switches (`Dev.cs` in its C# program) were not ported and are dropped for
+now: its Rust port lists none and has none on, so the tab shows only aLogs' own.
 
 ## Sanctum Helper: what aLogs and it agree on
 
 Sanctum Helper is its own program (C#, .NET 9 Desktop Runtime). aLogs runs it and talks to it only through what's
 listed below, so it can change freely inside as long as these hold. The aLogs side is
-`app/src-tauri/src/sanctum.rs`. The Sanctum Helper side is `Hosted.cs`, `SharedCapture.cs` and `SharedNotices.cs`.
+`crates/alogs-app/src/sanctum.rs`. The Sanctum Helper side is `Hosted.cs`, `SharedCapture.cs` and `SharedNotices.cs`,
+ported to `crates/alogs-sanctum/src/hosted.rs`, `shared_capture.rs` and `notices.rs`.
 
 ### Starting and stopping
 - aLogs bundles it as `resources\sanctumhelper\SanctumHelper.exe`: since 17 Nov 2026 the Rust port
   (`crates/alogs-sanctum`, laid out with its `Assets` by `app/resources.mjs`), which needs no .NET; B16 and older
-  bundled this project's .NET build (`app/build-sanctum.ps1`).
+  bundled this project's .NET build (made by `app/build-sanctum.ps1`, which left the repository with the B16 app).
 - aLogs starts it as `SanctumHelper.exe --hosted --parent <aLogs pid>`, with the working folder set to the exe's
   folder and no console window. Hosted, it has no tray icon or settings window of its own. It quits when the parent
   is gone.

@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# (the reference checkouts have Rust projects of their own, e.g. aLogs' OCR helper, built on their own; so do the
-# B16 app in app/src-tauri, kept for now, and the OCR helper in app/ocr-helper, which betas ship beside the meter)
-exclude = ["reference", "app/src-tauri", "app/ocr-helper"]
+# (the reference checkouts have Rust projects of their own, e.g. aLogs' OCR helper, built on their own; so does the
+# OCR helper in app/ocr-helper, which betas ship beside the meter)
+exclude = ["reference", "app/ocr-helper"]
 
 [workspace.package]
 version = "0.1.37"

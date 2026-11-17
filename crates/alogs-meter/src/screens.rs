@@ -198,9 +198,6 @@ impl Meter {
     /// The game's screens with text, read about once a second (back to back while a fight's bar is hidden).
     pub fn check_battle_data(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64) {
         let quick = self.fight.is_some() && now - self.bar_seen > 0.5;
-        if self.names_waiting() {
-            return; // a screen waits for its players' names: it's handled first
-        }
         // live, the read is made on a helper of its own and handled on a later look, with the frame it was made from
         if let Some((text, (frame, at))) = self.screen_bg.as_ref().and_then(|w| w.take()) {
             self.read_screen(frames, out, &frame, at, &text);

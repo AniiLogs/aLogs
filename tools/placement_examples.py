@@ -3,14 +3,16 @@
     python tools/placement_examples.py <overworld 4K frame> [out folder]
 
 The overworld pictures are a saved 4K fight frame (Captures & logs › Save test pictures) with the DPS window drawn in
-the game font where live.py's show_dps puts it, cropped to the part of the screen it sits in. The Interlink pictures
-start from the two earlier ones in app/ui/img, which share one frame: each is clean where the other had the window, so
-together they give the frame without it. Keep the spot numbers here in step with show_dps."""
+the game font where the B16 meter's show_dps (live.py) puts it, cropped to the part of the screen it sits in. The
+Interlink pictures start from the two earlier ones in crates/alogs-app/ui/img, which share one frame: each is clean
+where the other had the window, so together they give the frame without it. Keep the spot numbers here in step with
+the meter's overlay (crates/alogs-meter/src/overlay.rs). The game font is drawn with the B16 meter's gamefont.py, from
+a checkout of the old commit as reference/aLogs (the Python meter left this repository on 17 Nov 2026)."""
 import os, sys
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, '..', 'bossbar'))
+sys.path.insert(0, os.path.join(HERE, '..', 'reference', 'aLogs', 'bossbar'))
 import gamefont
 
 FONT = gamefont.GameFont.load(os.path.join(os.environ['LOCALAPPDATA'], 'aLogs', 'meter', 'gamefont'), None)
@@ -51,7 +53,7 @@ def interlink(old, out):
         big.resize(clean.size, Image.LANCZOS).convert('RGB').save(os.path.join(out, name), quality=90)
 
 if __name__ == '__main__':
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, '..', 'app', 'ui', 'img')
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, '..', 'crates', 'alogs-app', 'ui', 'img')
     overworld(sys.argv[1], out)
-    interlink(os.path.join(HERE, '..', 'app', 'ui', 'img'), out)
+    interlink(os.path.join(HERE, '..', 'crates', 'alogs-app', 'ui', 'img'), out)
     print('saved in', out)

@@ -1,5 +1,5 @@
 //! Beta Menu > Dev: the switches of the core, the DPS meter and the leaderboards (Sanctum Helper keeps its own, in its
-//! program). Each is a proposed change, to test alone; their list is app/ui/dev-options.json, and docs/plugins.md says how
+//! program). Each is a proposed change, to test alone; their list is ui/dev-options.json, and docs/plugins.md says how
 //! to add one.
 //!
 //! All off at every start, so off means behaviour as in 0.1.36. The one exception is a switch a tester made persistent:
@@ -7,7 +7,7 @@
 //! changed. Only persistent choices are saved (with their revision), in dev-persistent.json.
 //!
 //! Beta builds only: on a release build nothing is loaded and every switch stays off, and the meter isn't even told where
-//! the list of what's on is (ALOGS_DEV_ON, read by bossbar/devflags.py).
+//! the list of what's on is (ALOGS_DEV_ON, read by alogs-protocol's devflags.rs).
 //!
 //! The tab also asks how each switch went ("How did it go?"): a verdict and a note per switch, kept here with how long
 //! the switch has been on while the game was open (Sanctum Helper's too, under "sanctum:<id>"), in dev-verdicts.json.

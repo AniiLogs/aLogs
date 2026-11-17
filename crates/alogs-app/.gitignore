@@ -1,10 +1,2 @@
 # written by build.rs / the release script: this build's RC number
 /build.json
-
-# pictures of the game used in the UI: copied in from the aLogs repo (app/ui/img), not committed here
-/ui/img/backdrop-scene.jpg
-/ui/img/backdrop-text.png
-/ui/img/rush-corner.jpg
-/ui/img/rush-panel.jpg
-/ui/img/world-map.jpg
-/ui/img/world-right.jpg

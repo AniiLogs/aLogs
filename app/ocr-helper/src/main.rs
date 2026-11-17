@@ -8,8 +8,8 @@
 //! Tests only: ALOGS_OCR_TEST_LANGS=<tag>,<tag>... (en-US, ko-KR...) makes it act as if only those OCR languages were
 //! installed, on all three of windows_ocr()'s paths (the user's own languages too), and set but empty as if none were
 //! (so is a list with no tag in it, such as ",": Python on Windows drops an empty variable from what a child gets): a
-//! PC with English OCR can then run the no-English path (bossbar/tests/ocr_language.py). A tag the PC doesn't have is
-//! still missing. Not set (as aLogs starts it), the helper picks exactly as without it.
+//! PC with English OCR can then run the no-English path (B16's Python test ocr_language.py did; no Rust test uses it
+//! yet). A tag the PC doesn't have is still missing. Not set (as aLogs starts it), the helper picks exactly as without it.
 //!
 //! Prints `READY<TAB><language>` at start, the tag of the language Windows OCR reads in (en-US; ko-KR when it fell
 //! back to a user's language that isn't English), or `READY<TAB>` with none: the meter warns, and the app offers to
@@ -272,7 +272,7 @@ fn main() -> Result<()> {
     let mut latin = Recognizer::new(LATIN_MODEL, LATIN_DICT);
     let mut input = io::stdin().lock();
     let mut out = BufWriter::new(io::stdout().lock());
-    // the language after a tab ("READY\t" with none): the meter warns when it isn't English (reader.Ocr, live.py)
+    // the language after a tab ("READY\t" with none): the meter warns when it isn't English (alogs-meter's ocrcheck.rs)
     if writeln!(out, "READY\t{}", language_tag(engine.as_ref())).and_then(|_| out.flush()).is_err() { return Ok(()); }
     let mut grey = Vec::new();
     loop {

@@ -59,8 +59,10 @@ them like the logs: private, never copied into code, commits, issues or PRs.
 
 Where the code lives: betas from 17 Nov 2026 on are the Rust workspace in `crates/`: the meter is `crates/alogs-meter`,
 the app `crates/alogs-app` (Rust in `src/`, UI in `ui/`), Sanctum Helper `crates/alogs-sanctum`. Reports from 0.1.37
-B16 and older come from the Python meter in `bossbar/` (`live.py` runs fights, `reader.py` reads the screen; fight rows
-are written by `Fight.update` in `bossbar/live.py`, the fight's end is in `end_fight`) and the app in `app/src-tauri`.
+B16 and older come from the Python meter (`bossbar/`: `live.py` runs fights, `reader.py` reads the screen; fight rows
+are written by `Fight.update` in `live.py`, the fight's end is in `end_fight`) and the app in `app/src-tauri`. Those
+folders left the repository on 17 Nov 2026: read them in a checkout of an older commit (B16 is `e340b39`, the
+reference in [rewrite-plan.md](rewrite-plan.md)) or in the history.
 
 ## Working on a fix
 
@@ -86,7 +88,7 @@ at 30 s:
 
 Innermost call first. System files come with the function's name. For `alogs-app.exe+0x...`, look the offset up in that
 build's map: `target/release/bundle/maps/aLogs_<version>_RC<n>.map` on the PC that built it (B16 and older:
-`app/src-tauri/target/release/bundle/maps/`; the report's
+`app/src-tauri/target/release/bundle/maps/`, still there in a checkout from before; the report's
 `app.txt` says the RC). In the map, a function's "Rva+Base" minus the preferred load address (the first lines) is its
 offset; the frame is in the function with the largest offset not above the frame's. `window: answering again after N s`
 means it came back by itself; no such line and a new `window: aLogs started` means the player closed it. A `panic on
