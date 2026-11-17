@@ -3,14 +3,16 @@
 // render for all of them. Off at every start, on purpose, since a build can change what a switch does; the exception is one
 // a tester made persistent, so they needn't remember what they liked, which has nothing to do with what goes into a release.
 // "How did it go?": a verdict and a note per switch, kept by the app (dev.rs) with how long the switch was on, and sent for all
-// four tabs at once with the logs, the way Report a problem sends them.
+// every tab at once with the logs, the way Report a problem sends them.
 // Temporary: all of this comes out before a real release.
 (() => {
   const invoke = window.__TAURI__.core.invoke;
   const root = document.querySelector("[data-dev-menu]");
   if (!root) return;
 
-  const PLUGINS = [["core", "Core"], ["dps", "DPS meter"], ["sanctum", "Sanctum Helper"], ["leaderboards", "Leaderboards"]];
+  // (No Sanctum Helper tab: the rebuilt Sanctum Helper has no Dev switches. Its code below stays, so the tab comes back by
+  // adding ["sanctum", "Sanctum Helper"] here, and its keys to shownKeys.)
+  const PLUGINS = [["core", "Core"], ["dps", "DPS meter"], ["leaderboards", "Leaderboards"]];
   const WORKS_AS = { core: "aLogs works", dps: "the DPS meter works", sanctum: "Sanctum Helper works", leaderboards: "the leaderboards work" };
   const INFO = "Persistent: this setting starts ON instead of off at every restart and through updates. It only turns off by itself if the developer changes something about it. Don't check this unless you've tested the setting and decided it's no risk for you.";
   const VERDICTS = [["", "No verdict yet"], ["better", "Better"], ["same", "No difference"], ["worse", "Worse"], ["broke", "Broke something"]];
@@ -18,7 +20,7 @@
   // The two that are no use without knowing what happened
   const NEEDS_NOTE = { worse: "Say what got worse, so it can be found in your logs.", broke: "Say what broke, so it can be found in your logs." };
   const TIME_INFO = "Counted a minute at a time, while the game is open.";
-  let plugin = "sanctum";
+  let plugin = "core";
   let state = {};      // Sanctum Helper's, from its program
   let dev = {};        // the others', from the app, and everyone's feedback
   let rendered = "";
@@ -131,11 +133,16 @@
   };
   const toSend = () => [...drafts].filter(([key, draft]) => draft.verdict && !isSent(key, draft)).map(([key, draft]) => ({ key, ...draft }));
 
-  // Verdicts saved earlier, for every tab: the count at the bottom is for all four.
+  // The switches that are on a tab now. A verdict kept for one taken out since (a switch the rebuilt meter doesn't use,
+  // Sanctum Helper's) has no row to show it on: counted as "to send", a missing note on it would block sending for good.
+  const shownKeys = () => new Set((dev.options || []).filter((o) => PLUGINS.some(([id]) => id === o.plugin)).map((o) => o.id));
+
+  // Verdicts saved earlier, for every tab: the count at the bottom is for all of them.
   function adopt() {
     if (!dev.feedback) return false;
+    const shown = shownKeys();
     for (const [key, found] of Object.entries(dev.feedback)) {
-      if (!drafts.has(key) && found.verdict) {
+      if (!drafts.has(key) && found.verdict && shown.has(key)) {
         drafts.set(key, { verdict: found.verdict, note: found.note || "", plugin: found.plugin, title: found.title, revision: found.revision });
       }
     }
