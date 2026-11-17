@@ -1,0 +1,28 @@
+[package]
+name = "alogs-sanctum"
+description = "Sanctum Helper: the Lost Sanctum map over the game, run as a module of aLogs (port of SanctumHelper, C#)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "SanctumHelper"
+path = "src/main.rs"
+
+[dependencies]
+alogs-pil = { path = "../alogs-pil" }
+alogs-capture = { path = "../alogs-capture" }
+serde = { workspace = true }
+serde_json.workspace = true
+regex = "1"
+rustfft = "6"
+png = "0.17"
+unicode-normalization = "0.1"
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Globalization", "Storage_Streams", "Foundation", "Foundation_Collections"] }
+windows-sys = { version = "0.61", features = ["Win32_Globalization", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_Magnification", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_XboxController"] }

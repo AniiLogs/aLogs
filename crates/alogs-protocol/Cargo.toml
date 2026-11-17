@@ -1,0 +1,12 @@
+[package]
+name = "alogs-protocol"
+description = "aLogs' shared files: settings.json, plugins.json, Dev switches, notices, status (port of settings.py, plugins.py, devflags.py)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alogs-pyval = { path = "../alogs-pyval" }
+serde_json.workspace = true
+regex = "1"
+log = "0.4"

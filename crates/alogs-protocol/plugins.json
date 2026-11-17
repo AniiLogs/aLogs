@@ -1,0 +1,44 @@
+{
+  "_about": "aLogs' plug-ins: the one list the app (the button, the sidebar, settings) and the meter (who needs the game reader, who owns which notice) both read. switch: a settings.json pointer, or \"meter\" for the DPS meter's own switch (overlay_button.json). needs: reader (the meter process reading the game), capture (the app's screen capture), input (aLogs may take control of the game). notices: each notice kind the plug-in owns, with the setting that turns it off (null: only the plug-in's switch). Sanctum Helper's own notice switch lives in its settings (it doesn't hand them over when off). docs/plugins.md explains it all.",
+  "core": {
+    "notices": { "button": "/notifications/button" }
+  },
+  "plugins": [
+    {
+      "id": "dps",
+      "name": "DPS meter",
+      "page": "dps",
+      "switch": "meter",
+      "default": true,
+      "opt_in": false,
+      "needs": ["reader", "capture"],
+      "notices": {},
+      "log": "dps",
+      "about": "The DPS window, the HP labels on the boss bar, the notes on end screens and the \"You're being attacked\" alert."
+    },
+    {
+      "id": "sanctum",
+      "name": "Sanctum Helper",
+      "page": "sanctum",
+      "switch": "/sanctum/enabled",
+      "default": true,
+      "opt_in": false,
+      "needs": ["capture"],
+      "notices": { "sanctum": null },
+      "log": "sanctum",
+      "about": "The Egg Heist companion: the Lost Sanctum's layout on your map, nests, key rooms and where you are."
+    },
+    {
+      "id": "leaderboards",
+      "name": "Leaderboards",
+      "page": "leaderboards",
+      "switch": "/leaderboard/submit",
+      "default": false,
+      "opt_in": true,
+      "needs": ["reader", "capture", "input"],
+      "notices": { "record": "/leaderboard/notify_sent" },
+      "log": "leaderboards",
+      "about": "Sends your records to the AniiLogs leaderboards, with the proof automation and your character link."
+    }
+  ]
+}

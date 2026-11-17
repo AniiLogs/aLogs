@@ -1,0 +1,28 @@
+{
+  "build": "0.1.37",
+  "items": [
+    {
+      "id": "damage-guide-checks",
+      "title": "Damage Guide checks",
+      "how": "The site's Damage Guide lists what only the game can settle. Do any section below and report your numbers in the notes.",
+      "details": [
+        "1. Hits to BREAK a pet: in a duel, BREAK a friend's Lv 50 Aniimo using only Fire Kick from a Lv 50 Flameruff with 20 BREAK potential and no BREAK buffs. Target not countered by Fire, no dodge procs. Expect about 19 kicks, roughly 17-19 with crits.",
+        "2. Physical and Magical: hit a target whose P.DEF and M.DEF are far apart with a Physical and a Magical skill of similar Might. Physical should be cut by P.DEF, Magical by M.DEF. Low priority: the game's stat text already says so.",
+        "3. Attack bonus and Damage Amp: use Ignitis's Dark Dash (+40% basic attack damage) with Glacy's Glimmer Shot (+15% Damage Amp). Basic attacks should do x1.61, not x1.55. Report a hit with neither, with each, and with both.",
+        "4. Whole-team buffs: cast Tromber's Zephyr's Breath or Sparkelf's Inspiration, switch in a benched Aniimo, and compare one hit with and without the buff.",
+        "5. ATK by role: a Lv 70 Heal, Support or REGEN Aniimo with ATK well under 600 should hit for about (420 + 0.3 x ATK - DEF) x Might / 10. Report its ATK, the skill's Might and the target's DEF.",
+        "6. Level gap: hit the same kind of target at your level and one about 10 levels above with the same skill. The ratio (0.7, 0.5 or 0.9) shows which column applies. Report your level, the target's and both hits."
+      ]
+    },
+    {
+      "id": "world-boss-clock",
+      "title": "World boss clock and result",
+      "how": "Fight a world boss: the clock starts at the first hit, ends at the kill sound, and the final numbers stay on screen."
+    },
+    {
+      "id": "windows-11-tabout",
+      "title": "Windows 11: tabbed-out boss bar",
+      "how": "On Windows 11 only: tab out during a boss fight; say whether the boss bar keeps being read (the log notes what it sees)."
+    }
+  ]
+}

@@ -41,3 +41,12 @@ __pycache__/
 
 # log reports downloaded with tools/log-reports.mjs (players' logs: never committed)
 /log-reports/
+
+# the Rust rewrite (crates/, docs/rewrite-plan.md): its build output, the reference checkouts it is compared with,
+# built programs and its local developer token
+/target
+/reference/
+*.exe
+dev-token
+/tools/cv-goldens/bin/
+/tools/cv-goldens/obj/
