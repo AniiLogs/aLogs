@@ -30,6 +30,8 @@ pub struct SimState {
     pub species_team: Option<Value>,
     /// The Victory screen's cards still to be named from their art, once aLogs has given control back (sim_cards_finish).
     pub cards: Option<SimCards>,
+    /// The frame size every Aniimo's card art is ready for (sim_cards_warm).
+    pub warm: Option<(usize, usize)>,
     pub ctl: Option<crate::sim_tour::SimCtl>,
     pub tour: Option<crate::sim_tour::Tour>,
     pub gate: crate::sim_tour::GateState,
@@ -44,6 +46,8 @@ pub struct SimState {
 /// Aniimo's can reach 0.66 on a card (17 Nov; the right ones gave 0.80 to 0.94). Under it the card is named the slow
 /// way, so too high costs time and never a wrong name.
 pub const SIM_CARD_NAMED: f64 = 0.7;
+/// How many card arts `sim_cards_warm` makes ready a look.
+pub const SIM_WARM_A_LOOK: usize = 40;
 
 /// The Victory screen as it was read, kept until its team is named: the cards whose own line names an Aniimo whose art
 /// is on the card are known at once (`known`); the others (a nickname, a line not read) need every Aniimo's art
@@ -113,6 +117,25 @@ impl Meter {
         }
         log::info!(target: "meter", "Holo-Battle Sim team by card art: [{}]", got.join(", "));
         out
+    }
+
+    /// In a Sim room with no fight on, every Aniimo's card art is made ready for the Victory screen's five card
+    /// slots, SIM_WARM_A_LOOK arts a look (about 14 ms), so a card that needs every art tried (a nickname, a line not
+    /// read) is named in about 23 ms, not 130. Once for a frame size; it takes some 40 looks.
+    pub fn sim_cards_warm(&mut self) {
+        let size = self.frame_size;
+        if !self.holosim_space || self.args.replay || self.fight.is_some() || self.bar.is_some() || size.0 == 0 || size.1 == 0 || self.sim.warm == Some(size) {
+            return;
+        }
+        let Some(ic) = self.icons.as_ref().filter(|i| !i.cards.is_empty()) else { return };
+        let (w, h) = (size.0 as f64, size.1 as f64);
+        let u = w.min(h * 16.0 / 9.0);
+        let mut budget = SIM_WARM_A_LOOK;
+        let left: usize = sim_card_boxes(u, (w - u) / 2.0, h).into_iter().map(|(window, art)| ic.warm_cards(window, art, 36, &mut budget)).sum();
+        if left == 0 {
+            log::info!(target: "meter", "Holo-Battle Sim: every Aniimo's card art is ready for the Victory screen ({} arts)", ic.cards.len());
+            self.sim.warm = Some(size);
+        }
     }
 
     /// The Victory screen's team named: the cards not known by their own line get every Aniimo's art tried. Slow
@@ -235,6 +258,9 @@ impl Meter {
         }
         let key = format!("{:?}|{}|{}|{}", self.space, sim.get("trial").repr(), sim.get("difficulty").repr(), sim.get("time_s").repr());
         if self.sim.last.as_ref() == Some(&key) {
+            if self.sim.ctl.as_ref().is_some_and(|c| c.stage == Some("spot")) {
+                self.sim_release("this win is already recorded");
+            }
             return;
         }
         self.sim.last = Some(key);

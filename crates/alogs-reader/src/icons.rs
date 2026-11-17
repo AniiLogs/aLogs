@@ -389,6 +389,30 @@ impl Icons {
         ranked(best)
     }
 
+    /// Every Aniimo's card art made the size it shows at in one card slot (`window`, `art` and `n` as `card` takes
+    /// them), ahead of a match: what every card has in common is its slot, the same window onto the same place of
+    /// whichever art is in it, so each art's part for a slot can be made before any card is on screen. `card` spent
+    /// most of its time making them (0.53 of 0.65 s for the five slots, 17 Nov); found ready, it tries all 313 arts
+    /// for a card in about 23 ms. At most `budget` arts are made a call (a third of a millisecond each), counted
+    /// down; the number still to make is returned.
+    pub fn warm_cards(&self, window: BoxF, art: BoxF, n: usize, budget: &mut usize) -> usize {
+        let k = n as f64 / (window.2 - window.0);
+        let (w, h) = (((art.2 * k) as i64).max(1) as usize, ((art.3 * k) as i64).max(1) as usize);
+        let mut left = 0;
+        for key in self.cards.keys() {
+            if self.card_sized.borrow().contains_key(&(key.clone(), w, h)) {
+                continue;
+            }
+            if *budget == 0 {
+                left += 1;
+                continue;
+            }
+            *budget -= 1;
+            self.card_sized(key, w, h);
+        }
+        left
+    }
+
     /// How well the card art of the Aniimo called `name` fits what shows in `window` (the same score `card` gives its
     /// winner), or None when the game has no card art under that name. One Aniimo's art is tried, not all of them: for
     /// a card whose name is already read, this says in a few ms whether the art agrees.

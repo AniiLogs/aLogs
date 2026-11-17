@@ -18,6 +18,9 @@ pub const SIM_GATE_GONE: f64 = 3.0;
 pub const SIM_PRESS_EARLY: f64 = 1.0;
 pub const SIM_MOUSE_WAIT: f64 = 3.0;
 pub const SIM_VICTORY_WAIT: f64 = 8.0;
+/// Control taken at the first sight of the Victory screen's Battle time line is given back when no Victory is read
+/// from the screen within this long (the read waits up to 1.5 s for the screen's right side).
+pub const SIM_SPOT_WAIT: f64 = 4.0;
 pub const GIZMO_LIST_BOX: (f64, f64, f64, f64) = (0.215, 0.09, 0.97, 0.96);
 pub const GIZMO_TITLE: (f64, f64, f64, f64) = (0.06, 0.03, 0.14, 0.085);
 pub const GIZMO_ALL: (f64, f64) = (0.09, 0.16);
@@ -267,6 +270,34 @@ impl Meter {
             self.sim_release("you took control back (Ctrl+F12)");
         } else if ctl.stage == Some("gate") && ctl.done.is_some_and(|d| now - d > SIM_VICTORY_WAIT) {
             self.sim_release(&format!("no Victory screen {SIM_VICTORY_WAIT} s after your press at the gate"));
+        } else if ctl.stage == Some("spot") && ctl.done.is_some_and(|d| now - d > SIM_SPOT_WAIT) {
+            self.sim_release(&format!("the Victory screen was not read {SIM_SPOT_WAIT} s after its Battle time line was seen"));
+        }
+    }
+
+    /// The Victory screen's "Battle time" line is on screen: aLogs takes control at once, before anything else on the
+    /// screen is read. That line is what every Victory screen has, whatever the team; the title, the team's cards, the
+    /// coins and the gizmo row are read after, with the inputs already held. Taken only once the screen was wholly
+    /// read, control came 0.2 to 0.35 s later, and up to 1.5 s more while the screen's right side slides in: time in
+    /// which a press skips the screen. Only for a new Victory screen (right after a Sim room's fight, none handled in
+    /// the last 30 s: one left up is read again every 30 s) and where the Gizmo tour would start. Given back by
+    /// `sim_check` when no Victory is read from it within SIM_SPOT_WAIT, or at once when the screen isn't a win.
+    pub fn sim_spot_control(&mut self, now: f64, foreground: bool) {
+        if self.sim.ctl.is_some() || self.sim.tour.is_some() || self.args.replay || !foreground || !self.holosim_space {
+            return;
+        }
+        let after_fight = self.fight.is_some() || (self.fight_ended_at != 0.0 && now - self.fight_ended_at < crate::pacing::SIM_VICTORY_SOON_S);
+        if !after_fight || now - self.sim.seen < 30.0 {
+            return;
+        }
+        let known = self.icons.as_ref().is_some_and(|i| i.sim_gizmos.as_object().is_some_and(|o| !o.is_empty()));
+        if !known || !alogs_protocol::settings::automation(&self.args.cfg, Some("sim_gizmos")) {
+            return;
+        }
+        self.sim_control(now, "the Victory screen's Battle time line");
+        if let Some(c) = self.sim.ctl.as_mut() {
+            c.stage = Some("spot");
+            c.done = Some(now);
         }
     }
 

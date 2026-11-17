@@ -200,3 +200,62 @@ fn the_game_window_alone_is_kept_through_a_script() {
     m.game_only_keep(&mut f, t + 22.0);
     assert_eq!(f.asked, 0, "a replay has no capture to ask");
 }
+
+/// One setting changed in a copy of the settings.
+fn set(cfg: &alogs_pyval::Value, section: &str, key: &str, on: bool) -> alogs_pyval::Value {
+    use alogs_pyval::Value;
+    let mut top = cfg.as_dict().cloned().unwrap();
+    let mut part = top.at(section).as_dict().cloned().unwrap_or_default();
+    part.insert(Value::Str(key.into()), Value::Bool(on));
+    top.insert(Value::Str(section.into()), Value::Dict(part));
+    Value::Dict(top)
+}
+
+/// The game's icons with one Holo-gizmo known (the Gizmo tour starts only with the gizmo names loaded).
+fn icons_with_a_gizmo(name: &str) -> alogs_reader::icons::Icons {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let meta = serde_json::json!({ "version": alogs_reader::icons::CACHE_VERSION, "heads": {}, "buffs": {}, "sim_gizmos": { "Energizing Bracer": ["0", "Core"] } });
+    std::fs::write(dir.join("icons.json"), meta.to_string()).unwrap();
+    alogs_reader::icons::Icons::open(&dir).expect("the test's icon cache")
+}
+
+/// aLogs takes control at the first sight of the Victory screen's Battle time line, the one thing every Victory
+/// screen has, before the title, the team's cards or the coins are read: taken after the whole read, control came
+/// 0.2 to 0.35 s later (and up to 1.5 s more while the right side slides in), time in which a press skips the screen.
+#[test]
+fn control_at_the_first_sight_of_the_victory_screen() {
+    use alogs_meter::sim_tour::SIM_SPOT_WAIT;
+    let mut m = meter("pacing-spot");
+    m.args.replay = false;
+    let t = 1_800_000_000.0;
+    // the automation on; nothing is really held (no input hooks in a test)
+    let on = set(&set(&m.args.cfg, "leaderboard", "submit", true), "leaderboard", "automation", true);
+    m.args.cfg = set(&on, "results", "hold_inputs", false);
+    m.icons = Some(icons_with_a_gizmo("pacing-spot-icons"));
+    (m.holosim_space, m.fight_ended_at) = (true, t - 1.0);
+    m.sim_spot_control(t, false);
+    assert!(m.sim.ctl.is_none(), "the game isn't in front");
+    m.sim.seen = t - 20.0;
+    m.sim_spot_control(t, true);
+    assert!(m.sim.ctl.is_none(), "a Victory screen left up, handled 20 s ago");
+    (m.sim.seen, m.fight_ended_at) = (0.0, t - 60.0);
+    m.sim_spot_control(t, true);
+    assert!(m.sim.ctl.is_none(), "no fight just before it: not a new Victory screen");
+    (m.fight_ended_at, m.holosim_space) = (t - 1.0, false);
+    m.sim_spot_control(t, true);
+    assert!(m.sim.ctl.is_none(), "not a Sim room");
+    m.holosim_space = true;
+    let saved = m.args.cfg.clone();
+    m.args.cfg = set(&saved, "results", "sim_gizmos", false);
+    m.sim_spot_control(t, true);
+    assert!(m.sim.ctl.is_none(), "the Gizmo tour is switched off: nothing to take control for");
+    m.args.cfg = saved;
+    // a new Victory screen: control at once
+    m.sim_spot_control(t, true);
+    assert_eq!(m.sim.ctl.as_ref().map(|c| c.stage), Some(Some("spot")), "control from the Battle time line");
+    m.sim_check(t + 1.0);
+    assert!(m.sim.ctl.is_some(), "kept while the screen is being read");
+    m.sim_check(t + SIM_SPOT_WAIT + 0.1);
+    assert!(m.sim.ctl.is_none(), "no Victory read from it: control given back");
+}

@@ -906,6 +906,7 @@ impl Meter {
         }
         self.sim_check(now);
         self.game_only_keep(frames, now);
+        self.sim_cards_warm();
         if self.holosim_space && !self.args.replay {
             self.sim_test_key(); // Ctrl+Shift+F11: test the Sim end
             if std::mem::take(&mut self.sim.test_pending_end) && self.fight.is_some() {

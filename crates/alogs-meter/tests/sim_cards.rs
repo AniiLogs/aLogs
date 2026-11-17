@@ -43,6 +43,20 @@ fn the_named_art_on_a_real_victory_screen() {
     let u = w.min(h * 16.0 / 9.0);
     let ux = (w - u) / 2.0;
     let boxes = sim_card_boxes(u, ux, h);
+    // every art made ready ahead (sim_cards_warm does this a few a look), then the search over all of them
+    {
+        let ready = alogs_reader::icons::Icons::open(std::path::Path::new(&icons)).expect("the icon cache");
+        let t0 = std::time::Instant::now();
+        let mut budget = usize::MAX;
+        let left: usize = boxes.iter().map(|(window, art)| ready.warm_cards(*window, *art, 36, &mut budget)).sum();
+        let made = t0.elapsed();
+        assert_eq!(left, 0);
+        let t1 = std::time::Instant::now();
+        let all: Vec<_> = boxes.iter().map(|(window, art)| ready.card(&im, *window, *art, 36)).collect();
+        println!("made ready: {} arts in {:.0} ms; then every Aniimo's art for the five cards {:.0} ms", usize::MAX - budget, made.as_secs_f64() * 1000.0, t1.elapsed().as_secs_f64() * 1000.0);
+        let cold: Vec<_> = boxes.iter().map(|(window, art)| ic.card(&im, *window, *art, 36)).collect();
+        assert_eq!(all, cold, "made ready or not, the same matches");
+    }
     for round in ["first", "again"] {
         let t0 = std::time::Instant::now();
         let all: Vec<_> = boxes.iter().map(|(window, art)| ic.card(&im, *window, *art, 36)).collect();
