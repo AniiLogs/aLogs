@@ -444,7 +444,7 @@ impl Meter {
     /// The rank screen's newest frame is kept while it's up; when it leaves before a second read, that frame is read.
     pub fn egg_rank_watch(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, heads: &Heads, now: f64) {
         if rank_screen(heads) {
-            if !self.parts_frame {
+            if !self.ss.read_parts {
                 self.egg.rank_frame = Some((im.clone(), now));
             }
             return;

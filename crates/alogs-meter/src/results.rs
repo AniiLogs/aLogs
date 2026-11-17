@@ -520,20 +520,21 @@ impl Meter {
         }
         let now = self.env.now();
         frames.set_clean_until(((now + 3.0) * 1000.0) as u64);
-        let first = team::screen_sig(im);
+        // (a boxes-only frame is nothing to compare with: the first whole frame after it stands in, as in the Python)
+        let first = (!self.ss.read_parts).then(|| team::screen_sig(im));
         let (mut last, mut sig) = (im.clone(), first.clone());
         for _ in 0..3 {
             std::thread::sleep(std::time::Duration::from_secs_f64(rp::SETTLE_S));
             let Some(fresh) = self.hwnd.and_then(|h| frames.grab(h, None)) else { break };
             let fsig = team::screen_sig(&fresh);
-            if team::screen_changed(&fsig, &first, 24.0) {
+            if first.as_ref().is_some_and(|f| team::screen_changed(&fsig, f, 24.0)) {
                 break;
             }
             last = fresh;
-            if !team::screen_changed(&fsig, &sig, 4.0) {
+            if sig.as_ref().is_some_and(|s| !team::screen_changed(&fsig, s, 4.0)) {
                 break;
             }
-            sig = fsig;
+            sig = Some(fsig);
         }
         frames.set_clean_until(((self.env.now() + 0.1) * 1000.0) as u64);
         last

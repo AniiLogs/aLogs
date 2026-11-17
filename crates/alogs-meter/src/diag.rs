@@ -240,7 +240,10 @@ impl Meter {
         }
     }
 
-    /// Nothing on screen to keep up with: no fight or bar, no automatic clicks, not in Interlink, no end screens to save.
+    /// Nothing on screen to keep up with: no fight or bar, no automatic clicks, not in Interlink, no end screens to save,
+    /// and no screen a script starts from expected. Idle, the meter looks 4 times a second and reads the screen's text
+    /// once a second at most, so a script whose screen came up then started a second or more late (17 Nov): the Sim's
+    /// Victory screen once its last level is reached or its gate pressed, Egg Heist's rank screen, Link character.
     pub fn idle(&mut self) -> bool {
         let now = self.env.now();
         !self.args.replay
@@ -249,7 +252,12 @@ impl Meter {
             && !self.bossrush_space
             && self.auto.auto_until == 0.0
             && self.sim.tour.is_none()
+            && self.sim.ctl.is_none()
+            && !(self.holosim_space && self.sim.gate.last)
             && self.egg.hold.is_none()
+            && self.egg.read.is_none()
+            && self.egg.points.is_none()
+            && !self.menu.link.as_ref().is_some_and(|l| l.state == "waiting")
             && !self.after_fight.as_ref().is_some_and(|a| now < a.1)
             && !self.sanctum_in_run(now)
     }

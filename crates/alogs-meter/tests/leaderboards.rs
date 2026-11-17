@@ -87,3 +87,21 @@ fn a_sent_record_gets_its_notice_unless_turned_off() {
     assert_eq!(out.0.len(), 1, "a notice with the setting off");
     assert!(rx.try_recv().is_err(), "the record was taken in all the same");
 }
+
+/// Inputs held for a result come back when that result is sent, whatever else is still waiting to go.
+#[test]
+fn the_hold_ends_when_its_own_record_is_sent() {
+    let mut m = meter("lb-hold-own");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let record = |run: &str| Value::json_loads(&format!(r#"{{"kind": "sim_run", "clientRunId": "{run}", "trial": "Made-up Trial"}}"#)).unwrap();
+    let reply = Value::json_loads(r#"{"submissionId": "s1"}"#).unwrap();
+    let mut out = Said::default();
+    m.send_waiting = Some("run-2".into());
+    tx.send((record("run-1"), reply.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(m.send_waiting.as_deref(), Some("run-2"), "another record's arrival ended the hold");
+    tx.send((record("run-2"), reply)).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(m.send_waiting, None);
+    assert_eq!(out.0.len(), 2, "both records got their notice");
+}

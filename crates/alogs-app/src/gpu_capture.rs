@@ -46,6 +46,16 @@ const KEEP_QUEUED: std::time::Duration = std::time::Duration::from_secs(2);
 /// At most this many combined copies on their way off the card at once (may_start).
 const IN_FLIGHT: usize = 2;
 
+/// How long a look gives the card to finish the copy it just asked for, before the reader is told "not yet" and keeps
+/// the picture it has. A card that isn't kept full by the game has a few megabytes off in 1-3 ms, so the reader gets
+/// the newest image in the same look, as B16's capture gave it by waiting on its map. Not waited for at all (16 Nov,
+/// for cards the game keeps busy), every reader got the copy its look before had started: a picture one look old,
+/// at half the pace (4K, the card 60% busy: 14 pictures a second in fights where B16 gave 28; 17 Nov). A busy card
+/// costs a look this much and no more, never with a picture marked "being written" (ready() runs before the mark).
+const READY_WAIT: Duration = Duration::from_millis(8);
+/// ...looked at this often meanwhile.
+const READY_LOOK: Duration = Duration::from_micros(500);
+
 /// Staging textures kept between frames (one per area size the readers ask for), the least recently used going first.
 const STAGING_KEPT: usize = 24;
 /// ...and at most this much memory for each kind (a 4K frame is 33 MB: eight of those held 265 MB).
@@ -341,6 +351,34 @@ impl<S> Copies<S> {
         (0..self.unions.len()).rev().find(|&i| self.unions[i].done && holds(self.unions[i].rect, area))
     }
 
+    /// The copy of image `generation` holding `area` that is still on its way: the one a reader of that area, asking
+    /// now, is waiting for.
+    fn awaited(&self, area: Rect, generation: u64) -> Option<usize> {
+        (0..self.unions.len()).rev().find(|&i| !self.unions[i].done && self.unions[i].generation == generation && holds(self.unions[i].rect, area))
+    }
+
+    /// Gives the card up to `wait` to finish the copy of image `generation` holding `area` (awaited), looking every
+    /// time `pause` returns (`clock`: the time now; `card`: whether the card has finished this one). True once it is
+    /// finished; false when there is no such copy or the card didn't make it, and then everything is as it was.
+    fn wait_for(
+        &mut self, area: Rect, generation: u64, wait: Duration, clock: &mut dyn FnMut() -> Instant, card: &mut dyn FnMut(&S) -> bool,
+        pause: &mut dyn FnMut(),
+    ) -> bool {
+        let Some(i) = self.awaited(area, generation) else { return false };
+        let start = clock();
+        loop {
+            if card(&self.unions[i].staging) {
+                self.finished(i, clock());
+                self.stats.in_look += 1;
+                return true;
+            }
+            if clock().saturating_duration_since(start) >= wait {
+                return false;
+            }
+            pause();
+        }
+    }
+
     /// The copy mapped this round (by serving, for ready()) that holds `area`, newest first: read() takes it from
     /// there without asking the card anything.
     fn mapped_holding(&self, area: Rect) -> Option<usize> {
@@ -449,13 +487,15 @@ pub struct CopyStats {
     dropped: u32,
     /// Combined copies started beside one on its way that nobody was asking for (may_start).
     beside: u32,
+    /// Copies the card finished within the look that asked for them (READY_WAIT): their reader got the newest image.
+    in_look: u32,
 }
 
 const TOOK_KEPT: usize = 50_000;
 
 impl CopyStats {
     const fn new() -> CopyStats {
-        CopyStats { back: 0, took_ms: Vec::new(), longest_ms: 0, dropped: 0, beside: 0 }
+        CopyStats { back: 0, took_ms: Vec::new(), longest_ms: 0, dropped: 0, beside: 0, in_look: 0 }
     }
 
     fn came_back(&mut self, took: Duration) {
@@ -478,6 +518,7 @@ impl CopyStats {
         self.longest_ms = self.longest_ms.max(other.longest_ms);
         self.dropped += other.dropped;
         self.beside += other.beside;
+        self.in_look += other.in_look;
     }
 
     /// The numbers for app.log, and they start over.
@@ -486,8 +527,9 @@ impl CopyStats {
         took.sort_unstable();
         let typical = took.get(took.len() / 2).copied().unwrap_or(0);
         let line = format!(
-            "copies off the card: {} back (typical {typical} ms, longest {} ms), {} dropped unfinished after {} s, {} started beside one nobody wanted",
+            "copies off the card: {} back ({} within the look that asked, typical {typical} ms, longest {} ms), {} dropped unfinished after {} s, {} started beside one nobody wanted",
             self.back,
+            self.in_look,
             self.longest_ms,
             self.dropped,
             KEEP_QUEUED.as_secs(),
@@ -748,6 +790,20 @@ impl Gpu {
         Ok(())
     }
 
+    /// A short, bounded moment for the card to finish the copy of the newest image that holds this area (READY_WAIT):
+    /// on a card that isn't full it's back within it, and union_ready then serves the newest image this very look.
+    fn await_copy(&mut self, area: Rect) {
+        if self.copies.awaited(area, self.generation).is_none() {
+            return;
+        }
+        if self.unflushed {
+            self.unflushed = false;
+            unsafe { self.context.Flush() }; // sent to the card now, or there is nothing to wait for
+        }
+        let context = &self.context;
+        self.copies.wait_for(area, self.generation, READY_WAIT, &mut Instant::now, &mut |s| finished_on_card(context, s), &mut || std::thread::sleep(READY_LOOK));
+    }
+
     /// The newest combined copy holding this area that the card has finished (mapped for the rest of the round), or
     /// None: then the area waits for the next round, reading the copy a round or a frame later instead of waiting.
     /// It can be a copy of an older image than the newest: its generation says which (Copies::serving).
@@ -871,6 +927,7 @@ impl Gpu {
                 self.queue(x, y, width, height, 1)?;
             }
             self.union()?;
+            self.await_copy((x, y, width, height));
             return Ok(self.union_ready(x, y, width, height).map(|i| self.copies.unions[i].generation));
         }
         let key = (x, y, width, height, shrink);
@@ -885,25 +942,36 @@ impl Gpu {
             self.unflushed = false;
             unsafe { self.context.Flush() };
         }
-        let q = &mut self.queued[i];
-        if q.mapped.is_some() {
-            return Ok(Some(q.generation)); // (another reader asking for the same area this round)
+        if self.queued[i].mapped.is_some() {
+            return Ok(Some(self.queued[i].generation)); // (another reader asking for the same area this round)
         }
-        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-        match unsafe { self.context.Map(&q.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
-            Ok(()) => {
-                // kept mapped for read(), which then asks nothing of the card
-                q.mapped = Some((mapped.pData as *const u8, mapped.RowPitch as usize));
-                if !q.done {
-                    q.done = true;
-                    let (took, generation) = (q.at.elapsed(), q.generation);
-                    self.copies.stats.came_back(took);
-                    self.copies.copy_done(generation);
+        // a copy of the newest image gets the same short, bounded moment as a full-size one (READY_WAIT)
+        let asked = Instant::now();
+        let newest = self.queued[i].generation == self.generation;
+        loop {
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            match unsafe { self.context.Map(&self.queued[i].staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
+                Ok(()) => {
+                    // kept mapped for read(), which then asks nothing of the card
+                    let q = &mut self.queued[i];
+                    q.mapped = Some((mapped.pData as *const u8, mapped.RowPitch as usize));
+                    if !q.done {
+                        q.done = true;
+                        let (took, generation) = (q.at.elapsed(), q.generation);
+                        self.copies.stats.came_back(took);
+                        self.copies.copy_done(generation);
+                        self.copies.stats.in_look += newest as u32;
+                    }
+                    return Ok(Some(self.queued[i].generation));
                 }
-                Ok(Some(self.queued[i].generation))
+                Err(e) if e.code() == DXGI_ERROR_WAS_STILL_DRAWING => {
+                    if !newest || asked.elapsed() >= READY_WAIT {
+                        return Ok(None);
+                    }
+                    std::thread::sleep(READY_LOOK);
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) if e.code() == DXGI_ERROR_WAS_STILL_DRAWING => Ok(None),
-            Err(e) => Err(e),
         }
     }
 
@@ -1610,6 +1678,65 @@ mod tests {
         got
     }
 
+    /// A look as Gpu::ready does it for one reader: the box planned and started, the card given its moment (`polls`:
+    /// the copy is finished the `polls`-th time the card is asked; 0: never), then the area looked for. The image
+    /// served, and how often the card was asked while waiting.
+    fn look(copies: &mut Copies<usize>, staging: usize, t: Instant, generation: u64, area: Rect, polls: u32) -> (Option<u64>, u32) {
+        if let Plan::Start(rect) = copies.plan(&[area], generation, (1920, 1080), t, &mut |_| false) {
+            copies.started(union(rect, staging, generation, t));
+        }
+        let (asked, waited) = (std::cell::Cell::new(0u32), std::cell::Cell::new(Duration::ZERO));
+        let mut card = |s: &usize| {
+            if *s != staging {
+                return true; // (earlier copies: long finished)
+            }
+            asked.set(asked.get() + 1);
+            polls != 0 && asked.get() >= polls
+        };
+        copies.wait_for(area, generation, READY_WAIT, &mut || t + waited.get(), &mut card, &mut || waited.set(waited.get() + READY_LOOK));
+        let waits = asked.get();
+        let got = copies.serving(area, t + waited.get(), &mut |s| *s != staging || (polls != 0 && waits >= polls)).map(|i| {
+            copies.unions[i].mapped = Some((std::ptr::null(), 0));
+            copies.unions[i].generation
+        });
+        copies.end_round(t + waited.get(), &mut |_| {}, &mut |_| true);
+        (got, waits)
+    }
+
+    /// A card that isn't full has the copy back within the look's short wait: the reader gets the newest image that
+    /// very look, every look (B16's pace), not the image its look before asked for.
+    #[test]
+    fn a_quick_card_serves_the_newest_image_in_the_same_look() {
+        let t = Instant::now();
+        let mut copies = Copies::<usize>::new();
+        for (n, generation) in [(0usize, 5u64), (1, 9), (2, 12)] {
+            let at = t + Duration::from_millis(33 * n as u64);
+            let (got, asked) = look(&mut copies, n, at, generation, TOP, 3);
+            assert_eq!(got, Some(generation), "look {n}: the image its own look asked for");
+            assert_eq!(asked, 3, "the card was asked until it had it");
+        }
+        assert_eq!(copies.stats.in_look, 3);
+        assert_eq!(copies.stats.back, 3);
+    }
+
+    /// A card the game keeps busy doesn't have it within the wait: the look costs READY_WAIT and no more, and the
+    /// reader is served as before (nothing the first look, then the newest copy that is back).
+    #[test]
+    fn a_busy_card_costs_a_look_the_wait_and_no_more() {
+        let t = Instant::now();
+        let mut copies = Copies::<usize>::new();
+        let (got, asked) = look(&mut copies, 0, t, 5, TOP, 0);
+        assert_eq!(got, None, "nothing is back yet");
+        let most = (READY_WAIT.as_micros() / READY_LOOK.as_micros()) as u32 + 1;
+        assert!((2..=most).contains(&asked), "asked {asked} times, at most {most}");
+        assert_eq!(copies.stats.in_look, 0);
+        // nothing to wait for when no copy of the newest image holds the area: the card isn't asked
+        let asked = std::cell::Cell::new(0);
+        assert!(!copies.wait_for(ICON, 5, READY_WAIT, &mut || t, &mut |_| { asked.set(asked.get() + 1); false }, &mut || {}));
+        assert!(!copies.wait_for(TOP, 6, READY_WAIT, &mut || t, &mut |_| { asked.set(asked.get() + 1); false }, &mut || {}));
+        assert_eq!(asked.get(), 0);
+    }
+
     #[test]
     fn when_a_new_box_may_start() {
         let t = Instant::now();
@@ -1821,12 +1948,16 @@ mod tests {
         }
         stats.dropped = 2;
         stats.beside = 1;
+        stats.in_look = 3;
         let mut all = CopyStats::new();
         all.add(stats);
         assert_eq!(
             all.line(),
-            "copies off the card: 5 back (typical 18 ms, longest 400 ms), 2 dropped unfinished after 2 s, 1 started beside one nobody wanted"
+            "copies off the card: 5 back (3 within the look that asked, typical 18 ms, longest 400 ms), 2 dropped unfinished after 2 s, 1 started beside one nobody wanted"
         );
-        assert_eq!(all.line(), "copies off the card: 0 back (typical 0 ms, longest 0 ms), 0 dropped unfinished after 2 s, 0 started beside one nobody wanted");
+        assert_eq!(
+            all.line(),
+            "copies off the card: 0 back (0 within the look that asked, typical 0 ms, longest 0 ms), 0 dropped unfinished after 2 s, 0 started beside one nobody wanted"
+        );
     }
 }

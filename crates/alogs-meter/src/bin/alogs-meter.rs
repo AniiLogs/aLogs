@@ -171,6 +171,11 @@ impl Frames for Live {
         self.hp_cap.get_or_insert_with(|| SharedCapture::new(2)).read_area(hwnd, area, 1)
     }
 
+    fn origin(&mut self, hwnd: usize) -> Option<(i32, i32)> {
+        let (x, y, w, h) = win::client_rect(hwnd);
+        (w > 0 && h > 0).then_some((x, y)) // (a minimized or closing window has no client area: the last place stays)
+    }
+
     fn grab(&mut self, hwnd: usize, top: Option<f64>) -> Option<Image> {
         if !self.cap.app_present() {
             return None;
