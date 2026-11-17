@@ -56,7 +56,7 @@ jobs:
             awk '/^test result:/ { p += $4; f += $6; i += $8 } END { printf "**Rust tests:** %d passed, %d failed, %d ignored (run by hand)\n\n", p, f, i }' "$log"
             echo "**Skipped by themselves** (passed, but checked nothing here):"
             echo
-            awk 'match($0, /deps[\\\/]([A-Za-z0-9_]+)-[0-9a-f]+\.exe/, m) { bin = m[1] }
+            awk '/^ *Running / && match($0, /[\\\/]([A-Za-z0-9_]+)-[0-9a-f]+\.exe\)/, m) { bin = m[1] }
                  /^---- .* std(out|err) ----$/ { name = $2 }
                  /^skipped/ { print "- `" bin "` `" name "`: " $0 }' "$log" | sort -u
             echo
