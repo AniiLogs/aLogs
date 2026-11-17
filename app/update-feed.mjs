@@ -1,4 +1,4 @@
-// The update feeds the app reads (src-tauri/src/update.rs): Tauri updater JSON with this build's version as
+// The update feeds the app reads (crates/alogs-app/src/update.rs): Tauri updater JSON with this build's version as
 // "<version>+rc.<n>", its signature (the .sig tauri-build.mjs makes next to the installer) and the download URL.
 //   releases: latest.json on the release itself (reached through releases/latest/download/latest.json)
 //   betas:    beta.json on the fixed "update-feed" pre-release; a release points it at itself too, so testers move on

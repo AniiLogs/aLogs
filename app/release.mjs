@@ -6,6 +6,8 @@
 // The Companion page links to releases/latest/download/AniiLogs-Companion-Setup.exe, so the asset name must not change.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import * as paths from "./paths.mjs";
 import { feed, feedRelease, putJson } from "./update-feed.mjs";
 
 const REPO = "AniiLogs/aniilogs.github.io";
@@ -13,19 +15,21 @@ const ASSET = "AniiLogs-Companion-Setup.exe";
 const dryRun = process.argv.includes("--dry-run");
 const notesOnly = process.argv.includes("--notes-only");
 
+process.chdir(paths.appDir);                      // CHANGELOG.md is app/'s, wherever this runs from
 const versionArg = process.argv.indexOf("--version");
-const version = versionArg > 0 ? process.argv[versionArg + 1] : JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
+const version = versionArg > 0 ? process.argv[versionArg + 1] : paths.version();
 if (versionArg > 0 && !notesOnly && !dryRun) throw new Error("--version only goes with --dry-run or --notes-only.");
 const tag = `companion-v${version}`;
-// the newest test build of this version (aLogs_<version>_RC<n>_x64-setup.exe, see clean-installers.mjs)
-const nsis = "src-tauri/target/release/bundle/nsis";
+// the newest test build of this version (aLogs_<version>_RC<n>_x64-setup.exe in the workspace's
+// target/release/bundle/nsis, see clean-installers.mjs)
+const nsis = paths.nsis;
 const rc = (name) => {
   if (name === `aLogs_${version}_x64-setup.exe`) return 0;
   const m = /^aLogs_(.+)_RC(\d+)_x64-setup\.exe$/u.exec(name);
   return m && m[1] === version ? Number(m[2]) : -1;
 };
-const newest = readdirSync(nsis).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
-const installer = `${nsis}/${newest ?? `aLogs_${version}_x64-setup.exe`}`;
+const newest = (existsSync(nsis) ? readdirSync(nsis) : []).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
+const installer = join(nsis, newest ?? `aLogs_${version}_x64-setup.exe`);
 
 // This version's section of the changelog: from "## <version>" up to the next "## ".
 const changelog = readFileSync("CHANGELOG.md", "utf8").replace(/\r\n/gu, "\n");

@@ -1,4 +1,5 @@
-// Publishes the newest test build (src-tauri/target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe) to GitHub.
+// Publishes the newest test build (the workspace's target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe,
+// see paths.mjs) to GitHub.
 // Tester links and the public beta (B1, B2 ...) are pre-releases, never "latest": they reach only players with "Get
 // beta updates" on (the beta feed, beta.json), while the site's Download button and everyone else's update check
 // (latest.json) stay on the real release (release.mjs). The user's rule (2026-10-31): only a pre-release is beta-only.
@@ -11,7 +12,10 @@
 //   a beta also updates the app's beta feed (update-feed.mjs), so testers get it through the app
 //   add --dry-run to print what would happen, publish nothing
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import * as paths from "./paths.mjs";
+import { announcedRc } from "./rc-number.mjs";
 import { betaNotes, changelogNotes, feed, feedRelease, putJson } from "./update-feed.mjs";
 
 const REPO = "AniiLogs/aniilogs.github.io";
@@ -20,16 +24,26 @@ const dryRun = process.argv.includes("--dry-run");
 const notesOnly = process.argv.includes("--notes-only");
 if (!mode) throw new Error("Use --test (tester link) or --beta (this version's beta).");
 
-const version = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
-const nsis = "src-tauri/target/release/bundle/nsis";
+process.chdir(paths.appDir);                      // CHANGELOG.md and betas.json are app/'s, wherever this runs from
+const version = paths.version();
+const nsis = paths.nsis;
 const rc = (name) => { const m = /^aLogs_(.+)_RC(\d+)_x64-setup\.exe$/u.exec(name); return m && m[1] === version ? Number(m[2]) : -1; };
-const newest = readdirSync(nsis).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
+const newest = (existsSync(nsis) ? readdirSync(nsis) : []).filter((name) => rc(name) >= 0).sort((a, b) => rc(b) - rc(a))[0];
 if (!newest) throw new Error(`No test build of ${version} in ${nsis}: run npm run build:rc first.`);
-const installer = `${nsis}/${newest}`;
+const installer = join(nsis, newest);
 // which beta this build is (B2), from the build itself (tauri-build.mjs); 0 for a build from before betas were numbered
-const built_as = JSON.parse(readFileSync("src-tauri/build.json", "utf8"));
+const built_as = existsSync(paths.buildJson) ? JSON.parse(readFileSync(paths.buildJson, "utf8")) : {};
 const beta = built_as.version === version && built_as.rc === rc(newest) ? built_as.beta ?? 0 : 0;
 const buildName = beta ? `B${beta}` : `RC${rc(newest)}`;
+// Both modes point the beta feed at this build, and the app installs a build of the same version only when its RC is
+// higher than the installed one's: a build the feed already has (or passed) is refused, not published for nobody.
+if (!notesOnly) {
+  const feed = await announcedRc(version);
+  if (feed.error) throw new Error(`Can't read the beta feed (${feed.error}): nothing published. Try again when GitHub answers.`);
+  if (feed.rc != null && rc(newest) <= feed.rc) {
+    throw new Error(`The beta feed already announces ${feed.announced} and this build is RC${rc(newest)} (${newest}): no app would take it. Nothing published. Build again (npm run build:rc): it takes the next number.`);
+  }
+}
 
 // The GitHub login Git already uses on this PC.
 const credential = execFileSync("git", ["credential", "fill"], { input: "protocol=https\nhost=github.com\n\n" }).toString();
@@ -86,6 +100,9 @@ if (notesOnly) {                                  // the notes alone: no build s
   process.exitCode = 0;
 } else {
 console.log(`${dryRun ? "[dry run] " : ""}${name}${fold ? " (updated in place)" : ""}: ${installer} (${(statSync(installer).size / 1048576).toFixed(1)} MB) as ${asset}, tag ${tag}`);
+if (dryRun) console.log(`--- notes ---
+${body}
+---`);   // what the release and the beta feed would say
 for (const r of stale) await remove(r);
 if (!dryRun) await publish();
 }
@@ -111,13 +128,13 @@ const uploaded = await github(`https://uploads.github.com/repos/${REPO}/releases
   await putJson({ headers, repo: REPO, release: await feedRelease({ headers, repo: REPO }), name: "beta.json", json });
   console.log(`beta feed: ${json.version} (${buildName})`);
 }
-if (mode === "beta") {
-  if (beta) {                                     // the next build is the next beta: commit betas.json with this
-    const betas = JSON.parse(readFileSync("betas.json", "utf8"));
-    betas[version] = Math.max(betas[version] ?? 0, beta);
-    writeFileSync("betas.json", JSON.stringify(betas, null, 2) + "\n");
-    console.log(`betas.json: ${version} B${betas[version]} published (commit it)`);
-  }
+if (mode === "beta") {                            // the next build is the next beta, with a higher RC: commit betas.json
+  const betas = JSON.parse(readFileSync("betas.json", "utf8"));
+  if (beta) betas[version] = Math.max(betas[version] ?? 0, beta);
+  // the RC published, read by tauri-build.mjs on any PC (rc-number.mjs), so the next build there counts on from it
+  betas.rc = { ...(betas.rc ?? {}), [version]: Math.max(Number(betas.rc?.[version]) || 0, rc(newest)) };
+  writeFileSync("betas.json", JSON.stringify(betas, null, 2) + "\n");
+  console.log(`betas.json: ${version} B${betas[version] ?? 0} (RC${betas.rc[version]}) published (commit it)`);
 }
 const latest = await github(`https://api.github.com/repos/${REPO}/releases/latest`).catch(() => null);
 console.log(`published ${release.html_url}\ndownload  ${uploaded.browser_download_url} (${uploaded.size} bytes)\nlatest release: ${latest?.tag_name}`);

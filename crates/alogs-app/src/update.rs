@@ -342,8 +342,7 @@ pub fn splash(context: tauri::Context<tauri::Wry>, args: Vec<String>) {
                 // aLogs, the meter and Sanctum Helper all closed first: a silent installer can't ask "file in use,
                 // retry?" the way the installer window could, it would just fail (at most 20 s, then it tries anyway)
                 if let Some(dir) = installed.as_ref().and_then(|e| e.parent()) {
-                    let files = [dir.join("alogs-app.exe"), dir.join("resources").join("meter").join("meter.exe"),
-                                 dir.join("resources").join("sanctumhelper").join("SanctumHelper.exe")];
+                    let files = closed_before_update(dir);
                     let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
                     // a running program's file can't be opened for writing (nothing is written: it's only opened)
                     while files.iter().any(|f| f.exists() && std::fs::OpenOptions::new().write(true).open(f).is_err())
@@ -491,9 +490,31 @@ pub async fn install_update_later(app: AppHandle) -> Result<Option<Value>, Strin
     Ok(describe(&app))
 }
 
+/// The programs in the install folder `dir` that must be closed before a silent update replaces them: aLogs, the
+/// meter (alogs-meter.exe; meter.exe in builds up to 0.1.37 B16) and Sanctum Helper.
+fn closed_before_update(dir: &std::path::Path) -> [PathBuf; 4] {
+    let resources = dir.join("resources");
+    [
+        dir.join("alogs-app.exe"),
+        resources.join("meter").join("alogs-meter.exe"),
+        resources.join("meter").join("meter.exe"),
+        resources.join("sanctumhelper").join("SanctumHelper.exe"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::feed_rc;
+
+    #[test]
+    fn an_update_waits_for_the_running_meter() {
+        let dir = std::path::Path::new(r"C:\Users\someone\AppData\Local\aLogs");
+        let files = super::closed_before_update(dir);
+        for f in [r"alogs-app.exe", r"resources\meter\alogs-meter.exe", r"resources\meter\meter.exe",
+                  r"resources\sanctumhelper\SanctumHelper.exe"] {
+            assert!(files.contains(&dir.join(f)), "{f} isn't waited for");
+        }
+    }
 
     fn newer(remote: &str, local: &str, local_rc: u64) -> bool {
         let (r, l) = (semver::Version::parse(remote).unwrap(), semver::Version::parse(local).unwrap());
