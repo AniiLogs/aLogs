@@ -326,8 +326,32 @@ static STAT_BLACK: AtomicU64 = AtomicU64::new(0);
 static STAT_BROKEN: AtomicU64 = AtomicU64::new(0);
 static STAT_READ_US: AtomicU64 = AtomicU64::new(0);
 /// The longest a picture's write mark (its seq odd: readers wait, then give up with "the picture was being written")
-/// was held, microseconds.
+/// was held, and how much of that the capture thread was on the CPU (microseconds; Windows counts thread time in clock
+/// ticks, about 16 ms). Inside the mark there's only a memory copy (Gpu::read): a long hold with little CPU time is
+/// the thread not running (aLogs runs below normal priority unless General › Priority says otherwise).
 static STAT_WRITE_MAX_US: AtomicU64 = AtomicU64::new(0);
+static STAT_WRITE_MAX_CPU_US: AtomicU64 = AtomicU64::new(0);
+
+/// This thread's time on the CPU so far (microseconds).
+fn thread_cpu_us() -> u64 {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, GetThreadTimes};
+    let mut t = [FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }; 4];
+    let [created, exited, kernel, user] = &mut t;
+    if unsafe { GetThreadTimes(GetCurrentThread(), created, exited, kernel, user) } == 0 {
+        return 0;
+    }
+    let v = |f: &FILETIME| ((f.dwHighDateTime as u64) << 32 | f.dwLowDateTime as u64) / 10;
+    v(&t[2]) + v(&t[3])
+}
+
+/// A picture's write mark was held `held` µs, `cpu` of them on the CPU: kept if it's the longest this minute.
+fn note_write_mark(held: u64, cpu: u64) {
+    if held > STAT_WRITE_MAX_US.load(Ordering::Relaxed) {
+        STAT_WRITE_MAX_US.store(held, Ordering::Relaxed);
+        STAT_WRITE_MAX_CPU_US.store(cpu.min(held), Ordering::Relaxed);
+    }
+}
 static STAT_SAID: AtomicU64 = AtomicU64::new(0);
 
 fn stats_line(now: u64, kind: &str) {
@@ -341,14 +365,15 @@ fn stats_line(now: u64, kind: &str) {
     }
     STAT_SAID.store(now, Ordering::Relaxed);
     let t = |a: &AtomicU64| a.swap(0, Ordering::Relaxed);
-    let (rounds, new, served, same, not_ready, black, broken, us, write_max) = (
+    let (rounds, new, served, same, not_ready, black, broken, us, write_max, write_cpu) = (
         t(&STAT_ROUNDS), t(&STAT_NEW_IMAGE), t(&STAT_SERVED), t(&STAT_SAME), t(&STAT_NOT_READY), t(&STAT_BLACK), t(&STAT_BROKEN),
-        t(&STAT_READ_US), t(&STAT_WRITE_MAX_US),
+        t(&STAT_READ_US), t(&STAT_WRITE_MAX_US), t(&STAT_WRITE_MAX_CPU_US),
     );
     crate::app_log(&format!(
-        "capture, last minute ({kind}): {rounds} rounds, {new} new game images, {served} pictures written ({:.1} ms each, write mark held at most {:.1} ms), {same} kept as current, {not_ready} not ready on the card yet, {black} black rounds, {broken} broken; {}",
+        "capture, last minute ({kind}): {rounds} rounds, {new} new game images, {served} pictures written ({:.1} ms each, write mark held at most {:.1} ms, on the CPU for {:.0} ms of it), {same} kept as current, {not_ready} not ready on the card yet, {black} black rounds, {broken} broken; {}",
         if served > 0 { us as f64 / served as f64 / 1000.0 } else { 0.0 },
         write_max as f64 / 1000.0,
+        write_cpu as f64 / 1000.0,
         crate::gpu_capture::copy_stats_line(),
     ));
 }
@@ -998,7 +1023,7 @@ fn serve_client(
                 None => continue, // bigger than the whole pool
             }
         }
-        let started = Instant::now();
+        let (started, cpu) = (Instant::now(), thread_cpu_us());
         let out = unsafe { shared.pool().add(readers[slot].offset) };
         let mut from = (generation, None);
         let ok = shared.write(at + 16, || {
@@ -1026,7 +1051,7 @@ fn serve_client(
             true
         });
         let held = started.elapsed().as_micros() as u64; // the picture's write mark (seq odd) was held this long
-        STAT_WRITE_MAX_US.fetch_max(held, Ordering::Relaxed);
+        note_write_mark(held, thread_cpu_us().saturating_sub(cpu));
         if !ok {
             gpu.end_round(); // copies queued for the rest of the round go with it
             return None;
@@ -1088,7 +1113,7 @@ fn serve_parts(
         }
     }
     let rects = RECT_BASE + slot * RECT_SIZE;
-    let started = Instant::now();
+    let (started, cpu) = (Instant::now(), thread_cpu_us());
     let mut shown = false;
     let mut from: (u64, Option<Instant>) = (u64::MAX, None);
     let ok = shared.write(at + 16, || {
@@ -1131,7 +1156,7 @@ fn serve_parts(
         shared.put_u32(at + 12, request);
         true
     });
-    STAT_WRITE_MAX_US.fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+    note_write_mark(started.elapsed().as_micros() as u64, thread_cpu_us().saturating_sub(cpu));
     ok.then_some(Some((shown, from.0, from.1)))
 }
 

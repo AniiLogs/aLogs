@@ -176,6 +176,9 @@ pub struct Gpu {
     /// The image the last read() came from (generation) and when Windows captured it: with the card busy, an older
     /// copy than the newest image can be the one finished (Copies::serving).
     last_read: (u64, Option<Instant>),
+    /// Shrunk areas' staging textures read this round, still mapped: let go at its end (end_round), not while a
+    /// reader's picture is marked "being written".
+    unmap_later: Vec<ID3D11Texture2D>,
     /// When Windows captured the newest image (window capture's own frame time), if known.
     pub captured_at: Option<std::time::Instant>,
     /// Dev switch capture-hold-frame: `cache` is the screen's own texture, held from Desktop Duplication, not a copy
@@ -338,6 +341,12 @@ impl<S> Copies<S> {
         (0..self.unions.len()).rev().find(|&i| self.unions[i].done && holds(self.unions[i].rect, area))
     }
 
+    /// The copy mapped this round (by serving, for ready()) that holds `area`, newest first: read() takes it from
+    /// there without asking the card anything.
+    fn mapped_holding(&self, area: Rect) -> Option<usize> {
+        (0..self.unions.len()).rev().find(|&i| self.unions[i].mapped.is_some() && holds(self.unions[i].rect, area))
+    }
+
     /// The round is over: what was mapped is let go (`unmap`); copies older than the newest one read are gone, and one
     /// still on its way stays for the next rounds, up to KEEP_QUEUED (counted as dropped unfinished if the card, asked
     /// once more, hasn't finished it: `card`).
@@ -425,6 +434,8 @@ struct Queued {
     captured: Option<Instant>,
     /// The card was seen to finish it.
     done: bool,
+    /// Its memory once ready() mapped it this round (data, row pitch), for read(); let go at the round's end.
+    mapped: Option<(*const u8, usize)>,
 }
 
 /// What the copies off the card did since app.log last said (the capture line once a minute, capture.rs).
@@ -512,6 +523,7 @@ impl Gpu {
             round_want: Vec::new(),
             copies: Copies::new(),
             last_read: (0, None),
+            unmap_later: Vec::new(),
             frames_back: 0,
             most_waiting: 0,
             union_staging: Vec::new(),
@@ -768,13 +780,23 @@ impl Gpu {
     /// bytes apart, BGRA). Only this area leaves the graphics card. With `shrink` 2 or 4 the card first averages it
     /// down to half or a quarter (its mip levels), and only that smaller picture leaves it: width / shrink by
     /// height / shrink (rounded down). The image it came from: `served`.
+    ///
+    /// After ready() said yes this only copies memory: the copy it found is mapped already, and nothing is asked of the
+    /// card here. serve holds the reader's picture marked "being written" around this, and the meter gave up on
+    /// pictures marked so for its whole 120 ms (17 Nov).
     pub fn read(&mut self, x: u32, y: u32, width: u32, height: u32, out: *mut u8, stride: usize, shrink: u32) -> Result<()> {
         self.last_read = (self.generation, self.captured_at);
         if shrink <= 1 {
-            self.union()?;
-            let Some(i) = self.union_ready(x, y, width, height) else {
-                // callers ask ready() first; asked anyway: nothing finished holds it yet
-                return Err(E_FAIL.into());
+            let i = match self.copies.mapped_holding((x, y, width, height)) {
+                Some(i) => i,
+                None => {
+                    // ready() wasn't asked (or said no): the card is asked now
+                    self.union()?;
+                    let Some(i) = self.union_ready(x, y, width, height) else {
+                        return Err(E_FAIL.into()); // nothing finished holds it yet
+                    };
+                    i
+                }
             };
             let u = &self.copies.unions[i];
             let (ux, uy, _, _) = u.rect;
@@ -801,32 +823,34 @@ impl Gpu {
         };
         let q = self.queued.remove(i);
         self.last_read = (q.generation, q.captured);
-        let (staging, width, height) = (q.staging, q.width, q.height);
-        unsafe {
-            // the first map of a round waits for the card once; the copies queued with it are done by then
-            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            let waited = std::time::Instant::now();
-            self.context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
-            // a wait this long leaves every reader without a picture (its slot stays "being written"): on 6 Nov the
-            // meter had none for 18 and 28 s right after an Interlink result screen. Said in app.log, to find out why.
-            let ms = waited.elapsed().as_millis();
-            if ms >= 1000 {
-                crate::app_log(&format!("capture: the graphics card took {ms} ms to hand over a picture ({width}x{height})"));
-            }
-            if !q.done {
-                self.copies.stats.came_back(q.at.elapsed());
-                self.copies.copy_done(q.generation);
-            }
-            let source = mapped.pData as *const u8;
-            for row in 0..height as usize {
-                std::ptr::copy_nonoverlapping(
-                    source.add(row * mapped.RowPitch as usize),
-                    out.add(row * stride),
-                    width as usize * 4,
-                );
-            }
-            self.context.Unmap(&staging, 0);
+        let (width, height) = (q.width, q.height);
+        let (source, pitch) = match q.mapped {
+            Some(m) => m, // mapped by ready(), which saw it finished
+            None => unsafe {
+                // ready() wasn't asked: the first map of a round waits for the card once; the copies queued with it
+                // are done by then
+                let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+                let waited = std::time::Instant::now();
+                self.context.Map(&q.staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+                // a wait this long leaves every reader without a picture (its slot stays "being written"): on 6 Nov
+                // the meter had none for 18 and 28 s right after an Interlink result screen. Said in app.log.
+                let ms = waited.elapsed().as_millis();
+                if ms >= 1000 {
+                    crate::app_log(&format!("capture: the graphics card took {ms} ms to hand over a picture ({width}x{height})"));
+                }
+                (mapped.pData as *const u8, mapped.RowPitch as usize)
+            },
+        };
+        if !q.done {
+            self.copies.stats.came_back(q.at.elapsed());
+            self.copies.copy_done(q.generation);
         }
+        unsafe {
+            for row in 0..height as usize {
+                std::ptr::copy_nonoverlapping(source.add(row * pitch), out.add(row * stride), width as usize * 4);
+            }
+        }
+        self.unmap_later.push(q.staging); // let go at the round's end, not while the picture is marked
         Ok(())
     }
 
@@ -862,10 +886,14 @@ impl Gpu {
             unsafe { self.context.Flush() };
         }
         let q = &mut self.queued[i];
+        if q.mapped.is_some() {
+            return Ok(Some(q.generation)); // (another reader asking for the same area this round)
+        }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         match unsafe { self.context.Map(&q.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) } {
             Ok(()) => {
-                unsafe { self.context.Unmap(&q.staging, 0) };
+                // kept mapped for read(), which then asks nothing of the card
+                q.mapped = Some((mapped.pData as *const u8, mapped.RowPitch as usize));
                 if !q.done {
                     q.done = true;
                     let (took, generation) = (q.at.elapsed(), q.generation);
@@ -888,6 +916,14 @@ impl Gpu {
         // with the switch off)
         if !self.retiring.is_empty() {
             self.retire_done();
+        }
+        for staging in self.unmap_later.drain(..) {
+            unsafe { self.context.Unmap(&staging, 0) };
+        }
+        for q in self.queued.iter_mut() {
+            if q.mapped.take().is_some() {
+                unsafe { self.context.Unmap(&q.staging, 0) }; // ready() said yes, read() didn't come
+            }
         }
         let now = Instant::now();
         let (context, mut dropped) = (&self.context, 0);
@@ -978,7 +1014,8 @@ impl Gpu {
             (texture.clone(), level, width >> level, height >> level)
         };
         // a staging texture of this size that no other queued area is using
-        let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height && !self.queued.iter().any(|q| q.staging == s.2)) {
+        let free = |s: &(u32, u32, ID3D11Texture2D)| !self.queued.iter().any(|q| q.staging == s.2) && !self.unmap_later.contains(&s.2);
+        let index = match self.staging.iter().position(|s| s.0 == width && s.1 == height && free(s)) {
             Some(i) => {
                 let used = self.staging.remove(i);
                 self.staging.push(used);
@@ -1001,7 +1038,7 @@ impl Gpu {
             }
         }
         let (generation, captured) = (self.generation, self.captured_at);
-        self.queued.push(Queued { key, staging, width, height, at: Instant::now(), generation, captured, done: false });
+        self.queued.push(Queued { key, staging, width, height, at: Instant::now(), generation, captured, done: false, mapped: None });
         self.copies.copy_from(generation);
         self.unflushed = true;
         Ok(())
@@ -1606,6 +1643,46 @@ mod tests {
         let mut copies: Copies<usize> = Copies::new();
         round(&mut copies, &mut card, t, 1, &[TOP]);
         assert_eq!(copies.plan(&[ICON], 2, (1920, 1080), t, &mut |s| card.finished(*s)), Plan::Start(ICON));
+    }
+
+    /// The same stall with a card that's quick (every copy back the next round) and no frame held (Desktop
+    /// Duplication): a new image each round, the meter's top part due, its new copy started and the meter served from
+    /// the one before; then the meter asks for the whole frame. The top part's new copy was never looked at again, and
+    /// the whole frame waited 2 s behind it: 2.0-2.4 s gaps at moderate load (17 Nov, 4K, on both capture ways).
+    #[test]
+    fn a_quick_card_never_strands_a_reader_changing_its_box() {
+        let t = Instant::now();
+        let mut card = SlowCard::new(1);
+        let mut copies: Copies<usize> = Copies::new();
+        let mut whole_from = None;
+        for r in 0..600u32 {
+            card.round = r;
+            let area = if r < 3 { TOP } else { WHOLE };
+            let got = round(&mut copies, &mut card, t + Duration::from_millis(4 * r as u64), r as u64 + 1, &[area]);
+            if r == 2 {
+                assert!(got[0].is_some_and(|g| g < 3), "served from a copy before, while the new one is on its way");
+            }
+            if area == WHOLE && got[0].is_some() {
+                whole_from = Some(r);
+                break;
+            }
+        }
+        assert_eq!(whole_from, Some(4), "the whole frame a round after its copy started");
+        assert_eq!(copies.stats.dropped, 0);
+    }
+
+    #[test]
+    fn read_takes_the_copy_ready_mapped() {
+        let t = Instant::now();
+        let mut copies: Copies<usize> = Copies::new();
+        copies.started(Union { done: true, ..union(WHOLE, 0, 1, t) });
+        copies.started(Union { done: true, ..union(TOP, 1, 2, t) });
+        assert_eq!(copies.mapped_holding(ICON), None, "nothing mapped: read() asks the card itself");
+        copies.unions[0].mapped = Some((std::ptr::null(), 0));
+        assert_eq!(copies.mapped_holding(ICON), Some(0));
+        assert_eq!(copies.mapped_holding((0, 0, 10, 10)), Some(0), "the top part's copy isn't mapped");
+        copies.unions[1].mapped = Some((std::ptr::null(), 0));
+        assert_eq!(copies.mapped_holding((0, 0, 10, 10)), Some(1), "the newest mapped one");
     }
 
     /// Change 1: the copy on its way is seen finished whoever asked for it, so the next box starts behind it.

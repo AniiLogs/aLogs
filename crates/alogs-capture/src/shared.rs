@@ -119,15 +119,29 @@ impl View {
     }
     /// BGRX rows at `at` (stride bytes apart) as an RGB image.
     pub fn bgrx(&self, at: usize, w: usize, h: usize, stride: usize) -> Image {
-        let mut data = Vec::with_capacity(w * h * 3);
-        for y in 0..h {
-            let row = unsafe { std::slice::from_raw_parts(self.base.add(at + y * stride), w * 4) };
-            for p in row.chunks_exact(4) {
-                data.extend_from_slice(&[p[2], p[1], p[0]]);
-            }
-        }
-        Image::from_raw(Mode::Rgb, w, h, data)
+        bgrx_rgb(&self.rows(at, w, h, stride), w, h)
     }
+
+    /// `h` rows of `w` BGRX pixels at `at`, `stride` bytes apart, copied out as they are (w * 4 bytes a row). The
+    /// readers copy a picture this way while they check its seq and turn it into an image after (bgrx_rgb): at 4K the
+    /// turning took 9-12 ms more, and a picture the app rewrote meanwhile had to be read again ("the picture was
+    /// rewritten while it was read", 17 Nov).
+    pub fn rows(&self, at: usize, w: usize, h: usize, stride: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            out.extend_from_slice(unsafe { std::slice::from_raw_parts(self.base.add(at + y * stride), w * 4) });
+        }
+        out
+    }
+}
+
+/// BGRX pixels, `w` x `h` with w * 4 bytes a row (View::rows), as an RGB image.
+pub fn bgrx_rgb(raw: &[u8], w: usize, h: usize) -> Image {
+    let mut data = Vec::with_capacity(w * h * 3);
+    for p in raw[..w * h * 4].chunks_exact(4) {
+        data.extend_from_slice(&[p[2], p[1], p[0]]);
+    }
+    Image::from_raw(Mode::Rgb, w, h, data)
 }
 
 impl Drop for View {
@@ -359,19 +373,21 @@ impl SharedCapture {
                 return self.none("the picture does not fit the window");
             }
             let got = h.min(rows.saturating_sub(y));
-            let mut im = if got > 0 { Some(v.bgrx(HEADER + offset, w, got, stride)) } else { None };
-            if (x, y, w, got) != (0, 0, cw, rows) {
-                let mut full = Image::new(Mode::Rgb, cw, rows, &[0, 0, 0]);
-                if let Some(i) = &im {
-                    full.paste(i, x as i64, y as i64);
-                }
-                im = Some(full);
-            }
+            let raw = (got > 0).then(|| v.rows(HEADER + offset, w, got, stride));
             if v.u64(at + 16) == seq {
                 self.screen_copy = flags & 2 != 0;
                 self.copy_us = v.u32(at + 52);
                 self.source = source_name(flags).to_string();
                 self.times(at);
+                // turned into an image only now, after the check (View::rows)
+                let mut im = raw.map(|raw| bgrx_rgb(&raw, w, got));
+                if (x, y, w, got) != (0, 0, cw, rows) {
+                    let mut full = Image::new(Mode::Rgb, cw, rows, &[0, 0, 0]);
+                    if let Some(i) = &im {
+                        full.paste(i, x as i64, y as i64);
+                    }
+                    im = Some(full);
+                }
                 return im;
             }
             if start.elapsed() >= until {
@@ -452,7 +468,9 @@ impl SharedCapture {
             let seq = v.u64(at + 16);
             if seq & 1 == 1 || v.u32(at + 12) != self.request {
                 if start.elapsed() >= until {
-                    return self.none("the picture was being written");
+                    // two things: the app writing the picture, or not having written our parts yet (a copy off the
+                    // graphics card not back). Both were "being written" before 17 Nov.
+                    return self.none(if seq & 1 == 1 { "the picture was being written" } else { "our parts are not in the picture yet" });
                 }
                 std::thread::sleep(Duration::from_millis(if seq & 1 == 1 { 1 } else { 2 }));
                 continue;
@@ -470,11 +488,12 @@ impl SharedCapture {
             if cw == 0 || ch == 0 {
                 return self.none("the picture does not fit the window");
             }
-            let mut full = Image::new(Mode::Rgb, cw, ch, &[0, 0, 0]);
+            // the parts' pixels copied out as they are (x, y, w, h, BGRX), turned into the image after the check
+            let mut got: Vec<(usize, usize, usize, usize, Vec<u8>)> = Vec::new();
             if stride != 0 {
                 let (x, y, w, h) = (v.u16(at + 40) as usize, v.u16(at + 42) as usize, v.u16(at + 44) as usize, v.u16(at + 46) as usize);
                 if w > 0 && h > 0 && x + w <= cw && y + h <= ch {
-                    full.paste(&v.bgrx(HEADER + offset, w, h, stride), x as i64, y as i64);
+                    got.push((x, y, w, h, v.rows(HEADER + offset, w, h, stride)));
                 }
             } else {
                 for k in 0..want.len() {
@@ -486,7 +505,7 @@ impl SharedCapture {
                     if x + w > cw || y + h > ch {
                         return self.none("the picture does not fit the window");
                     }
-                    full.paste(&v.bgrx(HEADER + offset, w, h, w * 4), x as i64, y as i64);
+                    got.push((x, y, w, h, v.rows(HEADER + offset, w, h, w * 4)));
                     offset += w * 4 * h;
                 }
             }
@@ -495,6 +514,10 @@ impl SharedCapture {
                 self.copy_us = v.u32(at + 52);
                 self.source = source_name(flags).to_string();
                 self.times(at);
+                let mut full = Image::new(Mode::Rgb, cw, ch, &[0, 0, 0]);
+                for (x, y, w, h, raw) in got {
+                    full.paste(&bgrx_rgb(&raw, w, h), x as i64, y as i64);
+                }
                 return Some(full);
             }
             if start.elapsed() >= until {
@@ -542,11 +565,11 @@ impl SharedCapture {
             let (offset, stride) = (v.u32(at + 32) as usize, v.u32(at + 36) as usize);
             let used = v.u8(at + 61).max(1) as usize;
             let (w, h) = (v.u16(at + 44) as usize / used, v.u16(at + 46) as usize / used);
-            let im = v.bgrx(HEADER + offset, w, h, stride);
+            let raw = v.rows(HEADER + offset, w, h, stride);
             if v.u64(at + 16) == seq {
                 self.picture_time = v.u64(at + 24) as f64 / 1000.0;
                 self.frame_time = self.picture_time - f64::from(v.u16(at + 62)) / 1000.0;
-                return Some(im);
+                return Some(bgrx_rgb(&raw, w, h)); // (after the check, as in read)
             }
         }
         None
@@ -684,5 +707,32 @@ impl SharedAudio {
     pub fn listening(&self) -> Option<(u32, f64, f32, f64)> {
         let v = self.view.as_ref()?;
         Some((v.u32(32), v.u64(40) as f64 / 1000.0, v.f32(44), v.u64(48) as f64 / 1000.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pixels copied out as they are and turned into an image after the seq check come out as the image made straight
+    /// from the mapping did: BGRX to RGB, the stride's padding left out.
+    #[test]
+    fn rows_then_rgb_is_the_picture() {
+        let (w, h, stride) = (5usize, 3usize, 24usize); // 20 bytes of pixels a row, 4 of padding
+        let mut mapped = vec![0xEEu8; stride * h];
+        for y in 0..h {
+            for x in 0..w {
+                mapped[y * stride + x * 4..][..4].copy_from_slice(&[x as u8, y as u8, 100 + (x + y) as u8, 255]);
+            }
+        }
+        let view = std::mem::ManuallyDrop::new(View {
+            base: mapped.as_mut_ptr(),
+            #[cfg(windows)]
+            handle: std::ptr::null_mut(),
+        }); // (not a real mapping: nothing to let go)
+        let raw = view.rows(0, w, h, stride);
+        assert_eq!(raw.len(), w * h * 4);
+        let want: Vec<u8> = (0..h).flat_map(|y| (0..w).flat_map(move |x| [100 + (x + y) as u8, y as u8, x as u8])).collect();
+        assert!(bgrx_rgb(&raw, w, h) == Image::from_raw(Mode::Rgb, w, h, want), "the same pixels");
     }
 }
