@@ -158,3 +158,45 @@ fn a_read_made_from_a_boxes_only_frame_is_made_again_whole() {
     m.read_screen(&mut Placed, &mut Quiet, &im, t, &heads);
     assert_eq!(m.rs.last_results, 123.0, "a read from a whole frame was thrown away");
 }
+
+/// While a script has the screen the game window alone is asked for on every look's turn (again each 0.5 s), and
+/// before the Sim's Victory screen is spotted: asked only from a spotted screen's read, window capture came after the
+/// first read (which was then made twice) and ran out during the Gizmo tour, which reads no screens (Windows 10).
+#[test]
+fn the_game_window_alone_is_kept_through_a_script() {
+    use alogs_meter::pacing::{GAME_ONLY_HOLD_S, SIM_VICTORY_SOON_S};
+    let mut m = meter("pacing-keep");
+    m.args.replay = false;
+    let t = 1_800_000_000.0;
+    let until = |at: f64| ((at + GAME_ONLY_HOLD_S) * 1000.0) as u64;
+    let mut f = ScreenCopy { asked: 0 };
+    m.game_only_keep(&mut f, t);
+    assert_eq!(f.asked, 0, "nothing on: not asked");
+    // the Gizmo tour
+    m.sim.tour = Some(Default::default());
+    m.game_only_keep(&mut f, t);
+    assert_eq!(f.asked, until(t), "asked at the tour's first look");
+    m.game_only_keep(&mut f, t + 0.3);
+    assert_eq!(f.asked, until(t), "not again within 0.5 s");
+    m.game_only_keep(&mut f, t + 0.6);
+    assert_eq!(f.asked, until(t + 0.6), "kept going: it never runs out while the tour runs");
+    m.sim.tour = None;
+    f.asked = 0;
+    m.game_only_keep(&mut f, t + 5.0);
+    assert_eq!(f.asked, 0, "the tour is over: no more");
+    // the Sim's last fight has just ended: asked before the Victory screen is there to spot
+    (m.holosim_space, m.sim.gate.last, m.fight_ended_at) = (true, true, t + 9.0);
+    m.game_only_keep(&mut f, t + 10.0);
+    assert_eq!(f.asked, until(t + 10.0), "the Victory screen is expected");
+    f.asked = 0;
+    m.game_only_keep(&mut f, t + 9.0 + SIM_VICTORY_SOON_S + 1.0);
+    assert_eq!(f.asked, 0, "no Victory screen came: not held open");
+    // another mode's fight, and a replay, ask for nothing
+    m.holosim_space = false;
+    m.fight_ended_at = t + 20.0;
+    m.game_only_keep(&mut f, t + 21.0);
+    assert_eq!(f.asked, 0, "not a Sim room");
+    (m.holosim_space, m.args.replay) = (true, true);
+    m.game_only_keep(&mut f, t + 22.0);
+    assert_eq!(f.asked, 0, "a replay has no capture to ask");
+}

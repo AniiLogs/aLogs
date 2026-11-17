@@ -8,7 +8,7 @@ use crate::payloads;
 use crate::results::{local, rel};
 use crate::results_parse::{
     SIM_CARD_MARGIN, SIM_CARD_SCORE, SIM_GIZMO_PITCH, SIM_GIZMO_X, SIM_GIZMOS, SIM_LOW, parse_sim, parse_sim_team, sim_badge_counts,
-    sim_card_boxes, sim_team_crops,
+    sim_card_boxes, sim_card_names, sim_team_crops,
 };
 use alogs_pil::Image;
 use alogs_pyval::{Dict, Value};
@@ -28,6 +28,8 @@ pub struct SimState {
     pub test: bool,
     /// The team named from the cards' art (sim_species_team).
     pub species_team: Option<Value>,
+    /// The Victory screen's cards still to be named from their art, once aLogs has given control back (sim_cards_finish).
+    pub cards: Option<SimCards>,
     pub ctl: Option<crate::sim_tour::SimCtl>,
     pub tour: Option<crate::sim_tour::Tour>,
     pub gate: crate::sim_tour::GateState,
@@ -35,6 +37,23 @@ pub struct SimState {
     pub test_down: bool,
     /// The test key asks for the open fight to end (step does it).
     pub test_pending_end: bool,
+}
+
+/// A card whose own line names an Aniimo is that Aniimo when its art fits the card this well. Above SIM_CARD_SCORE
+/// (0.6), which goes with a margin over every other Aniimo: here only the named one's art is tried, and another
+/// Aniimo's can reach 0.66 on a card (17 Nov; the right ones gave 0.80 to 0.94). Under it the card is named the slow
+/// way, so too high costs time and never a wrong name.
+pub const SIM_CARD_NAMED: f64 = 0.7;
+
+/// The Victory screen as it was read, kept until its team is named: the cards whose own line names an Aniimo whose art
+/// is on the card are known at once (`known`); the others (a nickname, a line not read) need every Aniimo's art
+/// tried, which waits until control is back.
+pub struct SimCards {
+    frame: Image,
+    at: (f64, f64, f64),
+    text: IndexMap<String, String>,
+    names: Vec<String>,
+    known: Vec<Option<String>>,
 }
 
 fn s(v: &str) -> Value {
@@ -59,15 +78,34 @@ impl Meter {
         set.into_iter().collect()
     }
 
-    /// Each team card's Aniimo by its art, None where it isn't clear.
-    pub fn sim_species(&self, im: &Image, u: f64, ux: f64, h: f64) -> Vec<Option<String>> {
+    /// Each team card's Aniimo where the card's own line names it and that Aniimo's art is on the card: one art
+    /// tried a card, a few ms, where trying every Aniimo's took 0.56 s with the player's inputs not yet held (17 Nov).
+    /// None where the line isn't one of the game's names (a nickname, or not read) or the art disagrees.
+    pub fn sim_species_named(&self, im: &Image, u: f64, ux: f64, h: f64, text: &IndexMap<String, String>, names: &[String]) -> Vec<Option<String>> {
+        let Some(ic) = self.icons.as_ref().filter(|i| !i.cards.is_empty()) else { return vec![] };
+        let named = sim_card_names(text, names);
+        sim_card_boxes(u, ux, h)
+            .into_iter()
+            .zip(named)
+            .map(|((window, art), name)| name.filter(|n| ic.card_of(im, window, art, 36, n).is_some_and(|score| score >= SIM_CARD_NAMED)))
+            .collect()
+    }
+
+    /// Each team card's Aniimo by its art, None where it isn't clear: the cards in `known` as they are, every Aniimo's
+    /// art tried for the others.
+    pub fn sim_species(&self, im: &Image, u: f64, ux: f64, h: f64, known: &[Option<String>]) -> Vec<Option<String>> {
         let Some(ic) = &self.icons else { return vec![] };
         if ic.cards.is_empty() {
             return vec![];
         }
         let mut out = vec![];
         let mut got = vec![];
-        for (window, art) in sim_card_boxes(u, ux, h) {
+        for (i, (window, art)) in sim_card_boxes(u, ux, h).into_iter().enumerate() {
+            if let Some(name) = known.get(i).cloned().flatten() {
+                got.push(format!("'{name}' (its name and its art)"));
+                out.push(Some(name));
+                continue;
+            }
             let r = ic.card(im, window, art, 36);
             let sure = r.as_ref().is_some_and(|r| r.1 >= SIM_CARD_SCORE && r.2 >= SIM_CARD_MARGIN);
             out.push(if sure { r.as_ref().map(|r| r.0.clone()) } else { None });
@@ -75,6 +113,15 @@ impl Meter {
         }
         log::info!(target: "meter", "Holo-Battle Sim team by card art: [{}]", got.join(", "));
         out
+    }
+
+    /// The Victory screen's team named: the cards not known by their own line get every Aniimo's art tried. Slow
+    /// (0.1 s a card and more), so it runs when the win is sent, with control already given back.
+    pub fn sim_cards_finish(&mut self) {
+        let Some(c) = self.sim.cards.take() else { return };
+        let (u, ux, h) = c.at;
+        let species = self.sim_species(&c.frame, u, ux, h, &c.known);
+        self.sim.species_team = Some(parse_sim_team(&c.text, &c.names, &species).get("team").clone());
     }
 
     /// The Victory screen's pictures matched to the game's own: the Training Style (Core gizmo), the Alpha
@@ -206,10 +253,10 @@ impl Meter {
         for (k, v) in pictures.iter().chain(self.sim_prep_for().iter()) {
             setup.insert(k.clone(), v.clone());
         }
-        // each card's Aniimo by its art (the Python reads it on a thread beside the Gizmo tour)
-        let species = self.sim_species(im, u, ux, h);
-        let st = parse_sim_team(&t, &names, &species);
-        self.sim.species_team = Some(st.get("team").clone());
+        // each card's Aniimo: here only where its own line names it and the art agrees (a few ms); the cards left are
+        // named from every Aniimo's art when the win is sent, after control (sim_cards_finish)
+        let known = self.sim_species_named(im, u, ux, h, &t, &names);
+        self.sim.cards = Some(SimCards { frame: im.clone(), at: (u, ux, h), text: t.clone(), names, known });
         let mut counts: Vec<Value> = setup.pop("gizmoCounts").and_then(|v| v.as_list().cloned()).unwrap_or_default();
         let gizmos: Vec<Value> = setup.at("gizmos").as_list().cloned().unwrap_or_default();
         if let Some(reader) = self.name_reader() {
@@ -237,9 +284,16 @@ impl Meter {
         log::info!(target: "meter", "Holo-Battle Sim setup: {}", Value::Dict(setup.clone()).repr());
         let mut sim = sim.as_dict().cloned().unwrap_or_default();
         sim.insert(s("setup"), Value::Dict(setup));
+        // control first: the proof picture waits for the screen to stand still and is encoded (0.37 s on 17 Nov), and
+        // came before the inputs were held. The tour's first step is a look later, so the picture still shows the
+        // Victory screen as it was read.
+        self.sim.pending = Some((Value::Dict(sim), None));
+        let toured = self.sim_tour_start(out, now);
         let shot = self.picture(frames, im, "screens", &format!("sim_{}", local(now, "%Y%m%d_%H%M%S")), true, true);
-        self.sim.pending = Some((Value::Dict(sim), shot));
-        if !self.sim_tour_start(out, now) {
+        if let Some(p) = self.sim.pending.as_mut() {
+            p.1 = shot;
+        }
+        if !toured {
             self.sim_send(out, None);
         }
     }
@@ -253,6 +307,7 @@ impl Meter {
 
     /// Note and send the Holo-Battle Sim win waiting in `sim.pending`.
     pub fn sim_send(&mut self, out: &mut dyn Out, note: Option<&str>) {
+        self.sim_cards_finish();
         let Some((sim, shot)) = self.sim.pending.take() else { return };
         let mut sim = sim.as_dict().cloned().unwrap_or_default();
         if self.sim.test {
