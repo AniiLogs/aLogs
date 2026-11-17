@@ -15,6 +15,20 @@ pub const GAME_ONLY_SCREENS: [&str; 10] = ["result", "Holo-Battle Sim result", "
 pub const GAME_ONLY_HOLD_S: f64 = 3.0;
 pub const GAME_ONLY_WAIT_S: f64 = 1.5;
 
+/// The pace between looks while no fight is on, kept up with "How often the meter looks for a boss bar"
+/// (capture.look_interval). `seen` is the setting as last looked at: once it changes (the app saved the settings, and
+/// the meter loads them again within a second), the new value is the pace from the next look. The pace the meter
+/// started with (the setting, or --interval) holds until then, as in the Python, whose settings reload set it. The
+/// Rust meter read the setting once at start, so a change waited for the next start of aLogs.
+pub fn look_interval(current: f64, seen: &mut Option<f64>, cfg: &alogs_pyval::Value) -> f64 {
+    let now = cfg.get("capture").get("look_interval").as_f64().filter(|v| *v > 0.0);
+    if now == *seen {
+        return current;
+    }
+    *seen = now;
+    now.unwrap_or(current)
+}
+
 /// What the next look copies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Due {

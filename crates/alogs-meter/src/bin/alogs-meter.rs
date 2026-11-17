@@ -306,7 +306,31 @@ fn load_line(load: &mut Load, m: &mut Meter, t: f64) {
     let pid = m.hwnd.map_or(0, win::window_pid);
     let app = std::env::var("ALOGS_PARENT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
     let cpu = load.cpu.sample(pid, app);
-    let ours: Vec<u32> = [std::process::id(), app, alogs_pcstats::sanctum_pid()].into_iter().filter(|p| *p != 0).collect();
+    let (me_pid, sanctum) = (std::process::id(), alogs_pcstats::sanctum_pid());
+    // aLogs' programs: the meter, the app, Sanctum Helper, and the meter's OCR helpers (its child processes: the one
+    // that holds the name models, the bar's and the screens' text, the HP number's), as the Python counted them. Left
+    // out, their memory and card share never showed in the line.
+    let table = alogs_pcstats::process_table();
+    let helpers: Vec<u32> = table.iter().filter(|(_, (parent, _))| *parent == me_pid).map(|(p, _)| *p).collect();
+    let mut ours: std::collections::BTreeSet<u32> = [me_pid, app, sanctum].into_iter().chain(helpers.iter().copied()).filter(|p| *p != 0).collect();
+    // General Settings › Performance › "What each part of aLogs uses": every aLogs process by part (its WebView2
+    // windows, Sanctum Helper's CPU and a leftover updating window were counted nowhere), and the rest of the PC as one
+    // share
+    let mut parts = String::new();
+    if m.args.cfg.get("app").get("load_details").truthy() {
+        let mut times: HashMap<u32, Option<(f64, f64)>> = HashMap::new();
+        let groups = {
+            let cpu_times = &load.cpu;
+            let mut started = |q: u32| times.entry(q).or_insert_with(|| cpu_times.times(q)).map(|t| t.0);
+            alogs_pcstats::alogs_groups(&table, app, me_pid, sanctum, &helpers, &mut started)
+        };
+        let known: HashMap<u32, (f64, f64)> = times.into_iter().filter_map(|(q, t)| Some((q, t?))).collect();
+        let used = load.cpu.groups(&groups, &known);
+        ours.extend(groups.values().flatten().copied());
+        parts = alogs_pcstats::parts_text(&groups, &used, cpu.as_ref().and_then(|c| c.pc), cpu.as_ref().and_then(|c| c.game));
+    } else {
+        load.cpu.forget_parts(); // switched on again later: starts afresh
+    }
     let gpu = load.gpu.sample();
     let gpu_text = gpu.map_or("GPU ?".to_string(), |g| format!("GPU game {:.0}%, aLogs {:.0}%, whole card {:.0}%",
         g.by_pid.get(&pid).copied().unwrap_or(0.0), ours.iter().map(|q| g.by_pid.get(q).copied().unwrap_or(0.0)).sum::<f64>(), g.total));
@@ -321,7 +345,7 @@ fn load_line(load: &mut Load, m: &mut Meter, t: f64) {
     let away = if m.hwnd.is_none_or(win::is_foreground) { "" } else { ", tabbed out" };
     let peak = std::mem::take(&mut m.diag.peak_look);
     let (pc, me, game, appc) = cpu.map_or((None, None, None, None), |c| (c.pc, c.meter, c.game, c.app));
-    log::info!("load: CPU meter {}, aLogs app {}, game {}, whole PC {} | {:.1} whole frames/s, {:.1} top parts/s, {:.1} box frames/s, {:.1} text reads/s | {where_}, {state}{away} | {gpu_text} | {ram_text} | no PC stalls | longest look {peak:.0} ms",
+    log::info!("load: CPU meter {}, aLogs app {}, game {}, whole PC {}{parts} | {:.1} whole frames/s, {:.1} top parts/s, {:.1} box frames/s, {:.1} text reads/s | {where_}, {state}{away} | {gpu_text} | {ram_text} | no PC stalls | longest look {peak:.0} ms",
         fmt(me), fmt(appc), fmt(game), fmt(pc), c.whole as f64 / span, c.part as f64 / span, c.parts as f64 / span, c.reads as f64 / span);
     // Discord's in-game overlay draws inside the game's picture: said once per start
     if !load.discord_said && let Some(h) = m.hwnd {
@@ -501,10 +525,14 @@ fn main() {
         let st = stop.clone();
         std::thread::spawn(move || w.run(tx, st));
     }
+    // a record that reached the leaderboards comes back to the meter's loop for its notice over the game
+    // (Meter::take_sent; "Tell me when a record is sent to the leaderboards")
+    let (sent_tx, sent) = std::sync::mpsc::channel();
     let submitter = if args.no_submit {
         None
     } else {
         let s = Submitter::new(data.clone());
+        *s.on_sent.lock().unwrap() = Some(sent_tx);
         let r = s.clone();
         std::thread::spawn(move || r.run());
         Some(s)
@@ -538,7 +566,7 @@ fn main() {
     }
     let hide = !m.args.cfg.get("overlay").get("in_recordings").truthy() && !matches!(m.args.cfg.get("overlay").get("in_recordings"), Value::None);
     if m.args.no_overlay {
-        run_meter(m, title, game_data, submitter, interval, None, None);
+        run_meter(m, title, game_data, sent, submitter, interval, None, None);
         return;
     }
     // the overlay's windows live on this thread (their messages); the meter reads the game on its own
@@ -547,7 +575,7 @@ fn main() {
     m.own = Some(own.clone());
     let (otx, orx) = std::sync::mpsc::channel();
     let v2 = view.clone();
-    let meter = std::thread::spawn(move || run_meter(m, title, game_data, submitter, interval, Some(v2), Some(otx)));
+    let meter = std::thread::spawn(move || run_meter(m, title, game_data, sent, submitter, interval, Some(v2), Some(otx)));
     match alogs_meter::overlay::Overlay::new(data.clone(), Some(player_log.clone()), view.clone(), orx, hide, own) {
         Some(o) => {
             alogs_meter::overlay::TAKES_NOTICES.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -574,7 +602,8 @@ impl Out for Both {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<alogs_meter::housekeeping::GameData>, submitter: Option<std::sync::Arc<Submitter>>,
+fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<alogs_meter::housekeeping::GameData>,
+    sent: std::sync::mpsc::Receiver<(Value, Value)>, submitter: Option<std::sync::Arc<Submitter>>,
     interval: f64, view: Option<std::sync::Arc<std::sync::Mutex<alogs_meter::overlay::View>>>, overlay_tx: Option<std::sync::mpsc::Sender<(String, Value)>>) {
     let mut live = Live { title, cap: SharedCapture::new(0), hp_cap: None, audio: alogs_capture::shared::SharedAudio::default(), hwnd: None, look_at: 0.0,
         stats: CapStats::default(), said_window: None, last_size: (0, 0), no_pic_since: 0.0, no_pic_said: 0.0 };
@@ -582,6 +611,9 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
     let mut console = Both { console: Console::default(), overlay: overlay_tx };
     let mut last_status = 0.0;
     let stop = win::StopHandles::open();
+    // (the pace between looks follows its setting while the meter runs: pacing::look_interval)
+    let mut interval = interval;
+    let mut look_setting = m.args.cfg.get("capture").get("look_interval").as_f64().filter(|v| *v > 0.0);
     loop {
         let t = now();
         if let Some(kind) = stop.signalled() {
@@ -595,6 +627,7 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
             break;
         }
         m.take_game_data(&game_data);
+        m.take_sent(&mut console, &sent);
         let look = std::time::Instant::now();
         // an error in one look is logged and the next look runs anyway
         if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| m.step(&mut live, &mut console))) {
@@ -618,6 +651,7 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
             m.ocr_recheck(t);
             write_status(&m, submitter.as_deref(), &live, t);
         }
+        interval = alogs_meter::pacing::look_interval(interval, &mut look_setting, &m.args.cfg);
         let mut iv = if m.fight.is_some() { m.fight_interval() } else { interval };
         if m.fight.is_some() && now() - m.bar_seen > 1.0 {
             iv = iv.max(0.1);

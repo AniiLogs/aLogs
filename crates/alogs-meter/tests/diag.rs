@@ -44,3 +44,34 @@ fn test_pictures_follow_the_switch_and_their_gaps() {
     assert_eq!(count(&m.env.data.join("logs/test_frames").join(day).join("result")), 2);
     assert!(count(&m.env.data.join("logs/samples")) >= 1);
 }
+
+/// "Boss bar snapshots during fights": the bar with its name above and its counter below, no wider than 1000 px,
+/// named by the seconds into the fight; none without a fight.
+#[test]
+fn a_boss_bar_snapshot_is_the_bar_with_its_text_and_no_wider_than_1000() {
+    use alogs_meter::diag::{snapshot_box, snapshot_name, snapshot_picture};
+    use alogs_reader::bar::Bar;
+    let bar = |left: f64, span: f64, yc: i64, frame: (usize, usize)| Bar {
+        yc, left_bracket: left, span, brackets_found: true, world: false, right_red: 0.0, track_left: left as i64 + 8,
+        track_right: (left + span) as i64 - 8, thickness: 12, frame,
+    };
+    // 1920x1080: a 760 px bar at x 580, y 77
+    let b = bar(580.0, 760.0, 77, (1920, 1080));
+    assert_eq!(snapshot_box(&b), (564, 16, 1362, 99));
+    let im = Image::new(Mode::Rgb, 1920, 1080, &[10, 20, 30]);
+    let shot = snapshot_picture(&im, &b);
+    assert_eq!((shot.width, shot.height), (798, 83), "under 1000 px: kept as it is");
+    // 3840x2160: twice the size is made 1000 px wide, its height in step
+    let b4k = bar(1160.0, 1520.0, 154, (3840, 2160));
+    assert_eq!(snapshot_box(&b4k), (1129, 32, 2725, 199));
+    let shot = snapshot_picture(&Image::new(Mode::Rgb, 3840, 2160, &[10, 20, 30]), &b4k);
+    assert_eq!((shot.width, shot.height), (1000, 167 * 1000 / 1596));
+    assert_eq!(snapshot_name(12.5), "0012.50.png");
+    assert_eq!(snapshot_name(0.04), "0000.04.png");
+    assert_eq!(snapshot_name(125.0), "0125.00.png");
+
+    // no fight: nothing is saved
+    let mut m = meter("diag-snapshot", true);
+    m.snapshot(&im, &b, 1_800_000_000.0);
+    assert!(!m.env.data.join("logs").join("fights").exists());
+}

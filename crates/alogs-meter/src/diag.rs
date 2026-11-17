@@ -277,6 +277,8 @@ pub const BAR_LOST_MAX: i64 = 60;
 
 #[derive(Default)]
 pub struct BarDiag {
+    /// When the fight's last boss bar snapshot was saved (snapshot).
+    pub last_snapshot: f64,
     pub sampled: Option<String>,
     pub last_nobar: f64,
     pub nobar_count: i64,
@@ -286,7 +288,40 @@ pub struct BarDiag {
     pub lost_total: i64,
 }
 
+/// The part of a frame a boss bar snapshot keeps: the bar from just left of its left bracket to just past its right
+/// one, with the name and level above it and the counter below (x0, y0, x1, y1).
+pub fn snapshot_box(bar: &alogs_reader::bar::Bar) -> (i64, i64, i64, i64) {
+    let (s, lb, yc) = (bar.span, bar.left_bracket, bar.yc as f64);
+    ((lb - 0.02 * s) as i64, (yc - 0.08 * s) as i64, (lb + 1.03 * s) as i64, (yc + 0.03 * s) as i64)
+}
+
+/// A boss bar snapshot of frame `im`: snapshot_box cut out, made 1000 px wide if it is wider.
+pub fn snapshot_picture(im: &Image, bar: &alogs_reader::bar::Bar) -> Image {
+    let (x0, y0, x1, y1) = snapshot_box(bar);
+    let crop = im.crop_i(x0, y0, x1, y1);
+    if crop.width > 1000 { crop.resize(1000, crop.height * 1000 / crop.width, Some(alogs_pil::Filter::Bilinear)) } else { crop }
+}
+
+/// A snapshot's file name: the seconds into the fight ("0012.50.png"), so they sort in order.
+pub fn snapshot_name(into_fight: f64) -> String {
+    format!("{into_fight:07.2}.png")
+}
+
 impl Meter {
+    /// Two snapshots a second of the boss bar while a fight is on, into the fight's own folder (logs/fights/<fight>/),
+    /// with "Boss bar snapshots during fights" on (capture.debug_frames): what a wrong reading is checked against
+    /// afterwards. At most 1000 px wide; saved off the reading loop. Port of `save_debug` in B16 `bossbar/live.py`: the
+    /// Rust meter made the folder and left it empty.
+    pub fn snapshot(&mut self, im: &Image, bar: &alogs_reader::bar::Bar, now: f64) {
+        let Some(f) = &self.fight else { return };
+        let Some(dir) = &f.frames else { return };
+        if now - self.bars.last_snapshot < 0.5 {
+            return;
+        }
+        self.bars.last_snapshot = now;
+        save_in_background(&snapshot_picture(im, bar), dir.join(snapshot_name(now - f.created)), false, None);
+    }
+
     /// One full-size frame per fight with the boss bar on it (logs/bar_samples/), with Debug frames on.
     pub fn bar_sample(&mut self, im: &Image, now: f64) {
         let Some(f) = &self.fight else { return };

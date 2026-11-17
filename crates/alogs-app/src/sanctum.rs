@@ -6,7 +6,7 @@
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -111,31 +111,6 @@ pub fn enabled(settings: &Value) -> bool {
     settings.pointer("/sanctum/enabled").and_then(Value::as_bool).unwrap_or(true)
 }
 
-/// Sanctum Helper runs on the PC's .NET Desktop Runtime, version 9 or newer (Program Files\dotnet\shared).
-pub fn dotnet_desktop_installed() -> bool {
-    let base = std::env::var("ProgramW6432").or_else(|_| std::env::var("ProgramFiles")).unwrap_or_else(|_| r"C:\Program Files".into());
-    let dir = Path::new(&base).join("dotnet").join("shared").join("Microsoft.WindowsDesktop.App");
-    fs::read_dir(dir).map_or(false, |entries| entries.flatten().any(|e| {
-        e.file_name().to_string_lossy().split('.').next().and_then(|major| major.parse::<u32>().ok()).map_or(false, |major| major >= 9)
-    }))
-}
-
-/// Downloads Microsoft's .NET 9 Desktop Runtime installer and runs it (Windows asks for admin approval).
-// (async): on a worker thread, not the window's (it showed "Not responding" while this ran)
-#[tauri::command(async)]
-pub fn install_dotnet_desktop() -> Result<(), String> {
-    let script = "$f = Join-Path $env:TEMP 'windowsdesktop-runtime-9-win-x64.exe'; \
-        Invoke-WebRequest -UseBasicParsing 'https://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe' -OutFile $f; \
-        try { Start-Process $f -ArgumentList '/install','/quiet','/norestart' -Verb RunAs -Wait } \
-        finally { Remove-Item $f -ErrorAction SilentlyContinue }";
-    let status = Command::new("powershell").args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
-        .creation_flags(NO_WINDOW).status().map_err(|e| e.to_string())?;
-    if !status.success() || !dotnet_desktop_installed() {
-        return Err("The .NET Desktop Runtime wasn't installed (the download failed or the admin prompt was declined).".into());
-    }
-    Ok(())
-}
-
 /// General › Priority for a running Sanctum Helper.
 pub fn set_priority(app: &AppHandle, settings: &Value) {
     if let Some(child) = app.state::<Sanctum>().child.lock().unwrap().as_ref() {
@@ -206,7 +181,6 @@ pub fn ensure(app: &AppHandle, settings: &Value) {
     if !enabled(settings) || gone_for > 0 || now_ms() < state.blocked_until.load(Ordering::SeqCst) {
         return;
     }
-    // (the Rust build needs no .NET runtime: nothing to install first)
     let Some((path, assets)) = exe(app) else { return };
     let mut cmd = Command::new(&path);
     cmd.args(["--hosted", "--parent", &std::process::id().to_string()]).creation_flags(NO_WINDOW);
@@ -276,7 +250,6 @@ pub fn sanctum_state(app: AppHandle, state: State<Sanctum>) -> Value {
     }
     json!({
         "installed": exe(&app).is_some(),
-        "runtimeMissing": false,   // the Rust build needs no .NET runtime
         "running": running && fresh,
         "starting": running && !fresh,
         "standaloneRunning": state.blocked.load(Ordering::SeqCst),

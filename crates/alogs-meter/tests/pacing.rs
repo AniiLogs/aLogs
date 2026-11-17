@@ -70,3 +70,27 @@ fn a_spotted_screen_waits_for_window_capture_then_gives_up() {
     assert!(!m.game_only(&mut f, "result", now + 1.6), "gives up after 1.5 s");
     assert!(!m.game_only(&mut f, "EXP card", now + 1.7), "not a screen that needs it");
 }
+
+/// "How often the meter looks for a boss bar": a change to the setting is the pace from the next look, without a
+/// restart; the pace the meter started with (here --interval's) holds until the setting changes.
+#[test]
+fn the_pace_between_looks_follows_its_setting() {
+    use alogs_meter::pacing::look_interval;
+    use alogs_pyval::{Value, dict};
+    let cfg = |v: Value| dict([("capture", dict([("look_interval", v)]))]);
+    let mut seen = Some(0.05);
+    // started with --interval 0.2 while the setting says 0.05: nothing changed, so 0.2 stays
+    assert_eq!(look_interval(0.2, &mut seen, &cfg(Value::Float(0.05))), 0.2);
+    // the setting changes: it is the pace now, and stays
+    assert_eq!(look_interval(0.2, &mut seen, &cfg(Value::Float(0.1))), 0.1);
+    assert_eq!(seen, Some(0.1));
+    assert_eq!(look_interval(0.1, &mut seen, &cfg(Value::Float(0.1))), 0.1);
+    // a whole number of seconds is read too
+    assert_eq!(look_interval(0.1, &mut seen, &cfg(Value::Int(1))), 1.0);
+    // nonsense (nothing, zero, below zero) never becomes the pace
+    for bad in [Value::None, Value::Float(0.0), Value::Float(-1.0)] {
+        assert_eq!(look_interval(1.0, &mut seen, &cfg(bad)), 1.0);
+    }
+    // ...and a proper value afterwards is taken again
+    assert_eq!(look_interval(1.0, &mut seen, &cfg(Value::Float(0.05))), 0.05);
+}

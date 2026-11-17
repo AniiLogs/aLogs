@@ -52,3 +52,38 @@ fn a_run_is_decided_once_and_marked_sent() {
     m.decide_run(&path); // already decided: nothing changes
     assert_eq!(std::fs::read_to_string(&path).unwrap(), s);
 }
+
+#[derive(Default)]
+struct Said(Vec<(String, Value)>);
+impl alogs_meter::meter::Out for Said {
+    fn out(&mut self, kind: &str, data: Value) {
+        self.0.push((kind.to_string(), data));
+    }
+}
+
+/// "Tell me when a record is sent to the leaderboards": what the sender got through comes back to the meter's loop
+/// (Submitter::on_sent) and gets its notice over the game; with the setting off, none.
+#[test]
+fn a_sent_record_gets_its_notice_unless_turned_off() {
+    let mut m = meter("lb-sent-notice");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let payload = Value::json_loads(r#"{"kind": "interlink_run", "boss": {"name": "Made-up Boss"}, "stars": 3, "score": 12345}"#).unwrap();
+    let reply = Value::json_loads(r#"{"submissionId": "s1"}"#).unwrap();
+    tx.send((payload.clone(), reply.clone())).unwrap();
+    let mut out = Said::default();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), 1, "{:?}", out.0.iter().map(|o| o.1.json_dumps()).collect::<Vec<_>>());
+    assert_eq!(out.0[0].0, "toast");
+    let said = out.0[0].1.json_dumps();
+    assert!(said.contains("Interlink run sent") && said.contains("Made-up Boss") && said.contains("12,345"), "{said}");
+    m.take_sent(&mut out, &rx); // nothing new: nothing said again
+    assert_eq!(out.0.len(), 1);
+
+    if let Value::Dict(d) = &mut m.args.cfg {
+        d.insert("leaderboard".into(), alogs_pyval::dict([("notify_sent", Value::Bool(false))]));
+    }
+    tx.send((payload, reply)).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), 1, "a notice with the setting off");
+    assert!(rx.try_recv().is_err(), "the record was taken in all the same");
+}

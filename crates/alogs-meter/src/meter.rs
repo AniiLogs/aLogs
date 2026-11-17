@@ -1094,6 +1094,7 @@ impl Meter {
             }
         }
         if self.fight.is_some() {
+            self.snapshot(&im, &b, now);
             if now - self.brk_at >= CONFIRM_GAP {
                 self.brk_at = now;
                 let (gauge, kind, _) = bar::measure_break(&im, &b);

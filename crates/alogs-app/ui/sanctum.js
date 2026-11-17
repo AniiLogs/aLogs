@@ -135,15 +135,6 @@
       nodes.push(el("p", { class: "notice" }, "Another copy of Sanctum Helper is running on its own (its tray icon). Quit it from its tray menu so aLogs can run it here; aLogs tries again every few seconds."));
     } else if (!state.installed) {
       nodes.push(el("p", { class: "notice" }, "Sanctum Helper is not included in this build of aLogs."));
-    } else if (state.runtimeMissing) {
-      // it runs on Microsoft's .NET Desktop Runtime instead of carrying its own copy (keeps aLogs ~150 MB smaller)
-      const install = el("button", { type: "button", class: "primary", textContent: "Install the .NET Desktop Runtime",
-        onclick: async () => {
-          install.disabled = true; install.textContent = "Downloading and installing…";
-          try { await invoke("install_dotnet_desktop"); install.textContent = "Installed: starting Sanctum Helper…"; }
-          catch (error) { install.disabled = false; install.textContent = "Install the .NET Desktop Runtime"; toast(String(error), true); }
-        } });
-      nodes.push(el("div", { class: "notice" }, el("p", { textContent: "Sanctum Helper needs Microsoft's .NET Desktop Runtime 9 or newer (a free ~55 MB download from Microsoft). Windows asks for admin approval to install it." }), install));
     }
     nodes.push(group(null, toggle("__enabled", "Run Sanctum Helper", "The Egg Heist companion: the whole Lost Sanctum layout on your map, nests, key rooms and where you are.", async (on) => {
       try {

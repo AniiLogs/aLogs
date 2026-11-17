@@ -662,7 +662,11 @@ impl Default for SharedAudio {
 }
 
 impl SharedAudio {
-    pub const NAME: &'static str = "LocalLogs.Audio.v1";
+    /// The app's name for it (alogs-app audio.rs NAME; a test below holds the two together). It read
+    /// "LocalLogs.Audio.v1" until 17 Nov 2026: the Python had a BEL byte where the name's backslash and "a" were
+    /// meant, the port dropped the byte, and under neither name was there a mapping to open. So no boss kill sound
+    /// was ever heard, in any build.
+    pub const NAME: &'static str = "Local\\aLogs.Audio.v1";
     pub const MAGIC: u32 = 0x55414C41;
 
     fn open(&mut self, now: f64) -> bool {
@@ -706,13 +710,28 @@ impl SharedAudio {
     /// (state, last heard, best recent match, when it started) for the Dev switch kill-sound-log.
     pub fn listening(&self) -> Option<(u32, f64, f32, f64)> {
         let v = self.view.as_ref()?;
-        Some((v.u32(32), v.u64(40) as f64 / 1000.0, v.f32(44), v.u64(48) as f64 / 1000.0))
+        Some((v.u32(32), v.u64(40) as f64 / 1000.0, v.f32(56), v.u64(48) as f64 / 1000.0))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The app creates the mappings these readers open, so the names must be the same on both sides (alogs-app
+    /// doesn't use this crate: its names are read from its source).
+    #[test]
+    fn the_readers_open_the_names_the_app_creates() {
+        let app = |file: &str| {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../alogs-app/src").join(file);
+            let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let line = src.lines().find(|l| l.starts_with("pub const NAME: &str = ")).unwrap_or_else(|| panic!("no NAME in {file}"));
+            line.split('"').nth(1).unwrap().replace("\\\\", "\\")
+        };
+        assert_eq!(SharedAudio::NAME, app("audio.rs"));
+        assert_eq!(NAME, app("capture.rs"));
+        assert_eq!(SharedAudio::NAME, r"Local\aLogs.Audio.v1");
+    }
 
     /// Pixels copied out as they are and turned into an image after the seq check come out as the image made straight
     /// from the mapping did: BGRX to RGB, the stride's padding left out.
