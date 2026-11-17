@@ -108,6 +108,11 @@ pub struct ScreensState {
     pub party_title_at: f64,
     pub party_kept_said: f64,
     pub screen_read_sig: Option<Vec<u8>>,
+    /// The frame the read now being handled was made from holds only the boxes (the rest black), and the same for
+    /// the read on its way on the helper. The Python marked the picture itself; the look that handles a read is a
+    /// later one than the look that started it, so that look's own mark (Meter::parts_frame) says nothing about it.
+    pub read_parts: bool,
+    pub submitted_parts: bool,
 }
 
 impl Meter {
@@ -197,9 +202,12 @@ impl Meter {
 
     /// The game's screens with text, read about once a second (back to back while a fight's bar is hidden).
     pub fn check_battle_data(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64) {
-        let quick = self.fight.is_some() && now - self.bar_seen > 0.5;
+        // (the automatic Battle Data session reads at once too, as in the Python: its second, agreeing read of Battle
+        // Data came 1.5 s after the first, with the inputs held meanwhile)
+        let quick = self.auto_active() || (self.fight.is_some() && now - self.bar_seen > 0.5);
         // live, the read is made on a helper of its own and handled on a later look, with the frame it was made from
         if let Some((text, (frame, at))) = self.screen_bg.as_ref().and_then(|w| w.take()) {
+            self.ss.read_parts = self.ss.submitted_parts;
             self.read_screen(frames, out, &frame, at, &text);
         }
         if self.screen_bg.as_ref().is_some_and(|w| w.busy()) || !self.frame_full || !self.screen_read_due(now, quick) {
@@ -211,14 +219,17 @@ impl Meter {
         self.ss.screen_read_sig = Some(sig);
         let crops = self.screen_crops(im, quick);
         if crops.is_empty() {
+            self.ss.read_parts = self.parts_frame;
             self.read_screen(frames, out, im, now, &IndexMap::new()); // nothing on screen to read
             return;
         }
         if let Some(w) = &self.screen_bg {
+            self.ss.submitted_parts = self.parts_frame;
             w.submit(crops, (im.clone(), now));
             return;
         }
         let heads = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new());
+        self.ss.read_parts = self.parts_frame;
         self.read_screen(frames, out, im, now, &heads);
     }
 
@@ -242,8 +253,10 @@ impl Meter {
                 self.rs.last_results = 0.0;
                 return;
             }
-            // a frame of only the boxes is read again whole at once; whole frames go on until FULL_HOLD_S after
-            if self.parts_frame {
+            // a frame of only the boxes is read again whole at once; whole frames go on until FULL_HOLD_S after. (The
+            // frame this read was made from, not this look's: tested by the look's own mark, a screen first seen in a
+            // boxes-only frame had its first read, and its proof, made from that mostly black frame.)
+            if self.ss.read_parts {
                 if now - self.pacing.parts_said > 60.0 {
                     self.pacing.parts_said = now;
                     log::info!(target: "meter", "screen read: {sp} spotted, whole frames while it's up");
@@ -342,6 +355,14 @@ impl Meter {
             return;
         }
         self.test_frame(im, "battle_data", now);
+        // Battle Data is open: the inputs stay held BATTLE_DATA_PAUSE more seconds while it's read again and again. The
+        // Python's step, left out of the port: the hold then ran to the session's own limit (up to a minute) whenever
+        // Battle Data never read complete or the run wasn't sent.
+        if self.auto.auto_until != 0.0 && !self.auto.bd_hold {
+            self.auto.bd_hold = true;
+            self.auto.auto_until = self.auto.auto_until.min(now + crate::leaderboards::BATTLE_DATA_PAUSE);
+            log::info!(target: "meter", "Battle Data is open: holding {} s while it is read", crate::leaderboards::BATTLE_DATA_PAUSE);
+        }
         let n = Self::bd_card_count(im, u, ux, h);
         let names = Self::bd_names(im, n, u, ux, h);
         self.battle_data(frames, out, im, now, u, ux, h, &head, Some(names));

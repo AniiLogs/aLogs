@@ -230,6 +230,17 @@ impl Meter {
     pub fn take_sent(&mut self, out: &mut dyn Out, sent: &std::sync::mpsc::Receiver<(Value, Value)>) {
         while let Ok((payload, reply)) = sent.try_recv() {
             self.sent_notice(out, &payload, &reply);
+            self.result_sent(&payload);
+        }
+    }
+
+    /// From the sender, once a result is sent: its notice is going up, so inputs come back. The Python's `result_sent`.
+    /// Without it the hold only ended once the sender had nothing at all waiting (result_sent_check), so another
+    /// record still on its way kept the inputs held for the hold's whole 10 s.
+    pub fn result_sent(&mut self, payload: &Value) {
+        if self.send_waiting.as_deref().is_some_and(|run| payload.get("clientRunId").py_str() == run) {
+            self.send_waiting = None;
+            self.hold.stop();
         }
     }
 

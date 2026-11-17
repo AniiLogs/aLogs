@@ -49,6 +49,10 @@ pub trait Frames {
     fn grab(&mut self, hwnd: usize, top: Option<f64>) -> Option<Image>;
     /// The game window, if there is one.
     fn window(&mut self) -> Option<usize>;
+    /// Where the game's picture starts on the screen (the window's client area, screen pixels), if known.
+    fn origin(&mut self, _hwnd: usize) -> Option<(i32, i32)> {
+        None
+    }
     /// When the game showed the frame just read, if known.
     fn frame_time(&self) -> Option<f64> {
         None
@@ -839,6 +843,12 @@ impl Meter {
             self.status(out, "waiting for the game window".into());
             return;
         };
+        // Where the frame sits on the screen, read with every frame as the Python did: our clicks and scrolls, the HP
+        // labels and the covering of our own overlays are all placed by it. The Rust meter left it at (0, 0), which is
+        // right only for a game at the top left of the main screen (17 Nov).
+        if let Some(origin) = frames.origin(hwnd) {
+            self.origin = origin;
+        }
         // Between fights only the top part is copied unless a whole frame is due (full_frame_due); a screen read alone
         // gets just its boxes. The Gizmo tour reads whole frames.
         let live = !self.args.replay && self.sim.tour.is_none();
@@ -915,6 +925,9 @@ impl Meter {
                     Some(i) => {
                         im = i;
                         self.frame_size = im.size();
+                        // a whole frame now, as the Python's grab said: the result screen and the leader's line are
+                        // read from it straight away, not only once the bar has been gone a second
+                        self.frame_full = true;
                     }
                     None => return,
                 }
