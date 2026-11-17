@@ -37,6 +37,12 @@ fn hosted_mode_answers_the_app() {
         .unwrap();
     let hosted = dir.join("hosted");
     let ok_status = wait_for(&hosted.join("status.json"), 20);
+    // one Sanctum Helper at a time: with aLogs running on this PC, this copy steps aside (exit 3)
+    if !ok_status && child.try_wait().ok().flatten().is_some_and(|s| s.code() == Some(3)) {
+        std::fs::remove_dir_all(&dir).ok();
+        eprintln!("skipped: another Sanctum Helper is running on this PC");
+        return;
+    }
     std::fs::write(hosted.join("cmd-1-1.json"), r#"{"command":"render-layout","layout":53,"width":640,"height":400}"#).unwrap();
     let ok_render = wait_for(&hosted.join("layout-53.png"), 10);
     let status = std::fs::read_to_string(hosted.join("status.json")).unwrap_or_default();

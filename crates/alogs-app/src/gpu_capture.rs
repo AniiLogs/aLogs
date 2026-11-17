@@ -884,13 +884,14 @@ impl WindowCapture {
             }
         }
         // on the adapter that shows the game's monitor (the default one only when that can't be found or used)
-        let (d3d, context) = match window_adapter(hwnd).and_then(|(a, name)| device(Some(&a)).ok().map(|d| (d, name))) {
-            Some((d, name)) => {
-                crate::app_log(&format!("capture: window capture on {name} (the adapter showing the game's screen)"));
-                d
-            }
+        raise_gpu_class();
+        let adapter = window_adapter(hwnd);
+        let name = adapter.as_ref().map_or_else(|| "the default adapter".to_string(), |a| a.1.clone());
+        let (d3d, context) = match adapter.as_ref().and_then(|a| device(Some(&a.0)).ok()) {
+            Some(d) => d,
             None => device(None)?,
         };
+        crate::app_log(&format!("capture: window capture on {name}"));
         let device: IDirect3DDevice = unsafe { CreateDirect3D11DeviceFromDXGIDevice(&d3d.cast::<IDXGIDevice>()?)? }.cast()?;
         let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
         let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(hwnd)? };

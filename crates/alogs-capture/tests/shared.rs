@@ -36,6 +36,12 @@ fn reads_what_the_app_serves() {
     let map = unsafe {
         let h = CreateFileMappingW(INVALID_HANDLE_VALUE, std::ptr::null(), PAGE_READWRITE, 0, size as u32, name.as_ptr());
         assert!(!h.is_null());
+        // a running aLogs app owns this mapping: never write a made-up picture into it
+        if windows_sys::Win32::Foundation::GetLastError() == windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS {
+            windows_sys::Win32::Foundation::CloseHandle(h);
+            eprintln!("skipped: the aLogs app is running on this PC (its shared capture is live)");
+            return;
+        }
         Arc::new(Map(MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, 0).Value as *mut u8))
     };
     let hwnd = 0x1234usize;
