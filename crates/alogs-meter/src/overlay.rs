@@ -22,6 +22,8 @@ use std::sync::{Arc, Mutex};
 pub const POLL_MS: u64 = 15;
 pub const OVERLAY_REDRAW: f64 = 0.25;
 pub const BAR_HIDDEN: f64 = 0.5;
+/// A bar's own label (no fight yet) goes this long after the meter last told of the bar.
+pub const BAR_ONLY_KEEP: f64 = 1.0;
 pub const MINIMAP_RIGHT: f64 = 0.195;
 pub const BAR_LEFT: f64 = 0.32;
 pub const MAP_TOP: f64 = 0.069;
@@ -270,6 +272,8 @@ pub struct Overlay {
     dps_end: bool,
     dps_quiet: bool,
     hp_up: bool,
+    /// The HP % stands on a bar whose fight hasn't started: when the meter last told of that bar (show_bar).
+    bar_only: Option<f64>,
     bar_left: Option<f64>,
     example: bool,
     example_at: f64,
@@ -312,7 +316,7 @@ impl Overlay {
         let o = Overlay {
             data, view, rx, hide, text: Text { game, plain }, pos, dw: Win::new()?, hp, aw: Win::new()?, ew: Win::new()?, tw: Win::new()?, away: false,
             dps_base: None, dps_h: 1.0, dps_key: String::new(), dps_shown: false, hide_at: None, dps_lines: None, dps_img: None, dps_scale: 1.0,
-            dps_locked: None, dps_end: false, dps_quiet: false, hp_up: false, bar_left: None, example: false, example_at: 0.0, dragging: None,
+            dps_locked: None, dps_end: false, dps_quiet: false, hp_up: false, bar_only: None, bar_left: None, example: false, example_at: 0.0, dragging: None,
             pending: None, drawn_at: 0.0, alert_screen: None, alert_shown: false, alert_since: None, alert_alpha: -1,
             toast: Toast { queue: vec![], since: None, img: None, at: (0.0, 0.0), edge: "right", motion: "fade".into(), screen: (0, 0, 1920, 1080),
                 alpha: -1, shown: None, looked: 0.0, sample: None, drag: None },
@@ -678,7 +682,22 @@ impl Overlay {
         }
     }
 
+    /// A boss bar whose fight hasn't started yet (the meter's "bar"): its HP % from the bar's own fill, at once. The
+    /// HP numbers and the break line need the boss, and come with the fight a moment later.
+    fn show_bar(&mut self, v: &View, d: &Value) {
+        let bar = d.get("bar").as_list().filter(|b| b.len() == 3).map(|b| (b[0].as_f64().unwrap_or(0.0), b[1].as_f64().unwrap_or(0.0), b[2].as_f64().unwrap_or(1.0)));
+        let show = !matches!(self.cfg_overlay(v, "hp_labels"), Value::Bool(false));
+        let (Some(bar), Some(fill)) = (bar.filter(|_| show), d.get("fill").as_f64()) else { return };
+        self.draw_hp("pct", &format!("{:.1}%", fill * 100.0), bar, "#ffffff", None);
+        for name in ["bar", "total", "break"] {
+            self.park(name);
+        }
+        self.hp_up = true;
+        self.bar_only = Some(now());
+    }
+
     fn show_fight(&mut self, v: &View, d: &Value) {
+        self.bar_only = None;
         let bossrush = d.get("bossrush").truthy();
         if !matches!(self.cfg_overlay(v, "dps_window"), Value::Bool(false))
             && let Some(screen) = screen_of(d)
@@ -974,6 +993,16 @@ impl Overlay {
                     self.show_end(&v, &end_note_battle_data(&s), 0.765);
                     self.hide_at = Some(now() + 15.0);
                 }
+                // a bar with no fight yet: its % at once, then at the fights' pace
+                "bar" if !v.fight && (self.bar_only.is_none() || now() - self.drawn_at >= OVERLAY_REDRAW) => {
+                    self.show_bar(&v, &d);
+                    self.drawn_at = now();
+                }
+                "bar" if !v.fight => self.bar_only = self.bar_only.map(|_| now()),
+                "bar_gone" if self.bar_only.is_some() => {
+                    self.hide_hp();
+                    (self.hp_up, self.bar_only) = (false, None);
+                }
                 "end_hide" => {
                     if self.dps_end {
                         self.hide_dps();
@@ -991,6 +1020,11 @@ impl Overlay {
             let p = self.pending.take().unwrap();
             self.show_fight(&v, &p);
             self.drawn_at = now();
+        }
+        // (should the meter's "bar_gone" never come: a bar's label is not left standing)
+        if !v.fight && self.bar_only.is_some_and(|t| now() - t > BAR_ONLY_KEEP) {
+            self.hide_hp();
+            (self.hp_up, self.bar_only) = (false, None);
         }
         if v.fight && now() - v.bar_seen >= BAR_HIDDEN && self.hp_up {
             self.hide_hp();

@@ -112,3 +112,81 @@ fn a_fight_counts_from_its_bars_first_sight() {
     assert_eq!(rush.created, T);
     assert!(m.early.is_empty());
 }
+
+#[derive(Default)]
+struct Sent(Vec<(String, alogs_pyval::Value)>);
+impl alogs_meter::meter::Out for Sent {
+    fn out(&mut self, kind: &str, data: alogs_pyval::Value) {
+        self.0.push((kind.to_string(), data));
+    }
+}
+
+fn live_meter(name: &str) -> Meter {
+    let args = Args { cfg: alogs_protocol::settings::defaults(), duration: 180.0, level: None, boss_id: None, replay: false,
+                      no_submit: true, no_debug_frames: true, no_overlay: false, no_auto_click: true, player_log: PathBuf::new() };
+    Meter::new(env(name), args, Box::new(NoOcr), None)
+}
+
+fn spot_of(b: &Bar) -> alogs_reader::bar::Spot {
+    alogs_reader::bar::Spot { frame: b.frame, yc: b.yc as f64, thickness: b.thickness as f64, left_bracket: b.left_bracket, span: b.span, track_left: b.track_left as f64 }
+}
+
+/// The overlay is told of a boss bar before its fight starts, so the HP % shows from the bar's first look: only at a
+/// place where a fight started before (most of what the finder takes for a bar is no bar), never for Interlink (its %
+/// is of all the bar's layers), and it is told once when that bar goes again with no fight.
+#[test]
+fn the_overlay_hears_of_a_bar_before_its_fight() {
+    let mut m = live_meter("early-bar");
+    let mut out = Sent::default();
+    let b = bar(1388.0, 194);
+    m.frame_size = b.frame;
+    m.emit_bar(&mut out, &b, 0.97, RED);
+    assert!(out.0.is_empty(), "no fight ever started on a bar here: it may be no bar");
+    m.bar_spots.push(spot_of(&b));
+    m.emit_bar(&mut out, &b, 0.97, [120, 200, 240]);
+    assert!(out.0.is_empty(), "not the bar's own red: nothing to show");
+    m.bossrush_space = true;
+    m.emit_bar(&mut out, &b, 0.97, RED);
+    assert!(out.0.is_empty(), "an Interlink room");
+    m.bossrush_space = false;
+    m.emit_bar(&mut out, &bar(1388.0, 400), 0.97, RED);
+    assert!(out.0.is_empty(), "a bar somewhere else on the screen");
+    m.emit_bar(&mut out, &b, 0.97, RED);
+    assert_eq!(out.0.len(), 1);
+    let (kind, d) = &out.0[0];
+    assert_eq!(kind, "bar");
+    assert_eq!(d.get("fill").as_f64(), Some(0.97));
+    assert_eq!(d.get("bar").as_list().map(Vec::len), Some(3), "where the bar is, for the label's place");
+    // the bar is still up: nothing more is said
+    m.bar = Some(b.clone());
+    m.bar_gone_check(&mut out);
+    assert_eq!(out.0.len(), 1);
+    // it goes without a fight: the label is taken away, once
+    m.bar = None;
+    m.bar_gone_check(&mut out);
+    m.bar_gone_check(&mut out);
+    assert_eq!(out.0.iter().filter(|(k, _)| k == "bar_gone").count(), 1);
+    // a fight came of it: the fight's own labels take over, nothing is taken away
+    m.emit_bar(&mut out, &b, 0.97, RED);
+    m.bar = Some(b);
+    m.fight = Some(fight(&m.env));
+    m.bar_gone_check(&mut out);
+    assert_eq!(out.0.iter().filter(|(k, _)| k == "bar_gone").count(), 1, "no second one");
+}
+
+/// bar_spot.json holds only places where a fight started: places kept by older builds (every find, most of them no
+/// bar) are not taken, since a label now shows at a kept place at once.
+#[test]
+fn only_a_fights_place_is_kept_for_the_labels() {
+    let e = env("early-spots");
+    let old = r#"[{"yc": 40, "track_left": 900, "left_bracket": 880, "span": 1711, "thickness": 30, "frame": [3840, 2160]},
+                 {"yc": 194, "track_left": 1242, "left_bracket": 1226, "span": 1388, "thickness": 26, "frame": [3840, 2160], "fight": true}]"#;
+    std::fs::write(e.data.join("bar_spot.json"), old).unwrap();
+    let args = Args { cfg: alogs_protocol::settings::defaults(), duration: 180.0, level: None, boss_id: None, replay: false,
+                      no_submit: true, no_debug_frames: true, no_overlay: false, no_auto_click: true, player_log: PathBuf::new() };
+    let m = Meter::new(e, args, Box::new(NoOcr), None);
+    assert_eq!(m.bar_spots.len(), 1, "the place with no fight to its name is dropped");
+    assert_eq!(m.bar_spots[0].yc, 194.0);
+    assert!(m.known_spot(&bar(1388.0, 194)));
+    assert!(!m.known_spot(&bar(1388.0, 40)));
+}
