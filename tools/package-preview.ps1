@@ -1,5 +1,5 @@
 # Builds a preview installer of the Rust aLogs (no release, no betas.json, no update signing):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\package-preview.ps1 [-Rc 9000]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\package-preview.ps1 [-Rc 9000] [-Beta 0]
 # 1. release builds of the meter, Sanctum Helper and the OCR helper (from reference/aLogs/app/ocr-helper);
 # 2. the app's resources folders laid out as the installer expects (all git-ignored: Sanctum Helper's Assets hold the
 #    game's map art, never committed): resources/meter (alogs-meter.exe, the shipped data, ocr-helper.exe),
@@ -8,7 +8,7 @@
 #    same version (a newer version still does);
 # 4. `tauri build` (@tauri-apps/cli 2.12.4, as the reference pins) without update artifacts: nothing is signed.
 # The installer lands in target/release/bundle/nsis/.
-param([int]$Rc = 9000)
+param([int]$Rc = 9000, [int]$Beta = 0)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $ref = Join-Path $root "reference"
@@ -41,7 +41,7 @@ try {
     Copy-Item (Join-Path $bossbar "vendor\*") (Join-Path $res "vendor") -Recurse
 
     $version = (Get-Content (Join-Path $app "tauri.conf.json") -Raw | ConvertFrom-Json).version
-    Set-Content (Join-Path $app "build.json") ("{""version"":""$version"",""rc"":$Rc,""beta"":0}") -Encoding ascii -NoNewline
+    Set-Content (Join-Path $app "build.json") ("{""version"":""$version"",""rc"":$Rc,""beta"":$Beta}") -Encoding ascii -NoNewline
 
     Push-Location $app
     try {
