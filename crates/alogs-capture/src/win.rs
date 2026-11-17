@@ -47,15 +47,23 @@ mod imp {
         unsafe extern "system" fn cb(h: HWND, l: LPARAM) -> i32 {
             unsafe {
                 let ctx = &mut *(l as *mut Ctx);
+                // The class first: it is read without asking the window. A title is asked of the window's own thread
+                // when the window is this program's, and waits for it: the meter's overlay windows answered once a
+                // loop of theirs, 16 asks a search. Only a visible game-engine window is asked for its title.
+                let mut c = [0u16; 64];
+                if IsWindowVisible(h) == 0 || GetClassNameW(h, c.as_mut_ptr(), 64) == 0 {
+                    return 1;
+                }
+                let class = String::from_utf16_lossy(&c[..c.iter().position(|&x| x == 0).unwrap_or(64)]);
+                if class != "UnityWndClass" {
+                    return 1;
+                }
                 let n = GetWindowTextLengthW(h);
-                if n > 0 && IsWindowVisible(h) != 0 {
+                if n > 0 {
                     let mut b = vec![0u16; n as usize + 1];
                     GetWindowTextW(h, b.as_mut_ptr(), n + 1);
-                    let mut c = [0u16; 64];
-                    GetClassNameW(h, c.as_mut_ptr(), 64);
                     let title = String::from_utf16_lossy(&b[..n as usize]);
-                    let class = String::from_utf16_lossy(&c[..c.iter().position(|&x| x == 0).unwrap_or(64)]);
-                    if title.trim().to_lowercase() == ctx.want && class == "UnityWndClass" {
+                    if title.trim().to_lowercase() == ctx.want {
                         let mut r: RECT = std::mem::zeroed();
                         GetClientRect(h, &mut r);
                         let area = i64::from(r.right) * i64::from(r.bottom);

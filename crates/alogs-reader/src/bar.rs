@@ -511,20 +511,49 @@ fn diff(a: Px, b: Px) -> i32 {
     (0..3).map(|i| (i32::from(a[i]) - i32::from(b[i])).abs()).sum()
 }
 
-fn fill_past_cover(med: &mut dyn FnMut(i64) -> Px, left: i64, right: i64, jump: i32) -> (f64, Px, Px) {
+/// A mark drawn on the bar is at most this many bar thicknesses wide: the bar's colour must go on within that.
+const MARK_REACH: i64 = 2;
+/// ...for this many pixels in a row.
+const MARK_RUN: usize = 6;
+
+/// Is `p` the fill's colour `a` again (the bar's colour at its left start: a mark's edges are soft, so the pixels
+/// just before one are already a mix)? Well inside the jump that ends a fill:
+/// the track, the lighter trail of a hit and a hit's white flash are all further from the fill than that.
+fn same_fill(a: Px, p: Px, jump: i32) -> bool {
+    diff(a, p) <= jump / 2
+}
+
+/// Past a sharp change of colour at `from`: where the fill's own colour `a` goes on (MARK_RUN pixels of it in a
+/// row, starting within `reach` px), or None when it doesn't. Where it does, the change was a mark drawn on the
+/// bar and the fill goes on behind it. The game draws small orange marks on the track at about 3% and 8% of it:
+/// the walk stopped at one, a fight read 6% for 10.7 s while its bar showed 55%, and its DPS came out 21,532
+/// (17 Nov). The first read of 98 of 428 fights on the Python days was that 8 to 9% too.
+fn fill_resumes(med: &mut dyn FnMut(i64) -> Px, a: Px, from: i64, right: i64, reach: i64, jump: i32) -> Option<i64> {
+    (from..(right - MARK_RUN as i64).min(from + reach)).find(|&k| (0..MARK_RUN as i64).all(|j| same_fill(a, med(k + j), jump)))
+}
+
+fn fill_past_cover(med: &mut dyn FnMut(i64) -> Px, left: i64, right: i64, jump: i32, reach: i64) -> (f64, Px, Px) {
     let xs: Vec<i64> = (left..right).filter(|&x| !covered(med(x))).collect();
     if xs.len() < 6 {
         return (1.0, med(left + 2), med(right - 1));
     }
     let fill_color = med(xs[2]);
     let mut edge = right;
-    for i in 3..xs.len() - 2 {
+    let mut i = 3;
+    while i < xs.len() - 2 {
         let x = xs[i];
         let a = med(xs[i - 2]);
         if diff(a, med(x)) > jump && diff(a, med(xs[i + 2])) > jump {
+            // a mark on the bar, not the fill's end: the bar's colour goes on behind it (see fill_resumes)
+            let on = (i..xs.len().saturating_sub(MARK_RUN)).take_while(|&k| xs[k] - x < reach).find(|&k| (0..MARK_RUN).all(|j| same_fill(fill_color, med(xs[k + j]), jump)));
+            if let Some(k) = on {
+                i = k + 3;
+                continue;
+            }
             edge = if xs[i] - xs[i - 2] > 2 { x - 1 } else { xs[i - 1] };
             break;
         }
+        i += 1;
     }
     let frac = ((edge - left + 1) as f64 / (right - left) as f64).clamp(0.0, 1.0);
     (frac, fill_color, med((right - 1).min(edge + 3)))
@@ -551,6 +580,7 @@ pub fn measure_fill_any(im: &Image, bar: &Bar, jump: i32) -> (f64, Px, Px) {
         }
     }
     let right = right_fast;
+    let reach = MARK_REACH * bar.thickness.max(1);
     let mut seen: std::collections::HashMap<i64, Px> = std::collections::HashMap::new();
     let mut med = |x: i64| *seen.entry(x).or_insert_with(|| median3(px(im, x, rows[0]), px(im, x, rows[1]), px(im, x, rows[2])));
     let any_cover = if fast {
@@ -564,16 +594,22 @@ pub fn measure_fill_any(im: &Image, bar: &Bar, jump: i32) -> (f64, Px, Px) {
         (left..right).step_by(3).any(|x| covered(px(im, x, yc)))
     };
     if any_cover {
-        return fill_past_cover(&mut med, left, right, jump);
+        return fill_past_cover(&mut med, left, right, jump, reach);
     }
     let fill_color = med(left + 2);
     let mut edge = right;
-    for x in left + 3..right - 2 {
+    let mut x = left + 3;
+    while x < right - 2 {
         let a = med(x - 2);
         if diff(a, med(x)) > jump && diff(a, med(x + 2)) > jump {
+            if let Some(on) = fill_resumes(&mut med, fill_color, x, right, reach, jump) {
+                x = on + 3; // a mark on the bar: the fill goes on behind it
+                continue;
+            }
             edge = x - 1;
             break;
         }
+        x += 1;
     }
     let frac = ((edge - left + 1) as f64 / (right - left) as f64).clamp(0.0, 1.0);
     (frac, fill_color, med((right - 1).min(edge + 3)))

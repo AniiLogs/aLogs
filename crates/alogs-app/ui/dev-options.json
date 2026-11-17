@@ -1,17 +1,5 @@
 [
   {
-    "id": "fight-bar-slide-in",
-    "plugin": "core",
-    "section": "Low risk",
-    "area": "Accuracy",
-    "title": "World boss: a low first reading isn't damage",
-    "what": "While a boss's bar slides in it can read nearly empty. If nobody has hit it yet and the bar then reads much fuller twice in a row, the low reading is dropped.",
-    "gain": "The fight's clock starts at the real first hit. In 5 of 59 world fights in real logs the low reading stuck; one started 15.5 s late and read as 2 s and 178,203 DPS.",
-    "risk": "A boss that really is low and reads much fuller, in the bar's own red, before anyone hits it would count from the fuller reading until a low one is confirmed.",
-    "tested": "Bench tested on readings from real logs, not tried in a game",
-    "revision": 1
-  },
-  {
     "id": "capture-hold-frame",
     "plugin": "core",
     "section": "Low risk",

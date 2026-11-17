@@ -14,6 +14,8 @@ type Text = IndexMap<String, String>;
 struct State<M> {
     job: Option<(Crops, M)>,
     result: Option<(Text, M)>,
+    /// The job being read is no longer wanted: its text is thrown away when it is done.
+    unwanted: bool,
     stop: bool,
     restart: bool,
     longest_ms: f64,
@@ -28,7 +30,7 @@ impl<M: Send + 'static> OcrWorker<M> {
     /// A worker whose helper `make` starts on its thread (so the meter's first look doesn't wait for it). With no
     /// helper (it didn't start) every job comes back with no text.
     pub fn new(name: &str, make: impl FnOnce() -> Option<Box<dyn Reader>> + Send + 'static) -> OcrWorker<M> {
-        let shared = Arc::new((Mutex::new(State { job: None, result: None, stop: false, restart: false, longest_ms: 0.0 }), Condvar::new()));
+        let shared = Arc::new((Mutex::new(State { job: None, result: None, unwanted: false, stop: false, restart: false, longest_ms: 0.0 }), Condvar::new()));
         let s2 = shared.clone();
         let thread = std::thread::Builder::new()
             .name(name.into())
@@ -64,7 +66,9 @@ impl<M: Send + 'static> OcrWorker<M> {
                     let ms = t0.elapsed().as_secs_f64() * 1000.0;
                     let mut st = lock.lock().unwrap();
                     st.longest_ms = st.longest_ms.max(ms);
-                    if let Some((_, meta)) = st.job.take() {
+                    if let Some((_, meta)) = st.job.take()
+                        && !std::mem::take(&mut st.unwanted)
+                    {
                         st.result = Some((text, meta));
                     }
                 }
@@ -90,6 +94,13 @@ impl<M: Send + 'static> OcrWorker<M> {
     /// The finished job's text and meta, once.
     pub fn take(&self) -> Option<(Text, M)> {
         self.shared.0.lock().unwrap().result.take()
+    }
+
+    /// What was read, and what is being read, is no longer wanted (it was of something else): no result comes of it.
+    pub fn forget(&self) {
+        let mut st = self.shared.0.lock().unwrap();
+        st.result = None;
+        st.unwanted = st.job.is_some();
     }
 
     /// Start its helper again (English OCR added while the meter runs), before its next job.
@@ -133,6 +144,29 @@ mod tests {
         fn started(&self) -> bool {
             true
         }
+    }
+
+    /// What was read of something else is no longer wanted: neither a result already waiting nor the job being read
+    /// comes back, and the worker takes the next job as usual.
+    #[test]
+    fn a_forgotten_job_gives_no_result() {
+        let w: OcrWorker<u32> = OcrWorker::new("test-forget", || Some(Box::new(Echo) as Box<dyn Reader>));
+        let crops = || -> Crops { [("a".to_string(), Image::new(alogs_pil::Mode::L, 4, 2, &[0]))].into_iter().collect() };
+        // a job being read
+        w.submit(crops(), 1);
+        w.forget();
+        std::thread::sleep(Duration::from_millis(120));
+        assert!(w.take().is_none(), "the job that was being read");
+        assert!(!w.busy());
+        // a result waiting
+        w.submit(crops(), 2);
+        std::thread::sleep(Duration::from_millis(120));
+        w.forget();
+        assert!(w.take().is_none(), "the result that was waiting");
+        // the next job is read and comes back
+        w.submit(crops(), 3);
+        std::thread::sleep(Duration::from_millis(120));
+        assert_eq!(w.take().map(|r| r.1), Some(3));
     }
 
     #[test]

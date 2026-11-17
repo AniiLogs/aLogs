@@ -20,7 +20,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 const AWAY_INTERVAL: f64 = 0.25;
-const IDLE_INTERVAL: f64 = 0.25;
+/// With nothing going on the meter looks this often for a boss bar. 0.25 s while such a look cost 0.2 s of work at
+/// 4K (17 Nov: 150 ms of it putting the top part into a whole picture); now that it costs about 30 ms, 8 looks a
+/// second take less of the PC than 4 did, and a bar is first seen 0.13 s after it comes at the latest, not 0.45.
+const IDLE_INTERVAL: f64 = 0.125;
 
 /// logs/meter.log, rotated at 5 MB (4 files), lines as the Python meter writes them.
 struct FileLog {
@@ -206,7 +209,11 @@ impl Frames for Live {
     }
     fn window(&mut self) -> Option<usize> {
         let t = now();
-        if self.hwnd.is_none() || t - self.look_at > 2.0 {
+        // Looked for again only once it is gone (at once then; every 2 s while there is none), as the Python did. Looked
+        // for every 2 s whatever, the search asked each of the meter's own 8 overlay windows for its title, and each
+        // answer waits for the overlay's thread: 0.34 to 0.48 s without a look, every 2.0 s, in every fight (17 Nov).
+        let gone = self.hwnd.is_none_or(|h| !win::is_window(h));
+        if gone && (self.hwnd.is_some() || t - self.look_at > 2.0) {
             self.look_at = t;
             self.hwnd = win::find_window(&self.title);
             if self.hwnd.is_none() && self.said_window.is_some() {
