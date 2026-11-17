@@ -47,6 +47,30 @@ pub fn alogs_groups(table: &HashMap<u32, (u32, String)>, app: u32, meter: u32, s
     BTreeMap::from([("meter", meter_), ("app", app_), ("windows", windows), ("sanctum", sanctum_), ("leftover", leftover)])
 }
 
+/// The load line's " | aLogs by part: ..." (General Settings › Performance › "What each part of aLogs uses"): the share
+/// of the whole PC each part of aLogs used (`used`, from CpuLoad::groups; None the first minute), how many processes a
+/// part is when it's more than one, and what the rest of the PC took: the whole PC (`pc`) less the game and aLogs.
+pub fn parts_text(groups: &Groups, used: &BTreeMap<&'static str, Option<f64>>, pc: Option<f64>, game: Option<f64>) -> String {
+    let pct = |v: Option<f64>| v.map_or("?".to_string(), |v| format!("{v}%"));
+    let n = |k: &str| groups.get(k).map_or(0, BTreeSet::len);
+    let count = |k: &str| if n(k) > 1 { format!(" ({})", n(k)) } else { String::new() };
+    let share = |k: &str| used.get(k).copied().flatten();
+    // unknown while any share is; with no game running, the game took nothing
+    let other = match pc {
+        Some(pc) if used.values().all(Option::is_some) => Some(r1((pc - game.unwrap_or(0.0) - used.values().flatten().sum::<f64>()).max(0.0))),
+        _ => None,
+    };
+    let leftover = match n("leftover") {
+        0 => String::new(),
+        1 => format!(", left over {} (1)", pct(share("leftover"))),
+        _ => format!(", left over {}{}", pct(share("leftover")), count("leftover")),
+    };
+    format!(
+        " | aLogs by part: meter {}{}, app {}, its windows {}{}, Sanctum Helper {}{}{leftover}; other programs {}",
+        pct(share("meter")), count("meter"), pct(share("app")), pct(share("windows")), count("windows"), pct(share("sanctum")), count("sanctum"), pct(other)
+    )
+}
+
 /// Sanctum Helper's process id from its status file (hosted by the aLogs app), or 0.
 pub fn sanctum_pid() -> u32 {
     let p = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("SanctumHelper").join("hosted").join("status.json");
@@ -457,4 +481,41 @@ mod win {
     pub fn cpu_name() -> String { "?".into() }
     pub fn monitor_mode() -> String { "?".into() }
     pub fn window_mode(_: usize) -> String { "?".into() }
+}
+
+#[cfg(test)]
+mod parts_tests {
+    use super::*;
+
+    fn groups(meter: &[u32], windows: &[u32], leftover: &[u32]) -> Groups {
+        BTreeMap::from([
+            ("meter", meter.iter().copied().collect()),
+            ("app", BTreeSet::from([10])),
+            ("windows", windows.iter().copied().collect()),
+            ("sanctum", BTreeSet::from([30])),
+            ("leftover", leftover.iter().copied().collect()),
+        ])
+    }
+
+    /// "What each part of aLogs uses": each part's share, a count where a part is several processes, and the rest of the
+    /// PC as what's left of the whole after the game and aLogs.
+    #[test]
+    fn the_parts_line_names_each_part_and_the_rest() {
+        let used = BTreeMap::from([("meter", Some(1.4)), ("app", Some(0.1)), ("windows", Some(2.0)), ("sanctum", Some(0.5)), ("leftover", Some(0.0))]);
+        assert_eq!(
+            parts_text(&groups(&[1, 2, 3, 4], &[11, 12], &[]), &used, Some(34.6), Some(18.3)),
+            " | aLogs by part: meter 1.4% (4), app 0.1%, its windows 2% (2), Sanctum Helper 0.5%; other programs 12.3%"
+        );
+        // a leftover updating window is said, with how many
+        assert_eq!(
+            parts_text(&groups(&[1], &[11], &[40]), &used, Some(34.6), None),
+            " | aLogs by part: meter 1.4%, app 0.1%, its windows 2%, Sanctum Helper 0.5%, left over 0% (1); other programs 30.6%"
+        );
+        // the first minute nothing is known yet: no made-up rest
+        let unknown: BTreeMap<&'static str, Option<f64>> = used.keys().map(|k| (*k, None)).collect();
+        assert_eq!(
+            parts_text(&groups(&[1], &[11], &[]), &unknown, Some(34.6), Some(18.3)),
+            " | aLogs by part: meter ?, app ?, its windows ?, Sanctum Helper ?; other programs ?"
+        );
+    }
 }

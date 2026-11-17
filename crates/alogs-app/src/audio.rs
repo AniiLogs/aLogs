@@ -15,7 +15,8 @@
 //!   16 u64 last boss kill sound (unix ms, when it started)   24 f32 its match score   28 u32 count (wraps)
 //!   32 u32 state: 0 not listening, 1 listening, 2 can't listen (no game, or Windows refused)
 //!   36 u32 game process id   40 u64 last audio heard (unix ms)
-//!   44 f32 best match of the last few seconds   48 u64 when it started (unix ms): only with the Dev switch kill-sound-log on
+//!   48 u64 when the best match of the last few seconds started (unix ms)   56 f32 that match: only with the Dev switch
+//!      kill-sound-log on (the match was at 44 until 17 Nov, inside "last audio heard": each wrote over the other)
 //! A reader takes a cue when the count changes; the count is written last.
 
 use std::collections::VecDeque;
@@ -282,7 +283,7 @@ fn listen(shared: &Shared, listener: &mut Listener, pid: u32) -> Result<(), Box<
             shared.cue(at, score);
         }
         if let (true, Some((score, at))) = (listener.track_peak, listener.peak) {
-            shared.put_u32(44, score.to_bits());
+            shared.put_u32(56, score.to_bits());
             shared.put_u64(48, at);
         }
     }

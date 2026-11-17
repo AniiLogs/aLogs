@@ -78,12 +78,20 @@ impl Toasts {
         Toasts { settings, win: None, queue: VecDeque::new(), current: None, last_client: (0, 0, 0, 0), excluded: None }
     }
 
-    /// A notice: to the meter if it takes it, else queued here over the game window (client area).
+    /// A notice: to the meter if it takes it, else queued here over the game window (client area). None with
+    /// "Notifications" off.
     pub fn notify(&mut self, head: &str, accent: Rgba, client: Rect) {
-        if try_hand_off(head, accent, client) {
+        self.notify_by(head, accent, client, try_hand_off);
+    }
+
+    /// notify, with the hand-over to the meter as `hand_off` (the tests' stand-in for try_hand_off).
+    fn notify_by(&mut self, head: &str, accent: Rgba, client: Rect, hand_off: impl FnOnce(&str, Rgba, Rect) -> bool) {
+        // the switch first, as the C# did: handed over before it was looked at, a notice showed with "Notifications"
+        // off whenever the meter's overlay ran, which is the usual case
+        if !self.settings.read().unwrap().show_notifications {
             return;
         }
-        if !self.settings.read().unwrap().show_notifications || client.2 <= 0 {
+        if hand_off(head, accent, client) || client.2 <= 0 {
             return;
         }
         self.queue.push_back((head.to_string(), accent));
@@ -172,6 +180,29 @@ impl Toasts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Notifications" off: no notice goes to the meter and none is queued here. On: the meter gets it when it takes
+    /// notices, else it waits here for its card.
+    #[test]
+    fn nothing_is_shown_or_handed_over_with_notifications_off() {
+        let settings = Arc::new(RwLock::new(Settings::default()));
+        let mut toasts = Toasts::new(settings.clone());
+        let (accent, client) = (Rgba(0x5c, 0xb8, 0xff, 255), (0, 0, 1920, 1080));
+        let asked = std::cell::Cell::new(0);
+        let meter = |takes: bool| { let asked = &asked; move |_: &str, _: Rgba, _: Rect| { asked.set(asked.get() + 1); takes } };
+
+        settings.write().unwrap().show_notifications = false;
+        toasts.notify_by("Chaos Mode chosen.", accent, client, meter(true));
+        assert_eq!((asked.get(), toasts.queue.len()), (0, 0), "handed over or queued with the switch off");
+
+        settings.write().unwrap().show_notifications = true;
+        toasts.notify_by("Chaos Mode chosen.", accent, client, meter(true));
+        assert_eq!((asked.get(), toasts.queue.len()), (1, 0), "the meter took it: not shown twice");
+        toasts.notify_by("Chaos Mode chosen.", accent, client, meter(false));
+        assert_eq!((asked.get(), toasts.queue.len()), (2, 1), "the meter didn't take it: our own card");
+        toasts.notify_by("Chaos Mode chosen.", accent, (0, 0, 0, 0), meter(false));
+        assert_eq!(toasts.queue.len(), 1, "no game window to show it over");
+    }
 
     #[test]
     fn back_ease_overshoots_then_lands() {

@@ -1082,7 +1082,6 @@ fn main() {
             get_settings, save_settings, get_status, open_target, capture_switch, set_capture_switch, capture_pad_held, capture_choose_icon,
             auth::auth_listen_start, auth::auth_listen_wait, auth::auth_listen_cancel, auth::auth_window_open, auth::auth_window_close, setup_controller_blocking, controller_status, test_controller_blocking, set_controller_blocked, send_character_dispute, character_link, collect_logs, photos::game_photos, photos::photos_stamp, photos::photos_wait, site::site_view,
             install_english_ocr,
-            sanctum::install_dotnet_desktop,
             plugins::plugins,
             dev::dev_state, dev::dev_set, dev::dev_persistent, dev::dev_feedback_set, dev::dev_feedback_sent,
             sanctum::sanctum_state, sanctum::sanctum_save, sanctum::sanctum_command,

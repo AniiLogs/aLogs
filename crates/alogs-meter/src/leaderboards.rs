@@ -225,6 +225,14 @@ impl Meter {
         }
     }
 
+    /// The records the sender got to the leaderboards since the last look (Submitter::on_sent), each one's notice.
+    /// The Python's sender called sent_notice itself, from its own thread; here they come in on the meter's loop.
+    pub fn take_sent(&mut self, out: &mut dyn Out, sent: &std::sync::mpsc::Receiver<(Value, Value)>) {
+        while let Ok((payload, reply)) = sent.try_recv() {
+            self.sent_notice(out, &payload, &reply);
+        }
+    }
+
     /// A run whose Battle Data never showed up: decide on the result screen alone.
     pub fn check_pending_run(&mut self, now: f64) {
         if let Some((p, due)) = self.rs.pending_run.clone()

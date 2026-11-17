@@ -483,7 +483,6 @@
     const sanctum = !sanctumOn ? { state: "off" }
       : !s ? { state: "on" }
       : !s.installed ? { state: "attention", why: "Not in this build" }
-      : s.runtimeMissing ? { state: "attention", why: "Needs .NET 9 (its page)" }
       : s.standaloneRunning ? { state: "attention", why: "Another copy is running" }
       : s.starting ? { state: "waiting", why: "Starting" }
       : { state: "on" };
