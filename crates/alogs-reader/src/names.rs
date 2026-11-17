@@ -284,7 +284,10 @@ impl NameReader {
     /// How well one character's ink is `ch` whatever its size (kept per exact shape).
     pub fn shape_fit(&self, part: &Image, ch: char, px: i64) -> f64 {
         let key: ShapeKey = (px as u32, part.size(), part.tobytes());
-        if let Some(v) = self.fits.borrow_mut().get_mut(&key).and_then(|m| m.get(&ch).copied()) {
+        // (the cached value taken in a statement of its own: an `if let` on the borrow kept it borrowed through the
+        // block, and the second borrow below panicked on every repeat read of a name)
+        let cached = self.fits.borrow().get(&key).and_then(|m| m.get(&ch).copied());
+        if let Some(v) = cached {
             let mut f = self.fits.borrow_mut();
             let idx = f.get_index_of(&key).unwrap();
             let last = f.len() - 1;
