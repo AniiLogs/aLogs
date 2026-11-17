@@ -274,6 +274,11 @@ pub struct Overlay {
     hp_up: bool,
     /// The HP % stands on a bar whose fight hasn't started: when the meter last told of that bar (show_bar).
     bar_only: Option<f64>,
+    /// Where the HP numbers were last drawn: (left edge, top, the bar's x, its row, its span). The HP % stands in
+    /// front of them (pct_anchor).
+    pct_at: Option<(f64, f64, f64, f64, f64)>,
+    /// Room kept right of the HP % for what isn't drawn yet (see show_bar).
+    pct_inset: f64,
     bar_left: Option<f64>,
     example: bool,
     example_at: f64,
@@ -294,10 +299,33 @@ pub struct Overlay {
     shared: alogs_capture::shared::SharedCapture,
 }
 
+/// The HP % stands under the bar in front of the HP numbers ("42.2% \u{b7} HP 99.5K / 235.6K"), not on the bar: there it
+/// hid 42 to 49% of the track, and while the boss's HP was under it the meter's reading waited (the owner chose the
+/// place from a mockup, 17 Nov). Its right edge is PCT_GAP of the span left of the HP numbers (`pct_at`, set when
+/// they are drawn); until they have been drawn for this bar, at PCT_RIGHT of the span.
+pub const PCT_RIGHT: f64 = 0.80;
+pub const PCT_GAP: f64 = 0.008;
+
+/// Where the HP %'s right edge and top go: `total` is where the HP numbers' left edge and top are, if they have been
+/// drawn for this bar (`bar`: its left bracket's x, its centre row, its span); `inset` is the room left for what
+/// isn't drawn yet (the dot after the %, before the numbers are there).
+pub fn pct_anchor(bar: (f64, f64, f64), total: Option<(f64, f64)>, inset: f64) -> (f64, f64) {
+    let (bx, by, span) = bar;
+    let (right, top) = total.map_or((bx + PCT_RIGHT * span, by + TOTAL_Y * span), |(left, top)| (left - PCT_GAP * span, top));
+    (right - inset, top)
+}
+
+/// A label's place moved by hand is kept under this name (overlay_positions.json). The HP %'s has a name of its own
+/// since it moved off the bar: a move made from its old place would throw it far from the new one.
+fn pos_key(name: &str) -> String {
+    if name == "pct" { "hp_pct_line".to_string() } else { format!("hp_{name}") }
+}
+
+const TOTAL_Y: f64 = 0.022;
 const HP_SPOTS: [(&str, f64, f64, &str, f64); 4] = [
-    ("pct", (alogs_reader::bar::TRACK.0 + alogs_reader::bar::TRACK.1) / 2.0, 0.0, "c", 0.021),
+    ("pct", PCT_RIGHT, TOTAL_Y, "ne", 0.022),
     ("bar", 1.018, 0.0, "w", 0.024),
-    ("total", 1.0, 0.022, "ne", 0.022),
+    ("total", 1.0, TOTAL_Y, "ne", 0.022),
     ("break", 1.0, 0.049, "ne", 0.020),
 ];
 
@@ -316,7 +344,7 @@ impl Overlay {
         let o = Overlay {
             data, view, rx, hide, text: Text { game, plain }, pos, dw: Win::new()?, hp, aw: Win::new()?, ew: Win::new()?, tw: Win::new()?, away: false,
             dps_base: None, dps_h: 1.0, dps_key: String::new(), dps_shown: false, hide_at: None, dps_lines: None, dps_img: None, dps_scale: 1.0,
-            dps_locked: None, dps_end: false, dps_quiet: false, hp_up: false, bar_only: None, bar_left: None, example: false, example_at: 0.0, dragging: None,
+            dps_locked: None, dps_end: false, dps_quiet: false, hp_up: false, bar_only: None, pct_at: None, pct_inset: 0.0, bar_left: None, example: false, example_at: 0.0, dragging: None,
             pending: None, drawn_at: 0.0, alert_screen: None, alert_shown: false, alert_since: None, alert_alpha: -1,
             toast: Toast { queue: vec![], since: None, img: None, at: (0.0, 0.0), edge: "right", motion: "fade".into(), screen: (0, 0, 1920, 1080),
                 alpha: -1, shown: None, looked: 0.0, sample: None, drag: None },
@@ -625,7 +653,11 @@ impl Overlay {
         let (plain, _) = self.text.render(text, px, rgb(colour), false, name == "pct", true, lead);
         let (w, h) = (plain.width as f64, plain.height as f64);
         let (img, edge) = with_shadow(&plain, px);
-        let (tx, ty) = (bx + fx * span, by + fy * span);
+        let (mut tx, mut ty) = (bx + fx * span, by + fy * span);
+        if name == "pct" {
+            let total = self.pct_at.filter(|p| (p.2 - bx).abs() < 2.0 && (p.3 - by).abs() < 2.0 && (p.4 - span).abs() < 1.0).map(|p| (p.0, p.1));
+            (tx, ty) = pct_anchor(bar, total, self.pct_inset);
+        }
         let (mut x, mut y) = match anchor {
             "w" => (tx, ty - h / 2.0),
             "ne" => (tx - w, ty),
@@ -638,7 +670,7 @@ impl Overlay {
             e.1 = Some((x, y));
             e.2 = span;
         }
-        if let Some(o) = self.pos.get(&format!("hp_{name}")).and_then(|o| Some((o.get(0)?.as_f64()?, o.get(1)?.as_f64()?))) {
+        if let Some(o) = self.pos.get(&pos_key(name)).and_then(|o| Some((o.get(0)?.as_f64()?, o.get(1)?.as_f64()?))) {
             x += o.0 * span;
             y += o.1 * span;
         }
@@ -647,6 +679,10 @@ impl Overlay {
             && let Some(p) = &self.hp[name].0.placed
         {
             (x, y) = (f64::from(p.1), f64::from(p.2));
+        }
+        if name == "total" {
+            // where the HP numbers really are (moved by hand too): the % goes in front of them
+            self.pct_at = Some((x + edge as f64, y + edge as f64, bx, by, span));
         }
         self.present(name, img, x as i32, y as i32);
     }
@@ -667,7 +703,6 @@ impl Overlay {
         let f = |k: &str| d.get(k).as_f64().unwrap_or(0.0);
         let left = (f("max_hp") - f("damage")).max(0.0);
         let max_hp = if f("boss_hp") != 0.0 { f("boss_hp") } else if f("max_hp") != 0.0 { f("max_hp") } else { 1.0 };
-        self.draw_hp("pct", &format!("{:.1}%", left / max_hp * 100.0), bar, "#ffffff", None);
         let seg = d.get("bossrush").truthy() && d.get("xn").truthy() && d.get("seg_size").truthy();
         if seg {
             self.draw_hp("bar", &format!("{} / {}", fmt(f("seg_left")), fmt(f("seg_size"))), bar, "#ffffff", None);
@@ -675,7 +710,10 @@ impl Overlay {
             self.park("bar");
         }
         let shown = if seg { f("seg_left") / f("seg_size") } else { left / max_hp };
+        // the HP numbers first: the % stands in front of them, wherever they are
         self.draw_hp("total", &format!("HP {} / {}", fmt(left), fmt(max_hp)), bar, "#ffffff", Some(hp_colour(shown)));
+        self.pct_inset = 0.0;
+        self.draw_hp("pct", &format!("{:.1}% \u{b7}", left / max_hp * 100.0), bar, "#ffffff", None);
         match break_text(d.get("break")) {
             Some((t, c)) => self.draw_hp("break", &t, bar, c, None),
             None => self.park("break"),
@@ -688,7 +726,13 @@ impl Overlay {
         let bar = d.get("bar").as_list().filter(|b| b.len() == 3).map(|b| (b[0].as_f64().unwrap_or(0.0), b[1].as_f64().unwrap_or(0.0), b[2].as_f64().unwrap_or(1.0)));
         let show = !matches!(self.cfg_overlay(v, "hp_labels"), Value::Bool(false));
         let (Some(bar), Some(fill)) = (bar.filter(|_| show), d.get("fill").as_f64()) else { return };
-        self.draw_hp("pct", &format!("{:.1}%", fill * 100.0), bar, "#ffffff", None);
+        // alone, with no dot after it yet, and where it will stand once the numbers come: the dot's room is left
+        let lone = format!("{:.1}%", fill * 100.0);
+        let px = (bar.2 * HP_SPOTS[0].4).round_ties_even().max(11.0);
+        let wide = |t: &Text, s: &str| t.render(s, px, [255, 255, 255], false, true, true, None).0.width as f64;
+        self.pct_inset = wide(&self.text, &format!("{lone} \u{b7}")) - wide(&self.text, &lone);
+        self.draw_hp("pct", &lone, bar, "#ffffff", None);
+        self.pct_inset = 0.0;
         for name in ["bar", "total", "break"] {
             self.park(name);
         }
@@ -858,14 +902,14 @@ impl Overlay {
                             && let (Some(b), span, Some(p)) = (self.hp[n].1, self.hp[n].2, self.hp[n].0.placed.as_ref())
                         {
                             let off = serde_json::json!([(f64::from(p.1) - b.0) / span, (f64::from(p.2) - b.1) / span]);
-                            self.pos.insert(format!("hp_{n}"), off);
+                            self.pos.insert(pos_key(n), off);
                             self.save_positions();
                         }
                     }
                 }
                 Mouse::Double => {
                     if let Some(n) = label {
-                        self.pos.remove(&format!("hp_{n}"));
+                        self.pos.remove(&pos_key(n));
                         self.save_positions();
                     } else if is_toast {
                         self.pos.remove("notice");

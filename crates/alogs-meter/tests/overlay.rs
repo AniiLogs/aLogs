@@ -25,3 +25,55 @@ fn numbers_and_notes_read_as_before() {
     assert_eq!(lines[1].text.1.as_deref(), Some("waiting..."));
     assert_eq!(lines[3].text.1.as_deref(), Some("1:20"));
 }
+
+/// The HP % stands in front of the HP numbers, on their line: a gap left of where they start, wherever they are.
+/// Before they have been drawn for a bar it stands where they usually start, and leaves room for what comes later.
+#[test]
+fn the_hp_percent_stands_in_front_of_the_hp_numbers() {
+    use alogs_meter::overlay::{PCT_GAP, PCT_RIGHT, pct_anchor};
+    let bar = (1226.0, 194.0, 1388.0);
+    // the numbers start at x 2300 on the row at y 224.5: the % ends a gap before that, on that row
+    assert_eq!(pct_anchor(bar, Some((2300.0, 224.5)), 0.0), (2300.0 - PCT_GAP * 1388.0, 224.5));
+    // the numbers moved by hand: the % goes with them
+    assert_eq!(pct_anchor(bar, Some((1800.0, 500.0)), 0.0), (1800.0 - PCT_GAP * 1388.0, 500.0));
+    // not drawn yet for this bar: where they usually start, under the bar
+    let (right, top) = pct_anchor(bar, None, 0.0);
+    assert_eq!(right, 1226.0 + PCT_RIGHT * 1388.0);
+    assert!(top > 194.0 + 13.0, "under the bar, not on it: {top}");
+    // room kept for the dot that comes with the numbers
+    assert_eq!(pct_anchor(bar, None, 18.0).0, right - 18.0);
+}
+
+/// By hand: the HP line as the overlay draws it (the game's own font, the labels' shadow, their places), put on a real
+/// picture of the bar with no labels in it, to look at:
+/// `ALOGS_GAMEFONT=<aLogs data>\gamefont ALOGS_BAR_SHOT=<a 16:9 frame, png> ALOGS_OUT=<png to write> cargo test -p alogs-meter --test overlay -- --ignored`
+#[test]
+#[ignore = "needs the game's font and a real picture"]
+fn the_hp_line_on_a_real_bar() {
+    use alogs_meter::overlay::{pct_anchor, with_shadow};
+    use alogs_pil::{Image, Mode};
+    use alogs_reader::gamefont::{FONT_NAME, GameFont};
+    let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let font = GameFont::load(std::path::Path::new(&var("ALOGS_GAMEFONT")), None, FONT_NAME).expect("the game's font");
+    let mut im = Image::open_png(std::path::Path::new(&var("ALOGS_BAR_SHOT"))).expect("the picture").convert(Mode::Rgba);
+    let k = im.width as f64 / 3840.0;
+    let bar = (1226.0 * k, 194.0 * k, 1388.0 * k);
+    let (bx, by, span) = bar;
+    let outline = [20, 26, 44];
+    let put = |im: &mut Image, text: &str, fs: f64, fill: [u8; 3], bold: bool, lead: Option<(usize, [u8; 3])>, right: f64, top: f64| -> f64 {
+        let px = (span * fs).round_ties_even().max(11.0);
+        let (plain, _) = font.render(text, px, fill, outline, false, bold, true, lead);
+        let (img, edge) = with_shadow(&plain, px);
+        let left = right - plain.width as f64;
+        im.alpha_composite(&img, (left - edge as f64) as i64, (top - edge as f64) as i64);
+        left
+    };
+    // the HP numbers and the break line where they have always been, the % in front of the numbers
+    let total_top = by + 0.022 * span;
+    let total_left = put(&mut im, "HP 281.9K / 397.0K", 0.022, [255, 255, 255], false, Some((2, hp_colour(0.71))), bx + span, total_top);
+    put(&mut im, "BREAK 10.5K / 43.1K \u{b7} 4,916/s", 0.020, [255, 197, 138], false, Some((5, [255, 197, 138])), bx + span, by + 0.049 * span);
+    let (right, top) = pct_anchor(bar, Some((total_left, total_top)), 0.0);
+    put(&mut im, "71.0% \u{b7}", 0.022, [255, 255, 255], true, None, right, top);
+    let crop = im.crop_i((1060.0 * k) as i64, (70.0 * k) as i64, (2780.0 * k) as i64, (300.0 * k) as i64);
+    crop.save_png(std::path::Path::new(&var("ALOGS_OUT"))).expect("the picture written");
+}
