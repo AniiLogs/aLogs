@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as paths from "./paths.mjs";
+import { announcedRc } from "./rc-number.mjs";
 import { betaNotes, changelogNotes, feed, feedRelease, putJson } from "./update-feed.mjs";
 
 const REPO = "AniiLogs/aniilogs.github.io";
@@ -34,6 +35,15 @@ const installer = join(nsis, newest);
 const built_as = existsSync(paths.buildJson) ? JSON.parse(readFileSync(paths.buildJson, "utf8")) : {};
 const beta = built_as.version === version && built_as.rc === rc(newest) ? built_as.beta ?? 0 : 0;
 const buildName = beta ? `B${beta}` : `RC${rc(newest)}`;
+// Both modes point the beta feed at this build, and the app installs a build of the same version only when its RC is
+// higher than the installed one's: a build the feed already has (or passed) is refused, not published for nobody.
+if (!notesOnly) {
+  const feed = await announcedRc(version);
+  if (feed.error) throw new Error(`Can't read the beta feed (${feed.error}): nothing published. Try again when GitHub answers.`);
+  if (feed.rc != null && rc(newest) <= feed.rc) {
+    throw new Error(`The beta feed already announces ${feed.announced} and this build is RC${rc(newest)} (${newest}): no app would take it. Nothing published. Build again (npm run build:rc): it takes the next number.`);
+  }
+}
 
 // The GitHub login Git already uses on this PC.
 const credential = execFileSync("git", ["credential", "fill"], { input: "protocol=https\nhost=github.com\n\n" }).toString();
@@ -118,13 +128,13 @@ const uploaded = await github(`https://uploads.github.com/repos/${REPO}/releases
   await putJson({ headers, repo: REPO, release: await feedRelease({ headers, repo: REPO }), name: "beta.json", json });
   console.log(`beta feed: ${json.version} (${buildName})`);
 }
-if (mode === "beta") {
-  if (beta) {                                     // the next build is the next beta: commit betas.json with this
-    const betas = JSON.parse(readFileSync("betas.json", "utf8"));
-    betas[version] = Math.max(betas[version] ?? 0, beta);
-    writeFileSync("betas.json", JSON.stringify(betas, null, 2) + "\n");
-    console.log(`betas.json: ${version} B${betas[version]} published (commit it)`);
-  }
+if (mode === "beta") {                            // the next build is the next beta, with a higher RC: commit betas.json
+  const betas = JSON.parse(readFileSync("betas.json", "utf8"));
+  if (beta) betas[version] = Math.max(betas[version] ?? 0, beta);
+  // the RC published, read by tauri-build.mjs on any PC (rc-number.mjs), so the next build there counts on from it
+  betas.rc = { ...(betas.rc ?? {}), [version]: Math.max(Number(betas.rc?.[version]) || 0, rc(newest)) };
+  writeFileSync("betas.json", JSON.stringify(betas, null, 2) + "\n");
+  console.log(`betas.json: ${version} B${betas[version] ?? 0} (RC${betas.rc[version]}) published (commit it)`);
 }
 const latest = await github(`https://api.github.com/repos/${REPO}/releases/latest`).catch(() => null);
 console.log(`published ${release.html_url}\ndownload  ${uploaded.browser_download_url} (${uploaded.size} bytes)\nlatest release: ${latest?.tag_name}`);

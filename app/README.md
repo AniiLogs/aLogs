@@ -26,8 +26,11 @@ npm run build          # the same after bumping the version (bump-version.mjs)
 ```
 
 Output: `../target/release/bundle/nsis/aLogs_<version>_RC<n>_x64-setup.exe` and its `.sig`, and the build's map in
-`../target/release/bundle/maps/`. The RC number carries on from the last build of that version (the B16 app's
-`src-tauri/target/release/bundle/rc-<version>.txt` too); the beta number is one past `betas.json`.
+`../target/release/bundle/maps/`. Two PCs build betas, so the RC number is one past the highest of this PC's last
+build of that version (the B16 app's `src-tauri/target/release/bundle/rc-<version>.txt` too), the RC `betas.json`
+records as published, and the one the beta feed announces (`rc-number.mjs`, tested by `npm test`); the beta number is
+one past `betas.json`. `npm run beta` refuses a build whose RC the feed already has, and records the new RC in
+`betas.json` with the beta number.
 
 ## Release
 

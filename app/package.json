@@ -18,7 +18,8 @@
     "build:rc": "npm run notes && npm run meter:build && npm run sanctum:build && npm run resources && node tauri-build.mjs && npm run clean:installers",
     "build:release": "npm run notes && npm run meter:build && npm run sanctum:build && npm run resources && node tauri-build.mjs --release && npm run clean:installers",
     "share": "node share.mjs --test",
-    "beta": "node share.mjs --beta"
+    "beta": "node share.mjs --beta",
+    "test": "node --test \"*.test.mjs\""
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.4",

@@ -9,16 +9,24 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as paths from "./paths.mjs";
+import { announcedRc, nextRc, recordedRc } from "./rc-number.mjs";
 import { signUpdate, verifyUpdate } from "./sign-update.mjs";
 
 const version = paths.version();
-// the RC numbers of a version keep counting up, from the B16 app's builds too (paths.lastRc)
-const rc = paths.lastRc(version) + 1;
+const betas = JSON.parse(readFileSync(join(paths.appDir, "betas.json"), "utf8"));
+// the RC numbers of a version keep counting up across both PCs that build (rc-number.mjs): one past the highest of
+// this PC's counters, the RC betas.json records as published, and the RC the beta feed announces
+const local = paths.lastRc(version);
+const recorded = recordedRc(betas, version);
+const feed = await announcedRc(version);
+if (feed.error) console.warn(`beta feed not reachable (${feed.error}): the RC comes from this PC's counters and betas.json only`);
+const rc = nextRc({ local, recorded, feed: feed.rc });
+console.log(`RC${rc}: one past this PC's last build (RC${local}), betas.json (RC${recorded}) and the beta feed (${feed.error ? "not read" : feed.rc == null ? `nothing for ${version}` : `RC${feed.rc}`})`);
 // what players see: the beta this build would be (B1, B2, ...), one past the last one published (betas.json); the RC
 // number stays underneath, counting every build, for the updater. A release build (npm run build:release) is no beta:
 // it shows as plain "0.1.28".
 const release = process.argv.includes("--release");
-const beta = release ? 0 : (JSON.parse(readFileSync(join(paths.appDir, "betas.json"), "utf8"))[version] ?? 0) + 1;
+const beta = release ? 0 : (betas[version] ?? 0) + 1;
 
 for (const file of [join("meter", "alogs-meter.exe"), join("meter", "ocr-helper.exe"), join("sanctumhelper", "SanctumHelper.exe")]) {
   if (!existsSync(join(paths.crate, "resources", file))) throw new Error(`crates/alogs-app/resources/${file} is missing: run npm run build:rc (it lays them out with resources.mjs).`);
