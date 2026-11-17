@@ -68,8 +68,22 @@ pub struct Tour {
     moved: Option<f64>,
     sigs: Vec<Image>,
     stuck: i64,
+    /// Scrolls sent again because the list hadn't moved though more gizmos were still to come (views_needed).
+    retries: i64,
     views: Vec<Image>,
     view_k: f64,
+}
+
+/// The Gizmo list shows this many whole rows at once, and a scroll (3 notches) moves it on about this many.
+pub const GIZMO_ROWS_SHOWN: i64 = 6;
+pub const GIZMO_ROWS_A_SCROLL: i64 = 3;
+
+/// How many views of the Gizmo list it takes to have seen `gizmos` rows: the first shows GIZMO_ROWS_SHOWN, each
+/// scroll GIZMO_ROWS_A_SCROLL more. A list that hasn't moved with fewer views than this is not at its end: the scroll
+/// didn't take (17 Nov: a run went out with 7 of its 11 gizmos, the tour having stopped at the first view).
+pub fn views_needed(gizmos: i64) -> usize {
+    let more = (gizmos - GIZMO_ROWS_SHOWN).max(0);
+    1 + ((more + GIZMO_ROWS_A_SCROLL - 1) / GIZMO_ROWS_A_SCROLL) as usize
 }
 
 /// The Gizmo list's text, small (64 x 72): two views with the same signature show the same rows at the same place.
@@ -596,13 +610,25 @@ impl Meter {
             }
         }
         let tour = self.sim.tour.as_mut().unwrap();
+        // a list that hasn't moved is at its end, unless gizmos are still to come: then the scroll didn't take, and it
+        // is sent again (twice at most) rather than the run going out with part of its gizmos
+        let short = tour.want.is_some_and(|n| tour.views.len() < views_needed(n));
+        if tour.stuck != 0 && short && tour.retries < 2 {
+            tour.retries += 1;
+            tour.stuck = 0;
+            log::info!(target: "meter", "Holo-Battle Sim: the Gizmo list didn't move after scroll {} with {} of {} views: scrolling again (try {})",
+                tour.scrolls, tour.views.len(), views_needed(tour.want.unwrap_or(0)), tour.retries + 1);
+        }
         if tour.stuck == 0 && tour.scrolls < 25 {
             tour.scrolls += 1;
             tour.next = now + 0.1;
             let p = at((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+            log::info!(target: "meter", "Holo-Battle Sim: scrolling the Gizmo list at ({}, {}) (scroll {}, {} views kept)", p.0, p.1, tour.scrolls, tour.views.len());
             win::scroll_at(p.0, p.1, -3, true);
             return true;
         }
+        log::info!(target: "meter", "Holo-Battle Sim: the Gizmo list {} after scroll {}: {} views kept{}", if tour.stuck != 0 { "didn't move" } else { "is at its scroll limit" },
+            tour.scrolls, tour.views.len(), if short { ", fewer than its gizmos need" } else { "" });
         let b = at(GIZMO_BACK.0, GIZMO_BACK.1);
         win::wiggle_at(b.0, b.1);
         win::click_at(b.0, b.1, true);

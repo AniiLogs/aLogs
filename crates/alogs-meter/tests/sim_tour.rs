@@ -20,3 +20,13 @@ fn tour_helpers_match_python() {
         assert_eq!(sim_count(&rows), c[3].as_i64().unwrap(), "sim_count {c}");
     }
 }
+
+/// How many views of the Gizmo list a run's gizmos need: fewer kept when the list stops moving means a scroll didn't
+/// take (a run went out with 7 of its 11 gizmos from the first view alone).
+#[test]
+fn the_views_a_gizmo_list_needs() {
+    use alogs_meter::sim_tour::views_needed;
+    for (gizmos, views) in [(0, 1), (1, 1), (6, 1), (7, 2), (9, 2), (10, 3), (11, 3), (12, 3), (13, 4), (30, 9)] {
+        assert_eq!(views_needed(gizmos), views, "{gizmos} gizmos");
+    }
+}
