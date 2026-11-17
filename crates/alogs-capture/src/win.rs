@@ -282,16 +282,50 @@ pub fn press_key(vk: u16) {
     game_moment(|| imp::key(vk));
 }
 
+/// Several of our own inputs with the game in front throughout: the focus is handed over once for all of them, not
+/// once each (each hand-over costs LEND_SETTLE + LEND_AFTER, 0.27 s, while the focus guard is on).
+pub fn one_moment<T>(f: impl FnOnce() -> T) -> T {
+    game_moment(f)
+}
+
+/// Where the pointer is now, in screen px.
+pub fn pointer() -> (i32, i32) {
+    imp::cursor()
+}
+
+/// The pointer is this far (px) from a point at most: it counts as on it.
+const ON_POINT: i32 = 8;
+/// A pointer that had to travel is given this long (ms) on its point before a press or the wheel, as a click's is.
+const ARRIVE_MS: u64 = 120;
+
+/// Is the pointer on (x, y) already?
+fn pointer_on(x: i32, y: i32) -> bool {
+    let (px, py) = imp::cursor();
+    (px - x).abs() <= ON_POINT && (py - y).abs() <= ON_POINT
+}
+
 /// Turn the mouse wheel `notches` at a point (negative: down), the cursor put back after (unless `keep`).
+///
+/// The wheel turns what the game's pointer is over, and the game takes the pointer's place from mouse movement it has
+/// had time to see: a pointer that comes from elsewhere is given ARRIVE_MS there first, as a click's is, and is put on
+/// the point again before each notch. (17 Nov: with the pointer still on "All" from the click before, the Gizmo
+/// screen's wheel turned the filter column 50 ms after the move, the list never moved, and the run went out with 7 of
+/// its 11 gizmos.)
 pub fn scroll_at(x: i32, y: i32, notches: i32, keep: bool) {
     game_moment(|| {
         let (px, py) = imp::cursor();
+        let there = pointer_on(x, y);
         move_to(x, y);
         imp::mouse(MOVE, 6, 0, 0);
         sleep(20);
         imp::mouse(MOVE, -6, 0, 0);
         sleep(30);
+        if !there {
+            move_to(x, y);
+            sleep(ARRIVE_MS);
+        }
         for _ in 0..notches.unsigned_abs() {
+            move_to(x, y);
             imp::mouse(WHEEL, 0, 0, if notches > 0 { 120 } else { -120 });
             sleep(30);
         }

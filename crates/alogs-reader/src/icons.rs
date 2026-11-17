@@ -120,6 +120,25 @@ pub struct Icons {
     digits: RefCell<Option<IndexMap<char, Vec<Image>>>>,
 }
 
+/// What shows in one card's window, made small, and where the whole art lies over it at that size.
+struct CardLook {
+    crop: Image,
+    w0: f64,
+    h0: f64,
+    ox0: f64,
+    oy0: f64,
+}
+
+impl CardLook {
+    fn new(im: &Image, window: BoxF, art: BoxF, n: usize) -> CardLook {
+        let (x0, y0, x1, y1) = window;
+        let h = r(n as f64 * (y1 - y0) / (x1 - x0)).max(4) as usize;
+        let k = n as f64 / (x1 - x0);
+        let crop = crop_int(im, window).convert(Mode::Rgb).resize(n, h, Some(Filter::Bilinear));
+        CardLook { crop, w0: art.2 * k, h0: art.3 * k, ox0: (art.0 - x0) * k, oy0: (art.1 - y0) * k }
+    }
+}
+
 fn fade_of(kind: &str) -> (&'static str, f64) {
     if kind == "lead" { ("ui_img_grabeggs_centeritem_mask1", 1.0) } else { ("ui_img_grabeggs_centeritem_mask2", 208.0 / 204.0) }
 }
@@ -321,48 +340,65 @@ impl Icons {
         i
     }
 
+    /// How well one card art fits what shows in a card's window, the art a little bigger or smaller and a pixel or two
+    /// off its place.
+    fn card_score(&self, look: &CardLook, key: &str, scale: f64, dx: i64, dy: i64) -> f64 {
+        let (n, h) = (look.crop.width, look.crop.height);
+        let (w, hh) = (((look.w0 * scale) as i64).max(1), ((look.h0 * scale) as i64).max(1));
+        let ox = r(look.ox0 + (look.w0 - w as f64) / 2.0) + dx;
+        let oy = r(look.oy0 + (look.h0 - hh as f64) / 2.0) + dy;
+        if ox > 0 || oy > 0 || ox + w < n as i64 || oy + hh < h as i64 {
+            return -1.0;
+        }
+        let part = self.card_sized(key, w as usize, hh as usize).crop_i(-ox, -oy, -ox + n as i64, -oy + h as i64);
+        let mask = alpha(&part).point(above(200));
+        if (mask.histogram(None)[255] as f64) < 0.3 * (n * h) as f64 {
+            return -1.0;
+        }
+        ncc_pooled(&look.crop, &part.convert(Mode::Rgb), &mask)
+    }
+
+    /// One card art's best fit over the sizes and places tried.
+    fn card_fit(&self, look: &CardLook, key: &str) -> f64 {
+        let mut s = f64::NEG_INFINITY;
+        for sc in [0.96, 1.0, 1.04] {
+            for dx in -2..=2 {
+                for dy in -2..=2 {
+                    s = s.max(self.card_score(look, key, sc, dx, dy));
+                }
+            }
+        }
+        s
+    }
+
     /// The Aniimo whose card art shows in `window`; `art` = (x, y, w, h) of the whole art.
     pub fn card(&self, im: &Image, window: BoxF, art: BoxF, n: usize) -> Option<Match> {
         if self.cards.is_empty() {
             return None;
         }
-        let (x0, y0, x1, y1) = window;
-        let h = r(n as f64 * (y1 - y0) / (x1 - x0)).max(4) as usize;
-        let k = n as f64 / (x1 - x0);
-        let crop = crop_int(im, window).convert(Mode::Rgb).resize(n, h, Some(Filter::Bilinear));
-        let (w0, h0) = (art.2 * k, art.3 * k);
-        let (ox0, oy0) = ((art.0 - x0) * k, (art.1 - y0) * k);
-        let score = |key: &str, scale: f64, dx: i64, dy: i64| -> f64 {
-            let (w, hh) = (((w0 * scale) as i64).max(1), ((h0 * scale) as i64).max(1));
-            let ox = r(ox0 + (w0 - w as f64) / 2.0) + dx;
-            let oy = r(oy0 + (h0 - hh as f64) / 2.0) + dy;
-            if ox > 0 || oy > 0 || ox + w < n as i64 || oy + hh < h as i64 {
-                return -1.0;
-            }
-            let part = self.card_sized(key, w as usize, hh as usize).crop_i(-ox, -oy, -ox + n as i64, -oy + h as i64);
-            let mask = alpha(&part).point(above(200));
-            if (mask.histogram(None)[255] as f64) < 0.3 * (n * h) as f64 {
-                return -1.0;
-            }
-            ncc_pooled(&crop, &part.convert(Mode::Rgb), &mask)
-        };
-        let first = desc_keys(self.cards.keys().map(|key| (score(key, 1.0, 0, 0), key.clone())).collect());
+        let look = CardLook::new(im, window, art, n);
+        let first = desc_keys(self.cards.keys().map(|key| (self.card_score(&look, key, 1.0, 0, 0), key.clone())).collect());
         let mut best: IndexMap<String, (f64, String)> = IndexMap::new();
         for (_, key) in first.into_iter().take(12) {
-            let mut s = f64::NEG_INFINITY;
-            for sc in [0.96, 1.0, 1.04] {
-                for dx in -2..=2 {
-                    for dy in -2..=2 {
-                        s = s.max(score(&key, sc, dx, dy));
-                    }
-                }
-            }
+            let s = self.card_fit(&look, &key);
             let name = self.cards[&key].0.clone();
             if s > best.get(&name).map_or(-2.0, |b| b.0) {
                 best.insert(name, (s, key));
             }
         }
         ranked(best)
+    }
+
+    /// How well the card art of the Aniimo called `name` fits what shows in `window` (the same score `card` gives its
+    /// winner), or None when the game has no card art under that name. One Aniimo's art is tried, not all of them: for
+    /// a card whose name is already read, this says in a few ms whether the art agrees.
+    pub fn card_of(&self, im: &Image, window: BoxF, art: BoxF, n: usize, name: &str) -> Option<f64> {
+        let keys: Vec<&String> = self.cards.iter().filter(|(_, (called, _))| called == name).map(|(key, _)| key).collect();
+        if keys.is_empty() {
+            return None;
+        }
+        let look = CardLook::new(im, window, art, n);
+        Some(keys.into_iter().map(|key| self.card_fit(&look, key)).fold(f64::NEG_INFINITY, f64::max))
     }
 
     fn badge_look(rad: f64) -> (Image, Image, i64) {

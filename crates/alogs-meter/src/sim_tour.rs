@@ -86,6 +86,23 @@ pub fn views_needed(gizmos: i64) -> usize {
     1 + ((more + GIZMO_ROWS_A_SCROLL - 1) / GIZMO_ROWS_A_SCROLL) as usize
 }
 
+/// The middle of the Gizmo list, where the wheel is turned, as a share of the 16:9 area: on the list's rows, clear of
+/// the filter column left of it (which ends at 0.15 of the width; GIZMO_LIST_BOX starts at 0.215).
+pub const GIZMO_SCROLL: (f64, f64) = ((GIZMO_LIST.0 + GIZMO_LIST.2) / 2.0, (GIZMO_LIST.1 + GIZMO_LIST.3) / 2.0);
+
+fn list_spot(at: &dyn Fn(f64, f64) -> (i32, i32)) -> (i32, i32) {
+    at(GIZMO_SCROLL.0, GIZMO_SCROLL.1)
+}
+
+/// The mouse moved onto a spot for real, then one click there, with the game in front throughout: one hand-over of the
+/// focus where the move and the click each took their own (0.27 s more a click while the focus guard is on).
+fn click_fresh(spot: (i32, i32)) {
+    win::one_moment(|| {
+        win::wiggle_at(spot.0, spot.1);
+        win::click_at(spot.0, spot.1, true);
+    });
+}
+
 /// The Gizmo list's text, small (64 x 72): two views with the same signature show the same rows at the same place.
 pub fn gizmo_list_sig(im: &Image) -> Image {
     let (w, h) = (im.width as f64, im.height as f64);
@@ -385,8 +402,10 @@ impl Meter {
 
     fn sim_tour_end(&mut self, out: &mut dyn Out, why: &str) {
         let Some(mut tour) = self.sim.tour.take() else { return };
+        // control goes back before anything slow, however the tour ended: the views' names, and the team cards still
+        // to be named from their art (sim_cards_finish, in sim_send), are read after
+        self.sim_release(if tour.views.is_empty() { why } else { "the Gizmo screen is captured" });
         if !tour.views.is_empty() {
-            self.sim_release("the Gizmo screen is captured");
             self.sim_tour_names(&mut tour);
         }
         self.sim.seen = self.env.now();
@@ -510,8 +529,7 @@ impl Meter {
                 return false;
             }
             log::info!(target: "meter", "Holo-Battle Sim: clicking the gizmo row at ({}, {}) (try {}, mouse mode)", spot.0, spot.1, tour.tries);
-            win::wiggle_at(spot.0, spot.1);
-            win::click_at(spot.0, spot.1, true);
+            click_fresh(spot);
             tour.stage = "wait";
             tour.next = now + 0.3;
             tour.waited = 0;
@@ -546,9 +564,7 @@ impl Meter {
             if tour.backs % 2 == 1 {
                 win::press_key(win::VK_ESCAPE);
             } else {
-                let b = at(GIZMO_BACK.0, GIZMO_BACK.1);
-                win::wiggle_at(b.0, b.1);
-                win::click_at(b.0, b.1, true);
+                click_fresh(at(GIZMO_BACK.0, GIZMO_BACK.1));
             }
             tour.next = now + 0.4;
             return true;
@@ -559,9 +575,15 @@ impl Meter {
         }
         if stage == "all" {
             if !tour.all_clicked {
+                // All clicked, and the pointer taken off it onto the list at once: the wheel turns what the pointer is
+                // over, and left on All it turned the filter column (the owner, 17 Nov). It rests on the list while
+                // All's count is read, so the game has long seen it there when the first scroll comes.
                 let a = at(GIZMO_ALL.0, GIZMO_ALL.1);
-                win::wiggle_at(a.0, a.1);
-                win::click_at(a.0, a.1, true);
+                let l = list_spot(&at);
+                win::one_moment(|| {
+                    click_fresh(a);
+                    win::wiggle_at(l.0, l.1);
+                });
                 tour.all_clicked = true;
                 tour.next = now + 0.3;
                 return true;
@@ -622,16 +644,17 @@ impl Meter {
         if tour.stuck == 0 && tour.scrolls < 25 {
             tour.scrolls += 1;
             tour.next = now + 0.1;
-            let p = at((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-            log::info!(target: "meter", "Holo-Battle Sim: scrolling the Gizmo list at ({}, {}) (scroll {}, {} views kept)", p.0, p.1, tour.scrolls, tour.views.len());
+            let p = list_spot(&at);
+            let from = win::pointer();
             win::scroll_at(p.0, p.1, -3, true);
+            let after = win::pointer();
+            log::info!(target: "meter", "Holo-Battle Sim: scrolled the Gizmo list at ({}, {}) (scroll {}, {} views kept; the pointer came from ({}, {}) and is at ({}, {}))",
+                p.0, p.1, tour.scrolls, tour.views.len(), from.0, from.1, after.0, after.1);
             return true;
         }
         log::info!(target: "meter", "Holo-Battle Sim: the Gizmo list {} after scroll {}: {} views kept{}", if tour.stuck != 0 { "didn't move" } else { "is at its scroll limit" },
             tour.scrolls, tour.views.len(), if short { ", fewer than its gizmos need" } else { "" });
-        let b = at(GIZMO_BACK.0, GIZMO_BACK.1);
-        win::wiggle_at(b.0, b.1);
-        win::click_at(b.0, b.1, true);
+        click_fresh(at(GIZMO_BACK.0, GIZMO_BACK.1));
         tour.stage = "back";
         tour.backs = 0;
         tour.next = now + 0.4;

@@ -287,6 +287,31 @@ pub fn sim_team_crops(im: &Image, u: f64, ux: f64, h: f64) -> IndexMap<String, I
 }
 
 /// What `sim_team_crops` read -> {team, mvpShares, gizmoCounts, coins, low}.
+/// The Aniimo each team card's own line names ("Lv.70 Irisalis"), where it reads as one of the game's names: None for
+/// a card with no line read, or a nickname. The same reads and the same 0.7 as `parse_sim_team`'s names.
+pub fn sim_card_names(t: &IndexMap<String, String>, names: &[String]) -> Vec<Option<String>> {
+    static LV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"L\W?v\W*(\d{1,3})\W+(\S.{1,24})").unwrap());
+    (0..SIM_CARDS.len())
+        .map(|i| {
+            let mut best: Option<(f64, &String)> = None;
+            for key in [format!("c{i}w"), format!("c{i}b")] {
+                let Some(m) = t.get(&key).and_then(|v| LV.captures(v)) else { continue };
+                if !(1..=100).contains(&m[1].parse::<i64>().unwrap_or(0)) {
+                    continue;
+                }
+                let read = letters(m[2].trim());
+                for n in names {
+                    let s = ratio(&read, &letters(n));
+                    if best.is_none_or(|b| (s, n) > (b.0, b.1)) {
+                        best = Some((s, n));
+                    }
+                }
+            }
+            best.filter(|b| b.0 >= 0.7).map(|b| b.1.clone())
+        })
+        .collect()
+}
+
 pub fn parse_sim_team(t: &IndexMap<String, String>, names: &[String], species: &[Option<String>]) -> Value {
     static LV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"L\W?v\W*(\d{1,3})\W+(\S.{1,24})").unwrap());
     static PLAIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-z]+(?:[ '\-][A-Z][a-z]+)?$").unwrap());
