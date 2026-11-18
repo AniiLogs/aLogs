@@ -2,6 +2,11 @@
   "build": "0.1.37",
   "items": [
     {
+      "id": "sim-end-gizmo-scan",
+      "title": "Holo-Battle Sim: the gizmo scan at the end",
+      "how": "Win a Holo-Battle Sim run and press nothing on the Victory screen: aLogs opens the Gizmo screen, picks All, scrolls the list and comes back by itself, and nothing you press (keyboard, mouse or controller) reaches the game until the run is sent. In the notes: your monitor's resolution, whether you play on a controller or keyboard and mouse, and whether your run on the site has every gizmo. Send your logs with it."
+    },
+    {
       "id": "damage-guide-checks",
       "title": "Damage Guide checks",
       "how": "The site's Damage Guide lists what only the game can settle. Do any section below and report your numbers in the notes.",
