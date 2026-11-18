@@ -16,14 +16,20 @@ use std::path::PathBuf;
 
 pub const SIM_GATE_GONE: f64 = 3.0;
 pub const SIM_PRESS_EARLY: f64 = 1.0;
-pub const SIM_MOUSE_WAIT: f64 = 3.0;
+/// The Victory screen's own prompt is waited for this long (s) before the gizmo row is clicked anyway.
+pub const SIM_PROMPT_WAIT: f64 = 1.0;
 pub const SIM_VICTORY_WAIT: f64 = 8.0;
 /// Control taken at the first sight of the Victory screen's Battle time line is given back when no Victory is read
 /// from the screen within this long (the read waits up to 1.5 s for the screen's right side).
 pub const SIM_SPOT_WAIT: f64 = 4.0;
 pub const GIZMO_LIST_BOX: (f64, f64, f64, f64) = (0.215, 0.09, 0.97, 0.96);
 pub const GIZMO_TITLE: (f64, f64, f64, f64) = (0.06, 0.03, 0.14, 0.085);
-pub const GIZMO_ALL: (f64, f64) = (0.09, 0.16);
+/// Where "All" is clicked. The filter column sits 0.02 of the height lower with a controller than with a mouse (a
+/// d-pad picture stands above it): All's middle is at 0.161 with a mouse and 0.181 with a controller, measured on 4K
+/// pictures of both (17 Nov), its rows 0.078 apart. 0.17 is inside the row in both.
+pub const GIZMO_ALL: (f64, f64) = (0.09, 0.17);
+/// Where All's count is read ("All 24"): tall enough for the row in either place.
+pub const GIZMO_ALL_COUNT: (f64, f64, f64, f64) = (0.065, 0.14, 0.135, 0.205);
 pub const GIZMO_LIST: (f64, f64, f64, f64) = (0.305, 0.09, 0.60, 0.96);
 pub const GIZMO_BACK: (f64, f64) = (0.05, 0.056);
 pub const SIM_PROOF_MAX: usize = 20;
@@ -58,8 +64,7 @@ pub struct Tour {
     scrolls: i64,
     shots: Vec<String>,
     want: Option<i64>,
-    mouse_from: Option<f64>,
-    wiggled: f64,
+    prompt_from: Option<f64>,
     title: String,
     waited: i64,
     backs: i64,
@@ -97,13 +102,23 @@ fn list_spot(at: &dyn Fn(f64, f64) -> (i32, i32)) -> (i32, i32) {
     at(GIZMO_SCROLL.0, GIZMO_SCROLL.1)
 }
 
-/// The mouse moved onto a spot for real, then one click there, with the game in front throughout: one hand-over of the
-/// focus where the move and the click each took their own (0.27 s more a click while the focus guard is on).
+/// What the Victory screen's own prompt (bottom middle, as read and normalised) says the game is played with: it
+/// reads "Click anywhere to close" with a mouse and "Confirm" beside a button picture with a controller. None when it
+/// is neither: the prompt isn't up yet, or wasn't read.
+pub fn victory_mode(prompt: &str) -> Option<&'static str> {
+    if prompt.contains("anywhere") || prompt.contains("close") {
+        Some("mouse mode")
+    } else if prompt.contains("confirm") {
+        Some("controller mode")
+    } else {
+        None
+    }
+}
+
+/// The mouse moved onto a spot for real, then one click there.
 fn click_fresh(spot: (i32, i32)) {
-    win::one_moment(|| {
-        win::wiggle_at(spot.0, spot.1);
-        win::click_at(spot.0, spot.1, true);
-    });
+    win::wiggle_at(spot.0, spot.1);
+    win::click_at(spot.0, spot.1, true);
 }
 
 /// The Gizmo list's text, small (64 x 72): two views with the same signature show the same rows at the same place.
@@ -234,7 +249,7 @@ impl Meter {
                 && let Some(h) = self.hwnd
                 && !self.args.replay
             {
-                self.focus_guard.take(h, seconds);
+                self.told_inactive.take(h, seconds);
             }
         }
         if r.get("hold_controller").truthy() && alogs_capture::input::hidhide_available() {
@@ -248,7 +263,7 @@ impl Meter {
     pub fn sim_release(&mut self, why: &str) {
         let Some(ctl) = self.sim.ctl.take() else { return };
         self.hold.stop();
-        self.focus_guard.stop();
+        self.told_inactive.stop();
         if ctl.rewasd {
             alogs_capture::rewasd::hold(alogs_capture::rewasd::config(&self.env.data).as_ref(), false);
         }
@@ -539,19 +554,18 @@ impl Meter {
             let spot = at(SIM_GIZMO_X, 0.545 + if self.sim.low { SIM_LOW } else { 0.0 });
             let prompt = norm(&read1(self, "p", prep::prep_bright(im, (ux + u * 0.38, h * 0.93, ux + u * 0.62, h * 0.98), k, 2.0)));
             let tour = self.sim.tour.as_mut().unwrap();
-            if !prompt.contains("anywhere") && !prompt.contains("close") {
-                let from = *tour.mouse_from.get_or_insert(now);
-                if now - from > SIM_MOUSE_WAIT {
-                    self.sim_tour_end(out, &format!("the game didn't switch to mouse mode (prompt read {})", alogs_pyval::str_repr(&prompt)));
-                    return false;
+            // The gizmo row is clicked as soon as the screen's own prompt is up, in whichever mode the game is: it is
+            // not made to change to mouse mode first. (17 Nov: a game told it is inactive doesn't change mode for a
+            // mouse movement, so a run on a controller waited for mouse mode and went out with 0 of its 12 gizmos; the
+            // same click made on that Victory screen in controller mode opened the Gizmo screen.) A prompt not read
+            // within SIM_PROMPT_WAIT: clicked anyway, the tries below ending it if the Gizmo screen never opens.
+            let mode = victory_mode(&prompt);
+            if mode.is_none() && tour.tries == 0 {
+                let from = *tour.prompt_from.get_or_insert(now);
+                if now - from <= SIM_PROMPT_WAIT {
+                    tour.next = now + 0.1;
+                    return true;
                 }
-                if tour.wiggled == 0.0 || now - tour.wiggled > 0.8 {
-                    log::info!(target: "meter", "Holo-Battle Sim: the Victory screen is in controller mode ({}): moving the mouse for mouse mode", alogs_pyval::str_repr(&prompt));
-                    win::wiggle_at(spot.0, spot.1);
-                    tour.wiggled = now;
-                }
-                tour.next = now + 0.25;
-                return true;
             }
             tour.tries += 1;
             if tour.tries > 3 {
@@ -559,7 +573,8 @@ impl Meter {
                 self.sim_tour_end(out, &format!("the Gizmo screen did not open (title read {})", alogs_pyval::str_repr(&t)));
                 return false;
             }
-            log::info!(target: "meter", "Holo-Battle Sim: clicking the gizmo row at ({}, {}) (try {}, mouse mode)", spot.0, spot.1, tour.tries);
+            log::info!(target: "meter", "Holo-Battle Sim: clicking the gizmo row at ({}, {}) (try {}, {})", spot.0, spot.1, tour.tries,
+                mode.map_or_else(|| format!("prompt read {}", alogs_pyval::str_repr(&prompt)), String::from));
             click_fresh(spot);
             tour.stage = "wait";
             tour.next = now + 0.3;
@@ -593,7 +608,10 @@ impl Meter {
                 return false;
             }
             if tour.backs % 2 == 1 {
+                // a key press is the one input of ours not tried on a game told it is inactive: told active for it
+                self.told_inactive.lend();
                 win::press_key(win::VK_ESCAPE);
+                self.told_inactive.back();
             } else {
                 click_fresh(at(GIZMO_BACK.0, GIZMO_BACK.1));
             }
@@ -611,15 +629,14 @@ impl Meter {
                 // All's count is read, so the game has long seen it there when the first scroll comes.
                 let a = at(GIZMO_ALL.0, GIZMO_ALL.1);
                 let l = list_spot(&at);
-                win::one_moment(|| {
-                    click_fresh(a);
-                    win::wiggle_at(l.0, l.1);
-                });
+                click_fresh(a);
+                win::wiggle_at(l.0, l.1);
                 tour.all_clicked = true;
                 tour.next = now + 0.3;
                 return true;
             }
-            let t = read1(self, "a", prep::prep_bright(im, (ux + u * 0.065, h * 0.14, ux + u * 0.135, h * 0.185), k, 2.0));
+            let c = GIZMO_ALL_COUNT;
+            let t = read1(self, "a", prep::prep_bright(im, (ux + u * c.0, h * c.1, ux + u * c.2, h * c.3), k, 2.0));
             let tour = self.sim.tour.as_mut().unwrap();
             if t.to_lowercase().contains("all")
                 && let Some(m) = regex::Regex::new(r"(\d{1,3})").unwrap().captures(&t)

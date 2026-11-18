@@ -816,7 +816,7 @@ impl Overlay {
             return true;
         }
         let fg = layered::foreground();
-        fg == game || self.wins().iter().any(|w| w.hwnd == fg) || alogs_capture::win::STANDIN.lock().unwrap().hwnd.is_some_and(|s| s == fg)
+        fg == game || self.wins().iter().any(|w| w.hwnd == fg)
     }
 
     fn show_example(&mut self, v: &View) {

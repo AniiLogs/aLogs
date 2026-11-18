@@ -127,7 +127,7 @@ Known differences (documented where they are): Pillow's quantize (plain median c
 not FreeType), proof JPEG bytes (jpeg-encoder, not libjpeg), font/icon extraction from the game's Unity bundles (the
 Python meter's cache is read).
 
-Since then: the Holo-Battle Sim exit gate and Gizmo tour, input holds (alogs-capture input, focusguard, rewasd), presence,
+Since then: the Holo-Battle Sim exit gate and Gizmo tour, input holds (alogs-capture input, inactive, rewasd), presence,
 pcstats (alogs-pcstats), diagnostics, housekeeping (cleanup, game-data refresh), the OCR language checks, the overlay
 (gamefont.render bit-exact; layered windows; DPS window, HP labels, end notes, the alert, notices), the stop event and a
 clean shutdown. **alogs-app** is moved in (crates/alogs-app, with its ui) and starts the Rust meter; pictures of the game

@@ -691,6 +691,7 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
     m.end_auto("meter closed");
     m.egg_hold_end("meter closed");
     m.hold.stop();
+    m.told_inactive.stop(); // (a game left told it is inactive would read no controller until it's clicked away from and back)
     if alogs_capture::input::controllers_hidden() {
         alogs_capture::input::hide_controllers(false);
     }
