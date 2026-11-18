@@ -97,13 +97,10 @@ fn list_spot(at: &dyn Fn(f64, f64) -> (i32, i32)) -> (i32, i32) {
     at(GIZMO_SCROLL.0, GIZMO_SCROLL.1)
 }
 
-/// The mouse moved onto a spot for real, then one click there, in one moment: the game is told it is active once where
-/// the move and the click each had it told (0.27 s more a click while the game is told it is inactive).
+/// The mouse moved onto a spot for real, then one click there.
 fn click_fresh(spot: (i32, i32)) {
-    win::one_moment(|| {
-        win::wiggle_at(spot.0, spot.1);
-        win::click_at(spot.0, spot.1, true);
-    });
+    win::wiggle_at(spot.0, spot.1);
+    win::click_at(spot.0, spot.1, true);
 }
 
 /// The Gizmo list's text, small (64 x 72): two views with the same signature show the same rows at the same place.
@@ -593,7 +590,10 @@ impl Meter {
                 return false;
             }
             if tour.backs % 2 == 1 {
+                // a key press is the one input of ours not tried on a game told it is inactive: told active for it
+                self.told_inactive.lend();
                 win::press_key(win::VK_ESCAPE);
+                self.told_inactive.back();
             } else {
                 click_fresh(at(GIZMO_BACK.0, GIZMO_BACK.1));
             }
@@ -611,10 +611,8 @@ impl Meter {
                 // All's count is read, so the game has long seen it there when the first scroll comes.
                 let a = at(GIZMO_ALL.0, GIZMO_ALL.1);
                 let l = list_spot(&at);
-                win::one_moment(|| {
-                    click_fresh(a);
-                    win::wiggle_at(l.0, l.1);
-                });
+                click_fresh(a);
+                win::wiggle_at(l.0, l.1);
                 tour.all_clicked = true;
                 tour.next = now + 0.3;
                 return true;

@@ -5,8 +5,10 @@
 //! the active set). Nothing on the screen changes: no window of ours and no focus change, so no taskbar over a
 //! borderless game and no change of capture method.
 //!
-//! Our own clicks and scrolls tell the game it is active for their moment (`lend` / `back`). It is told it is active
-//! again at `stop`, or after `seconds` whatever happens.
+//! Our own pointer moves, clicks and scrolls need nothing: the game takes them while it is told it is inactive (17 Nov,
+//! on the running game: a scroll, a click, and a click on a spot the pointer was brought to while the controller was
+//! being pressed and did nothing). A key press of ours hasn't been tried that way, so the game is told it is active for
+//! its moment (`lend` / `back`). The game is told it is active again at `stop`, or after `seconds` whatever happens.
 //!
 //! Hiding the controller (HidHide) can't do this: the driver only refuses a new open, and a running game has the
 //! controller open already (17 Nov: 1228 input changes read through an open handle in 15 s of hiding). The focus guard
@@ -16,9 +18,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::SeqCst};
 use std::sync::{Arc, Mutex};
 
-/// After the game is told it is active: this long (s) before our input, so it takes it.
+/// After the game is told it is active: this long (s) before our key press, so it takes it.
 pub const LEND_SETTLE: f64 = 0.15;
-/// After our input: this long (s) before the game is told it is inactive again, so the input is in.
+/// After our key press: this long (s) before the game is told it is inactive again, so the press is in.
 pub const LEND_AFTER: f64 = 0.12;
 /// How often (ms) the watch looks: at the time limit, and for a game that has come back to the front.
 const WATCH_MS: u64 = 20;
@@ -39,7 +41,7 @@ struct Inner {
     on: AtomicBool,
     /// Counts the takes, so the watch of an earlier one knows it is over.
     round: AtomicU64,
-    /// How many of our own inputs have the game told it is active right now. Its lock puts every tell in order.
+    /// How many key presses of ours have the game told it is active right now. Its lock puts every tell in order.
     lent: Mutex<u32>,
     /// Tests: a window that can never be the one in front counts as in front.
     #[cfg(test)]
@@ -50,7 +52,7 @@ struct Inner {
 pub struct Inactive(Arc<Inner>);
 
 impl Inactive {
-    /// Is the game told it is inactive now (our own inputs' moments included)?
+    /// Is the game told it is inactive now (a key press's moment included)?
     pub fn on(&self) -> bool {
         self.0.on.load(SeqCst)
     }
@@ -85,11 +87,6 @@ impl Inactive {
         i.on.store(true, SeqCst);
         let round = i.round.fetch_add(1, SeqCst) + 1;
         drop(lent);
-        let (a, b) = (self.clone(), self.clone());
-        let mut l = crate::win::LEND.lock().unwrap();
-        l.lend = Some(Arc::new(move || a.lend()));
-        l.back = Some(Arc::new(move || b.back()));
-        drop(l);
         let me = self.clone();
         std::thread::spawn(move || me.watch(round));
         log::info!(target: "meter", "the game is told it is inactive: it stays in front and reads no controller");
@@ -140,15 +137,11 @@ impl Inactive {
         }
         i.stop_at.store(0, SeqCst);
         *lent = 0;
-        let mut l = crate::win::LEND.lock().unwrap();
-        l.lend = None;
-        l.back = None;
-        drop(l);
         let told = self.in_front() && imp::tell(i.game.load(SeqCst), true);
         log::info!(target: "meter", "{}", if told { "the game is told it is active again" } else { "the game is no longer told it is inactive (it isn't in front: Windows tells it when it is)" });
     }
 
-    /// The game is told it is active for one of our own inputs; `back` tells it otherwise again.
+    /// The game is told it is active for a key press of ours; `back` tells it otherwise again. Nothing when it's off.
     pub fn lend(&self) {
         let i = &self.0;
         let mut lent = i.lent.lock().unwrap();
@@ -261,9 +254,9 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
 
-    // One test: the hand-over to our own inputs is one for the whole program (win::LEND).
+    // One test, in order: each part leaves the window told what the next one starts from.
     #[test]
-    fn the_game_is_told_inactive_for_the_hold_and_active_for_our_own_inputs() {
+    fn the_game_is_told_inactive_for_the_hold_and_active_for_a_key_press_of_ours() {
         let h = window();
         got();
         assert!(imp::tell(h, false));
@@ -280,23 +273,26 @@ mod tests {
         assert!(g.take(h, 30.0), "taken again: more time, nothing told twice");
         assert!(got().is_empty());
 
-        // one of our own inputs: active for its moment, inactive after
-        assert_eq!(crate::win::one_moment(got), ACTIVE);
+        // a key press of ours: active for its moment, inactive after
+        g.lend();
+        assert_eq!(got(), ACTIVE);
+        g.back();
         assert_eq!(got(), INACTIVE);
-        // several in one moment: told once
-        let inside = crate::win::one_moment(|| {
-            crate::win::one_moment(|| ());
-            got()
-        });
-        assert_eq!(inside, ACTIVE);
+        // one inside another: told once
+        g.lend();
+        g.lend();
+        g.back();
+        assert_eq!(got(), ACTIVE);
+        g.back();
         assert_eq!(got(), INACTIVE);
 
         g.stop();
         assert!(!g.on());
         assert_eq!(got(), ACTIVE, "told active before stop returns");
         g.stop();
-        crate::win::one_moment(|| ());
-        assert!(got().is_empty(), "off: our inputs tell the game nothing");
+        g.lend();
+        g.back();
+        assert!(got().is_empty(), "off: nothing is told");
 
         // the time limit ends it, whatever happens
         assert!(g.take(h, 0.05));
@@ -310,7 +306,8 @@ mod tests {
         assert!(g.take(h, 30.0));
         wait(100);
         assert!(got().is_empty());
-        crate::win::one_moment(|| ());
+        g.lend();
+        g.back();
         assert!(got().is_empty());
         g.0.as_if_front.store(true, SeqCst);
         wait(200);

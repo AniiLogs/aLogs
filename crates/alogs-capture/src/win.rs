@@ -3,30 +3,9 @@
 //! scroll). Windows only; elsewhere these find nothing and do nothing.
 
 use alogs_pil::Image;
-use std::sync::{Arc, Mutex};
-
-/// While aLogs has control of an end screen the game is told it is inactive (`inactive.rs`): our own inputs tell it
-/// it is active for their moment (`lend` before, `back` after).
-pub struct Lend {
-    pub lend: Option<Arc<dyn Fn() + Send + Sync>>,
-    pub back: Option<Arc<dyn Fn() + Send + Sync>>,
-}
-
-pub static LEND: Mutex<Lend> = Mutex::new(Lend { lend: None, back: None });
-
-fn game_moment<T>(f: impl FnOnce() -> T) -> T {
-    // each is taken out of the lock before it's called: it waits, and the hold may end meanwhile
-    let lend = LEND.lock().unwrap().lend.clone();
-    if let Some(l) = lend {
-        l();
-    }
-    let r = f();
-    let back = LEND.lock().unwrap().back.clone();
-    if let Some(b) = back {
-        b();
-    }
-    r
-}
+// (While aLogs has control of an end screen the game is told it is inactive, `inactive.rs`. The pointer moves, clicks
+// and scrolls here go to it as they are: it takes them while told so. A key press hasn't been tried that way: its
+// caller has the game told active for it.)
 
 #[cfg(windows)]
 mod imp {
@@ -257,44 +236,34 @@ pub fn is_foreground(hwnd: usize) -> bool {
 
 /// One left click at a screen point, the cursor put back after (unless `keep`).
 pub fn click_at(x: i32, y: i32, keep: bool) {
-    game_moment(|| {
-        let (px, py) = imp::cursor();
-        move_to(x, y);
-        sleep(120);
-        move_to(x, y);
-        imp::mouse(LEFTDOWN, 0, 0, 0);
-        sleep(50);
-        move_to(x, y);
-        imp::mouse(LEFTUP, 0, 0, 0);
-        sleep(30);
-        if !keep {
-            imp::set_cursor(px, py);
-        }
-    });
+    let (px, py) = imp::cursor();
+    move_to(x, y);
+    sleep(120);
+    move_to(x, y);
+    imp::mouse(LEFTDOWN, 0, 0, 0);
+    sleep(50);
+    move_to(x, y);
+    imp::mouse(LEFTUP, 0, 0, 0);
+    sleep(30);
+    if !keep {
+        imp::set_cursor(px, py);
+    }
 }
 
 /// A little real mouse movement around a point (switches a game in controller mode to mouse mode).
 pub fn wiggle_at(x: i32, y: i32) {
-    game_moment(|| {
-        move_to(x, y);
+    move_to(x, y);
+    sleep(30);
+    for dx in [2, -2] {
+        imp::mouse(MOVE, dx, 0, 0);
         sleep(30);
-        for dx in [2, -2] {
-            imp::mouse(MOVE, dx, 0, 0);
-            sleep(30);
-        }
-        move_to(x, y);
-    });
+    }
+    move_to(x, y);
 }
 
 /// One key press (with its scan code) to the window in front.
 pub fn press_key(vk: u16) {
-    game_moment(|| imp::key(vk));
-}
-
-/// Several of our own inputs in one moment: the game is told it is active once for all of them, not once each (each
-/// time costs LEND_SETTLE + LEND_AFTER, 0.27 s, while the game is told it is inactive).
-pub fn one_moment<T>(f: impl FnOnce() -> T) -> T {
-    game_moment(f)
+    imp::key(vk);
 }
 
 /// Where the pointer is now, in screen px.
@@ -321,27 +290,25 @@ fn pointer_on(x: i32, y: i32) -> bool {
 /// screen's wheel turned the filter column 50 ms after the move, the list never moved, and the run went out with 7 of
 /// its 11 gizmos.)
 pub fn scroll_at(x: i32, y: i32, notches: i32, keep: bool) {
-    game_moment(|| {
-        let (px, py) = imp::cursor();
-        let there = pointer_on(x, y);
+    let (px, py) = imp::cursor();
+    let there = pointer_on(x, y);
+    move_to(x, y);
+    imp::mouse(MOVE, 6, 0, 0);
+    sleep(20);
+    imp::mouse(MOVE, -6, 0, 0);
+    sleep(30);
+    if !there {
         move_to(x, y);
-        imp::mouse(MOVE, 6, 0, 0);
-        sleep(20);
-        imp::mouse(MOVE, -6, 0, 0);
+        sleep(ARRIVE_MS);
+    }
+    for _ in 0..notches.unsigned_abs() {
+        move_to(x, y);
+        imp::mouse(WHEEL, 0, 0, if notches > 0 { 120 } else { -120 });
         sleep(30);
-        if !there {
-            move_to(x, y);
-            sleep(ARRIVE_MS);
-        }
-        for _ in 0..notches.unsigned_abs() {
-            move_to(x, y);
-            imp::mouse(WHEEL, 0, 0, if notches > 0 { 120 } else { -120 });
-            sleep(30);
-        }
-        if !keep {
-            imp::set_cursor(px, py);
-        }
-    });
+    }
+    if !keep {
+        imp::set_cursor(px, py);
+    }
 }
 
 /// Handles to wait on for "stop": the app's stop event (ALOGS_STOP_EVENT) and the app's own process (ALOGS_PARENT).
