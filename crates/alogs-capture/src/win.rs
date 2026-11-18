@@ -3,24 +3,26 @@
 //! scroll). Windows only; elsewhere these find nothing and do nothing.
 
 use alogs_pil::Image;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-/// While aLogs has control of an end screen its focus guard holds the focus in the game's place: that window counts
-/// as the game, and our inputs lend the game the focus for a moment (`lend` / `back`).
-pub struct Standin {
-    pub hwnd: Option<usize>,
-    pub lend: Option<Box<dyn Fn() + Send>>,
-    pub back: Option<Box<dyn Fn() + Send>>,
+/// While aLogs has control of an end screen the game is told it is inactive (`inactive.rs`): our own inputs tell it
+/// it is active for their moment (`lend` before, `back` after).
+pub struct Lend {
+    pub lend: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub back: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-pub static STANDIN: Mutex<Standin> = Mutex::new(Standin { hwnd: None, lend: None, back: None });
+pub static LEND: Mutex<Lend> = Mutex::new(Lend { lend: None, back: None });
 
 fn game_moment<T>(f: impl FnOnce() -> T) -> T {
-    if let Some(l) = STANDIN.lock().unwrap().lend.as_ref() {
+    // each is taken out of the lock before it's called: it waits, and the hold may end meanwhile
+    let lend = LEND.lock().unwrap().lend.clone();
+    if let Some(l) = lend {
         l();
     }
     let r = f();
-    if let Some(b) = STANDIN.lock().unwrap().back.as_ref() {
+    let back = LEND.lock().unwrap().back.clone();
+    if let Some(b) = back {
         b();
     }
     r
@@ -248,10 +250,9 @@ fn sleep(ms: u64) {
     std::thread::sleep(std::time::Duration::from_millis(ms));
 }
 
-/// The game is in front (or our focus guard stands in for it).
+/// The game is the window in front.
 pub fn is_foreground(hwnd: usize) -> bool {
-    let fg = imp::foreground();
-    fg == hwnd || (hwnd != 0 && STANDIN.lock().unwrap().hwnd.is_some_and(|s| s == fg))
+    imp::foreground() == hwnd
 }
 
 /// One left click at a screen point, the cursor put back after (unless `keep`).
@@ -290,8 +291,8 @@ pub fn press_key(vk: u16) {
     game_moment(|| imp::key(vk));
 }
 
-/// Several of our own inputs with the game in front throughout: the focus is handed over once for all of them, not
-/// once each (each hand-over costs LEND_SETTLE + LEND_AFTER, 0.27 s, while the focus guard is on).
+/// Several of our own inputs in one moment: the game is told it is active once for all of them, not once each (each
+/// time costs LEND_SETTLE + LEND_AFTER, 0.27 s, while the game is told it is inactive).
 pub fn one_moment<T>(f: impl FnOnce() -> T) -> T {
     game_moment(f)
 }

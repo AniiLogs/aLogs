@@ -97,8 +97,8 @@ fn list_spot(at: &dyn Fn(f64, f64) -> (i32, i32)) -> (i32, i32) {
     at(GIZMO_SCROLL.0, GIZMO_SCROLL.1)
 }
 
-/// The mouse moved onto a spot for real, then one click there, with the game in front throughout: one hand-over of the
-/// focus where the move and the click each took their own (0.27 s more a click while the focus guard is on).
+/// The mouse moved onto a spot for real, then one click there, in one moment: the game is told it is active once where
+/// the move and the click each had it told (0.27 s more a click while the game is told it is inactive).
 fn click_fresh(spot: (i32, i32)) {
     win::one_moment(|| {
         win::wiggle_at(spot.0, spot.1);
@@ -234,7 +234,7 @@ impl Meter {
                 && let Some(h) = self.hwnd
                 && !self.args.replay
             {
-                self.focus_guard.take(h, seconds);
+                self.told_inactive.take(h, seconds);
             }
         }
         if r.get("hold_controller").truthy() && alogs_capture::input::hidhide_available() {
@@ -248,7 +248,7 @@ impl Meter {
     pub fn sim_release(&mut self, why: &str) {
         let Some(ctl) = self.sim.ctl.take() else { return };
         self.hold.stop();
-        self.focus_guard.stop();
+        self.told_inactive.stop();
         if ctl.rewasd {
             alogs_capture::rewasd::hold(alogs_capture::rewasd::config(&self.env.data).as_ref(), false);
         }

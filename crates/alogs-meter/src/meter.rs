@@ -182,7 +182,8 @@ pub struct Meter {
     pub presence: Option<alogs_capture::presence::Presence>,
     /// Holding the player's keys and mouse buttons (Automation › hold inputs).
     pub hold: alogs_capture::input::InputBlock,
-    pub focus_guard: alogs_capture::focusguard::FocusGuard,
+    /// The controller kept away while aLogs has control of the Sim's end: the game told it is inactive, in front.
+    pub told_inactive: alogs_capture::inactive::Inactive,
     /// The clientRunId inputs are held for until it's sent.
     pub send_waiting: Option<String>,
     pub presence_sent: Option<(String, &'static str, f64)>,
@@ -321,7 +322,7 @@ impl Meter {
             ocr_check: Default::default(),
             presence: None,
             hold: Default::default(),
-            focus_guard: Default::default(),
+            told_inactive: Default::default(),
             send_waiting: None,
             presence_sent: None,
             hit_at: 0.0,
@@ -897,6 +898,7 @@ impl Meter {
                 self.end_auto("the DPS meter and the leaderboards were switched off");
                 self.egg_hold_end("the DPS meter and the leaderboards were switched off");
                 self.hold.stop();
+                self.told_inactive.stop();
                 if alogs_capture::input::controllers_hidden() {
                     alogs_capture::input::hide_controllers(false);
                 }
