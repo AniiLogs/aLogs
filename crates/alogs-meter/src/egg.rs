@@ -340,7 +340,7 @@ impl Meter {
                 std::fs::copy(p, &copy).ok()?;
                 Some(rel(data, &copy))
             };
-            let clock = alogs_gamelog::FixedClock(self.env.now());
+            let clock = self.env.record_clock();
             let season = self.egg.season.clone().map_or(Value::None, Value::Str);
             let payload = payloads::egg_match_payload(&Value::Dict(m.clone()), &season, &Value::Str(uid), Some(now), &clock);
             self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: spare(&self.env.data, &party_shot) });
@@ -418,7 +418,7 @@ impl Meter {
         out.out("status", Value::Str(msg));
         if let Some(sub) = self.submitter.clone() {
             let profile = self.egg_profile(season.as_deref(), &[("nextRankAt", opt(next_start))]);
-            let clock = alogs_gamelog::FixedClock(self.env.now());
+            let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&profile), &clock);
             sub.enqueue(&p, shot_rel.as_deref(), None, None, None);
         }
@@ -547,7 +547,7 @@ impl Meter {
             vals.push(("bar", Value::List(vec![Value::Int(points), opt(bar_end)])));
             vals.push(("barAt", Value::Int(self.env.now() as i64)));
             let profile = self.egg_profile(season.as_deref(), &vals);
-            let clock = alogs_gamelog::FixedClock(self.env.now());
+            let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&profile), &clock);
             sub.enqueue(&p, None, None, None, None);
         }
@@ -606,7 +606,7 @@ impl Meter {
                     profile.insert(k.clone(), v.clone());
                 }
             }
-            let clock = alogs_gamelog::FixedClock(self.env.now());
+            let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&Value::Dict(profile)), &clock);
             sub.enqueue(&p, None, None, None, None);
         }

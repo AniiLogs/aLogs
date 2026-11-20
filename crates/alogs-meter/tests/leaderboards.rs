@@ -441,6 +441,26 @@ fn the_hold_ends_when_its_own_record_is_sent() {
     assert_eq!(out.0.len(), 2, "both records got their notice");
 }
 
+/// Records are built with the PC's clock: a run's local "started" time becomes the unix time of that wall time in the
+/// PC's time zone (chrono's own conversion); only a test's fixed clock reads it as UTC, as the goldens expect.
+#[test]
+fn played_at_is_the_pcs_local_time() {
+    use alogs_gamelog::Clock;
+    use chrono::TimeZone;
+    let env = Env::new(PathBuf::from("res"), PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lb-clock"));
+    let local = chrono::Local.from_local_datetime(&chrono::NaiveDate::from_ymd_opt(2027, 1, 15).unwrap().and_hms_opt(8, 30, 15).unwrap())
+        .earliest().unwrap().timestamp() as f64;
+    assert_eq!(env.record_clock().local_to_unix(2027, 1, 15, 8, 30, 15), Some(local));
+    let summary = Value::json_loads(r#"{"started": "2027-01-15 08:30:15", "meter": {"csv": "fight_a.csv"}}"#).unwrap();
+    let p = alogs_meter::payloads::run_payload(&summary, &Value::Str("1".into()), &env.schedule, &env.record_clock());
+    assert_eq!(p.get("playedAt").as_i64(), Some(local as i64));
+    // a test's fixed clock: UTC, as before
+    env.fixed_now.set(Some(T));
+    let utc = chrono::Utc.with_ymd_and_hms(2027, 1, 15, 8, 30, 15).unwrap().timestamp() as f64;
+    assert_eq!(env.record_clock().local_to_unix(2027, 1, 15, 8, 30, 15), Some(utc));
+    assert_eq!(env.record_clock().now(), T);
+}
+
 /// The stand-in OCR for a result screen: each box answers what the test set.
 struct Answers(indexmap::IndexMap<String, String>);
 impl alogs_reader::ocr::Reader for Answers {

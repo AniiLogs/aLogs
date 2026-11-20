@@ -424,7 +424,7 @@ impl Meter {
         }
         let cycle = self.env.schedule.active_cycle_id(now).map_or(Value::None, Value::Str);
         let bid = row.as_ref().map_or(Value::None, |r| Value::Str(get(r, "puppetId").into()));
-        let clock = alogs_gamelog::FixedClock(now);
+        let clock = self.env.record_clock();
         let p = crate::payloads::score_payload(screen, &boss, &opt_i(score), &opt_i(stars), &self.uid.clone().map_or(Value::None, Value::Str), &cycle, &bid, &self.env.schedule, &clock);
         let ev = shot.map(|p| rel(&self.env.data, &p));
         sub.enqueue(&p, ev.as_deref(), None, None, None);

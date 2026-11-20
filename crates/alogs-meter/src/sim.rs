@@ -371,7 +371,7 @@ impl Meter {
         if self.submitter.is_some()
             && let Some(uid) = self.uid.clone()
         {
-            let clock = alogs_gamelog::FixedClock(self.env.now());
+            let clock = self.env.record_clock();
             let p = payloads::sim_payload(&Value::Dict(sim.clone()), &Value::Str(uid), None, &clock);
             self.send_result(&p, shot_rel.as_deref(), None, None, Some(&shots));
         }

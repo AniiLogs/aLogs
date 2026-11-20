@@ -182,7 +182,7 @@ impl Meter {
             return false;
         }
         let uid = self.uid.clone().map_or(Value::None, Value::Str);
-        let clock = alogs_gamelog::FixedClock(self.env.now());
+        let clock = self.env.record_clock();
         let p = payloads::run_payload(&Value::Dict(s.clone()), &uid, &self.env.schedule, &clock);
         if s.at("sent_sig").as_str() == Some(payload_sig(&p).as_str()) {
             return false;
@@ -357,7 +357,7 @@ impl Meter {
         if let Some(b) = b.as_ref().filter(|_| screenshots) {
             s.insert("sent_battle".into(), Value::Str(b.clone()));
         }
-        let clock = alogs_gamelog::FixedClock(now);
+        let clock = self.env.record_clock();
         let p = payloads::run_payload(&Value::Dict(s.clone()), &self.uid.clone().map_or(Value::None, Value::Str), &self.env.schedule, &clock);
         s.insert("sent_sig".into(), Value::Str(payload_sig(&p)));
         write_json(path, &s);
