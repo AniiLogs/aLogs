@@ -44,6 +44,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Holo-Battle Sim: every gizmo count is read:** the numbers under the gizmo icons are read one by one against the game's own digits. A lone 1 used to be missed, or two counts run together (7 1 2 4 1 read as 71, 24, 11), and the run went without its counts.
 - **Block from the fade to black is off until you turn it on:** its switch showed off, but on installs that had never changed it the meter blocked button presses anyway.
 - **Settings text:** "Block from the fade to black" no longer says it's off by default.
+- **Notices are the right size before your first fight:** a notice that showed before any fight since aLogs started (a best read from the battle prep screen, for example) was drawn as if for a 1080p screen: half size on a 4K screen, and in the wrong spot. It now goes by the game window from the start.
 
 ## 0.1.36
 

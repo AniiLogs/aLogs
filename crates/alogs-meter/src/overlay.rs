@@ -770,7 +770,7 @@ impl Overlay {
 
     fn show_alert(&mut self, v: &View) {
         let t0 = now();
-        let screen = v.last_screen.unwrap_or((0, 0, 1920, 1080));
+        let screen = game_screen(v.last_screen, v.origin, v.frame_size);
         let (ox, oy, w, h) = (f64::from(screen.0), f64::from(screen.1), f64::from(screen.2), f64::from(screen.3));
         let hud = w.min(h * 16.0 / 9.0) * 9.0 / 16.0;
         let since = *self.alert_since.get_or_insert(t0);
@@ -1223,7 +1223,7 @@ impl Overlay {
                 (first.0.clone(), first.1.clone(), first.2.clone())
             };
             let (screen, s) = match (v.last_screen, first.3) {
-                (None, Some(sc)) => (sc, f64::from(sc.2).min(f64::from(sc.3) * 16.0 / 9.0) * 9.0 / 16.0 / 1080.0),
+                (None, Some(sc)) => (sc, notice_scale(sc)),
                 _ => toast_screen(v),
             };
             let img = self.toast_image(&head, &detail, &accent, s);
@@ -1287,9 +1287,23 @@ impl Overlay {
     }
 }
 
+/// Where the game is on screen, for a notice or the alert: where its last fight was drawn, else the game window's
+/// place with the size of its last whole picture (the meter has both from its first look), else a 1080p screen.
+/// (Only a fight sets `last`. Until 19 Nov a notice that came before the first fight since the meter started was
+/// drawn for 1920x1080 at the top left: on a 3840x2160 screen two "Interlink best sent" notices from the battle prep
+/// screen came out 360x64 px, half size, and slid in from the middle of the top edge.)
+pub fn game_screen(last: Option<(i32, i32, i32, i32)>, origin: (i32, i32), frame: (usize, usize)) -> (i32, i32, i32, i32) {
+    last.or_else(|| (frame.0 > 0 && frame.1 > 0).then(|| (origin.0, origin.1, frame.0 as i32, frame.1 as i32))).unwrap_or((0, 0, 1920, 1080))
+}
+
+/// How much bigger than at 1080p a notice is drawn on this screen (by the 16:9 part of it).
+pub fn notice_scale(screen: (i32, i32, i32, i32)) -> f64 {
+    f64::from(screen.2).min(f64::from(screen.3) * 16.0 / 9.0) * 9.0 / 16.0 / 1080.0
+}
+
 fn toast_screen(v: &View) -> ((i32, i32, i32, i32), f64) {
-    let screen = v.last_screen.unwrap_or((0, 0, 1920, 1080));
-    (screen, f64::from(screen.2).min(f64::from(screen.3) * 16.0 / 9.0) * 9.0 / 16.0 / 1080.0)
+    let screen = game_screen(v.last_screen, v.origin, v.frame_size);
+    (screen, notice_scale(screen))
 }
 
 fn screen_of(d: &Value) -> Option<(i32, i32, i32, i32)> {

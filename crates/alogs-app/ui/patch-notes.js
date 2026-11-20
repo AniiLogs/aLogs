@@ -50,7 +50,8 @@ window.PATCH_NOTES = [
      "**Holo-Battle Sim: your team is known by its pictures:** each Aniimo on the Victory screen is read from its card art, so the right species goes with your run even when you gave it a nickname (the nickname rides along). An equipment card in a team slot is no longer taken for an Aniimo.",
      "**Holo-Battle Sim: every gizmo count is read:** the numbers under the gizmo icons are read one by one against the game's own digits. A lone 1 used to be missed, or two counts run together (7 1 2 4 1 read as 71, 24, 11), and the run went without its counts.",
      "**Block from the fade to black is off until you turn it on:** its switch showed off, but on installs that had never changed it the meter blocked button presses anyway.",
-     "**Settings text:** \"Block from the fade to black\" no longer says it's off by default."
+     "**Settings text:** \"Block from the fade to black\" no longer says it's off by default.",
+     "**Notices are the right size before your first fight:** a notice that showed before any fight since aLogs started (a best read from the battle prep screen, for example) was drawn as if for a 1080p screen: half size on a 4K screen, and in the wrong spot. It now goes by the game window from the start."
     ]
    }
   ]

@@ -26,6 +26,28 @@ fn numbers_and_notes_read_as_before() {
     assert_eq!(lines[3].text.1.as_deref(), Some("1:20"));
 }
 
+/// A notice is sized and placed by the game's place on screen. Only a fight records that place, so before the first
+/// fight since the meter started it comes from the game window's place and its last whole picture, not from a 1080p
+/// screen at the top left (19 Nov: half-size notices on a 3840x2160 screen, from the battle prep screen).
+#[test]
+fn a_notice_before_the_first_fight_is_sized_by_the_game_window() {
+    use alogs_meter::overlay::{game_screen, notice_scale};
+    // no fight yet, the game fills a 3840x2160 screen: its own size, twice the 1080p notice
+    let s = game_screen(None, (0, 0), (3840, 2160));
+    assert_eq!(s, (0, 0, 3840, 2160));
+    assert_eq!(notice_scale(s), 2.0);
+    // a window on a second screen: its place too
+    assert_eq!(game_screen(None, (3840, 120), (2560, 1440)), (3840, 120, 2560, 1440));
+    // a fight's place wins while there is one
+    assert_eq!(game_screen(Some((10, 20, 1280, 720)), (0, 0), (3840, 2160)), (10, 20, 1280, 720));
+    // nothing seen of the game yet: the 1080p screen, as before
+    let s = game_screen(None, (0, 0), (0, 0));
+    assert_eq!(s, (0, 0, 1920, 1080));
+    assert_eq!(notice_scale(s), 1.0);
+    // wider than 16:9: by the 16:9 part
+    assert_eq!(notice_scale((0, 0, 3440, 1440)), 1440.0 / 1080.0);
+}
+
 /// The HP % stands in front of the HP numbers, on their line: a gap left of where they start, wherever they are.
 /// Before they have been drawn for a bar it stands where they usually start, and leaves room for what comes later.
 #[test]
