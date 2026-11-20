@@ -184,6 +184,45 @@ fn a_result_read_whole_is_sent_at_once() {
     assert!(queued(&m, "fight_b").is_none());
 }
 
+/// A later read of the result screen that corrects a name, after the first look at the update (6 s after the send):
+/// the update goes BATTLE_DATA_SETTLE after that read. A later read that changes nothing (its read count aside) sends
+/// nothing.
+#[test]
+fn a_later_result_read_that_corrects_a_name_goes_as_an_update() {
+    let mut m = sending("lb-later-read", false);
+    let f = interlink_fight(&m, "fight_a");
+    m.rs.result_seen = T;
+    m.rs.result_ready = T;
+    let read_as = |name: &str, reads: i64| {
+        Value::json_loads(&format!(r#"{{"rating_stars": 3, "score": 1000, "time_s": 90, "cleared": true, "screenshot": null, "reads": {reads},
+            "players": [{{"slot": 0, "name": "{name}", "self": true, "stat": "DMG Dealt", "value": 1000}}]}}"#)).unwrap()
+    };
+    m.fight_summary(&f, vec![("result", read_as("Made-up Won", 1))]);
+    m.send_when_read(&f);
+    uploaded(&m, "fight_a");
+    m.env.fixed_now.set(Some(T + 7.0));
+    m.check_followup(T + 7.0);
+    assert!(queued(&m, "fight_a").is_none(), "the first look: nothing changed yet");
+
+    m.env.fixed_now.set(Some(T + 10.0));
+    m.result_read_again(&f, read_as("Made-up One", 2), T + 10.0);
+    m.env.fixed_now.set(Some(T + 15.0));
+    m.check_followup(T + 15.0);
+    assert!(queued(&m, "fight_a").is_none(), "not before BATTLE_DATA_SETTLE after the read");
+    m.env.fixed_now.set(Some(T + 16.5));
+    m.check_followup(T + 16.5);
+    let upd = queued(&m, "fight_a").expect("the corrected name goes as an update");
+    assert_eq!(upd.get("payload").get("players").as_list().unwrap()[0].get("name").py_str(), "Made-up One");
+    uploaded(&m, "fight_a");
+
+    m.env.fixed_now.set(Some(T + 20.0));
+    m.result_read_again(&f, read_as("Made-up One", 3), T + 20.0);
+    m.env.fixed_now.set(Some(T + 26.5));
+    m.check_followup(T + 26.5);
+    assert!(queued(&m, "fight_a").is_none(), "an unchanged read sends nothing");
+    assert_eq!(read(&m.run_path("fight_a")).get("followups").as_i64(), Some(1));
+}
+
 /// Another run waiting to be sent isn't dropped when the next one is scheduled: it goes first, on what it has.
 #[test]
 fn a_waiting_run_is_sent_before_the_next_is_scheduled() {

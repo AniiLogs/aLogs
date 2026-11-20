@@ -334,9 +334,19 @@ impl Meter {
         }
     }
 
-    /// Battle Data was written to a sent run's summary: its update is looked at BATTLE_DATA_SETTLE after the last write
-    /// (Battle Data that never reads complete still gets there; a complete read sends at once, battle_data_done).
-    fn battle_data_written(&mut self, f: &Fight, now: f64) {
+    /// A later read of this fight's result screen (the "again" path of result_screen): written to its summary, the run
+    /// sent once it is read whole, and for a run already sent, its update looked at BATTLE_DATA_SETTLE after this read
+    /// (a number or name a later read corrects gets to the site; an unchanged read sends nothing).
+    pub fn result_read_again(&mut self, f: &Fight, result: Value, now: f64) {
+        self.fight_summary(f, vec![("result", result)]);
+        self.send_when_read(f);
+        self.sent_run_written(f, now);
+    }
+
+    /// Battle Data or a later result-screen read was written to a sent run's summary: its update is looked at
+    /// BATTLE_DATA_SETTLE after the last write (Battle Data that never reads complete still gets there; a complete read
+    /// sends at once, battle_data_done).
+    fn sent_run_written(&mut self, f: &Fight, now: f64) {
         let path = self.summary_path(f);
         let open = read_json(&path).and_then(|v| v.as_dict().cloned()).is_some_and(|s| self.late_open(&s));
         if self.submitter.is_some() && open {
@@ -737,8 +747,7 @@ impl Meter {
             if fidx {
                 let r = result(&self.rs.result_shot, &self.rs.result_check, players_v(&players), Some(self.rs.result_reads));
                 let f = self.last_fight.take().unwrap();
-                self.fight_summary(&f.0, vec![("result", r)]);
-                self.send_when_read(&f.0);
+                self.result_read_again(&f.0, r, now);
                 self.last_fight = Some(f);
             }
             return;
@@ -1063,7 +1072,7 @@ impl Meter {
                 ]);
                 let f = self.last_fight.take().unwrap();
                 self.fight_summary(&f.0, vec![("battle_data", bd)]);
-                self.battle_data_written(&f.0, now);
+                self.sent_run_written(&f.0, now);
                 self.last_fight = Some(f);
             }
             if complete {
@@ -1088,7 +1097,7 @@ impl Meter {
             let bd = dict([("players", cards_v), ("team_avg_dps", team_dps), ("screenshot", self.rs.bd_shot.clone().map_or(Value::None, Value::Str))]);
             let f = self.last_fight.take().unwrap();
             self.fight_summary(&f.0, vec![("battle_data", bd)]);
-            self.battle_data_written(&f.0, now);
+            self.sent_run_written(&f.0, now);
             self.last_fight = Some(f);
         }
         if complete {
