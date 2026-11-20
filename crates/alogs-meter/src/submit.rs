@@ -426,10 +426,11 @@ impl Submitter {
         }
     }
 
-    /// Queue one record (the same kind + run id replaces an older queued copy); nothing while off.
-    pub fn enqueue(&self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>) {
+    /// Queue one record (the same kind + run id replaces an older queued copy); nothing while off. Gives the payload
+    /// as queued (what the sender's on_sent hands back once this copy is sent).
+    pub fn enqueue(&self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>) -> Option<Value> {
         self.refresh();
-        let Some(cfg) = self.config.lock().unwrap().clone() else { return };
+        let Some(cfg) = self.config.lock().unwrap().clone() else { return None };
         let species = species_names(&self.data.join("icons").join("icons.json"));
         let mut p = send_check(payload, species.as_ref());
         if let Value::Dict(d) = &mut p {
@@ -457,6 +458,13 @@ impl Submitter {
         let _ = write_json(&self.queue.join(&name), &item, Some(1));
         log::info!(target: "meter", "leaderboard: queued {} {}", p.get("kind").py_str(), p.get("clientRunId").py_str());
         self.wake();
+        Some(p)
+    }
+
+    /// The copy of this record (same kind + run id) still in the queue: not sent yet, or being sent.
+    pub fn queued_item(&self, payload: &Value) -> Option<Value> {
+        let name = safe(&format!("{}__{}", payload.get("kind").py_str(), payload.get("clientRunId").py_str())) + ".json";
+        read_json(&self.queue.join(name))
     }
 
     /// Link your character (with the game menu as proof the site trusts it).

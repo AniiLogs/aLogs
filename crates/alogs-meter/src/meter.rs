@@ -186,6 +186,9 @@ pub struct Meter {
     pub told_inactive: alogs_capture::inactive::Inactive,
     /// The clientRunId inputs are held for until it's sent.
     pub send_waiting: Option<String>,
+    /// The copy of that record (its payload as queued) the hold waits for: an older copy of the same run being sent
+    /// doesn't end it. None: any copy of it does.
+    pub send_waiting_copy: Option<Value>,
     pub presence_sent: Option<(String, &'static str, f64)>,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
@@ -324,6 +327,7 @@ impl Meter {
             hold: Default::default(),
             told_inactive: Default::default(),
             send_waiting: None,
+            send_waiting_copy: None,
             presence_sent: None,
             hit_at: 0.0,
             egg_space_at: 0.0,
@@ -935,6 +939,7 @@ impl Meter {
             self.audio_cue = frames.audio_cue();
         }
         self.check_pending_run(self.now()); // (Battle Data waiting for its names counts)
+        self.check_followup(self.now());
         let now = self.now();
         let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay && self.sim.tour.is_none()).then_some(TOP_PART);
         self.band_frame = false;

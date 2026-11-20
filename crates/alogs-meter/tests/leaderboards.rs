@@ -1,7 +1,11 @@
 //! The leaderboards' run handling: your bests on a boss this week, and a run decided once and sent once.
 
 use alogs_meter::env::Env;
+use alogs_meter::fights::Fight;
+use alogs_meter::leaderboards::{LATE_BATTLE_DATA_S, MAX_FOLLOWUPS};
 use alogs_meter::meter::{Args, Meter};
+use alogs_meter::results_parse::{BATTLE_DATA_SETTLE, BATTLE_DATA_WAIT};
+use alogs_meter::submit::Submitter;
 use alogs_pyval::{Dict, Value};
 use alogs_reader::ocr::NoOcr;
 use std::path::PathBuf;
@@ -48,9 +52,301 @@ fn a_run_is_decided_once_and_marked_sent() {
     assert!(m.rs.pending_run.is_none());
     let s = std::fs::read_to_string(&path).unwrap();
     assert!(s.contains("\"submit\": true") && s.contains("\"sent\": true") && s.contains("\"new_bests\""), "{s}");
-    assert!(!m.run_to_send("f1"));
+    assert!(m.run_to_send("f1"), "inside its window what follows the run is still sent, as its update");
     m.decide_run(&path); // already decided: nothing changes
     assert_eq!(std::fs::read_to_string(&path).unwrap(), s);
+    m.env.fixed_now.set(Some(1_800_000_000.0 + LATE_BATTLE_DATA_S + 1.0));
+    assert!(!m.run_to_send("f1"), "after its window nothing more goes");
+}
+
+const T: f64 = 1_800_000_000.0;
+
+/// A meter with submissions on (the sender isn't running: what is queued stays in the queue to look at).
+fn sending(name: &str, screenshots: bool) -> Meter {
+    let mut m = meter(name);
+    let d = m.env.data.clone();
+    std::fs::write(d.join("settings.json"),
+        format!(r#"{{"leaderboard": {{"submit": true, "token": "alb_test", "api_url": "http://127.0.0.1:9", "include_screenshots": {screenshots}}}}}"#)).unwrap();
+    m.submitter = Some(Submitter::new(d));
+    m
+}
+
+fn pic(m: &Meter, rel: &str) {
+    let p = m.env.data.join(rel);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(p, b"made-up picture").unwrap();
+}
+
+fn on_disk(m: &Meter, rel: &str) -> bool {
+    m.env.data.join(rel).is_file()
+}
+
+const RESULT_PIC: &str = "logs/screens/result_20270115_080000.jpg";
+const PARTY_PIC: &str = "logs/screens/party_20270115_080000.jpg";
+
+/// A finished Interlink run's summary, its result screen read, no Battle Data yet.
+fn summary(m: &Meter, csv: &str, pictures: bool) -> PathBuf {
+    let shot = if pictures { format!(r#""{RESULT_PIC}""#) } else { "null".into() };
+    let party = if pictures { format!(r#", "party_screenshot": "{PARTY_PIC}""#) } else { String::new() };
+    let j = format!(r#"{{"boss": "Made-up Boss", "puppetId": "2101", "level": 50, "uid": "1", "cycle": "c1", "started": "2027-01-15 08:00:00",
+        "bossrush": true, "interlink_scene": true, "meter": {{"csv": "{csv}.csv", "damage": 1000, "seconds": 90.0, "dps": 11}},
+        "result": {{"rating_stars": 3, "score": 1000, "time_s": 90, "cleared": true, "screenshot": {shot},
+                    "players": [{{"slot": 0, "name": "Made-up One", "self": true, "stat": "DMG Dealt", "value": 1000}}]}}{party}}}"#);
+    if pictures {
+        pic(m, RESULT_PIC);
+        pic(m, PARTY_PIC);
+    }
+    let path = m.run_path(csv);
+    std::fs::write(&path, j).unwrap();
+    path
+}
+
+fn edit(path: &PathBuf, f: impl FnOnce(&mut Dict)) {
+    let Value::Dict(mut s) = Value::json_loads(&std::fs::read_to_string(path).unwrap()).unwrap() else { unreachable!() };
+    f(&mut s);
+    std::fs::write(path, Value::Dict(s).json_dumps()).unwrap();
+}
+
+fn read(path: &PathBuf) -> Value {
+    Value::json_loads(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Battle Data's numbers for the run (and its picture when given).
+fn battle_data(m: &Meter, path: &PathBuf, dps: i64, shot: Option<&str>) {
+    if let Some(s) = shot {
+        pic(m, s);
+    }
+    let bd = Value::json_loads(&format!(r#"{{"players": [{{"slot": 0, "name": "Made-up One", "avg_dps": {dps}, "break": 1, "taken": 2, "heal": 3}}],
+        "team_avg_dps": {dps}, "screenshot": {}}}"#, shot.map_or("null".into(), |s| format!("\"{s}\"")))).unwrap();
+    edit(path, |s| s.insert("battle_data".into(), bd));
+}
+
+fn queue_file(m: &Meter, csv: &str) -> PathBuf {
+    m.env.data.join("logs").join("submit_queue").join(format!("interlink_run__{csv}.json"))
+}
+
+fn queued(m: &Meter, csv: &str) -> Option<Value> {
+    std::fs::read_to_string(queue_file(m, csv)).ok().and_then(|t| Value::json_loads(&t))
+}
+
+/// The sender got the copy up: it leaves the queue and its pictures are gone (Submitter::drop_proof).
+fn uploaded(m: &Meter, csv: &str) -> Value {
+    let item = queued(m, csv).expect("a copy was queued");
+    std::fs::remove_file(queue_file(m, csv)).unwrap();
+    for k in ["evidence", "battle", "party"] {
+        if item.get(k).truthy() {
+            let _ = std::fs::remove_file(m.env.data.join(item.get(k).py_str()));
+        }
+    }
+    item
+}
+
+fn avg_dps(item: &Value) -> Value {
+    item.get("payload").get("players").as_list().unwrap()[0].get("avgDps").clone()
+}
+
+fn interlink_fight(m: &Meter, csv: &str) -> Fight {
+    let mut row = alogs_reader::boss::Row::new();
+    for (k, v) in [("puppetId", "2101"), ("table", "puppet_data"), ("bossTitle_en", "Made-up Boss")] {
+        row.insert(k.into(), v.into());
+    }
+    let mut f = Fight::new(&m.env, "Made-up Boss", 50, row, 100_000, true, false, None, None);
+    f.scene_ok = true;
+    f.csv_name = csv.into();
+    f
+}
+
+fn result_read() -> Value {
+    Value::json_loads(r#"{"rating_stars": 3, "score": 1000, "time_s": 90, "cleared": true, "screenshot": null,
+        "players": [{"slot": 0, "name": "Made-up One", "self": true, "stat": "DMG Dealt", "value": 1000}]}"#).unwrap()
+}
+
+/// A result screen read whole is sent at once; one not read whole still waits BATTLE_DATA_WAIT for Battle Data.
+#[test]
+fn a_result_read_whole_is_sent_at_once() {
+    let mut m = sending("lb-at-once", false);
+    let f = interlink_fight(&m, "fight_a");
+    m.rs.result_seen = T;
+    m.rs.result_ready = T;
+    m.fight_summary(&f, vec![("result", result_read())]);
+    m.send_when_read(&f);
+    assert!(m.rs.pending_run.is_none());
+    let s = read(&m.run_path("fight_a"));
+    assert!(s.get("submit").truthy() && s.get("sent").truthy(), "{}", s.json_dumps());
+    assert!(queued(&m, "fight_a").is_some(), "the run is queued now");
+
+    let f = interlink_fight(&m, "fight_b");
+    m.rs.result_seen = T + 1.0;
+    m.fight_summary(&f, vec![("result", result_read())]);
+    m.send_when_read(&f);
+    assert_eq!(m.rs.pending_run, Some((m.run_path("fight_b"), T + BATTLE_DATA_WAIT)), "not read whole: it waits");
+    assert!(!read(&m.run_path("fight_b")).get("sent").truthy());
+    assert!(queued(&m, "fight_b").is_none());
+}
+
+/// Another run waiting to be sent isn't dropped when the next one is scheduled: it goes first, on what it has.
+#[test]
+fn a_waiting_run_is_sent_before_the_next_is_scheduled() {
+    let mut m = sending("lb-two-waiting", false);
+    let a = summary(&m, "fight_a", false);
+    m.schedule_run(a.clone(), false, T);
+    let b = summary(&m, "fight_b", false);
+    m.schedule_run(b.clone(), false, T + 30.0);
+    assert!(read(&a).get("sent").truthy(), "the first run went");
+    assert_eq!(m.rs.pending_run, Some((b, T + 30.0 + BATTLE_DATA_WAIT)));
+}
+
+/// Battle Data read complete after the first send: one update with its cards and its picture (the result screen as
+/// its evidence: a copy of the one kept, since the first copy's picture went with it); nothing again when nothing
+/// changed; MAX_FOLLOWUPS at most.
+#[test]
+fn battle_data_after_the_send_goes_as_an_update() {
+    let mut m = sending("lb-update", true);
+    let path = summary(&m, "fight_a", true);
+    m.decide_run(&path);
+    let first = uploaded(&m, "fight_a");
+    assert_eq!(first.get("evidence").py_str(), RESULT_PIC);
+    assert!(avg_dps(&first).is_none(), "no Battle Data in the first copy");
+    let late = read(&path).get("late_result").py_str();
+    assert!(on_disk(&m, &late), "a copy of the result screen is kept for the update");
+
+    battle_data(&m, &path, 500, Some("logs/battle_data/20270115_080010.jpg"));
+    m.send_late_battle_data("fight_a");
+    let upd = queued(&m, "fight_a").expect("the update is queued");
+    assert_eq!(avg_dps(&upd).as_i64(), Some(500));
+    assert_eq!(upd.get("payload").get("clientRunId").py_str(), "fight_a", "the same record");
+    assert_eq!(upd.get("battle").py_str(), "logs/battle_data/20270115_080010.jpg");
+    let ev = upd.get("evidence").py_str();
+    assert!(ev.starts_with("logs/screens/resend_") && on_disk(&m, &ev), "{ev}");
+    assert!(on_disk(&m, &late), "the kept copy stays for a later update");
+    uploaded(&m, "fight_a");
+
+    m.send_late_battle_data("fight_a");
+    m.check_followup(T + 60.0);
+    assert!(queued(&m, "fight_a").is_none(), "nothing changed: nothing sent");
+
+    for dps in [501, 502, 503] {
+        battle_data(&m, &path, dps, None);
+        m.send_late_battle_data("fight_a");
+    }
+    assert_eq!(read(&path).get("followups").as_i64(), Some(MAX_FOLLOWUPS));
+    let last = queued(&m, "fight_a").unwrap();
+    assert_eq!(avg_dps(&last).as_i64(), Some(502), "the fourth update didn't go");
+    assert!(!last.get("evidence").truthy() && !last.get("battle").truthy(), "no new picture: none sent");
+}
+
+/// With "Attach the screenshots as proof" off there is no picture to keep, and Battle Data's numbers still follow.
+#[test]
+fn without_screenshots_the_numbers_still_follow() {
+    let mut m = sending("lb-numbers-only", false);
+    let path = summary(&m, "fight_a", false);
+    m.decide_run(&path);
+    uploaded(&m, "fight_a");
+    assert!(!read(&path).get("late_result").truthy());
+    battle_data(&m, &path, 500, None);
+    m.send_late_battle_data("fight_a");
+    let upd = queued(&m, "fight_a").expect("the update is queued");
+    assert_eq!(avg_dps(&upd).as_i64(), Some(500));
+    assert!(!upd.get("evidence").truthy() && !upd.get("battle").truthy());
+}
+
+/// After the window (LATE_BATTLE_DATA_S from the first send) nothing follows the run, and the result screen kept for
+/// its update is gone; the meter starting keeps none either.
+#[test]
+fn after_the_window_nothing_follows_and_no_copy_is_kept() {
+    let mut m = sending("lb-window", true);
+    let path = summary(&m, "fight_a", true);
+    m.decide_run(&path);
+    uploaded(&m, "fight_a");
+    let late = read(&path).get("late_result").py_str();
+    assert!(on_disk(&m, &late));
+    m.check_followup(T + BATTLE_DATA_SETTLE + 1.0);
+    assert!(on_disk(&m, &late), "the window is still open");
+    assert!(m.rs.followup.is_some());
+
+    let after = T + LATE_BATTLE_DATA_S + 1.0;
+    m.env.fixed_now.set(Some(after));
+    battle_data(&m, &path, 500, Some("logs/battle_data/20270115_080310.jpg"));
+    m.send_late_battle_data("fight_a");
+    m.check_followup(after);
+    assert!(queued(&m, "fight_a").is_none(), "nothing after the window");
+    assert!(m.rs.followup.is_none());
+    assert!(!on_disk(&m, &late), "the kept result screen is gone with its window");
+    assert!(!read(&path).get("late_result").truthy());
+
+    pic(&m, "logs/screens/late_result_20270101_000000.jpg");
+    m.forget_late_results();
+    assert!(!on_disk(&m, "logs/screens/late_result_20270101_000000.jpg"), "the meter starting keeps no copy");
+}
+
+/// An update that replaces a first copy still in the queue names the original result screen and keeps the first
+/// copy's pictures (none is left behind); a later one with no new picture carries them too.
+#[test]
+fn an_update_replacing_an_unsent_copy_keeps_its_pictures() {
+    let mut m = sending("lb-replace", true);
+    let path = summary(&m, "fight_a", true);
+    m.decide_run(&path);
+    battle_data(&m, &path, 500, Some("logs/battle_data/20270115_080010.jpg"));
+    m.send_late_battle_data("fight_a");
+    let upd = queued(&m, "fight_a").unwrap();
+    assert_eq!(upd.get("evidence").py_str(), RESULT_PIC, "the original result screen");
+    assert_eq!(upd.get("battle").py_str(), "logs/battle_data/20270115_080010.jpg");
+    assert_eq!(upd.get("party").py_str(), PARTY_PIC);
+    let screens: Vec<String> = std::fs::read_dir(m.env.data.join("logs/screens")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert!(!screens.iter().any(|n| n.starts_with("resend_")), "no copy made: {screens:?}");
+
+    // the result screen's later reads corrected the score: no new picture, the queued copy's still go
+    edit(&path, |s| {
+        let Value::Dict(mut r) = s.at("result").clone() else { unreachable!() };
+        r.insert("score".into(), Value::Int(1001));
+        s.insert("result".into(), Value::Dict(r));
+    });
+    m.check_followup(T + BATTLE_DATA_SETTLE + 1.0);
+    let upd = queued(&m, "fight_a").unwrap();
+    assert_eq!(upd.get("payload").get("score").as_i64(), Some(1001));
+    for (k, v) in [("evidence", RESULT_PIC), ("battle", "logs/battle_data/20270115_080010.jpg"), ("party", PARTY_PIC)] {
+        assert_eq!(upd.get(k).py_str(), v);
+        assert!(on_disk(&m, v));
+    }
+}
+
+/// Holding inputs: never while the automatic Battle Data session runs (its own hold stays), nothing with Automation
+/// off; and a run's first copy reaching the site doesn't end the hold waiting for its update.
+#[test]
+fn the_hold_waits_for_the_copy_it_was_started_for() {
+    let mut m = sending("lb-hold-copy", true);
+    m.args.replay = false; // (only the question is asked here: no hold is started)
+    assert!(!m.holding_for_send(), "Automation off: nothing held");
+    if let Value::Dict(d) = &mut m.args.cfg {
+        d.insert("leaderboard".into(), alogs_pyval::dict([("submit", Value::Bool(true)), ("automation", Value::Bool(true))]));
+        d.insert("results".into(), alogs_pyval::dict([("hold_inputs", Value::Bool(true))]));
+    }
+    assert!(m.holding_for_send());
+    m.auto.auto_until = T + 60.0;
+    assert!(!m.holding_for_send(), "the automatic session's hold isn't touched by a send");
+    let path = summary(&m, "fight_a", true);
+    m.decide_run(&path); // sent while the session runs: no hold of its own
+    assert_eq!(m.send_waiting, None);
+    m.auto.auto_until = 0.0;
+    m.args.replay = true;
+
+    let first = queued(&m, "fight_a").unwrap().get("payload").clone();
+    battle_data(&m, &path, 500, Some("logs/battle_data/20270115_080010.jpg"));
+    m.send_late_battle_data("fight_a");
+    let update = queued(&m, "fight_a").unwrap().get("payload").clone();
+    // what send_result_held keeps when it holds for the update
+    m.send_waiting = Some("fight_a".into());
+    m.send_waiting_copy = Some(update.clone());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reply = Value::json_loads(r#"{"submissionId": "s1"}"#).unwrap();
+    let mut out = Said::default();
+    tx.send((first, reply.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(m.send_waiting.as_deref(), Some("fight_a"), "the first copy's arrival ended the update's hold");
+    tx.send((update, reply)).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(m.send_waiting, None);
+    assert!(m.send_waiting_copy.is_none());
 }
 
 #[derive(Default)]

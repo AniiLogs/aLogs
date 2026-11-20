@@ -568,6 +568,7 @@ fn main() {
     alogs_meter::ocrcheck::ocr_language_note(m.ocr.as_ref());
     m.ocr_check.checked = now();
     m.submitter = submitter.clone();
+    m.forget_late_results(); // (no run's window for updates is open yet)
     // housekeeping in the background: old screenshots hourly, the game's data every few hours
     alogs_meter::housekeeping::start_cleanup(data.clone(), stop.clone());
     let keep: Vec<(String, String)> = m.catalog.iter().filter(|r| r.get("monsterType").map(String::as_str) != Some("2"))
@@ -687,7 +688,8 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
         let nap = (iv - (now() - t)).max(0.0);
         std::thread::sleep(std::time::Duration::from_secs_f64(nap));
     }
-    // the meter closing: nothing held, nothing hidden, the open fight and a run waiting for its Battle Data kept
+    // the meter closing: nothing held, nothing hidden, the open fight, a run waiting to be sent and a sent run's
+    // update kept
     m.end_auto("meter closed");
     m.egg_hold_end("meter closed");
     m.hold.stop();

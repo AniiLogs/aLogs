@@ -50,6 +50,8 @@ pub struct ResultsState {
     pub leader_ended: Option<String>,
     pub screen_check: Option<Value>,
     pub pending_run: Option<(PathBuf, f64)>,
+    /// A sent run whose window for updates is open, and when to look at it next (its update, else its window's end).
+    pub followup: Option<(PathBuf, f64)>,
     pub sh_checked: f64,
     pub sh_run_seen: f64,
     pub last_results: f64,
@@ -304,8 +306,15 @@ impl Meter {
         }
     }
 
-    /// When a finished run is decided and sent: BATTLE_DATA_SETTLE after its Battle Data, else BATTLE_DATA_WAIT.
+    /// When a finished run is decided and sent if its result screen doesn't read whole first (send_when_read):
+    /// BATTLE_DATA_SETTLE after its Battle Data, else BATTLE_DATA_WAIT. Another run still waiting is sent first, on
+    /// what it has, rather than dropped.
     pub fn schedule_run(&mut self, path: PathBuf, battle_data: bool, now: f64) {
+        if let Some((p, _)) = self.rs.pending_run.clone()
+            && p != path
+        {
+            self.decide_run(&p);
+        }
         let mut due = now + if battle_data { rp::BATTLE_DATA_SETTLE } else { rp::BATTLE_DATA_WAIT };
         if let Some((p, d)) = &self.rs.pending_run
             && *p == path
@@ -313,6 +322,26 @@ impl Meter {
             due = due.min(*d);
         }
         self.rs.pending_run = Some((path, due));
+    }
+
+    /// This fight's result screen is wholly read (on this read or an earlier one of the same screen) and its run waits
+    /// to be sent (fight_summary scheduled it: a run for the leaderboards, not decided yet): send it now.
+    pub fn send_when_read(&mut self, f: &Fight) {
+        let path = self.summary_path(f);
+        if self.rs.result_seen > 0.0 && self.rs.result_ready >= self.rs.result_seen && self.rs.pending_run.as_ref().is_some_and(|(p, _)| *p == path) {
+            log::info!(target: "meter", "leaderboard: the result screen is read - sending the run now");
+            self.decide_run(&path);
+        }
+    }
+
+    /// Battle Data was written to a sent run's summary: its update is looked at BATTLE_DATA_SETTLE after the last write
+    /// (Battle Data that never reads complete still gets there; a complete read sends at once, battle_data_done).
+    fn battle_data_written(&mut self, f: &Fight, now: f64) {
+        let path = self.summary_path(f);
+        let open = read_json(&path).and_then(|v| v.as_dict().cloned()).is_some_and(|s| self.late_open(&s));
+        if self.submitter.is_some() && open {
+            self.followup_at(&path, now + rp::BATTLE_DATA_SETTLE);
+        }
     }
 
     /// The run's clock when the leader's Special Offering read as Overtime, else None.
@@ -709,6 +738,7 @@ impl Meter {
                 let r = result(&self.rs.result_shot, &self.rs.result_check, players_v(&players), Some(self.rs.result_reads));
                 let f = self.last_fight.take().unwrap();
                 self.fight_summary(&f.0, vec![("result", r)]);
+                self.send_when_read(&f.0);
                 self.last_fight = Some(f);
             }
             return;
@@ -769,6 +799,7 @@ impl Meter {
             }
             let f = self.last_fight.take().unwrap();
             self.fight_summary(&f.0, parts);
+            self.send_when_read(&f.0);
             self.last_fight = Some(f);
             if best && score.is_some() {
                 self.record_score(frames, out, im, "new_best", &boss, score, rating);
@@ -1032,6 +1063,7 @@ impl Meter {
                 ]);
                 let f = self.last_fight.take().unwrap();
                 self.fight_summary(&f.0, vec![("battle_data", bd)]);
+                self.battle_data_written(&f.0, now);
                 self.last_fight = Some(f);
             }
             if complete {
@@ -1056,6 +1088,7 @@ impl Meter {
             let bd = dict([("players", cards_v), ("team_avg_dps", team_dps), ("screenshot", self.rs.bd_shot.clone().map_or(Value::None, Value::Str))]);
             let f = self.last_fight.take().unwrap();
             self.fight_summary(&f.0, vec![("battle_data", bd)]);
+            self.battle_data_written(&f.0, now);
             self.last_fight = Some(f);
         }
         if complete {
@@ -1064,8 +1097,8 @@ impl Meter {
         self.bd_note(&stamp, &msg, &cards, &text);
     }
 
-    /// Both pictures are in and two reads agree: the run goes now, the automatic session stops, a sent run gets its
-    /// Battle Data late.
+    /// Both pictures are in and two reads agree: a run not sent yet goes now, the automatic session stops (and with it
+    /// its hold), a sent run's update with its Battle Data goes at once.
     fn battle_data_done(&mut self, lf: bool, now: f64) {
         if let Some((p, _)) = self.rs.pending_run.take() {
             self.rs.pending_run = Some((p, now));
