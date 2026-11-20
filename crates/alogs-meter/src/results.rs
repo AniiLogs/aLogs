@@ -30,7 +30,10 @@ pub struct ResultsState {
     pub result_votes: Votes,
     pub result_shot: Option<String>,
     pub result_last: f64,
+    /// When the result screen counted as read: wholly read, and two looks in a row agreeing.
     pub result_ready: f64,
+    /// The last look's own reads of the result screen (rating, score, time, each slot's name and value).
+    pub result_look: Option<String>,
     pub result_check: Option<Value>,
     pub bd_seen: f64,
     pub bd_reads: i64,
@@ -607,6 +610,7 @@ impl Meter {
             self.rs.result_reads = 0;
             self.rs.result_votes = Votes::new();
             self.rs.result_shot = None;
+            self.rs.result_look = None;
         }
         self.rs.result_last = now;
         self.rs.result_reads += 1;
@@ -641,10 +645,16 @@ impl Meter {
             ),
             None => (None, None, None, vec![None; 4]),
         };
+        // this look's own reads (not the votes), to tell whether two looks in a row agree (result_ready)
+        let mut look: Vec<Value> = vec![
+            opt_i(stars.or_else(|| rp::first_num(tg("rating")))),
+            opt_i(sure.or_else(|| num(tg("score")))),
+            opt_i(sure_time.or_else(|| rp::first_num(tg("time")))),
+        ];
         let mut v = |key: &str, val: Value| vote(&mut self.rs.result_votes, key, val);
-        let rating = v("rating", opt_i(stars.or_else(|| rp::first_num(tg("rating"))))).as_i64();
-        let score = v("score", opt_i(sure.or_else(|| num(tg("score"))))).as_i64();
-        let secs = v("time", opt_i(sure_time.or_else(|| rp::first_num(tg("time"))))).as_i64();
+        let rating = v("rating", look[0].clone()).as_i64();
+        let score = v("score", look[1].clone()).as_i64();
+        let secs = v("time", look[2].clone()).as_i64();
         let fidx = self.last_fight.as_ref().filter(|(_, at)| now - at < 180.0).is_some();
         let run = if fidx { Some(self.run_of(&self.last_fight.as_ref().unwrap().0)) } else { None };
         let full = self.clear_stars(run.as_ref().map(|r| r.id.as_str()));
@@ -652,10 +662,14 @@ impl Meter {
         let num_re = regex::Regex::new(r"^[\d,.\s]+$").unwrap();
         let mut players: Vec<Dict> = Vec::new();
         for (i, sv) in values.iter().enumerate() {
-            let name = vote(&mut self.rs.result_votes, &format!("name{i}"), Value::Str(tg(&format!("name{i}")).unwrap_or("").trim_matches(|c| " /|".contains(c)).to_string()));
+            let name_read = Value::Str(tg(&format!("name{i}")).unwrap_or("").trim_matches(|c| " /|".contains(c)).to_string());
+            look.push(name_read.clone());
+            let name = vote(&mut self.rs.result_votes, &format!("name{i}"), name_read);
             let stat = tg(&format!("stat{i}")).unwrap_or("");
             let parts: Vec<&str> = stat.split(" / ").map(str::trim).filter(|p| !p.is_empty()).collect();
-            let value = vote(&mut self.rs.result_votes, &format!("value{i}"), opt_i(sv.or_else(|| parts.iter().rev().find(|p| num_re.is_match(p)).and_then(|p| num(Some(p))))));
+            let value_read = opt_i(sv.or_else(|| parts.iter().rev().find(|p| num_re.is_match(p)).and_then(|p| num(Some(p)))));
+            look.push(value_read.clone());
+            let value = vote(&mut self.rs.result_votes, &format!("value{i}"), value_read);
             let label = vote(&mut self.rs.result_votes, &format!("label{i}"), Value::Str(rp::canon(parts.iter().find(|p| !num_re.is_match(p)).copied().unwrap_or(""), &rp::RESULT_STATS, 0.6)));
             let lbl = label.py_str();
             if name.truthy() || !value.is_none() || rp::RESULT_STATS.contains(&lbl.as_str()) {
@@ -712,8 +726,21 @@ impl Meter {
         let boss = run.as_ref().map_or("(unknown - meter saw no fight)".to_string(), |r| r.title.clone());
         let players_v = |players: &Vec<Dict>| Value::List(players.iter().cloned().map(Value::Dict).collect());
         log::info!(target: "meter", "result screen read {}: banner {}, -> {boss}: rating {rating:?}, score {score:?}, time {secs:?}, players {}", self.rs.result_reads, alogs_pyval::str_repr(banner), players_v(&players).repr());
-        if rating.is_some() && score.is_some() && secs.is_some() && !players.is_empty() && players.iter().all(|p| !p.at("value").is_none()) && self.rs.result_ready < self.rs.result_seen {
+        // wholly read, and this look read what the look before it (of this same screen) read: a first look can catch
+        // the screen still fading in, with a name read wrong
+        let look = Value::List(look).json_dumps();
+        let agrees = self.rs.result_look.as_deref() == Some(look.as_str());
+        self.rs.result_look = Some(look);
+        let whole = rating.is_some() && score.is_some() && secs.is_some() && !players.is_empty() && players.iter().all(|p| !p.at("value").is_none());
+        if whole && !agrees && self.rs.result_ready < self.rs.result_seen {
+            log::info!(target: "meter", "result screen read {}: read whole, waiting for a look that agrees with it", self.rs.result_reads);
+        }
+        if whole && agrees && self.rs.result_ready < self.rs.result_seen {
             self.rs.result_ready = now;
+            // the run's proof is of this look's screen, taken before the click below changes it
+            if again {
+                self.retake_result_picture(frames, im, now);
+            }
             // click_when_ready: the automatic Battle Data click with this frame, at once
             if self.auto_active() && self.auto.clicks == 0 && !self.args.replay {
                 let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));
@@ -816,6 +843,22 @@ impl Meter {
         }
         out.out("status", Value::Str(format!("result recorded: {boss} - score {}, {} stars, {}s", score.map_or("None".into(), |s| s.to_string()), rating.map_or("None".into(), |s| s.to_string()), secs.map_or("None".into(), |s| s.to_string()))));
         self.rs.end_sig = Some(team::screen_sig(im));
+    }
+
+    /// The result screen read ready: its proof again, from this look (the first look's can still be fading in). The
+    /// first look's picture is gone unless Keep screenshots keeps pictures; without a new one the first stays.
+    fn retake_result_picture(&mut self, frames: &mut dyn Frames, im: &Image, now: f64) {
+        let stamp = local(now, "%Y%m%d_%H%M%S");
+        let Some(p) = self.picture(frames, im, "screens", &format!("result_{stamp}"), true, true) else { return };
+        let new = rel(&self.env.data, &p);
+        let keep = alogs_pyval::py_int(self.args.cfg.get("capture").get("keep_hours")).unwrap_or(0) != 0;
+        if let Some(old) = self.rs.result_shot.replace(new.clone())
+            && old != new
+            && !keep
+        {
+            let _ = std::fs::remove_file(self.env.data.join(old));
+        }
+        self.rs.result_check = self.rs.screen_check.clone();
     }
 
     /// Is this name box's read in the name cache for good? (`sure_read`: only the real OCR keeps one.)

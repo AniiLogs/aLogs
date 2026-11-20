@@ -440,3 +440,88 @@ fn the_hold_ends_when_its_own_record_is_sent() {
     assert_eq!(m.send_waiting, None);
     assert_eq!(out.0.len(), 2, "both records got their notice");
 }
+
+/// The stand-in OCR for a result screen: each box answers what the test set.
+struct Answers(indexmap::IndexMap<String, String>);
+impl alogs_reader::ocr::Reader for Answers {
+    fn read(&self, images: &indexmap::IndexMap<String, alogs_pil::Image>, _: &indexmap::IndexMap<String, usize>, _: &indexmap::IndexMap<String, alogs_pil::Image>) -> indexmap::IndexMap<String, String> {
+        images.keys().map(|k| (k.clone(), self.0.get(k).cloned().unwrap_or_default())).collect()
+    }
+    fn cached(&self, _: &indexmap::IndexMap<String, alogs_pil::Image>, _: &indexmap::IndexMap<String, usize>) -> bool { true }
+    fn language(&self) -> Option<String> { Some("en-US".into()) }
+    fn started(&self) -> bool { true }
+}
+
+struct NoFrames;
+impl alogs_meter::meter::Frames for NoFrames {
+    fn grab(&mut self, _: usize, _: Option<f64>) -> Option<alogs_pil::Image> { None }
+    fn window(&mut self) -> Option<usize> { None }
+}
+
+fn result_answers(name: &str) -> Box<Answers> {
+    let mut a = indexmap::IndexMap::new();
+    for (k, v) in [("rating", "17"), ("score", "17,164"), ("time", "95s"), ("name0", name), ("stat0", "Total Damage Dealt / 123456")] {
+        a.insert(k.to_string(), v.to_string());
+    }
+    Box::new(Answers(a))
+}
+
+/// A result screen counts as read only when two looks in a row agree: a first look read whole neither clicks View
+/// Battle Data nor sends; a second that reads one name differently doesn't either; a third that agrees with the
+/// second does both, with its names, and the run's proof is that look's picture (the first one's file is gone). A
+/// result that never reads agreeing still waits BATTLE_DATA_WAIT, as before; looks come quickly until it is read.
+#[test]
+fn a_result_screen_is_read_when_two_looks_agree() {
+    let mut m = sending("lb-two-looks", true);
+    m.args.replay = false; // (no game window: the click is tried, seen by its time, and nothing is clicked on the PC)
+    m.last_fight = Some((interlink_fight(&m, "fight_a"), T));
+    m.auto.auto_until = T + 60.0; // the automatic session runs
+    m.auto.hold_started = T;
+    let before = T + alogs_meter::leaderboards::RESULT_PAUSE - 1.0;
+    m.auto.last_click = before;
+    let im = alogs_pil::Image::new(alogs_pil::Mode::Rgb, 1920, 1080, &[20, 20, 20]);
+    let mut out = Said::default();
+    let mut look = |m: &mut Meter, at: f64, name: &str| {
+        m.env.fixed_now.set(Some(at));
+        m.ocr = result_answers(name);
+        m.result_screen(&mut NoFrames, &mut out, &im, at, 1920.0, 0.0, 1080.0, "Challenge Complete", None);
+    };
+    let path = m.run_path("fight_a");
+    let shot = |m: &Meter| read(&m.run_path("fight_a")).get("result").get("screenshot").py_str();
+
+    look(&mut m, T, "Made-up Ome");
+    assert!(m.rs.result_ready < m.rs.result_seen, "one look is not enough");
+    assert_eq!(m.auto.last_click, before, "no click on the first look");
+    assert!(queued(&m, "fight_a").is_none() && !read(&path).get("sent").truthy(), "nothing sent on the first look");
+    assert_eq!(m.rs.pending_run, Some((path.clone(), T + BATTLE_DATA_WAIT)), "the fallback wait is as before");
+    let first = shot(&m);
+    assert!(on_disk(&m, &first), "{first}");
+
+    // the quick next look, with or without Automation
+    m.auto.auto_until = 0.0;
+    m.ss.screen_read_sig = Some(vec![1, 2, 3]);
+    m.top_sig = Some(vec![1, 2, 3]); // the picture hasn't changed
+    m.rs.last_results = T;
+    assert!(m.screen_read_due(T + 0.3, false), "a result screen not read yet is looked at again soon");
+    m.auto.auto_until = T + 60.0;
+
+    look(&mut m, T + 1.6, "Made-up One");
+    assert!(m.rs.result_ready < m.rs.result_seen, "the looks disagree on a name");
+    assert_eq!(m.auto.last_click, before);
+    assert!(queued(&m, "fight_a").is_none());
+
+    look(&mut m, T + 3.2, "Made-up One");
+    assert_eq!(m.rs.result_ready, T + 3.2, "two looks in a row agree");
+    assert_eq!(m.auto.last_click, T + 3.2, "the click came with that look");
+    let q = queued(&m, "fight_a").expect("the run is sent with that look");
+    assert_eq!(q.get("payload").get("players").as_list().unwrap()[0].get("name").py_str(), "Made-up One");
+    let kept = shot(&m);
+    assert_ne!(kept, first, "the proof is the later look's picture");
+    assert!(on_disk(&m, &kept) && !on_disk(&m, &first), "{kept} kept, {first} gone");
+    assert_eq!(q.get("evidence").py_str(), kept);
+
+    // read: the looks come at the usual pace again
+    m.auto.auto_until = 0.0;
+    m.rs.last_results = T + 3.2;
+    assert!(!m.screen_read_due(T + 3.5, false), "once read, a result screen left up costs nothing more");
+}
