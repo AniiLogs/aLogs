@@ -731,7 +731,7 @@ impl Meter {
         let look = Value::List(look).json_dumps();
         let agrees = self.rs.result_look.as_deref() == Some(look.as_str());
         self.rs.result_look = Some(look);
-        let whole = rating.is_some() && score.is_some() && secs.is_some() && !players.is_empty() && players.iter().all(|p| !p.at("value").is_none());
+        let whole = rating.is_some() && score.is_some() && secs.is_some() && !players.is_empty() && players.iter().all(|p| !p.at("value").is_none() || rp::no_value_stat(&p.at("stat").py_str()));
         if whole && !agrees && self.rs.result_ready < self.rs.result_seen {
             log::info!(target: "meter", "result screen read {}: read whole, waiting for a look that agrees with it", self.rs.result_reads);
         }

@@ -459,11 +459,57 @@ impl alogs_meter::meter::Frames for NoFrames {
 }
 
 fn result_answers(name: &str) -> Box<Answers> {
+    answers_for(&[(name, "Total Damage Dealt / 123456")])
+}
+
+/// A result screen's boxes: rating, score, time, and each slot's (name, highlight).
+fn answers_for(slots: &[(&str, &str)]) -> Box<Answers> {
     let mut a = indexmap::IndexMap::new();
-    for (k, v) in [("rating", "17"), ("score", "17,164"), ("time", "95s"), ("name0", name), ("stat0", "Total Damage Dealt / 123456")] {
+    for (k, v) in [("rating", "17"), ("score", "17,164"), ("time", "95s")] {
         a.insert(k.to_string(), v.to_string());
     }
+    for (i, (n, s)) in slots.iter().enumerate() {
+        a.insert(format!("name{i}"), n.to_string());
+        a.insert(format!("stat{i}"), s.to_string());
+    }
     Box::new(Answers(a))
+}
+
+/// "Dealt the Last Strike" is shown without a number: a slot with it counts as read without one (two agreeing looks
+/// still needed), and its value stays empty. Any other highlight without its number still keeps the screen unread.
+#[test]
+fn the_last_strike_needs_no_number() {
+    let im = alogs_pil::Image::new(alogs_pil::Mode::Rgb, 1920, 1080, &[20, 20, 20]);
+    let mut out = Said::default();
+    let run = |name: &str, second: &str, out: &mut Said| -> Meter {
+        let mut m = sending(name, false);
+        m.args.replay = false; // (no game window: the click is tried, seen by its time, nothing clicked on the PC)
+        m.last_fight = Some((interlink_fight(&m, "fight_a"), T));
+        m.auto.auto_until = T + 60.0;
+        m.auto.hold_started = T;
+        m.auto.last_click = T + alogs_meter::leaderboards::RESULT_PAUSE - 1.0;
+        for at in [T, T + 1.6] {
+            m.env.fixed_now.set(Some(at));
+            m.ocr = answers_for(&[("Made-up One", "Total Damage Dealt / 123456"), ("Made-up Two", second)]);
+            m.result_screen(&mut NoFrames, out, &im, at, 1920.0, 0.0, 1080.0, "Challenge Complete", None);
+            if at == T {
+                assert!(m.rs.result_ready < m.rs.result_seen, "one look is not enough");
+                assert!(queued(&m, "fight_a").is_none());
+            }
+        }
+        m
+    };
+    let m = run("lb-last-strike", "Dealt the Last Strike", &mut out);
+    assert_eq!(m.rs.result_ready, T + 1.6, "read on the second, agreeing look");
+    assert_eq!(m.auto.last_click, T + 1.6, "the click came with it");
+    let q = queued(&m, "fight_a").expect("the run is sent then");
+    let p = q.get("payload").get("players").as_list().unwrap()[1].clone();
+    assert_eq!(p.get("stat").py_str(), "Dealt the Last Strike");
+    assert!(p.get("value").is_none(), "no value for it: {}", p.json_dumps());
+
+    let m = run("lb-other-no-number", "Most Healing", &mut out);
+    assert!(m.rs.result_ready < m.rs.result_seen, "another highlight without its number: not read");
+    assert!(queued(&m, "fight_a").is_none());
 }
 
 /// A result screen counts as read only when two looks in a row agree: a first look read whole neither clicks View

@@ -12,6 +12,15 @@ use regex::Regex;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
+/// The result screen's one highlight shown without a number (27 of 27 looks in a player's log, 20 Nov).
+pub const LAST_STRIKE: &str = "Dealt the Last Strike";
+
+/// Is this result-screen highlight label the Last Strike one (which has no number)? Not one of RESULT_STATS, and
+/// close to LAST_STRIKE allowing for a misread letter or two.
+pub fn no_value_stat(label: &str) -> bool {
+    !RESULT_STATS.contains(&label) && canon(label, &[LAST_STRIKE], 0.8) == LAST_STRIKE
+}
+
 pub const RESULT_STATS: [&str; 8] = [
     "Total Damage Dealt", "Total BREAK Damage", "Targets Defeated", "Most Healing", "Most Damage Taken", "Most Hits Taken",
     "Most Support Provided", "Best Strike Damage",
