@@ -25,6 +25,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Sanctum Helper knows a Sanctum's layout as it loads:** the game's own log names each Sanctum while loading it, and the map now takes the layout from that, instead of working it out from the minimap (6 to 30 seconds, and now and then a wrong first guess). If the game doesn't name it, the minimap decides as before.
 - **Fewer pictures saved on your PC:** the sample screens the meter kept for checking its readers, and the copies of each leaderboard proof with the DPS window drawn on it, are now saved only while Captures & logs › Save test pictures is on. The proof that's sent is the same.
 - **Priority (General Settings › Performance) is the one control and does what it says:** Higher runs aLogs, the meter and Sanctum Helper above normal; the meter's text readers run below normal with Lower, normal otherwise. The two Dev menu switches that changed this are gone.
+- **Player names are read side by side:** the names on the result, Party and Battle Data screens go to aLogs' Latin, Korean and Cyrillic readers at the same time instead of one after another. A screen's names take about half a second, so a run is on its way sooner after the result screen comes up.
 
 ### Fixed
 - **Battle Data is read when you play with a controller:** the game then shows a button prompt under the cards and draws them a little higher, and aLogs only knew where they sit with mouse and keyboard, so a run's Battle Data numbers and names came out blank. Both layouts are read now.
