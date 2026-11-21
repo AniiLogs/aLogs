@@ -18,9 +18,40 @@ use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 
 pub const BD_ROWS: [(&str, f64); 4] = [("avg_dps", 0.5833), ("break", 0.6255), ("taken", 0.6667), ("heal", 0.7088)];
+/// Where Battle Data's cards rest, as the shift of everything on them from the mouse-and-keyboard layout (share of
+/// the height): that layout, then the controller's, which draws a button prompt under the cards and has them 38 px
+/// higher at 2160 (bottom edge 1575 instead of 1613; nothing moves sideways). `BD_ROWS`, the name tabs and the line
+/// the cards are found on are all read shifted by the layout the picture shows.
+pub const BD_LAYOUTS: [f64; 2] = [0.0, -0.0176];
+/// A card's width across its middle at rest (share of u; 0.1663 on every saved picture, in both layouts).
+const BD_CARD_W: f64 = 0.1663;
 pub const LEADER_NOTE: (f64, f64, f64, f64) = (0.33, 0.140, 0.67, 0.195);
 pub const CLEAR_STARS: i64 = 20;
 pub const CENTER_STARS: i64 = 40;
+
+/// Battle Data's card i of n: its centre across the screen (share of u), the same in both layouts.
+fn bd_centre(i: usize, n: usize) -> f64 {
+    0.5 + (i as f64 - (n as f64 - 1.0) / 2.0) * 0.1943
+}
+
+/// The last card-light pixel down the column at x between f0 and f1 of the height (a Battle Data card's bottom edge),
+/// as a share of the height.
+fn bd_bottom(im: &Image, x: f64, h: f64, f0: f64, f1: f64) -> Option<f64> {
+    let (x, y0, y1) = (x as i64, (h * f0) as i64, (h * f1) as i64);
+    let col = im.crop_i(x, y0, x + 1, y1).convert(Mode::Rgb);
+    let last = (0..(y1 - y0) as usize).rev().find(|&k| {
+        let p = &col.data[3 * k..3 * k + 3];
+        let (mn, mx) = (*p.iter().min().unwrap(), *p.iter().max().unwrap());
+        mn >= 170 && mx - mn <= 50
+    })?;
+    Some((y0 as f64 + last as f64) / h)
+}
+
+/// Whether a card's bottom edge at y (share of the height) is where it rests in the layout shifted by dy: 0.742-0.749
+/// in the usual one (0.744-0.747 on 15 saved 4K screens and scaled to 720p; 1613-1614 of 2160 on eight more).
+fn bd_rests(y: f64, dy: f64) -> bool {
+    ((0.742 + dy)..=(0.749 + dy)).contains(&y)
+}
 
 /// The end-screen readers' state (the Python keeps these on the Meter, most made on first use).
 #[derive(Default)]
@@ -43,6 +74,8 @@ pub struct ResultsState {
     pub bd_prev_sig: Option<Vec<Vec<Option<i64>>>>,
     pub bd_measured: bool,
     pub bd_stamp: Option<String>,
+    /// The Battle Data layout last counted on this appearance (its shift, `BD_LAYOUTS`).
+    pub bd_dy: f64,
     pub bd_last: f64,
     pub bd_check: Option<Value>,
     pub battle_saved: f64,
@@ -867,51 +900,56 @@ impl Meter {
         self.ocr.sure(img)
     }
 
-    /// How many cards Battle Data shows, counted from pixels (0 when they don't line up like cards).
-    pub fn bd_card_count(im: &Image, u: f64, ux: f64, h: f64) -> usize {
-        let runs = light_runs(im, u, ux, h, 400, 0.0);
+    /// How many cards Battle Data shows, counted from pixels (0 when they don't line up like cards), and their layout
+    /// (its shift, `BD_LAYOUTS`): the one whose resting place the first card's bottom edge is at, else (cards still on
+    /// their way in) the one whose line they were counted on. The usual layout's line is looked at first.
+    pub fn bd_card_count(im: &Image, u: f64, ux: f64, h: f64) -> (usize, f64) {
+        for dy in BD_LAYOUTS {
+            let n = Self::bd_count_at(im, u, ux, h, dy);
+            if n > 0 {
+                let x = ux + u * (bd_centre(0, n) - BD_CARD_W / 2.0 + 0.01);
+                let bottom = bd_bottom(im, x, h, 0.70 + BD_LAYOUTS[1], 0.80);
+                return (n, BD_LAYOUTS.into_iter().find(|&d| bottom.is_some_and(|b| bd_rests(b, d))).unwrap_or(dy));
+            }
+        }
+        (0, 0.0)
+    }
+
+    fn bd_count_at(im: &Image, u: f64, ux: f64, h: f64, dy: f64) -> usize {
+        let runs = light_runs(im, u, ux, h, dy, 400, 0.0);
         let cards: Vec<(f64, f64)> = runs.into_iter().filter(|(a, b)| b - a >= 0.12).collect();
         let n = cards.len();
         if !(1..=4).contains(&n) {
             return 0;
         }
         for (i, (a, b)) in cards.iter().enumerate() {
-            if b - a > 0.19 || ((a + b) / 2.0 - (0.5 + (i as f64 - (n as f64 - 1.0) / 2.0) * 0.1943)).abs() > 0.02 {
+            if b - a > 0.19 || ((a + b) / 2.0 - bd_centre(i, n)).abs() > 0.02 {
                 return 0;
             }
         }
         n
     }
 
-    /// Whether Battle Data's n cards are where they rest, not on their way in.
-    pub fn bd_cards_in_place(im: &Image, u: f64, ux: f64, h: f64, n: usize) -> bool {
+    /// Where Battle Data's n cards rest, not on their way in: the layout's shift (`BD_LAYOUTS`) whose resting place
+    /// every card is at, measured on the picture (centre and width across the card, and its bottom edge); None while
+    /// they aren't at one. The usual layout is looked at first.
+    pub fn bd_cards_in_place(im: &Image, u: f64, ux: f64, h: f64, n: usize) -> Option<f64> {
         if n == 0 {
-            return false;
+            return None;
         }
-        let runs = light_runs(im, u, ux, h, 1600, 0.12);
+        BD_LAYOUTS.into_iter().find(|&dy| Self::bd_at_rest(im, u, ux, h, n, dy))
+    }
+
+    fn bd_at_rest(im: &Image, u: f64, ux: f64, h: f64, n: usize, dy: f64) -> bool {
+        let runs = light_runs(im, u, ux, h, dy, 1600, 0.12);
         if runs.len() != n {
             return false;
         }
-        let (y0, y1) = ((h * 0.70) as i64, (h * 0.80) as i64);
-        for (i, (a, b)) in runs.iter().enumerate() {
-            if ((a + b) / 2.0 - (0.5 + (i as f64 - (n as f64 - 1.0) / 2.0) * 0.1943)).abs() > 0.002 {
-                return false;
-            }
-            let x = (ux + u * (a + 0.01)) as i64;
-            let col = im.crop_i(x, y0, x + 1, y1).convert(Mode::Rgb);
-            let light: Vec<usize> = (0..(y1 - y0) as usize)
-                .filter(|&k| {
-                    let p = &col.data[3 * k..3 * k + 3];
-                    let (mn, mx) = (*p.iter().min().unwrap(), *p.iter().max().unwrap());
-                    mn >= 170 && mx - mn <= 50
-                })
-                .collect();
-            let Some(&lastk) = light.last() else { return false };
-            if !(0.742..=0.749).contains(&((y0 as f64 + lastk as f64) / h)) {
-                return false;
-            }
-        }
-        true
+        runs.iter().enumerate().all(|(i, (a, b))| {
+            ((a + b) / 2.0 - bd_centre(i, n)).abs() <= 0.002
+                && (b - a - BD_CARD_W).abs() <= 0.004
+                && bd_bottom(im, ux + u * (a + 0.01), h, 0.70 + dy, 0.80 + dy).is_some_and(|y| bd_rests(y, dy))
+        })
     }
 
     /// Each card's values by the game's own digits (a frame whose cards aren't in place gives none).
@@ -920,7 +958,7 @@ impl Meter {
         if self.name_reader().is_none() {
             return;
         }
-        if !Self::bd_cards_in_place(im, u, ux, h, n) {
+        let Some(dy) = Self::bd_cards_in_place(im, u, ux, h, n) else {
             log::info!(target: "meter", "Battle Data: cards not in place yet, no values from this frame");
             for card in read.iter_mut() {
                 for (k, _) in BD_ROWS {
@@ -928,14 +966,15 @@ impl Meter {
                 }
             }
             return;
-        }
+        };
         let reader = self.font_reader.as_ref().unwrap();
         let k = 3840.0 / u;
         let mut big: Option<Image> = None;
-        let (y0, y1) = (h * 0.54, h * 0.74);
+        let (y0, y1) = (h * (0.54 + dy), h * (0.74 + dy));
         for (i, card) in read.iter_mut().enumerate() {
-            let c = ux + u * (0.5 + (i as f64 - (n as f64 - 1.0) / 2.0) * 0.1943);
+            let c = ux + u * bd_centre(i, n);
             for (key, y) in BD_ROWS {
+                let y = y + dy;
                 let b = (c + u * 0.015, h * (y - 0.016), c + u * 0.081, h * (y + 0.016));
                 let mut v = reader.number(im, b, 0.05, true, true, false);
                 if v.is_none() && k > 1.01 {
@@ -951,12 +990,12 @@ impl Meter {
         }
     }
 
-    /// Battle Data's name tabs of n cards: prepared, and grey crops.
-    pub fn bd_names(im: &Image, n: usize, u: f64, ux: f64, h: f64) -> (IndexMap<String, Image>, IndexMap<String, Image>) {
+    /// Battle Data's name tabs of n cards in the layout shifted by dy (`BD_LAYOUTS`): prepared, and grey crops.
+    pub fn bd_names(im: &Image, n: usize, u: f64, ux: f64, h: f64, dy: f64) -> (IndexMap<String, Image>, IndexMap<String, Image>) {
         let (mut a, mut g) = (IndexMap::new(), IndexMap::new());
         for i in 0..n {
-            let c = 0.5 + (i as f64 - (n as f64 - 1.0) / 2.0) * 0.1943;
-            let b = (ux + u * (c - 0.045), h * 0.512, ux + u * (c + 0.045), h * 0.547);
+            let c = bd_centre(i, n);
+            let b = (ux + u * (c - 0.045), h * (0.512 + dy), ux + u * (c + 0.045), h * (0.547 + dy));
             a.insert(i.to_string(), prep::prep_white(im, b, u / 2000.0, 4.0));
             g.insert(i.to_string(), prep::grey_crop(im, b, 48));
         }
@@ -999,7 +1038,7 @@ impl Meter {
 
     /// Battle Data on screen: each card's four values and its player, voted over the reads of one appearance.
     #[allow(clippy::too_many_arguments)]
-    pub fn battle_data(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64, u: f64, ux: f64, h: f64, head: &str, names: Option<(IndexMap<String, Image>, IndexMap<String, Image>)>) {
+    pub fn battle_data(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, now: f64, u: f64, ux: f64, h: f64, head: &str) {
         if self.fight.is_some() {
             self.end_fight(out, "Battle Data screen");
         }
@@ -1021,10 +1060,17 @@ impl Meter {
             self.rs.bd_prev_sig = None;
             self.rs.bd_measured = false;
             self.rs.bd_stamp = None;
+            self.rs.bd_dy = 0.0;
             log::info!(target: "meter", "Battle Data screen detected (header OCR {})", alogs_pyval::str_repr(head));
         }
         self.rs.bd_reads += 1;
-        let rows = im.crop_i((ux + u * 0.125) as i64, (h * 0.564) as i64, (ux + u * 0.875) as i64, (h * 0.73) as i64).convert(Mode::L);
+        // the layout: where the cards are counted, else where they were last counted on this appearance
+        let (seen, dy) = Self::bd_card_count(im, u, ux, h);
+        if seen > 0 {
+            self.rs.bd_dy = dy;
+        }
+        let dy = self.rs.bd_dy;
+        let rows = im.crop_i((ux + u * 0.125) as i64, (h * (0.564 + dy)) as i64, (ux + u * 0.875) as i64, (h * (0.73 + dy)) as i64).convert(Mode::L);
         let k = 1f64.max(2.0 * 2000.0 / u);
         let rows = rows.resize((rows.width as f64 * k) as usize, (rows.height as f64 * k) as usize, Some(Filter::Lanczos));
         let mut crops = IndexMap::new();
@@ -1033,7 +1079,6 @@ impl Meter {
         let parsed = rp::parse_battle_data(Some(&text));
         log::info!(target: "meter", "Battle Data read {}: OCR {} -> {}", self.rs.bd_reads, alogs_pyval::str_repr(&text), Value::List(parsed.clone()).repr());
         let before = self.rs.bd_cards;
-        let seen = Self::bd_card_count(im, u, ux, h);
         let n = 4.min(before.max(seen).max(parsed.len()));
         self.rs.bd_cards = n;
         let mut read: Vec<Dict> = (0..n).map(|i| parsed.get(i).and_then(|c| c.as_dict().cloned()).unwrap_or_default()).collect();
@@ -1066,10 +1111,7 @@ impl Meter {
                 }
             }
         }
-        let (bcrops, grey) = match names {
-            Some(nm) if nm.0.len() == n => nm,
-            _ => Self::bd_names(im, n, u, ux, h),
-        };
+        let (bcrops, grey) = Self::bd_names(im, n, u, ux, h, dy);
         let pad: IndexMap<String, usize> = bcrops.keys().map(|k| (k.clone(), 0)).collect();
         let nread = if n > 0 { self.ocr.read(&bcrops, &pad, &grey) } else { IndexMap::new() };
         for (i, c) in cards.iter_mut().enumerate() {
@@ -1201,9 +1243,10 @@ impl Meter {
     }
 }
 
-/// The light runs (card-grey) along the line between Battle Data's BREAK and Damage Taken rows, as shares of u.
-fn light_runs(im: &Image, u: f64, ux: f64, h: f64, n: usize, min_len: f64) -> Vec<(f64, f64)> {
-    let y = (h * 0.645) as i64;
+/// The light runs (card-grey) along the line between Battle Data's BREAK and Damage Taken rows in the layout shifted by
+/// dy (`BD_LAYOUTS`), as shares of u.
+fn light_runs(im: &Image, u: f64, ux: f64, h: f64, dy: f64, n: usize, min_len: f64) -> Vec<(f64, f64)> {
+    let y = (h * (0.645 + dy)) as i64;
     let row = im.crop_i(ux as i64, y, (ux + u) as i64, y + 1).convert(Mode::Rgb).resize(n, 1, Some(Filter::Box));
     let mut runs = Vec::new();
     let mut start: Option<usize> = None;
