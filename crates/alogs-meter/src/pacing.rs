@@ -81,7 +81,18 @@ impl Meter {
         if !quick && self.idle() {
             gap = gap.max(1.0);
         }
+        // a result screen up and not read yet (two looks in a row must agree): the next look soon, with or without
+        // Automation; once it is read, as before
+        if self.result_waiting(now) {
+            gap = gap.min(0.25);
+        }
         now - self.rs.last_results >= gap
+    }
+
+    /// A result screen read in the last 2 s, not counted as read yet, with looks left (SCREEN_READS).
+    pub fn result_waiting(&self, now: f64) -> bool {
+        let r = &self.rs;
+        r.result_seen > 0.0 && now - r.result_last < 2.0 && r.result_ready < r.result_seen && r.result_reads < crate::results_parse::SCREEN_READS
     }
 
     /// Between fights, whether this look needs the whole frame: a screen read, the end-screen note, Egg Heist, the

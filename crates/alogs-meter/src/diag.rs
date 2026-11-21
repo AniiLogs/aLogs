@@ -260,6 +260,7 @@ impl Meter {
             && !self.menu.link.as_ref().is_some_and(|l| l.state == "waiting")
             && !self.after_fight.as_ref().is_some_and(|a| now < a.1)
             && !self.sanctum_in_run(now)
+            && !self.result_waiting(now)
     }
 }
 
