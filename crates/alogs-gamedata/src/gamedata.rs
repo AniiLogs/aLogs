@@ -184,6 +184,54 @@ pub fn read_cycles(pm: &mut PmData) -> Result<Value> {
     Ok(Value::List(out))
 }
 
+/// The ids in a list or a `{1: id, 2: id ...}` dict, None when it holds anything else.
+fn id_list(v: &Value) -> Option<BTreeSet<i64>> {
+    let items: Vec<&Value> = match v {
+        Value::List(l) => l.iter().collect(),
+        Value::Dict(d) => d.values().collect(),
+        _ => return None,
+    };
+    items.iter().map(|x| x.as_i64()).collect()
+}
+
+/// The Special Offerings a player can pick in each Interlink week: `{week: [buff id ...]}` (bossrush_cycle_data's
+/// `specialBuffRef`, the game's own pick list). A week whose list can't be told for sure is left out.
+///
+/// Newer weeks share one list per row shape, which `tree` reads off the wrong bytes (see `PmData::shared_lists`): there
+/// the list is the one shared list made only of Special Offerings (bossrush_buff_data rows of type "Special"); a row
+/// shape with none, or more than one, such list is left out.
+pub fn read_offer_pools(pm: &mut PmData) -> Result<Value> {
+    let buffs = table_or_empty(pm, "bossrush_buff_data")?;
+    let special: BTreeSet<i64> = buffs
+        .as_dict()
+        .map(|d| d.iter().filter(|(_, r)| r.get("buffType").as_str() == Some("Special")).filter_map(|(k, _)| py_int(k)).collect())
+        .unwrap_or_default();
+    let offers = |ids: &BTreeSet<i64>| !ids.is_empty() && ids.is_subset(&special);
+    let cycles = table_or_empty(pm, "bossrush_cycle_data")?;
+    let shared: Vec<(Value, Vec<Value>)> = pm.shared_lists("bossrush_cycle_data")?;
+    let mut out = Dict::new();
+    let Some(rows) = cycles.as_dict() else { return Ok(Value::Dict(out)) };
+    for key in sorted_keys(&cycles, |k| py_int(k).map(|i| i as f64))? {
+        let Some(n) = py_int(&key) else { continue };
+        let row = rows.get(&key).unwrap();
+        let mut found: Vec<BTreeSet<i64>> = Vec::new();
+        if let Some(ids) = id_list(row.get("specialBuffRef")).filter(offers) {
+            found.push(ids);
+        }
+        if let Some((_, lists)) = shared.iter().find(|(k, _)| py_int(k) == Some(n)) {
+            for ids in lists.iter().filter_map(id_list).filter(offers) {
+                if !found.contains(&ids) {
+                    found.push(ids);
+                }
+            }
+        }
+        if let [ids] = found.as_slice() {
+            out.insert(Value::Str(n.to_string()), Value::List(ids.iter().map(|i| Value::Int(*i)).collect()));
+        }
+    }
+    Ok(Value::Dict(out))
+}
+
 /// Text id -> English, from the game's text tables (LuaScripts.xdf, a zip next to the Lua data folder).
 pub struct EnglishText {
     text: Vec<u8>,

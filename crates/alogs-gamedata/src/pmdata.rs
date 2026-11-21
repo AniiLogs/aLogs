@@ -354,6 +354,14 @@ impl PmData {
 
     /// A top-level data table by name (the directory object is found by its keys, so patches can move it).
     pub fn table(&mut self, name: &str) -> Result<Value> {
+        match self.table_at(name)? {
+            Some(to) => self.tree(i64::from(to), 0, 6),
+            None => Ok(Value::None),
+        }
+    }
+
+    /// Where a top-level table's object starts, None when there's no such table.
+    fn table_at(&mut self, name: &str) -> Result<Option<u32>> {
         let k = self.off_of(name);
         let count = self.keysets.len();
         let mut idx = 0;
@@ -378,8 +386,7 @@ impl PmData {
                         let t = self.u32(qq as i64)?;
                         if self.cls(t)? == Some(ci) {
                             let off = self.class_list[ci].offs[i] as i64;
-                            let to = self.u32(qq as i64 + off)?;
-                            return self.tree(i64::from(to), 0, 6);
+                            return Ok(Some(self.u32(qq as i64 + off)?));
                         }
                         q = find(&self.d, &pat, qq + 1, self.d.len());
                     }
@@ -390,6 +397,59 @@ impl PmData {
         if self.keysets.len() != count {
             return err("dictionary changed size during iteration");
         }
-        Ok(Value::None)
+        Ok(None)
+    }
+
+    /// Per row of a top-level table: every list (or `{1: .., 2: ..}` dict) its class's shared values (the fields all
+    /// rows of that shape have the same value for) point at, read at every byte of that block.
+    ///
+    /// `tree` reads those shared values in field order, which holds for numbers but not always for the lists: in
+    /// bossrush_cycle_data's newer weeks the block holds the same values in another order, so a shared list read in
+    /// field order lands on the wrong bytes (and the numbers after it may too). Callers pick the list they need by
+    /// what it holds.
+    pub fn shared_lists(&mut self, name: &str) -> Result<Vec<(Value, Vec<Value>)>> {
+        let Some(to) = self.table_at(name)? else { return Ok(vec![]) };
+        let o = i64::from(to);
+        let len = self.d.len() as i64;
+        if !(self.end as i64 <= o && o < len - 12) {
+            return Ok(vec![]);
+        }
+        let t = self.u32(o)?;
+        let Some(ci) = self.cls(t)? else { return Ok(vec![]) };
+        let c = self.class_list[ci].clone();
+        let ks = self.keysets[self.keyset_at[&c.keyset]].1.clone();
+        let mut out = Vec::new();
+        for (i, k) in ks.keys.iter().enumerate() {
+            let key = match k {
+                Key::Num(v) => v.clone(),
+                Key::Str(off) => Value::Str(self.st(*off)),
+            };
+            let (Some(&ty), Some(&off)) = (c.types.get(i), c.offs.get(i)) else { continue };
+            if ty != 8 {
+                continue;
+            }
+            let row = i64::from(self.u32(o + off as i64)?);
+            if !(self.end as i64 <= row && row < len - 12) {
+                continue;
+            }
+            let rt = self.u32(row)?;
+            if self.cls(rt)?.is_none() {
+                continue;
+            }
+            let Some(lo) = self.consts.get(&rt).and_then(|c| c.values().min().copied()) else { continue };
+            let hi = self.u32(i64::from(rt) + 8)? as usize;
+            let mut lists: Vec<Value> = Vec::new();
+            for p in lo..hi.saturating_sub(3) {
+                let at = self.u32(p as i64)?;
+                if let Ok(v @ (Value::List(_) | Value::Dict(_))) = self.tree(i64::from(at), 0, 1)
+                    && v.truthy()
+                    && !lists.iter().any(|l| l.py_eq(&v))
+                {
+                    lists.push(v);
+                }
+            }
+            out.push((key, lists));
+        }
+        Ok(out)
     }
 }

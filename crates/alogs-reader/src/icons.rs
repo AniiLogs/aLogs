@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub const CACHE_VERSION: i64 = 9;
+pub const CACHE_VERSION: i64 = 10;
 pub const HEAD_SIZE: usize = 96;
 pub const BUFF_SIZE: usize = 64;
 pub const SIM_SIZE: usize = 96;
@@ -111,6 +111,8 @@ pub struct Icons {
     buff_art: HashMap<String, Image>,
     pub sim: J,
     pub sim_gizmos: J,
+    /// Interlink week -> the Special Offering ids a player can pick that week (the game's own pick list).
+    pub offer_pools: HashMap<String, Vec<String>>,
     sim_art: IndexMap<(String, String), Image>,
     fades: HashMap<String, Image>,
     sized: RefCell<HashMap<(String, usize), Image>>,
@@ -221,6 +223,7 @@ impl Icons {
             buffs,
             buff_art,
             sim_gizmos: meta.get("sim_gizmos").cloned().unwrap_or(J::Object(Default::default())),
+            offer_pools: meta.get("offer_pools").and_then(J::as_object).map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_array().map(|a| a.iter().map(|x| x.as_i64().map_or_else(|| x.as_str().unwrap_or("").to_string(), |i| i.to_string())).collect()).unwrap_or_default())).collect()).unwrap_or_default(),
             sim,
             sim_art,
             fades,
@@ -612,6 +615,16 @@ impl Icons {
             .filter(|(_, b)| b["icon"].as_str() == Some(icon) && b["kind"].as_str() == Some(kind) && level.is_none_or(|l| b.get("level").and_then(J::as_i64) == Some(l)))
             .map(|(k, _)| k.clone())
             .collect()
+    }
+
+    /// The Special Offering ids an offering icon can be in an Interlink week: of the offerings with that icon, the ones
+    /// the game offers that week. Several offerings share an icon, but never within one week's pick list. All of them
+    /// when the week or its list isn't known, or when none of them is on that week's list.
+    pub fn offerings_for(&self, icon: &str, cycle: Option<&str>) -> Vec<String> {
+        let ids = self.buffs_named(icon, "offering", None);
+        let Some(pool) = cycle.and_then(|c| self.offer_pools.get(c)) else { return ids };
+        let on: Vec<String> = ids.iter().filter(|k| pool.contains(k)).cloned().collect();
+        if on.is_empty() { ids } else { on }
     }
 
     /// A lone white digit in `box` (a Season Buff's "Lv. N"): (digit, distance, margin) or None.
