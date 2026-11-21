@@ -120,3 +120,28 @@ fn rush_rules_and_grade_ladders() {
     assert_eq!(g::grade_rows(&rows(&[0.0, 0.6, 0.5, 1.0])).unwrap().repr(), "[]");
     assert_eq!(g::grade_rows(&rows(&[0.0, 0.5, 1.0])).unwrap().as_list().unwrap().len(), 3);
 }
+
+/// The shipped files written from a game's data check against that data with no drift, and writing them again over
+/// themselves changes no byte.
+#[test]
+fn written_game_data_checks_clean() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("written-game-data");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (catalog, grades) = (dir.join("boss_catalog.csv"), dir.join("boss_rush_grades.csv"));
+    let (n, _) = g::write_catalog(&pm_path(), &catalog).unwrap();
+    assert!(n > 0);
+    let mut pm = PmData::from_bytes(std::fs::read(pm_path()).unwrap());
+    assert!(g::write_grades(&mut pm, &grades).unwrap() >= 3);
+    // (the made-up data names stage bosses it has no puppet_data row for: no writer can add those)
+    let drift: Vec<String> = g::catalog_drift(Some(&pm_path()), &catalog, None).unwrap().into_iter().filter(|l| !l.ends_with("has no puppet_data row")).collect();
+    assert_eq!(drift, Vec::<String>::new());
+    let mut pm = PmData::from_bytes(std::fs::read(pm_path()).unwrap());
+    assert_eq!(g::grades_drift(Some(&mut pm), &grades).unwrap(), Vec::<String>::new());
+    let (a, b) = (std::fs::read(&catalog).unwrap(), std::fs::read(&grades).unwrap());
+    assert_eq!(g::write_catalog(&pm_path(), &catalog).unwrap(), (n, 0), "nothing changed the second time");
+    let mut pm = PmData::from_bytes(std::fs::read(pm_path()).unwrap());
+    g::write_grades(&mut pm, &grades).unwrap();
+    assert!(std::fs::read(&catalog).unwrap() == a && std::fs::read(&grades).unwrap() == b, "the same bytes");
+    assert!(!a.contains(&b'\r'), "LF line ends");
+}
