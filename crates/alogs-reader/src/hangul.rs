@@ -191,11 +191,12 @@ pub fn clean_latin(text: &str) -> String {
 /// A prepared name box as the Korean model and the font check see it: edge-touching dark regions cleared, specks
 /// gone, the line nearest the middle cut out on white. None when no ink is left.
 pub fn tidy(img: &Image, pad: usize) -> Option<Image> {
-    tidy_with(img, pad, SPECK)
+    tidy_with(img, pad, SPECK, false)
 }
 
-/// `tidy` with specks up to `speck` px gone (thinner strokes go with them).
-pub fn tidy_with(img: &Image, pad: usize, speck: usize) -> Option<Image> {
+/// `tidy` with specks up to `speck` px gone (thinner strokes go with them); `top_open`: ink touching the box's top
+/// edge stays (a box that starts inside a name tab, under the top of its tallest letters).
+pub fn tidy_with(img: &Image, pad: usize, speck: usize, top_open: bool) -> Option<Image> {
     let grey = img.convert(Mode::L);
     if img.width <= 2 * pad || img.height <= 2 * pad {
         return None;
@@ -203,7 +204,13 @@ pub fn tidy_with(img: &Image, pad: usize, speck: usize) -> Option<Image> {
     let mask = grey.crop_i(pad as i64, pad as i64, (img.width - pad) as i64, (img.height - pad) as i64).point(|v| if v < INK { 255.0 } else { 0.0 });
     let mut ring = Image::new(Mode::L, mask.width + 2, mask.height + 2, &[255]);
     ring.paste(&mask, 1, 1);
-    alogs_pil::draw::floodfill(&mut ring, (0, 0), &[128]);
+    let corner = if top_open {
+        ring.paste(&Image::new(Mode::L, ring.width, 1, &[0]), 0, 0);
+        (0, ring.height - 1)
+    } else {
+        (0, 0)
+    };
+    alogs_pil::draw::floodfill(&mut ring, corner, &[128]);
     let ink = ring.crop_i(1, 1, mask.width as i64 + 1, mask.height as i64 + 1).point(|v| if v == 255 { 255.0 } else { 0.0 });
     let ink = if speck > 1 { max_filter(&min_filter(&ink, speck), speck) } else { ink };
     let rows: Vec<bool> = (0..ink.height).map(|y| ink.row(y).iter().any(|&v| v != 0)).collect();

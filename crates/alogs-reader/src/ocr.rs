@@ -244,9 +244,10 @@ impl Reader for Ocr {
             keys.iter().map(|k| (if names.contains_key(k) && !grey.contains(k) { 4 } else { 0 }, images[k])).collect();
         work.extend(grey.iter().map(|k| (6u8, &raws[*k])));
         work.extend(tidy.values().map(|t| (3u8, t)));
-        // and to the Cyrillic model when its names can be checked (flag 8): tidied with smaller specks gone
+        // and to the Cyrillic model when its names can be checked (flag 8): tidied with smaller specks gone, and a
+        // box without padding (Battle Data's tabs, cut inside the tab) keeping the letters its top edge touches
         let cyr_tidy: IndexMap<&String, Image> = match &self.cyrillic {
-            Some(_) => keys.iter().filter(|k| names.contains_key(*k)).filter_map(|k| hangul::tidy_with(images[k], names[k], cyrillic::SPECK).map(|t| (*k, t))).collect(),
+            Some(_) => keys.iter().filter(|k| names.contains_key(*k)).filter_map(|k| hangul::tidy_with(images[k], names[k], cyrillic::SPECK, names[k] == 0).map(|t| (*k, t))).collect(),
             None => IndexMap::new(),
         };
         work.extend(cyr_tidy.values().map(|t| (10u8, t)));

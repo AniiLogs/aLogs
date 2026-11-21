@@ -124,6 +124,29 @@ fn which_letters_tell() {
 }
 
 #[test]
+fn a_letter_the_top_edge_cuts_stays_in_an_open_topped_box() {
+    // a white box, two dark letters (the first touching the top edge, as Battle Data's tab box cuts a capital) and a
+    // dark band along the bottom edge (outside the tab)
+    let mut img = Image::new(Mode::L, 60, 34, &[255]);
+    let mut dark = |x0: usize, x1: usize, y0: usize, y1: usize| {
+        for y in y0..y1 {
+            for x in x0..x1 {
+                img.data[y * 60 + x] = 0;
+            }
+        }
+    };
+    dark(10, 18, 0, 20);
+    dark(30, 38, 4, 20);
+    dark(0, 60, 29, 34);
+    let width = |t: Option<Image>| t.map(|t| t.width);
+    let both = width(hangul::tidy_with(&img, 0, cyrillic::SPECK, true)).unwrap();
+    let one = width(hangul::tidy(&img, 0)).unwrap();
+    assert!(both > one + 15, "{both} {one}");
+    // the Korean model's box is as before: the cut letter goes
+    assert_eq!(width(hangul::tidy_with(&img, 0, hangul::SPECK, false)), Some(one));
+}
+
+#[test]
 fn the_helpers_fourth_field() {
     let line = "\t[[3.0,[[\"ㄱ\",0.9]]]]\tAb\t[[3.0,[[\"Д\",0.8],[\"A\",0.1]]],[9.5,[[\"а\",0.7]]]]";
     let l = hangul::cyrillic_letters(line).unwrap();
