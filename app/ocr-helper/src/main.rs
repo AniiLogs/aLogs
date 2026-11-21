@@ -23,6 +23,9 @@
 //!            against the game's own fonts - and the Latin model's text with flag 4; with flag 8 a third field, the
 //!            Cyrillic model's read as JSON in the Korean one's form (the best Cyrillic and Latin character in each
 //!            letter's list), checked the same way.
+//!            An OCR2 request is read whole before it is answered: each model then reads its boxes on a thread of
+//!            its own while Windows OCR reads on this one, so a look's name boxes take about the slowest model's
+//!            time, not the sum (the answers are the same, in the same order). OCR1 is answered box by box.
 //!
 //! The models are PaddleOCR's (Apache-2.0, model/LICENSE-model.txt): korean_PP-OCRv5_mobile_rec and
 //! eslav_PP-OCRv5_mobile_rec, converted to ONNX, and PP-OCRv6_small_rec, as PaddlePaddle publishes it in ONNX. Each
@@ -276,6 +279,72 @@ fn letters_json(letters: &[Letter]) -> String {
     format!("[{}]", parts.join(","))
 }
 
+/// One box of an OCR2 request.
+struct NameBox {
+    flags: u8,
+    w: u32,
+    h: u32,
+    grey: Vec<u8>,
+}
+
+struct Models<'a> {
+    korean: &'a mut Recognizer,
+    latin: &'a mut Recognizer,
+    cyrillic: &'a mut Recognizer,
+}
+
+/// Each model's answers for the boxes that ask for it (flag 1 Korean, 4 Latin, 8 Cyrillic), in the boxes' order;
+/// None for a box that doesn't.
+fn run(rec: &mut Recognizer, boxes: &[NameBox], flag: u8, read: fn(&mut Recognizer, &NameBox) -> String) -> Vec<Option<String>> {
+    boxes.iter().map(|b| (b.flags & flag != 0).then(|| read(rec, b))).collect()
+}
+
+fn read_letters(rec: &mut Recognizer, b: &NameBox) -> String {
+    letters_json(&rec.letters(b.w as usize, b.h as usize, &b.grey, CANDIDATES).unwrap_or_default())
+}
+
+fn read_text(rec: &mut Recognizer, b: &NameBox) -> String {
+    rec.text(b.w as usize, b.h as usize, &b.grey)
+}
+
+/// The answer lines of an OCR2 request, in its order. The three models each run on a thread of their own while
+/// Windows OCR reads on this one, so a look's name boxes take about as long as the slowest model's share instead of
+/// all of them one after another; each model still reads its boxes in order, so every answer is as it was. The
+/// threads run at the helper's own priority (the app's Priority setting sets the process's).
+fn answer(boxes: &[NameBox], engine: Option<&OcrEngine>, max_dim: u32, m: Models) -> Vec<String> {
+    let wants = |flag: u8| boxes.iter().any(|b| b.flags & flag != 0);
+    let (k, l, c, windows) = std::thread::scope(|s| {
+        let k = wants(1).then(|| s.spawn(|| run(m.korean, boxes, 1, read_letters)));
+        let l = wants(4).then(|| s.spawn(|| run(m.latin, boxes, 4, read_text)));
+        let c = wants(8).then(|| s.spawn(|| run(m.cyrillic, boxes, 8, read_letters)));
+        // flag 2: no English OCR (the meter sends it the box itself, the models a copy of their own)
+        let windows: Vec<String> = boxes
+            .iter()
+            .map(|b| match engine {
+                Some(engine) if b.flags & 2 == 0 => recognise(engine, max_dim, b.w, b.h, &b.grey),
+                _ => String::new(),
+            })
+            .collect();
+        let done = |h: Option<std::thread::ScopedJoinHandle<Vec<Option<String>>>>| h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+        (done(k), done(l), done(c), windows)
+    });
+    let at = |v: &Vec<Option<String>>, i: usize| v.get(i).cloned().flatten().unwrap_or_default();
+    boxes
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let mut line = windows[i].clone();
+            if b.flags & 13 != 0 {
+                line = format!("{line}\t{}\t{}", at(&k, i), at(&l, i));
+                if b.flags & 8 != 0 {
+                    line = format!("{line}\t{}", at(&c, i));
+                }
+            }
+            line
+        })
+        .collect()
+}
+
 fn main() -> Result<()> {
     let engine = windows_ocr();
     let max_dim = OcrEngine::MaxImageDimension().unwrap_or(0);
@@ -293,28 +362,33 @@ fn main() -> Result<()> {
         if input.read_exact(&mut magic).is_err() { return Ok(()); }
         let flagged = match &magic { b"OCR1" => false, b"OCR2" => true, _ => return Ok(()) };
         let Ok(count) = read_u32(&mut input) else { return Ok(()) };
-        for _ in 0..count {
-            let mut flags = [0u8; 1];
-            if flagged && input.read_exact(&mut flags).is_err() { return Ok(()); }
-            let (Ok(w), Ok(h)) = (read_u32(&mut input), read_u32(&mut input)) else { return Ok(()) };
-            grey.resize(w as usize * h as usize, 0);
-            if input.read_exact(&mut grey).is_err() { return Ok(()); }
-            let f = flags[0];
-            // flag 2: no English OCR (the meter sends it the box itself, the models a copy of their own)
-            let mut line = match &engine {
-                Some(engine) if f & 2 == 0 => recognise(engine, max_dim, w, h, &grey),
-                _ => String::new(),
-            };
-            if f & 13 != 0 {
-                let k = if f & 1 != 0 { letters_json(&korean.letters(w as usize, h as usize, &grey, CANDIDATES).unwrap_or_default()) } else { String::new() };
-                let l = if f & 4 != 0 { latin.text(w as usize, h as usize, &grey) } else { String::new() };
-                line = format!("{line}\t{k}\t{l}");
-                if f & 8 != 0 {
-                    let c = letters_json(&cyrillic.letters(w as usize, h as usize, &grey, CANDIDATES).unwrap_or_default());
-                    line = format!("{line}\t{c}");
-                }
+        if !flagged {
+            // OCR1 (the boss bar's texts): Windows OCR alone, box by box, as it always was
+            for _ in 0..count {
+                let (Ok(w), Ok(h)) = (read_u32(&mut input), read_u32(&mut input)) else { return Ok(()) };
+                grey.resize(w as usize * h as usize, 0);
+                if input.read_exact(&mut grey).is_err() { return Ok(()); }
+                let line = match &engine {
+                    Some(engine) => recognise(engine, max_dim, w, h, &grey),
+                    None => String::new(),
+                };
+                if writeln!(out, "{line}").is_err() { return Ok(()); }
             }
-            if writeln!(out, "{line}").is_err() { return Ok(()); }
+        } else {
+            // OCR2 (a look's name boxes): the whole request first, then each model's boxes on a thread of its own
+            let mut boxes = Vec::with_capacity(count as usize);
+            for _ in 0..count {
+                let mut flags = [0u8; 1];
+                if input.read_exact(&mut flags).is_err() { return Ok(()); }
+                let (Ok(w), Ok(h)) = (read_u32(&mut input), read_u32(&mut input)) else { return Ok(()) };
+                let mut px = vec![0u8; w as usize * h as usize];
+                if input.read_exact(&mut px).is_err() { return Ok(()); }
+                boxes.push(NameBox { flags: flags[0], w, h, grey: px });
+            }
+            let models = Models { korean: &mut korean, latin: &mut latin, cyrillic: &mut cyrillic };
+            for line in answer(&boxes, engine.as_ref(), max_dim, models) {
+                if writeln!(out, "{line}").is_err() { return Ok(()); }
+            }
         }
         if out.flush().is_err() { return Ok(()); }
     }
