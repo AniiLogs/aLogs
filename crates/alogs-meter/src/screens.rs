@@ -113,6 +113,11 @@ pub struct ScreensState {
     /// later one than the look that started it, so that look's own mark (Meter::parts_frame) says nothing about it.
     pub read_parts: bool,
     pub submitted_parts: bool,
+    /// The same for where that frame came from: a copy of the screen (true) or the game window alone. Asked of the
+    /// capture when the read is handled, it told what the capture does now, a look or two after the frame: every
+    /// read of a screen copy handled just after the switch to the game window counted as a game-window read.
+    pub read_copy: bool,
+    pub submitted_copy: bool,
 }
 
 impl Meter {
@@ -208,6 +213,7 @@ impl Meter {
         // live, the read is made on a helper of its own and handled on a later look, with the frame it was made from
         if let Some((text, (frame, at))) = self.screen_bg.as_ref().and_then(|w| w.take()) {
             self.ss.read_parts = self.ss.submitted_parts;
+            self.ss.read_copy = self.ss.submitted_copy;
             self.read_screen(frames, out, &frame, at, &text);
         }
         if self.screen_bg.as_ref().is_some_and(|w| w.busy()) || !self.frame_full || !self.screen_read_due(now, quick) {
@@ -218,18 +224,23 @@ impl Meter {
         self.diag.load.reads += 1;
         self.ss.screen_read_sig = Some(sig);
         let crops = self.screen_crops(im, quick);
+        // (this look's frame: the capture's source now is the one it came from)
+        let copy = frames.screen_copy();
         if crops.is_empty() {
             self.ss.read_parts = self.parts_frame;
+            self.ss.read_copy = copy;
             self.read_screen(frames, out, im, now, &IndexMap::new()); // nothing on screen to read
             return;
         }
         if let Some(w) = &self.screen_bg {
             self.ss.submitted_parts = self.parts_frame;
+            self.ss.submitted_copy = copy;
             w.submit(crops, (im.clone(), now));
             return;
         }
         let heads = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new());
         self.ss.read_parts = self.parts_frame;
+        self.ss.read_copy = copy;
         self.read_screen(frames, out, im, now, &heads);
     }
 
@@ -244,7 +255,7 @@ impl Meter {
         }
         let party = self.party_up(heads, now);
         let spotted = screen_spotted(heads).or(if party { Some("party") } else { None });
-        self.game_only_gone(frames, spotted, now);
+        self.game_only_gone(self.ss.read_copy, spotted, now);
         if let Some(sp) = spotted.filter(|_| !self.args.replay) {
             self.ss.full_until = now + FULL_HOLD_S;
             let fg = self.hwnd.is_some_and(|w| frames.is_foreground(w));

@@ -14,6 +14,8 @@ pub const EGG_AFTER_S: f64 = 45.0;
 pub const GAME_ONLY_SCREENS: [&str; 10] = ["result", "Holo-Battle Sim result", "challenge", "battle prep", "Egg Heist rank", "profile", "party", "Egg Heist", "menu", "Battle Data"];
 pub const GAME_ONLY_HOLD_S: f64 = 3.0;
 pub const GAME_ONLY_WAIT_S: f64 = 1.5;
+/// How long after a screen is spotted in a copy of the screen the game window's pictures can still say it's gone.
+pub const GAME_ONLY_GONE_S: f64 = 5.0;
 /// A script's ask for quick pictures of the game window alone holds this long past its last ask (made every 0.5 s),
 /// so window capture, and Windows 10's border with it, is gone a second after the script.
 pub const GAME_FAST_HOLD_S: f64 = 1.0;
@@ -54,6 +56,12 @@ pub struct Pacing {
     pub game_only_spot: Option<(&'static str, f64)>,
     pub game_only_said: bool,
     pub parts_said: f64,
+    /// Where the last handled screen read's frame came from (Some(true): a copy of the screen), for game_only_gone.
+    pub last_read_copy: Option<bool>,
+    /// Game-window reads in a row, past the first after the switch, that missed the spotted screen.
+    pub gone_misses: u32,
+    /// How often game_only_gone said its line.
+    pub gone_said: u32,
 }
 
 impl Meter {
@@ -232,15 +240,41 @@ impl Meter {
         frames.set_game_only_until(((now + GAME_ONLY_HOLD_S) * 1000.0) as u64);
     }
 
-    /// The screen showed one of these and, with the game window open, it's nothing like it: something on top, or a misread.
-    pub fn game_only_gone(&mut self, frames: &dyn Frames, spotted: Option<&str>, now: f64) {
-        if let Some((what, at)) = self.pacing.game_only_spot
-            && spotted.is_none()
-            && !frames.screen_copy()
-            && now - at < GAME_ONLY_HOLD_S
-        {
-            self.pacing.game_only_spot = None;
-            log::info!(target: "meter", "the screen showed a {what} screen and the game window doesn't: nothing read from it");
+    /// A screen spotted in a copy of the screen and then missing from the game window's own pictures: something drawn
+    /// over the game, a misread, or the screen simply closed meanwhile. `read_copy`: the read's own frame came from a
+    /// copy of the screen (not what the capture does now: the read is handled a look or two after its frame).
+    ///
+    /// Only reads of the game window's pictures are judged, and not the first one after the switch to it (the
+    /// window's picture can lag the screen's by a frame). Said when two game-window reads in a row miss it, within
+    /// GAME_ONLY_GONE_S of the spot. Until then the next read comes at once, while the game window is still asked for.
+    /// Each said line was false before (33 since the Rust build, 20 Nov): every one within a second of the switch,
+    /// judged on a read of the screen copy, and twice with the Party screen read again a few seconds later.
+    pub fn game_only_gone(&mut self, read_copy: bool, spotted: Option<&str>, now: f64) {
+        let first_from_window = self.pacing.last_read_copy != Some(false);
+        self.pacing.last_read_copy = Some(read_copy);
+        if read_copy || spotted.is_some() {
+            self.pacing.gone_misses = 0;
+            return;
         }
+        let Some((what, at)) = self.pacing.game_only_spot else {
+            self.pacing.gone_misses = 0;
+            return;
+        };
+        if now - at > GAME_ONLY_GONE_S {
+            self.pacing.game_only_spot = None;
+            self.pacing.gone_misses = 0;
+            return;
+        }
+        if !first_from_window {
+            self.pacing.gone_misses += 1;
+        }
+        if self.pacing.gone_misses < 2 {
+            self.rs.last_results = 0.0; // the next look reads again
+            return;
+        }
+        self.pacing.game_only_spot = None;
+        self.pacing.gone_misses = 0;
+        self.pacing.gone_said += 1;
+        log::info!(target: "meter", "a {what} screen read from the screen copy {:.1} s ago is not in the game window's last two pictures: drawn over the game, misread, or closed since", now - at);
     }
 }

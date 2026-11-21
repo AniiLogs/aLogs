@@ -25,6 +25,11 @@ pub const LOW_CONFIRM_S: f64 = 0.3;
 pub const EARLY_S: f64 = 10.0;
 pub const EARLY_GAP_S: f64 = 2.0;
 pub const HANDOFF_XN: i64 = 3;
+/// The bar's counter taken for a drop of more than 3 bars once every vote has been under the meter's bar this long.
+/// Without it a burst of several bars in a few seconds left the meter on its old bar for the rest of the fight (the
+/// counter's later reads were too far off to take, and its refills were refused for the stale counter), so a kill
+/// was saved with 6% of the boss's HP (19 Nov).
+pub const XN_DROP_S: f64 = 1.0;
 pub const TOP_BAR: f64 = 0.15;
 pub const FIGHT_CSV: [&str; 14] = [
     "wall_s", "timer_s", "timer_ocr", "xn_ocr", "segment", "fill_pct", "fill_rgb", "edge_rgb", "team_damage", "avg_dps", "dps_5s", "note",
@@ -313,6 +318,8 @@ pub struct Fight {
     pub started_at_top: bool,
     pub refill_pending: i64,
     pub refill_at: f64,
+    /// Since when every counter vote has been under the segment the meter holds (a drop of more than 3 bars).
+    pub drop_since: Option<f64>,
     pub seg_info: Option<GradeInfo>,
     pub defeated: bool,
     pub column: String,
@@ -415,6 +422,7 @@ impl Fight {
             started_at_top: false,
             refill_pending: 0,
             refill_at: 0.0,
+            drop_since: None,
             seg_info: None,
             defeated: false,
             column,
@@ -479,6 +487,22 @@ impl Fight {
             if agreed.is_some() && agreed == self.seg {
                 self.xn_anchor = Some((agreed.unwrap(), now));
             }
+            // every vote under the bar the meter holds: the start of a drop the counter shows
+            if let (Some(s), Some(_)) = (self.seg, xn_ocr) {
+                if self.xn_votes.iter().all(|v| *v < s) {
+                    self.drop_since.get_or_insert(now);
+                } else {
+                    self.drop_since = None;
+                }
+            }
+            // (three of the last four votes, as for a rise. Never to x1, nor to a number whose digits are part of the
+            // bar's own: "x1" read with a digit lost, from "x13" or "x8"'s neighbours, stood for seconds on end in Nov
+            // runs, while every real burst of bars was near the top. The last bars are reached a step at a time.)
+            let dropped = agreed.filter(|&a| {
+                self.seg.is_some_and(|s| s - a > 3 && a > 1 && !s.to_string().contains(&a.to_string()))
+                    && count(&self.xn_votes, a) >= 3
+                    && self.drop_since.is_some_and(|d| now - d >= XN_DROP_S)
+            });
             if self.handoff_due(agreed, top) {
                 let last = self.seg;
                 let agreed = agreed.unwrap();
@@ -505,7 +529,7 @@ impl Fight {
                 }
             } else if let Some(a) = agreed.filter(|&a| {
                 let s = self.seg.unwrap();
-                a != s && ((a - s).abs() <= 3 || (a == top && self.seg_guess)) && (a < s || count(&self.xn_votes, a) >= 3)
+                (a != s && ((a - s).abs() <= 3 || (a == top && self.seg_guess)) && (a < s || count(&self.xn_votes, a) >= 3)) || dropped == Some(a)
             }) {
                 note = format!("segment x{}->x{a} (counter)", self.seg.unwrap());
                 self.xn_anchor = Some((a, now));
@@ -513,6 +537,7 @@ impl Fight {
                 self.seg = Some(a);
                 self.seg_fill = fill.unwrap_or(1.0);
                 self.refill_pending = 0;
+                self.drop_since = None;
             } else if let Some(f) = fill.filter(|&f| self.seg_fill < 0.25 && f > 0.7 && f - self.seg_fill > 0.45) {
                 if self.refill_pending == 0 || now - self.refill_at >= CONFIRM_GAP {
                     self.refill_pending += 1;
@@ -785,6 +810,7 @@ impl Fight {
         self.xn_anchor = None;
         self.refill_pending = 0;
         self.refill_at = 0.0;
+        self.drop_since = None;
         self.low_pending = None;
         self.column = env.schedule.grade_column(Some(get(&self.row, "puppetId")), now).to_string();
         self.brk = BreakTracker::new(boss::boss_break_points(&env.res, &self.row, self.level as f64));

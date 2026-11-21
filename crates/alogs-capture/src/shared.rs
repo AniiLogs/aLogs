@@ -38,9 +38,12 @@ fn now_s() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
 }
 
+/// The picture's source by its flags, for the logs. Source 1, the window copy (PrintWindow: the game window alone, no
+/// border), serves while you're tabbed out on Windows 10, but also every burst of the game window alone asked for
+/// while you play (a screen being read, a script that has the screen), so its name says only what it is.
 pub fn source_name(flags: u32) -> &'static str {
     match flags >> 4 & 15 {
-        1 => "window copy (tabbed out)",
+        1 => "window copy (game window alone)",
         3 => "Desktop Duplication",
         4 => "window capture",
         _ => "?",
@@ -762,5 +765,17 @@ mod tests {
         assert_eq!(raw.len(), w * h * 4);
         let want: Vec<u8> = (0..h).flat_map(|y| (0..w).flat_map(move |x| [100 + (x + y) as u8, y as u8, x as u8])).collect();
         assert!(bgrx_rgb(&raw, w, h) == Image::from_raw(Mode::Rgb, w, h, want), "the same pixels");
+    }
+
+    /// The window copy also serves the game window alone while the player is in the game, so its name in the logs
+    /// says what it is, not that the player is tabbed out. The screen copy's flag (2) doesn't change the source.
+    #[test]
+    fn source_names_say_what_the_picture_is() {
+        assert_eq!(source_name(1 << 4), "window copy (game window alone)");
+        assert_eq!(source_name(1 << 4 | 1), source_name(1 << 4));
+        assert_eq!(source_name(3 << 4 | 2 | 1), "Desktop Duplication");
+        assert_eq!(source_name(4 << 4 | 1), "window capture");
+        assert_eq!(source_name(0), "?");
+        assert!(![1, 3, 4].iter().any(|s| source_name(s << 4).contains("tabbed")));
     }
 }

@@ -50,6 +50,8 @@ pub struct IconState {
     circle_read: Option<Image>,
     circle_tried: f64,
     panel_sy: f64,
+    /// The off-list icon last said in the log, and the week: (icon, week).
+    off_list_said: Option<(String, Option<String>)>,
 }
 
 /// Whether a portrait match counts: clearly ahead of the next Aniimo.
@@ -92,18 +94,59 @@ fn who_of(v: &Value) -> Option<(String, String)> {
     Some((l.first()?.py_str(), l.get(1)?.py_str()))
 }
 
-fn read_offering(ic: &Icons, im: &Image, b: BoxF) -> Option<Value> {
-    let r = ic.buff(im, b, "offering", false)?;
-    if !(r.1 >= 0.7 && r.2 >= 0.15) {
-        return None;
+/// What a look at the Special Offering's circle gave.
+#[derive(Debug, Clone)]
+pub enum OfferingRead {
+    /// Nothing sure.
+    None,
+    /// A sure match of an icon none of whose offerings the week's pick list holds: a misread, taken as no read.
+    OffList(String),
+    Some(Value),
+}
+
+impl PartialEq for OfferingRead {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (OfferingRead::None, OfferingRead::None) => true,
+            (OfferingRead::OffList(a), OfferingRead::OffList(b)) => a == b,
+            (OfferingRead::Some(a), OfferingRead::Some(b)) => a.py_eq(b),
+            _ => false,
+        }
     }
-    let ids = ic.buffs_named(&r.0, "offering", None);
+}
+
+impl OfferingRead {
+    pub fn value(self) -> Option<Value> {
+        if let OfferingRead::Some(v) = self { Some(v) } else { None }
+    }
+}
+
+/// The Special Offering whose icon shows in `b`. An icon several offerings share is told apart by the week's pick
+/// list (`cycle`: the Interlink week); when that can't decide, the names are joined with " or " and no id is sent.
+pub fn read_offering(ic: &Icons, im: &Image, b: BoxF, cycle: Option<&str>) -> OfferingRead {
+    let Some(r) = ic.buff(im, b, "offering", false) else { return OfferingRead::None };
+    if !(r.1 >= 0.7 && r.2 >= 0.15) {
+        return OfferingRead::None;
+    }
+    offering_of(ic, &r.0, cycle)
+}
+
+/// The offering for a matched icon in a week (read_offering after the match).
+pub fn offering_of(ic: &Icons, icon: &str, cycle: Option<&str>) -> OfferingRead {
+    match ic.offerings_for(icon, cycle) {
+        Some(ids) => OfferingRead::Some(offering_value(ic, &ids)),
+        None => OfferingRead::OffList(icon.to_string()),
+    }
+}
+
+/// `{id, name}` for one offering; `{name: "A or B"}` (or the one name two ids share) when it's still one of several.
+pub fn offering_value(ic: &Icons, ids: &[String]) -> Value {
     let names: std::collections::BTreeSet<String> = ids.iter().filter_map(|k| ic.buffs.get(k).and_then(|b| b.get("name")).and_then(|n| n.as_str()).map(String::from)).collect();
-    Some(if names.len() == 1 {
-        dict([("id", Value::Int(ids[0].parse().unwrap_or(0))), ("name", Value::Str(names.into_iter().next().unwrap()))])
-    } else {
-        dict([("name", Value::Str(names.into_iter().collect::<Vec<_>>().join(" or ")))])
-    })
+    let name = Value::Str(names.into_iter().collect::<Vec<_>>().join(" or "));
+    match ids {
+        [id] => dict([("id", Value::Int(id.parse().unwrap_or(0))), ("name", name)]),
+        _ => dict([("name", name)]),
+    }
 }
 
 fn set_buffs(party: &mut Dict, season: Vec<Value>, offering: Value) {
@@ -116,6 +159,20 @@ fn set_buffs(party: &mut Dict, season: Vec<Value>, offering: Value) {
 }
 
 impl Meter {
+    /// A look's offering as taken: an off-list icon is no read (said once per icon and week), so the looks after it
+    /// decide; the game forces a pick from the week's list, so a real read comes.
+    pub fn offering_taken(&mut self, read: OfferingRead, cycle: Option<&str>) -> Option<Value> {
+        if let OfferingRead::OffList(icon) = &read {
+            let key = (icon.clone(), cycle.map(String::from));
+            if self.icon.off_list_said.as_ref() != Some(&key) {
+                log::info!(target: "meter", "Special Offering: icon {icon} matched, but none of its offerings is on week {}'s pick list: taken as a misread, not as a read",
+                    cycle.unwrap_or("?"));
+                self.icon.off_list_said = Some(key);
+            }
+        }
+        read.value()
+    }
+
     fn unit(u: f64) -> f64 {
         TEAM_PITCH * u / 240.0
     }
@@ -232,6 +289,7 @@ impl Meter {
         let mut dys: Vec<f64> = shifts.iter().map(|s| s.1).collect();
         dys.sort_by(f64::total_cmp);
         let dy = if dys.is_empty() { 0.0 } else { dys[dys.len() / 2] };
+        let cycle = self.env.schedule.active_cycle_id(self.env.now());
         let ic = self.icons.as_ref().unwrap();
         let at = |off: f64, b: BoxF| (ux + u * b.0, h * b.1 + off, ux + u * b.2, h * b.3 + off);
         let mut fits: HashMap<i64, f64> = HashMap::new();
@@ -286,8 +344,9 @@ impl Meter {
             });
         }
         self.icon.panel_sy = sy;
-        let offering = if self.icon.circle_on { None } else { read_offering(ic, im, at(sy, OFFERING)) };
+        let read = if self.icon.circle_on { OfferingRead::None } else { read_offering(ic, im, at(sy, OFFERING), cycle.as_deref()) };
         let at_rest = self.panel_at_rest(im, u, ux, h);
+        let offering = self.offering_taken(read, cycle.as_deref());
         if !self.party_teams(&teams, &whos, &leads) {
             return;
         }
@@ -372,20 +431,26 @@ impl Meter {
         if !self.panel_at_rest(im, u, ux, h) {
             return;
         }
+        let cycle = self.env.schedule.active_cycle_id(now);
         let ic = self.icons.as_ref().unwrap();
-        let mut offering = read_offering(ic, im, b);
-        if offering.is_none() {
+        let mut read = read_offering(ic, im, b, cycle.as_deref());
+        if !matches!(read, OfferingRead::Some(_)) {
             for s in [0.0, (h * PANEL_RAISED).round_ties_even()] {
                 if s == self.icon.panel_sy {
                     continue;
                 }
-                offering = read_offering(ic, im, (ux + u * x0, h * y0 + s, ux + u * x1, h * y1 + s));
-                if offering.is_some() {
+                let r = read_offering(ic, im, (ux + u * x0, h * y0 + s, ux + u * x1, h * y1 + s), cycle.as_deref());
+                if matches!(r, OfferingRead::Some(_)) {
+                    read = r;
                     self.icon.panel_sy = s;
                     break;
                 }
+                if read == OfferingRead::None {
+                    read = r;
+                }
             }
         }
+        let offering = self.offering_taken(read, cycle.as_deref());
         let Some(Value::Dict(party)) = &mut self.party else { return };
         let last = party.at("buff_reads").clone();
         let season = last.get("season").as_list().cloned().unwrap_or_else(|| vec![Value::None; SEASON_BUFFS.len()]);

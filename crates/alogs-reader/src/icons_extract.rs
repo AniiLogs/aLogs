@@ -269,10 +269,13 @@ pub fn extract(cache_dir: &Path, player_log: Option<&Path>) -> Result<bool, Stri
         }
         sim_out.insert(sid.clone(), J::Object(entry));
     }
+    // the Special Offerings on offer in each Interlink week: tells apart offerings that share an icon
+    let offer_pools: J = alogs_gamedata::gamedata::read_offer_pools(&mut pm).ok().and_then(|v| serde_json::from_str(&v.json_dumps()).ok()).unwrap_or_else(|| json!({}));
     let ok = !heads.is_empty() && !buffs.is_empty();
     let meta = json!({
         "version": CACHE_VERSION, "build": bundles::build(&game), "heads": heads, "cards": cards, "buffs": buffs, "sim": sim_out,
         "team_fade": art.contains_key(TEAM_FADE), "lead_fade": art.contains_key(LEAD_FADE), "sim_gizmos": sim_gizmos,
+        "offer_pools": offer_pools,
     });
     std::fs::write(cache_dir.join("icons.json"), meta.to_string()).map_err(|e| e.to_string())?;
     Ok(ok)
