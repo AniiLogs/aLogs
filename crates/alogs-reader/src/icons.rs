@@ -619,12 +619,13 @@ impl Icons {
 
     /// The Special Offering ids an offering icon can be in an Interlink week: of the offerings with that icon, the ones
     /// the game offers that week. Several offerings share an icon, but never within one week's pick list. All of them
-    /// when the week or its list isn't known, or when none of them is on that week's list.
-    pub fn offerings_for(&self, icon: &str, cycle: Option<&str>) -> Vec<String> {
+    /// when the week or its list isn't known; None when the list is known and none of them is on it (the icon was
+    /// misread: the game offers only what is on the list).
+    pub fn offerings_for(&self, icon: &str, cycle: Option<&str>) -> Option<Vec<String>> {
         let ids = self.buffs_named(icon, "offering", None);
-        let Some(pool) = cycle.and_then(|c| self.offer_pools.get(c)) else { return ids };
+        let Some(pool) = cycle.and_then(|c| self.offer_pools.get(c)) else { return Some(ids) };
         let on: Vec<String> = ids.iter().filter(|k| pool.contains(k)).cloned().collect();
-        if on.is_empty() { ids } else { on }
+        (!on.is_empty()).then_some(on)
     }
 
     /// A lone white digit in `box` (a Season Buff's "Lv. N"): (digit, distance, margin) or None.
