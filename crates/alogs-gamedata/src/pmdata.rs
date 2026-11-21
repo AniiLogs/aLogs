@@ -2,6 +2,10 @@
 //! `bossbar/gamedata.py`, kept step for step: the same heuristics find the string pool, key sets, classes and objects,
 //! and the same inputs give the same tables (checked by tests/pmdata.rs on synthetic files through both).
 //!
+//! One deliberate difference: a row shape's shared values (fields typed 0x64 + t) are read where the game reads them,
+//! counted back from their own offset-table entry (see `cls`); the Python read them in field order, which held for
+//! most shapes but not all (newer Interlink weeks, some HP-rate and Sim gizmo rows).
+//!
 //! Where the Python would raise (a read past the end of the file, a dict changing size while it's iterated) this
 //! returns `Err`, so callers that catch those (`read_rush_rules`) behave the same.
 
@@ -45,15 +49,6 @@ struct Class {
     a: u32,
     types: Vec<u8>,
     offs: Vec<u64>,
-}
-
-const fn size(t: u8) -> usize {
-    match t {
-        0 => 8,
-        1 | 2 | 9 => 1,
-        3 | 4 => 2,
-        _ => 4,
-    }
 }
 
 pub struct PmData {
@@ -257,19 +252,23 @@ impl PmData {
                 let total = (n + a) as usize;
                 let types: Vec<u8> = self.d[a_..(a_ + total).min(len)].to_vec();
                 if w > 0 && !types.is_empty() && !types.iter().any(|&x| (9 < x && x < 0x64) || x > 0x6d) {
-                    let offs = (0..total)
+                    let offs: Vec<u64> = (0..total)
                         .map(|i| {
                             let lo = (b_ + 1 + w * i).min(len);
                             let hi = (b_ + 1 + w * (i + 1)).min(len);
                             self.d[lo..hi].iter().rev().fold(0u64, |acc, &x| (acc << 8) | u64::from(x))
                         })
                         .collect();
+                    // A shared value (type 0x64 + t: the same for every row of this shape) is not in the row: its
+                    // offset-table entry counts back from that entry itself to the value. The values sit just
+                    // before the table, in no particular order, and may share bytes (60 and 10012 stored as one
+                    // "3c 1c 27"). Read in field order, as the Python did, the newer Interlink weeks' season, rank
+                    // and pick lists came out of the wrong bytes.
                     let mut cpos = HashMap::new();
-                    let mut p = b_ as i64 - types.iter().filter(|&&x| x >= 0x64).map(|&x| size(x - 0x64) as i64).sum::<i64>();
                     for (i, &x) in types.iter().enumerate() {
                         if x >= 0x64 {
-                            cpos.insert(i, p as usize);
-                            p += size(x - 0x64) as i64;
+                            let entry = (b_ + 1 + w * i) as i64;
+                            cpos.insert(i, (entry - offs[i] as i64).max(0) as usize);
                         }
                     }
                     self.consts.insert(t, cpos);
@@ -398,58 +397,5 @@ impl PmData {
             return err("dictionary changed size during iteration");
         }
         Ok(None)
-    }
-
-    /// Per row of a top-level table: every list (or `{1: .., 2: ..}` dict) its class's shared values (the fields all
-    /// rows of that shape have the same value for) point at, read at every byte of that block.
-    ///
-    /// `tree` reads those shared values in field order, which holds for numbers but not always for the lists: in
-    /// bossrush_cycle_data's newer weeks the block holds the same values in another order, so a shared list read in
-    /// field order lands on the wrong bytes (and the numbers after it may too). Callers pick the list they need by
-    /// what it holds.
-    pub fn shared_lists(&mut self, name: &str) -> Result<Vec<(Value, Vec<Value>)>> {
-        let Some(to) = self.table_at(name)? else { return Ok(vec![]) };
-        let o = i64::from(to);
-        let len = self.d.len() as i64;
-        if !(self.end as i64 <= o && o < len - 12) {
-            return Ok(vec![]);
-        }
-        let t = self.u32(o)?;
-        let Some(ci) = self.cls(t)? else { return Ok(vec![]) };
-        let c = self.class_list[ci].clone();
-        let ks = self.keysets[self.keyset_at[&c.keyset]].1.clone();
-        let mut out = Vec::new();
-        for (i, k) in ks.keys.iter().enumerate() {
-            let key = match k {
-                Key::Num(v) => v.clone(),
-                Key::Str(off) => Value::Str(self.st(*off)),
-            };
-            let (Some(&ty), Some(&off)) = (c.types.get(i), c.offs.get(i)) else { continue };
-            if ty != 8 {
-                continue;
-            }
-            let row = i64::from(self.u32(o + off as i64)?);
-            if !(self.end as i64 <= row && row < len - 12) {
-                continue;
-            }
-            let rt = self.u32(row)?;
-            if self.cls(rt)?.is_none() {
-                continue;
-            }
-            let Some(lo) = self.consts.get(&rt).and_then(|c| c.values().min().copied()) else { continue };
-            let hi = self.u32(i64::from(rt) + 8)? as usize;
-            let mut lists: Vec<Value> = Vec::new();
-            for p in lo..hi.saturating_sub(3) {
-                let at = self.u32(p as i64)?;
-                if let Ok(v @ (Value::List(_) | Value::Dict(_))) = self.tree(i64::from(at), 0, 1)
-                    && v.truthy()
-                    && !lists.iter().any(|l| l.py_eq(&v))
-                {
-                    lists.push(v);
-                }
-            }
-            out.push((key, lists));
-        }
-        Ok(out)
     }
 }

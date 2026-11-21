@@ -195,37 +195,20 @@ fn id_list(v: &Value) -> Option<BTreeSet<i64>> {
 }
 
 /// The Special Offerings a player can pick in each Interlink week: `{week: [buff id ...]}` (bossrush_cycle_data's
-/// `specialBuffRef`, the game's own pick list). A week whose list can't be told for sure is left out.
-///
-/// Newer weeks share one list per row shape, which `tree` reads off the wrong bytes (see `PmData::shared_lists`): there
-/// the list is the one shared list made only of Special Offerings (bossrush_buff_data rows of type "Special"); a row
-/// shape with none, or more than one, such list is left out.
+/// `specialBuffRef`, the game's own pick list). A week whose list isn't made only of Special Offerings
+/// (bossrush_buff_data rows of type "Special") is left out.
 pub fn read_offer_pools(pm: &mut PmData) -> Result<Value> {
     let buffs = table_or_empty(pm, "bossrush_buff_data")?;
     let special: BTreeSet<i64> = buffs
         .as_dict()
         .map(|d| d.iter().filter(|(_, r)| r.get("buffType").as_str() == Some("Special")).filter_map(|(k, _)| py_int(k)).collect())
         .unwrap_or_default();
-    let offers = |ids: &BTreeSet<i64>| !ids.is_empty() && ids.is_subset(&special);
     let cycles = table_or_empty(pm, "bossrush_cycle_data")?;
-    let shared: Vec<(Value, Vec<Value>)> = pm.shared_lists("bossrush_cycle_data")?;
     let mut out = Dict::new();
     let Some(rows) = cycles.as_dict() else { return Ok(Value::Dict(out)) };
     for key in sorted_keys(&cycles, |k| py_int(k).map(|i| i as f64))? {
         let Some(n) = py_int(&key) else { continue };
-        let row = rows.get(&key).unwrap();
-        let mut found: Vec<BTreeSet<i64>> = Vec::new();
-        if let Some(ids) = id_list(row.get("specialBuffRef")).filter(offers) {
-            found.push(ids);
-        }
-        if let Some((_, lists)) = shared.iter().find(|(k, _)| py_int(k) == Some(n)) {
-            for ids in lists.iter().filter_map(id_list).filter(offers) {
-                if !found.contains(&ids) {
-                    found.push(ids);
-                }
-            }
-        }
-        if let [ids] = found.as_slice() {
+        if let Some(ids) = id_list(rows.get(&key).unwrap().get("specialBuffRef")).filter(|ids| !ids.is_empty() && ids.is_subset(&special)) {
             out.insert(Value::Str(n.to_string()), Value::List(ids.iter().map(|i| Value::Int(*i)).collect()));
         }
     }
@@ -389,7 +372,7 @@ fn stamp(path: &Path, prefix: &str) -> Option<String> {
 /// Returns `(rows, changed)` or `(None, false)`.
 pub fn cached_bosses(cache: &Path, keep: &[(String, String)], player_log: Option<&Path>) -> Result<(Option<Value>, bool)> {
     let Some(path) = find_game_data(player_log) else { return Ok((None, false)) };
-    let Some(st) = stamp(&path, "") else { return err("OSError") };
+    let Some(st) = stamp(&path, "v2:") else { return err("OSError") }; // (v2: shared values read where the game reads them)
     if let Some(c) = read_cache(cache)
         && c.get("stamp").py_eq(&Value::Str(st.clone()))
         && let Some(b) = c.as_dict().and_then(|d| d.get_str("bosses"))
@@ -407,8 +390,8 @@ pub fn cached_bosses(cache: &Path, keep: &[(String, String)], player_log: Option
 /// The schedule, decoded again only when the game's data file changed. Returns `(cycles, changed)` or `(None, false)`.
 pub fn cached_cycles(cache: &Path, player_log: Option<&Path>) -> Result<(Option<Value>, bool)> {
     let Some(path) = find_game_data(player_log) else { return Ok((None, false)) };
-    // (v4: the cache carries the Interlink bots' names)
-    let Some(st) = stamp(&path, "v4:") else { return err("OSError") };
+    // (v4: the bots' names; v5: shared values read where the game reads them: seasons, splits, pick lists)
+    let Some(st) = stamp(&path, "v5:") else { return err("OSError") };
     if let Some(c) = read_cache(cache)
         && c.get("stamp").py_eq(&Value::Str(st.clone()))
         && let Some(Value::List(list)) = c.as_dict().and_then(|d| d.get_str("cycles"))
