@@ -377,8 +377,7 @@ impl Meter {
             self.auto.auto_until = self.auto.auto_until.min(now + crate::leaderboards::BATTLE_DATA_PAUSE);
             log::info!(target: "meter", "Battle Data is open: holding {} s while it is read", crate::leaderboards::BATTLE_DATA_PAUSE);
         }
-        let n = Self::bd_card_count(im, u, ux, h);
-        let names = Self::bd_names(im, n, u, ux, h);
-        self.battle_data(frames, out, im, now, u, ux, h, &head, Some(names));
+        // (the cards, their layout and their name tabs are measured in there, only on a look that is read)
+        self.battle_data(frames, out, im, now, u, ux, h, &head);
     }
 }
