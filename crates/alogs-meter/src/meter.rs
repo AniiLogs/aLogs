@@ -213,6 +213,8 @@ pub struct Meter {
     pub team: crate::team::Teammates,
     /// The Party screen this run started from, kept as proof.
     pub party_picture: Option<Image>,
+    /// The Interlink bots' names (the game's own, else results_parse::INTERLINK_NPCS), read again with the schedule.
+    pub bot_names: Vec<String>,
 }
 
 /// A bar-like shape that never named a boss (`dud_check`).
@@ -343,6 +345,7 @@ impl Meter {
             font_tried: false,
             team: crate::team::Teammates::load(env.data.join("teammates.json")),
             party_picture: None,
+            bot_names: crate::results_parse::load_bot_names(&env.data),
             env,
             args,
         }

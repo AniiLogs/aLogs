@@ -26,7 +26,39 @@ pub const RESULT_STATS: [&str; 8] = [
     "Most Support Provided", "Best Strike Damage",
 ];
 pub const EGG_MODES: [&str; 2] = ["Egg Heist Team Mode", "Egg Heist"];
+/// The Interlink bots' names when the game's data doesn't give them (game_cycles.json `bot_names`, read from
+/// avatar_robot_data for sys_config_data's BossRushPlayerBotList ids 301001-301004).
 pub const INTERLINK_NPCS: [&str; 4] = ["flora", "mario", "leonard", "tammy"];
+
+/// The Interlink bots' names: the game's own (game_cycles.json in the data folder), else INTERLINK_NPCS.
+pub fn load_bot_names(data: &std::path::Path) -> Vec<String> {
+    let names: Vec<String> = std::fs::read_to_string(data.join("game_cycles.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|j| j.get("bot_names").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|n| n.as_str().map(bot_fold)).filter(|n| !n.is_empty()).collect()))
+        .unwrap_or_default();
+    if names.is_empty() { INTERLINK_NPCS.iter().map(|n| n.to_string()).collect() } else { names }
+}
+
+fn bot_fold(name: &str) -> String {
+    casefold(&name.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+}
+
+/// Does this name read as one of the bots' (letters and digits only, any case)?
+pub fn is_bot_name(bots: &[String], name: &str) -> bool {
+    let n = bot_fold(name);
+    !n.is_empty() && bots.iter().any(|b| bot_fold(b) == n)
+}
+
+/// One look's sign of who a Party slot is: Some(true) a bot, Some(false) a player, None when this look can't tell.
+/// The game's rule: a bot has one of the bots' names and its card shows no CP; a card with a CP is a player's, and so
+/// is a name that isn't a bot's. A bot's name on a card that didn't read leaves it to the other looks (and the mark).
+pub fn bot_sign(bots: &[String], name: &str, card_read: bool, cp: Option<i64>) -> Option<bool> {
+    if cp.is_some() || !is_bot_name(bots, name) {
+        return Some(false);
+    }
+    card_read.then_some(true)
+}
 pub const BATTLE_DATA_WAIT: f64 = 45.0;
 pub const BATTLE_DATA_SETTLE: f64 = 6.0;
 pub const SCREEN_READS: i64 = 10;
@@ -703,6 +735,27 @@ pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value
             log::info!(target: "meter", "result: column {} reads {:?}, taken as slot {}'s {:?}", slot + 1, pn, slot + 1, s(m.get("name")));
         }
         give(&mut players[pi], &m, &mut taken);
+    }
+}
+
+/// After `party_slots`, on the result screen and Battle Data: a slot is a bot only when it has a bot's name and its
+/// Party entry (the one of that name, else the one of its slot) is a bot; a bot's name whose Party entry is a player
+/// is a player. A slot with a bot's name and no Party entry (no Party read) is a bot.
+pub fn settle_bots(players: &mut [Dict], party: Option<&[Value]>, bots: &[String]) {
+    let party = party.unwrap_or(&[]);
+    for p in players.iter_mut() {
+        let name = s(p.at("name"));
+        if p.at("self").truthy() || !is_bot_name(bots, &name) {
+            p.insert("ai".into(), Value::Bool(false));
+            continue;
+        }
+        let slot = p.at("slot").as_i64();
+        let entry = party
+            .iter()
+            .find(|m| is_bot_name(std::slice::from_ref(&name), &s(m.get("name"))))
+            .or_else(|| party.iter().find(|m| m.get("slot").as_i64() == slot && m.get("name").truthy()));
+        // no Party entry: the name is all there is to go on (a bot's name was never a player's in the owner's runs)
+        p.insert("ai".into(), Value::Bool(entry.is_none_or(|m| m.get("ai").truthy())));
     }
 }
 

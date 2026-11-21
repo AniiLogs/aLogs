@@ -57,16 +57,93 @@ fn names(m: &Meter) -> Vec<String> {
 fn the_party_is_voted_over_reads() {
     let mut m = meter("party-votes", &[]);
     let t = 1_800_000_000.0;
-    m.set_party(vec![member(0, "Kyhra", false), member(1, "Zarvok", true)], t);
-    assert_eq!(names(&m), ["Kyhra", "Zarvok"], "one read saying AI isn't enough");
-    m.set_party(vec![member(0, "Kyhra", false), member(1, "Zarvok", true)], t + 2.0);
-    assert_eq!(names(&m), ["Kyhra", "Zarvok (AI)"]);
-    m.set_party(vec![member(0, "Kyhro", false), member(1, "Zarvok", true)], t + 4.0);
-    assert_eq!(names(&m), ["Kyhra", "Zarvok (AI)"], "a misread is outvoted");
+    m.set_party(vec![member(0, "Kyhra", false), member(1, "Tammy", true)], t);
+    assert_eq!(names(&m), ["Kyhra", "Tammy (AI)"], "a bot's name with a bot's card");
+    m.set_party(vec![member(0, "Kyhra", false), member(1, "Tammy", true)], t + 2.0);
+    assert_eq!(names(&m), ["Kyhra", "Tammy (AI)"]);
+    m.set_party(vec![member(0, "Kyhro", false), member(1, "Tammy", true)], t + 4.0);
+    assert_eq!(names(&m), ["Kyhra", "Tammy (AI)"], "a misread is outvoted");
     m.set_party(vec![member(0, "Kyhra", false)], t + 6.0);
-    assert_eq!(names(&m), ["Kyhra", "Zarvok (AI)"], "a player one read missed is kept");
+    assert_eq!(names(&m), ["Kyhra", "Tammy (AI)"], "a player one read missed is kept");
     m.set_party(vec![member(0, "Kyhra", false)], t + 8.0);
     assert_eq!(names(&m), ["Kyhra"], "two reads missing them: gone");
+}
+
+/// A member with a sign of its own (one look of the Party screen: bot_sign), voted over the screen's looks.
+fn signed(slot: i64, name: &str, sign: Option<bool>, flag: bool) -> alogs_pyval::Dict {
+    let mut m = member(slot, name, flag);
+    m.insert("ai_sign".into(), sign.map_or(Value::None, Value::Bool));
+    m
+}
+
+/// A bot is a bot's name with no CP on its card. A name that isn't a bot's is a player whatever the looks say, and a
+/// card with a CP outvotes the looks without one only by having more of them.
+#[test]
+fn a_bot_is_a_bot_name_without_cp_voted_over_looks() {
+    let mut m = meter("party-bot-votes", &[]);
+    let t = 1_800_000_000.0;
+    // a player's slot that a look flagged (the old white-mark reading): never a bot
+    m.set_party(vec![member(0, "Kyhra", false), member(1, "Zarvok", true)], t);
+    m.set_party(vec![member(0, "Kyhra", false), member(1, "Zarvok", true)], t + 2.0);
+    assert_eq!(names(&m), ["Kyhra", "Zarvok"]);
+    // a bot's name: two looks without CP, then one with a CP read: still a bot (2 to 1)
+    m.set_party(vec![signed(2, "Leonard", Some(true), true)], t + 4.0);
+    m.set_party(vec![signed(2, "Leonard", Some(true), true)], t + 6.0);
+    m.set_party(vec![signed(2, "Leonard", Some(false), false)], t + 8.0);
+    assert!(names(&m).contains(&"Leonard (AI)".to_string()), "{:?}", names(&m));
+    // two more with a CP: a real player who happens to be called that
+    m.set_party(vec![signed(2, "Leonard", Some(false), false)], t + 10.0);
+    m.set_party(vec![signed(2, "Leonard", Some(false), false)], t + 12.0);
+    assert!(names(&m).contains(&"Leonard".to_string()), "{:?}", names(&m));
+    // looks that couldn't tell (a card that didn't read) only break a tie, with their own guess
+    let mut m = meter("party-bot-tie", &[]);
+    m.set_party(vec![signed(3, "Flora", None, true)], t);
+    assert!(names(&m).contains(&"Flora (AI)".to_string()));
+    m.set_party(vec![signed(3, "Flora", Some(false), false)], t + 2.0);
+    m.set_party(vec![signed(3, "Flora", None, true)], t + 4.0);
+    assert!(names(&m).contains(&"Flora".to_string()), "a CP read beats looks that couldn't tell: {:?}", names(&m));
+}
+
+/// Result-screen and Battle Data slots follow their Party entry: a bot's name is a bot only when the Party entry is
+/// one; a name that isn't a bot's is never one.
+#[test]
+fn result_slots_follow_the_party_entry() {
+    use alogs_meter::results_parse::settle_bots;
+    let bots: Vec<String> = ["Flora", "Mario", "Leonard", "Tammy"].iter().map(|s| s.to_string()).collect();
+    let entry = |slot: i64, name: &str, ai: bool| Value::Dict(member(slot, name, ai));
+    let party = vec![entry(0, "Kyhra", false), entry(1, "Mario", true), entry(2, "Tammy", false), entry(3, "Zarvok", true)];
+    let row = |slot: i64, name: &str, ai: bool| member(slot, name, ai);
+    let mut players = vec![row(0, "Kyhra", false), row(1, "Mario", false), row(2, "Tammy", true), row(3, "Zarvok", true)];
+    settle_bots(&mut players, Some(&party), &bots);
+    let ai: Vec<bool> = players.iter().map(|p| p.at("ai").truthy()).collect();
+    assert_eq!(ai, [false, true, false, false]);
+    // no Party read: a bot's name is a bot, any other name a player
+    let mut players = vec![row(0, "Flora", false), row(1, "Zarvok", true), row(2, "Leonard", true)];
+    settle_bots(&mut players, None, &bots);
+    assert_eq!(players.iter().map(|p| p.at("ai").truthy()).collect::<Vec<_>>(), [true, false, true]);
+}
+
+#[test]
+fn a_bot_sign_needs_a_bot_name_and_no_cp() {
+    use alogs_meter::results_parse::{bot_sign, is_bot_name};
+    let bots: Vec<String> = ["Mario", "Flora", "Leonard", "Tammy"].iter().map(|s| s.to_string()).collect();
+    assert!(is_bot_name(&bots, "flora") && is_bot_name(&bots, " Leonard ") && !is_bot_name(&bots, "Florance") && !is_bot_name(&bots, ""));
+    assert_eq!(bot_sign(&bots, "Mario", true, None), Some(true));
+    assert_eq!(bot_sign(&bots, "Mario", true, Some(3010)), Some(false), "a CP: a player");
+    assert_eq!(bot_sign(&bots, "Mario", false, None), None, "the card didn't read");
+    assert_eq!(bot_sign(&bots, "Zarvok", true, None), Some(false), "not a bot's name");
+    assert_eq!(bot_sign(&bots, "Zarvok", false, None), Some(false));
+}
+
+#[test]
+fn the_bots_names_come_from_the_game_data() {
+    use alogs_meter::results_parse::load_bot_names;
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bot-names");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.join("game_cycles.json"));
+    assert_eq!(load_bot_names(&dir), ["flora", "mario", "leonard", "tammy"], "none in the data: the four");
+    std::fs::write(dir.join("game_cycles.json"), r#"{"stamp": "v4:1:2", "cycles": [], "bot_names": ["Quill", "Brannoc"]}"#).unwrap();
+    assert_eq!(load_bot_names(&dir), ["quill", "brannoc"]);
 }
 
 #[test]

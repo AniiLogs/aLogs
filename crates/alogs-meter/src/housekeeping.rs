@@ -340,7 +340,10 @@ impl Meter {
                     }
                 }
                 GameData::Grades(rows) => self.grades = boss::load_grades(&self.env.res, Some(&rows)).unwrap_or_default(),
-                GameData::Cycles(p) => self.env.schedule = boss::Schedule::new(p),
+                GameData::Cycles(p) => {
+                    self.env.schedule = boss::Schedule::new(p);
+                    self.bot_names = crate::results_parse::load_bot_names(&self.env.data);
+                }
             }
         }
     }
