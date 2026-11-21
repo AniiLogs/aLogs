@@ -2,6 +2,7 @@
 //! picture. Port of `Ocr`, `NoOcr`, `ready_language`, `ocr_english` and `sweep_temp` in aLogs B16 `bossbar/reader.py`
 //! (the native helper only: the PowerShell fallback was for builds without it).
 
+use crate::cyrillic::{self, CyrillicNames};
 use crate::hangul::{self, KoreanNames};
 use crate::prep::name_signature;
 use alogs_pil::{Image, Mode};
@@ -84,6 +85,8 @@ pub struct Ocr {
     /// Unsure reads kept for UNSURE_S (off in a replay).
     pub keep_unsure: bool,
     pub korean: Option<KoreanNames>,
+    /// Cyrillic names (the game's font draws them); None: the Cyrillic model isn't asked.
+    pub cyrillic: Option<CyrillicNames>,
 }
 
 fn launch(exe: &std::path::Path) -> Result<(Helper, Option<String>), String> {
@@ -124,6 +127,7 @@ impl Ocr {
             epoch: Instant::now(),
             keep_unsure: true,
             korean: None,
+            cyrillic: None,
         })
     }
 
@@ -240,6 +244,12 @@ impl Reader for Ocr {
             keys.iter().map(|k| (if names.contains_key(k) && !grey.contains(k) { 4 } else { 0 }, images[k])).collect();
         work.extend(grey.iter().map(|k| (6u8, &raws[*k])));
         work.extend(tidy.values().map(|t| (3u8, t)));
+        // and to the Cyrillic model when its names can be checked (flag 8): tidied with smaller specks gone
+        let cyr_tidy: IndexMap<&String, Image> = match &self.cyrillic {
+            Some(_) => keys.iter().filter(|k| names.contains_key(*k)).filter_map(|k| hangul::tidy_with(images[k], names[k], cyrillic::SPECK).map(|t| (*k, t))).collect(),
+            None => IndexMap::new(),
+        };
+        work.extend(cyr_tidy.values().map(|t| (10u8, t)));
         let with_flags = !names.is_empty();
         let (lines, gen0) = self.ask(&work, with_flags);
         let mut out: IndexMap<String, String> = IndexMap::new();
@@ -265,6 +275,8 @@ impl Reader for Ocr {
         let n = keys.len() + grey.len();
         let found: IndexMap<&String, (&Image, Option<hangul::Letters>)> =
             tidy.iter().zip(&lines[n..]).map(|((k, t), line)| (*k, (t, hangul::split_reply(line).1))).collect();
+        let cyr_found: IndexMap<&String, (&Image, Option<hangul::Letters>)> =
+            cyr_tidy.iter().zip(&lines[n + tidy.len()..]).map(|((k, t), line)| (*k, (t, hangul::cyrillic_letters(line)))).collect();
         let korean = |k: &String, hint: &str| found.get(k).and_then(|(t, l)| self.korean_read(t, hint, l));
         let settled: HashMap<&String, Option<String>> =
             short.iter().filter(|k| found.get(*k).is_some_and(|f| hangul::hangul_first(&f.1))).map(|k| (*k, korean(k, ""))).collect();
@@ -305,6 +317,20 @@ impl Reader for Ocr {
             if let Some(n) = name.filter(|n| !n.is_empty()) {
                 out.insert((*k).clone(), n);
                 vouched.insert(k);
+            }
+        }
+        // a Cyrillic name: only where no Korean one was read nor looks to be, and only with a letter of its own
+        // the game's font vouches for (cyrillic.rs); every other name stays as read above
+        if let Some(cy) = &self.cyrillic {
+            for (k, (t, letters)) in &cyr_found {
+                if vouched.contains(*k) || found.get(*k).is_some_and(|f| hangul::looks_hangul(&f.1)) {
+                    continue;
+                }
+                if let Some(n) = cy.read(t, letters).filter(|n| !n.is_empty()) {
+                    log::info!(target: "meter", "name box {k}: {:?} read in Latin, the game's font vouches for Cyrillic", out[*k]);
+                    out.insert((*k).clone(), n);
+                    vouched.insert(k);
+                }
             }
         }
         for (k, (t, letters)) in &found {

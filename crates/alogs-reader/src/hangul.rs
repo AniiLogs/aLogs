@@ -76,6 +76,12 @@ pub fn split_reply(line: &str) -> (String, Option<Letters>, String) {
     (f[0].trim().to_string(), letters, f[2].trim().to_string())
 }
 
+/// The Cyrillic model's letters in a helper's answer (its fourth field, there when the box was sent with flag 8).
+pub fn cyrillic_letters(line: &str) -> Option<Letters> {
+    let f = line.split('\t').nth(3).filter(|f| !f.is_empty())?;
+    serde_json::from_str::<J>(f).ok().and_then(|v| parse_letters(&v))
+}
+
 pub fn hangul_first(letters: &Option<Letters>) -> bool {
     letters.as_ref().is_some_and(|l| !l.is_empty() && has_hangul(&l.iter().filter_map(|(_, p)| p.first().map(|x| x.0.as_str())).collect::<String>()))
 }
@@ -102,6 +108,50 @@ pub fn looks_hangul(letters: &Option<Letters>) -> bool {
 
 fn ink_mask(img: &Image) -> Image {
     img.convert(Mode::L).point(|v| if v < INK { 255.0 } else { 0.0 })
+}
+
+/// Each model letter's ink in a tidied box: {letter's index: (its 1-bit shape, (left, top, right, bottom))}, the runs
+/// of inked columns going to the nearest letter's spot within reach. None when the box holds no ink.
+pub(crate) fn letter_parts(img: &Image, letters: &Letters) -> Option<std::collections::BTreeMap<usize, (Image, (usize, usize, usize, usize))>> {
+    let mask = ink_mask(img);
+    let rs = runs(&mask);
+    if rs.is_empty() || letters.is_empty() {
+        return None;
+    }
+    let xs: Vec<f64> = letters.iter().map(|(x, _)| *x).collect();
+    let reach: Vec<f64> = (0..xs.len())
+        .map(|i| {
+            let near: Vec<f64> = [i.wrapping_sub(1), i + 1].iter().filter(|&&j| j < xs.len()).map(|&j| (xs[j] - xs[i]).abs()).collect();
+            0.6 * near.iter().copied().fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.min(v)))).unwrap_or(img.height as f64)
+        })
+        .collect();
+    let mut owner: std::collections::BTreeMap<usize, Vec<(usize, usize, usize, usize)>> = Default::default();
+    for r in &rs {
+        let c = (r.0 + r.1) as f64 / 2.0;
+        let mut i = 0;
+        for j in 1..xs.len() {
+            if (xs[j] - c).abs() < (xs[i] - c).abs() {
+                i = j;
+            }
+        }
+        if (xs[i] - c).abs() <= reach[i] {
+            owner.entry(i).or_default().push(*r);
+        }
+    }
+    Some(
+        owner
+            .into_iter()
+            .map(|(i, mine)| {
+                let b = (
+                    mine.iter().map(|r| r.0).min().unwrap(),
+                    mine.iter().map(|r| r.2).min().unwrap(),
+                    mine.iter().map(|r| r.1).max().unwrap(),
+                    mine.iter().map(|r| r.3).max().unwrap(),
+                );
+                (i, (to_one(&mask.crop_i(b.0 as i64, b.1 as i64, b.2 as i64, b.3 as i64)), b))
+            })
+            .collect(),
+    )
 }
 
 /// `[(left, right, top, bottom)]` of each run of inked columns.
@@ -141,6 +191,11 @@ pub fn clean_latin(text: &str) -> String {
 /// A prepared name box as the Korean model and the font check see it: edge-touching dark regions cleared, specks
 /// gone, the line nearest the middle cut out on white. None when no ink is left.
 pub fn tidy(img: &Image, pad: usize) -> Option<Image> {
+    tidy_with(img, pad, SPECK)
+}
+
+/// `tidy` with specks up to `speck` px gone (thinner strokes go with them).
+pub fn tidy_with(img: &Image, pad: usize, speck: usize) -> Option<Image> {
     let grey = img.convert(Mode::L);
     if img.width <= 2 * pad || img.height <= 2 * pad {
         return None;
@@ -150,7 +205,7 @@ pub fn tidy(img: &Image, pad: usize) -> Option<Image> {
     ring.paste(&mask, 1, 1);
     alogs_pil::draw::floodfill(&mut ring, (0, 0), &[128]);
     let ink = ring.crop_i(1, 1, mask.width as i64 + 1, mask.height as i64 + 1).point(|v| if v == 255 { 255.0 } else { 0.0 });
-    let ink = max_filter(&min_filter(&ink, SPECK), SPECK);
+    let ink = if speck > 1 { max_filter(&min_filter(&ink, speck), speck) } else { ink };
     let rows: Vec<bool> = (0..ink.height).map(|y| ink.row(y).iter().any(|&v| v != 0)).collect();
     let mut bands: Vec<[usize; 2]> = Vec::new();
     let mut start = None;
@@ -324,41 +379,11 @@ impl KoreanNames {
         if !has_hangul(&top) && !plain(text).is_empty() && ratio(&plain(text), &plain(&top)) >= LATIN_SAME {
             return None;
         }
-        let mask = ink_mask(img);
-        let rs = runs(&mask);
-        if rs.is_empty() {
-            return None;
-        }
-        let xs: Vec<f64> = letters.iter().map(|(x, _)| *x).collect();
-        let reach: Vec<f64> = (0..xs.len())
-            .map(|i| {
-                let near: Vec<f64> = [i.wrapping_sub(1), i + 1].iter().filter(|&&j| j < xs.len()).map(|&j| (xs[j] - xs[i]).abs()).collect();
-                0.6 * near.iter().copied().fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.min(v)))).unwrap_or(img.height as f64)
-            })
-            .collect();
-        let mut owner: std::collections::BTreeMap<usize, Vec<(usize, usize, usize, usize)>> = Default::default();
-        for r in &rs {
-            let c = (r.0 + r.1) as f64 / 2.0;
-            let mut i = 0;
-            for j in 1..xs.len() {
-                if (xs[j] - c).abs() < (xs[i] - c).abs() {
-                    i = j;
-                }
-            }
-            if (xs[i] - c).abs() <= reach[i] {
-                owner.entry(i).or_default().push(*r);
-            }
-        }
+        let parts = letter_parts(img, letters)?;
         let mut chosen: Vec<(String, f64, (usize, usize, usize, usize))> = Vec::new();
         for (i, picks) in cands.iter().enumerate() {
-            let Some(mine) = owner.get(&i) else { continue };
-            let b = (
-                mine.iter().map(|r| r.0).min().unwrap(),
-                mine.iter().map(|r| r.2).min().unwrap(),
-                mine.iter().map(|r| r.1).max().unwrap(),
-                mine.iter().map(|r| r.3).max().unwrap(),
-            );
-            let part = to_one(&mask.crop_i(b.0 as i64, b.1 as i64, b.2 as i64, b.3 as i64));
+            let Some((part, b)) = parts.get(&i) else { continue };
+            let (part, b) = (part, *b);
             let mut best: Option<(f64, f64, String)> = None;
             for (c, p) in picks {
                 let f = self.fit(&part, c);

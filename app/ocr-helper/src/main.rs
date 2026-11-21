@@ -1,6 +1,6 @@
-//! Windows' built-in OCR (Windows.Media.Ocr, en-US) for the boss meter, without PowerShell or image files, plus two
-//! text models for player names: a Latin one (names read far better than Windows OCR does) and a Korean one (Hangul,
-//! which the English OCR can't see).
+//! Windows' built-in OCR (Windows.Media.Ocr, en-US) for the boss meter, without PowerShell or image files, plus three
+//! text models for player names: a Latin one (names read far better than Windows OCR does), a Korean one (Hangul,
+//! which the English OCR can't see) and a Cyrillic one.
 //!
 //! A PC without en-US OCR uses another English it has, else its user's own languages; with no OCR language at all
 //! every Windows OCR line is empty, and the name models still read.
@@ -20,10 +20,13 @@
 //!   answer:  per image, the English OCR's line (empty with flag 2), then with flag 1 or 4 two tab-separated fields:
 //!            the Korean model's read as JSON with flag 1 - [[x, [[character, probability], ...]], ...]: each letter's
 //!            spot (its centre, in the image's px) and its likeliest characters, best first, which the meter checks
-//!            against the game's own fonts - and the Latin model's text with flag 4.
+//!            against the game's own fonts - and the Latin model's text with flag 4; with flag 8 a third field, the
+//!            Cyrillic model's read as JSON in the Korean one's form (the best Cyrillic and Latin character in each
+//!            letter's list), checked the same way.
 //!
-//! Both models are PaddleOCR's (Apache-2.0, model/LICENSE-model.txt): korean_PP-OCRv5_mobile_rec, converted to ONNX,
-//! and PP-OCRv6_small_rec, as PaddlePaddle publishes it in ONNX. On 346 player names from real result, Battle Data
+//! The models are PaddleOCR's (Apache-2.0, model/LICENSE-model.txt): korean_PP-OCRv5_mobile_rec and
+//! eslav_PP-OCRv5_mobile_rec, converted to ONNX, and PP-OCRv6_small_rec, as PaddlePaddle publishes it in ONNX. Each
+//! loads the first time a request asks for it. On 346 player names from real result, Battle Data
 //! and Party screens the Latin one read 90% exactly, Windows OCR 42% (model/README.md). They run with tract, built
 //! into this program: nothing to install or download on the player's PC.
 #![windows_subsystem = "windows"]   // no console window
@@ -41,6 +44,8 @@ const KOREAN_MODEL: &[u8] = include_bytes!("../model/korean_rec.onnx");
 const KOREAN_DICT: &str = include_str!("../model/korean_dict.txt");
 const LATIN_MODEL: &[u8] = include_bytes!("../model/latin_rec.onnx");
 const LATIN_DICT: &str = include_str!("../model/latin_dict.txt");
+const CYRILLIC_MODEL: &[u8] = include_bytes!("../model/cyrillic_rec.onnx");
+const CYRILLIC_DICT: &str = include_str!("../model/cyrillic_dict.txt");
 const MODEL_HEIGHT: usize = 48;
 /// The input widths the models run at: a box is padded to the first one that fits (past the last, to steps of 32).
 /// Each width is an optimised plan of its own (15-22 MB, ~150 ms to build), and the Korean model's crops vary with
@@ -105,6 +110,10 @@ fn is_hangul(c: char) -> bool {
     matches!(c, '\u{1100}'..='\u{11ff}' | '\u{3130}'..='\u{318f}' | '\u{ac00}'..='\u{d7a3}')
 }
 
+fn is_cyrillic(c: char) -> bool {
+    matches!(c, '\u{0400}'..='\u{04ff}')
+}
+
 /// A box taller than the model's 48 px, shrunk to nw x 48 (row by row) as PIL's bilinear resize does it: each pixel
 /// a weighted average of all those it covers. Prepared name boxes are about 3x too tall, and sampling only the 2x2
 /// nearest pixels dropped detail: of the 419 labelled names, 357 read exactly through the meter that way, 365 shrunk
@@ -148,17 +157,18 @@ struct Recognizer {
     model: Option<InferenceModel>,
     plans: Vec<(usize, TypedRunnableModel<TypedModel>)>,   // (width, plan), the most recently used last
     chars: Vec<String>,   // index 0 is CTC's blank, the last a space
+    script: fn(char) -> bool,   // the model's own letters (Hangul, Cyrillic): their best one is always sent
 }
 
 /// One letter as read: its centre x in the image and [(character, probability)], best first.
 type Letter = (f32, Vec<(String, f32)>);
 
 impl Recognizer {
-    fn new(bytes: &'static [u8], dict: &str) -> Recognizer {
+    fn new(bytes: &'static [u8], dict: &str, script: fn(char) -> bool) -> Recognizer {
         let mut chars = vec![String::new()];
         chars.extend(dict.lines().map(str::to_string));
         chars.push(" ".to_string());
-        Recognizer { bytes, model: None, plans: Vec::new(), chars }
+        Recognizer { bytes, model: None, plans: Vec::new(), chars, script }
     }
 
     fn plan(&mut self, width: usize) -> TractResult<&TypedRunnableModel<TypedModel>> {
@@ -220,9 +230,10 @@ impl Recognizer {
                     let mut order: Vec<usize> = (1..classes).collect();
                     order.sort_by(|&a, &b| row[b].total_cmp(&row[a]));
                     let mut pick: Vec<usize> = order.iter().copied().take(extra).collect();
-                    // the best Hangul and the best Latin letter or digit too: the game's font tells such twins apart (7 and ㄱ)
+                    // the best of the model's own letters (Hangul, Cyrillic) and the best Latin letter or digit too:
+                    // the game's font tells such twins apart (7 and ㄱ, P and Р)
                     let first = |f: &dyn Fn(char) -> bool| order.iter().copied().find(|&k| self.chars[k].chars().next().is_some_and(|c| f(c)));
-                    for k in [first(&is_hangul), first(&|c: char| c.is_ascii_alphanumeric())].into_iter().flatten() {
+                    for k in [first(&self.script), first(&|c: char| c.is_ascii_alphanumeric())].into_iter().flatten() {
                         if !pick.contains(&k) { pick.push(k); }
                     }
                     pick
@@ -268,8 +279,9 @@ fn letters_json(letters: &[Letter]) -> String {
 fn main() -> Result<()> {
     let engine = windows_ocr();
     let max_dim = OcrEngine::MaxImageDimension().unwrap_or(0);
-    let mut korean = Recognizer::new(KOREAN_MODEL, KOREAN_DICT);
-    let mut latin = Recognizer::new(LATIN_MODEL, LATIN_DICT);
+    let mut korean = Recognizer::new(KOREAN_MODEL, KOREAN_DICT, is_hangul);
+    let mut latin = Recognizer::new(LATIN_MODEL, LATIN_DICT, |c| c.is_ascii_alphanumeric());
+    let mut cyrillic = Recognizer::new(CYRILLIC_MODEL, CYRILLIC_DICT, is_cyrillic);
     let mut input = io::stdin().lock();
     let mut out = BufWriter::new(io::stdout().lock());
     // the language after a tab ("READY\t" with none): the meter warns when it isn't English (alogs-meter's ocrcheck.rs)
@@ -293,10 +305,14 @@ fn main() -> Result<()> {
                 Some(engine) if f & 2 == 0 => recognise(engine, max_dim, w, h, &grey),
                 _ => String::new(),
             };
-            if f & 5 != 0 {
+            if f & 13 != 0 {
                 let k = if f & 1 != 0 { letters_json(&korean.letters(w as usize, h as usize, &grey, CANDIDATES).unwrap_or_default()) } else { String::new() };
                 let l = if f & 4 != 0 { latin.text(w as usize, h as usize, &grey) } else { String::new() };
                 line = format!("{line}\t{k}\t{l}");
+                if f & 8 != 0 {
+                    let c = letters_json(&cyrillic.letters(w as usize, h as usize, &grey, CANDIDATES).unwrap_or_default());
+                    line = format!("{line}\t{c}");
+                }
             }
             if writeln!(out, "{line}").is_err() { return Ok(()); }
         }

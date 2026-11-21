@@ -516,7 +516,7 @@ fn main() {
     };
     let ocr: Box<dyn Reader> = match Ocr::new(&res.join("ocr-helper.exe")) {
         Ok(mut o) => {
-            // Korean player names settled against the game's own fonts (the cache in <data>/gamefont)
+            // Korean player names settled against the game's own fonts (the cache in <data>/gamefont), then Cyrillic
             use alogs_reader::gamefont::{FONT_NAME, GameFont, KOREAN_FONT};
             let gf = data.join("gamefont");
             match GameFont::load(&gf, Some(&player_log), FONT_NAME).and_then(|l| Ok((l, GameFont::load(&gf, Some(&player_log), KOREAN_FONT)?))) {
@@ -525,6 +525,15 @@ fn main() {
                     log::info!("Korean names: on (the game's Korean font)");
                 }
                 Err(e) => log::info!("Korean names: off (game font not readable: {e})"),
+            }
+            // Cyrillic names, checked against the game's European font (which draws Russian's letters)
+            match GameFont::load(&gf, Some(&player_log), FONT_NAME).map(alogs_reader::cyrillic::CyrillicNames::new) {
+                Ok(Some(c)) => {
+                    o.cyrillic = Some(c);
+                    log::info!("Cyrillic names: on (the game's font)");
+                }
+                Ok(None) => log::info!("Cyrillic names: off (the game's font draws no Cyrillic)"),
+                Err(e) => log::info!("Cyrillic names: off (game font not readable: {e})"),
             }
             Box::new(o)
         }

@@ -165,7 +165,7 @@ pub fn party_pill(pill: &str, i: i64) -> Option<(i64, String)> {
             let n = w.chars().count();
             let cs: Vec<char> = w.chars().collect();
             !badge_word.is_match(w)
-                && (n >= 3 || (n == 2 && cs[0].is_uppercase() && !cs[1].is_uppercase()) || alogs_reader::hangul::has_hangul(w))
+                && (n >= 3 || (n == 2 && cs[0].is_uppercase() && !cs[1].is_uppercase()) || alogs_reader::hangul::has_hangul(w) || alogs_reader::cyrillic::has_cyrillic(w))
         })
         .collect();
     let name: String = words.concat();

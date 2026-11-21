@@ -1,8 +1,9 @@
 # Text models (built into ocr-helper.exe)
 
-Two PaddleOCR line recognisers read player names, which Windows' English OCR reads badly (Latin names) or not at all
-(Korean names). They are compiled into `ocr-helper.exe` (`include_bytes!`), so nothing is downloaded on a player's PC.
-Both are Apache-2.0 (`LICENSE-model.txt`), copyright PaddlePaddle Authors, from PaddlePaddle's own Hugging Face account.
+Three PaddleOCR line recognisers read player names, which Windows' English OCR reads badly (Latin names) or not at all
+(Korean and Cyrillic names). They are compiled into `ocr-helper.exe` (`include_bytes!`), so nothing is downloaded on a
+player's PC. All three are Apache-2.0 (`LICENSE-model.txt`), copyright PaddlePaddle Authors, from PaddlePaddle's own
+Hugging Face account.
 
 ## Latin: `latin_rec.onnx`, `latin_dict.txt`
 
@@ -34,6 +35,22 @@ Both are Apache-2.0 (`LICENSE-model.txt`), copyright PaddlePaddle Authors, from 
 
 The meter (`crates/alogs-reader/src/hangul.rs`) checks every Korean letter the model reads against the game's own Korean font,
 so a letter the game draws almost like a Latin one (ㄱ and 7, ㄴ and L) comes out right.
+
+## Cyrillic: `cyrillic_rec.onnx`, `cyrillic_dict.txt`
+
+- **Model:** `eslav_PP-OCRv5_mobile_rec` (East Slavic: Russian, Ukrainian, Belarusian letters, with Latin letters and
+  digits), from https://huggingface.co/PaddlePaddle/eslav_PP-OCRv5_mobile_rec (`inference.json` 217,712 bytes,
+  `inference.pdiparams` 7,811,519 bytes, `inference.yml` 4,538 bytes).
+- **Converted** on 2026-11-21 as the Korean one, with paddlepaddle 3.1.1, paddle2onnx 2.1.0 and onnx 1.17.0 (opset 13):
+  `paddle2onnx.export('inference.json', 'inference.pdiparams', 'cyrillic_rec.onnx', opset_version=13)`, then the same
+  renaming and shape clearing for tract. 7.9 MB; it adds 7.9 MB to `ocr-helper.exe`.
+- **Dictionary:** 517 characters, 519 output classes with the blank and the space.
+
+The meter (`crates/alogs-reader/src/cyrillic.rs`) takes its read only when a letter no Latin one looks like (Д, Ж, Я,
+и...) fits the game's own font (UI_Font_Europe, which draws Russian's 66 letters) clearly better than every Latin letter
+and digit; a name made only of look-alikes (А В Е К М Н О Р С Т Х...) stays as the Latin model reads it. The model sees
+the name box tidied as for the Korean one, with specks up to 3 px gone instead of 5 (5 thinned я into ч). On the
+meter's saved pictures it runs in about 37 ms per name box (median, tract, warm), and only on name boxes.
 
 ## Dictionaries
 

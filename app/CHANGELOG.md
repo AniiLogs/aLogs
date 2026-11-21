@@ -7,6 +7,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 
 ### New
 - **A Dev menu in the Beta Menu (betas only):** a tab each for Core, the DPS meter and the leaderboards: proposed changes to their speed, smoothness, accuracy and memory, each with its own switch, with filters by risk and type, so each can be tested alone. Anyone on a beta sees it. All are off at every start unless you make one Persistent, which starts it on through restarts and updates until you undo it or that setting changes in an update. Only make one Persistent once you've tested it and decided it's no risk for you. With all off, it works as in 0.1.36.
+- **Cyrillic names:** teammates with Cyrillic names (Дмитрий, Юля) show on your runs as they are, not as Latin look-alike letters, on the result, Battle Data, Party, menu and Profile screens. A name only of letters drawn the same as Latin ones (Анна, Ева) can't be told apart on screen and still reads in Latin letters.
 
 ### Improved
 - **The DPS meter reads the boss bar more truly and sooner:** a small mark the game draws on the bar is no longer taken for the end of the boss's HP, a fight counts from the moment its bar is first seen (not from when the boss's name is read), a reading far below the last must hold for a moment before it counts, and between fights the meter looks for a bar twice as often. The HP % shows the moment the bar does, without waiting for the boss's name to be read, and it now stands under the bar in front of the HP numbers instead of on the bar.

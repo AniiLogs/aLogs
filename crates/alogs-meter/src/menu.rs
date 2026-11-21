@@ -8,7 +8,7 @@ use crate::team::{character_verified, known_characters, remember_character};
 use alogs_pil::ops::{expand, invert};
 use alogs_pil::{Filter, Image, Mode};
 use alogs_pyval::{Dict, Value};
-use alogs_reader::{hangul, names as nr, prep};
+use alogs_reader::{cyrillic, hangul, names as nr, prep};
 use indexmap::IndexMap;
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -154,7 +154,7 @@ impl Meter {
         let mut name = WS.replace_all(name.trim_matches(|c| c == ' ' || c == '/' || c == '|' || c == '.'), " ").into_owned();
         let mut sure = sure;
         let uid_seen = self.uid.as_ref().is_some_and(|u| digits.contains(u.as_str()));
-        if place == "menu" && uid_seen && name.chars().count() <= 2 && !hangul::has_hangul(&name) && u != 0.0
+        if place == "menu" && uid_seen && name.chars().count() <= 2 && !hangul::has_hangul(&name) && !cyrillic::has_cyrillic(&name) && u != 0.0
             && let Some(im) = im
         {
             let (n, s) = self.short_name(im, u, ux, h);
@@ -263,10 +263,11 @@ impl Meter {
         let r = self.ocr.read(&reads, &sizes, &IndexMap::new());
         static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
         let mut name = WS.replace_all(r.get("n").map_or("", String::as_str), " ").trim_matches(|c| c == ' ' || c == '/' || c == '|' || c == '.').to_string();
-        let mut sure = name.chars().count() > 3 || hangul::has_hangul(&name);
+        let mut sure = name.chars().count() > 3 || hangul::has_hangul(&name) || cyrillic::has_cyrillic(&name);
         if let Some(m) = &mask
             && name.chars().count() <= 3
             && !hangul::has_hangul(&name)
+            && !cyrillic::has_cyrillic(&name)
             && let Some(matched) = self.name_reader().and_then(|rd| rd.read(im, name_box, u, 3, nr::PROFILE_PX_4K, Some(m.clone()), nr::CHARS))
         {
             name = matched;
