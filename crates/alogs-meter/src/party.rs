@@ -5,7 +5,7 @@
 
 use crate::meter::{Frames, Meter, Out};
 use crate::results::star_caps;
-use crate::results_parse::INTERLINK_NPCS;
+use crate::results_parse::{bot_sign, is_bot_name};
 use crate::sim::str_map_repr;
 use crate::team::{Teammates, party_pill};
 use alogs_gamelog::difflib::ratio;
@@ -226,7 +226,11 @@ impl Meter {
         let members: Vec<Dict> = kinds.iter().enumerate().filter_map(|(i, kind)| {
             let kind = (*kind)?;
             let name = names.get(&format!("n{i}")).map_or("", String::as_str).trim_matches(|c| c == ' ' || c == '/' || c == '|').to_string();
-            Some(dict([("slot", Value::Int(i as i64)), ("name", Value::Str(name)), ("ai", Value::Bool(kind == "ai")), ("self", Value::Bool(mine[i]))]).as_dict().cloned().unwrap())
+            // no CP here: a name that isn't a bot's is a player's, whatever the mark; a bot's name leaves the mark as
+            // this look's guess (the Party screen's cards decide)
+            let bot = is_bot_name(&self.bot_names, &name);
+            let sign = if bot && !mine[i] { Value::None } else { Value::Bool(false) };
+            Some(dict([("slot", Value::Int(i as i64)), ("name", Value::Str(name)), ("ai", Value::Bool(kind == "ai" && bot && !mine[i])), ("ai_sign", sign), ("self", Value::Bool(mine[i]))]).as_dict().cloned().unwrap())
         }).filter(|m| m.at("name").truthy()).collect();
         self.set_party(members, now);
     }
@@ -418,9 +422,13 @@ impl Meter {
                 && ((cp.is_some() && m.at("cp").as_i64() == cp)
                     || (nick.as_ref().is_some_and(|n| fold(m.at("nickname")) == fold(&Value::Str(n.clone()))))
                     || (!(cp.is_some() && m.at("cp").truthy()) && m.at("name").as_str() == Some(name.as_str())))).unwrap_or(&empty);
-            let ai = !mine && if card.trim().is_empty() { INTERLINK_NPCS.contains(&crate::team::casefold(&name).as_str()) } else { cp.is_none() };
+            // a bot has a bot's name and no CP on its card (see bot_sign); a card that didn't read leaves the name as
+            // this look's guess, for the looks that did to decide
+            let sign = if mine { Some(false) } else { bot_sign(&self.bot_names, &name, !card.trim().is_empty(), cp) };
+            let ai = sign.unwrap_or_else(|| is_bot_name(&self.bot_names, &name));
             let m = dict([
                 ("slot", Value::Int(slot)), ("name", Value::Str(name)), ("self", Value::Bool(mine)), ("pill", Value::Int(i as i64)), ("ai", Value::Bool(ai)),
+                ("ai_sign", sign.map_or(Value::None, Value::Bool)),
                 ("aniimo", md(old, "aniimo")),
                 ("nickname", nick.map_or_else(|| md(old, "nickname"), Value::Str)),
                 ("aniimo_level", lv.map_or_else(|| md(old, "aniimo_level"), Value::Int)),
@@ -499,14 +507,26 @@ impl Meter {
         if !recent {
             self.ps.ai_signs.clear();
         }
+        // bot or player, voted over this Party screen's looks: each look's sign (bot_sign) counts, the most win; the
+        // looks that couldn't tell (a card that didn't read) and the battle prep's mark only break a tie. Never a bot
+        // without a bot's name.
         for m in &mut members {
+            let sign = m.pop("ai_sign");
             if m.at("kept").truthy() {
                 continue;
             }
             let name = m.at("name").py_str();
             let tally = self.ps.ai_signs.entry((slot(m), Teammates::fold(&name))).or_insert([0, 0]);
-            tally[if m.at("ai").truthy() { 0 } else { 1 }] += 1;
-            let ai = !m.at("self").truthy() && ((tally[0] >= 2 && tally[1] == 0) || (m.at("ai").truthy() && INTERLINK_NPCS.contains(&crate::team::casefold(&name).as_str())));
+            match sign {
+                Some(Value::Bool(true)) => tally[0] += 1,
+                Some(Value::Bool(false)) => tally[1] += 1,
+                // (a member made without a sign: its flag is its sign)
+                None => tally[if m.at("ai").truthy() { 0 } else { 1 }] += 1,
+                _ => {}
+            }
+            let t = *tally;
+            let bot = is_bot_name(&self.bot_names, &name);
+            let ai = !m.at("self").truthy() && bot && (t[0] > t[1] || (t[0] == t[1] && m.at("ai").truthy()));
             m.insert("ai".into(), Value::Bool(ai));
         }
         // one player in one slot only

@@ -686,6 +686,7 @@ impl Meter {
         let agreed = rp::agreed_slots(&self.rs.result_votes, |i| format!("name{i}"));
         let you = self.you_if_verified();
         party_slots(&self.team, &mut players, party.as_deref(), &sure_slots, you.as_deref(), &agreed);
+        rp::settle_bots(&mut players, party.as_deref(), &self.bot_names);
         let mine = you.clone().or_else(|| {
             let names: Vec<String> = players.iter().map(|p| p.at("name").py_str()).collect();
             own_name(self.character_name.as_deref(), &names, party.as_deref())
@@ -1081,6 +1082,7 @@ impl Meter {
         let agreed_names = rp::agreed_slots(&self.rs.bd_votes, |i| format!("{i}|name"));
         let you = self.you_if_verified();
         party_slots(&self.team, &mut cards, Some(&party), &sure, you.as_deref(), &agreed_names);
+        rp::settle_bots(&mut cards, Some(&party), &self.bot_names);
         let vals: Vec<i64> = cards.iter().filter_map(|c| c.at("avg_dps").as_i64()).collect();
         let lf = self.last_fight.as_ref().is_some_and(|(_, at)| now - at < 180.0);
         let cards_v = Value::List(cards.iter().cloned().map(Value::Dict).collect());

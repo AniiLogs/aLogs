@@ -407,7 +407,8 @@ pub fn cached_bosses(cache: &Path, keep: &[(String, String)], player_log: Option
 /// The schedule, decoded again only when the game's data file changed. Returns `(cycles, changed)` or `(None, false)`.
 pub fn cached_cycles(cache: &Path, player_log: Option<&Path>) -> Result<(Option<Value>, bool)> {
     let Some(path) = find_game_data(player_log) else { return Ok((None, false)) };
-    let Some(st) = stamp(&path, "v3:") else { return err("OSError") };
+    // (v4: the cache carries the Interlink bots' names)
+    let Some(st) = stamp(&path, "v4:") else { return err("OSError") };
     if let Some(c) = read_cache(cache)
         && c.get("stamp").py_eq(&Value::Str(st.clone()))
         && let Some(Value::List(list)) = c.as_dict().and_then(|d| d.get_str("cycles"))
@@ -434,8 +435,41 @@ pub fn cached_cycles(cache: &Path, player_log: Option<&Path>) -> Result<(Option<
         return Ok((None, false));
     }
     let rules = read_rush_rules(&path)?;
-    let _ = write_json(cache, &dict([("stamp", Value::Str(st)), ("cycles", cycles.clone()), ("rules", rules)]));
+    let ids: Vec<i64> = rules.get("bots").as_list().map(|l| l.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+    let names = read_bot_names(&path, &ids).unwrap_or_default();
+    let _ = write_json(
+        cache,
+        &dict([
+            ("stamp", Value::Str(st)),
+            ("cycles", cycles.clone()),
+            ("rules", rules),
+            ("bot_names", Value::List(names.into_iter().map(Value::Str).collect())),
+        ]),
+    );
     Ok((Some(cycles), true))
+}
+
+/// The Interlink bots' names (the AI teammates that fill a party: sys_config_data BossRushPlayerBotList), in English,
+/// from avatar_robot_data's rows for those ids. Ids without a row or a name are left out.
+pub fn read_bot_names(path: &Path, ids: &[i64]) -> Result<Vec<String>> {
+    let mut pm = PmData::open(path).map_err(|e| PmError(e.to_string()))?;
+    let en = EnglishText::open(path)?;
+    let bots = table_or_empty(&mut pm, "avatar_robot_data")?;
+    let mut out = Vec::new();
+    for id in ids {
+        let row = match get(&bots, &Value::Int(*id))? {
+            Some(r) => r.clone(),
+            None => get_or_none(&bots, &Value::Str(id.to_string()))?,
+        };
+        if !matches!(row, Value::Dict(_)) {
+            continue;
+        }
+        let name = en.en(row.get("name"))?;
+        if !name.trim().is_empty() && !out.contains(&name) {
+            out.push(name.trim().to_string());
+        }
+    }
+    Ok(out)
 }
 
 /// Interlink's rules from the game's own config (sys_config_data): the side bosses' full rating, the center boss's
