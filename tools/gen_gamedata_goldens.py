@@ -60,13 +60,23 @@ class Enc:
         consts = consts or {}
         types = bytes(0x64 + consts[i][0] if i in consts else fields[i][0] for i in range(n + a))
         A = self.put(types)
-        cdata = b"".join(self.raw(*consts[i]) for i in range(n + a) if i in consts)
+        # a shared value's entry counts back from the entry itself to the value, as the game reads it (the values
+        # sit just before the offset table)
+        cdata, cat = b"", {}
+        C = self.here()
+        for i in range(n + a):
+            if i in consts:
+                cat[i] = C + len(cdata); cdata += self.raw(*consts[i])
         self.put(cdata)
+        B = self.here()
         body, offs = bytearray(), []
         for i in range(n + a):
-            offs.append(4 + len(body))
-            if i not in consts: body += self.raw(*fields[i])
-        B = self.put(b"\x03" + b"".join(struct.pack("<H", o) for o in offs))
+            if i in consts:
+                offs.append(B + 1 + 2 * i - cat[i])
+            else:
+                offs.append(4 + len(body))
+                body += self.raw(*fields[i])
+        self.put(b"\x03" + b"".join(struct.pack("<H", o) for o in offs))
         self.pad(); t = self.put(struct.pack("<III", K, A, B))
         self.pad(); o = self.put(struct.pack("<I", t) + bytes(body))
         return o

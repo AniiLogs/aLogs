@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub const CACHE_VERSION: i64 = 10;
+pub const CACHE_VERSION: i64 = 11;
 pub const HEAD_SIZE: usize = 96;
 pub const BUFF_SIZE: usize = 64;
 pub const SIM_SIZE: usize = 96;

@@ -147,9 +147,11 @@ pub fn extract(cache_dir: &Path, player_log: Option<&Path>) -> Result<bool, Stri
         }
         let name = en(r.get("buffName"))?;
         if !name.is_empty() && !r.get("buffSeries").is_none() && !sim_gizmos.contains_key(&name) {
+            // buffRarity 0, 1, 2 (weights 10, 5, 4; a Core stacks 3). The 10 and 5 this matched before were the
+            // weights, read in place of the rarity from rows whose values are shared (see PmData::cls).
             let rarity = match r.get("buffRarity").as_f64() {
-                Some(10.0) => "Normal",
-                Some(5.0) => "Uncommon",
+                Some(0.0) => "Normal",
+                Some(1.0) => "Uncommon",
                 Some(2.0) => "Core",
                 _ => "Special",
             };
