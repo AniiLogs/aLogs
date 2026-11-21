@@ -206,6 +206,102 @@ fn the_game_window_alone_is_kept_through_a_script() {
     assert_eq!(f.asked, 0, "a replay has no capture to ask");
 }
 
+/// The capture showing the game window alone (Windows 11, or the window copy after a switch).
+struct Window;
+impl Frames for Window {
+    fn grab(&mut self, _: usize, _: Option<f64>) -> Option<Image> { None }
+    fn window(&mut self) -> Option<usize> { Some(1) }
+    fn screen_copy(&self) -> bool { false }
+}
+
+/// A menu spotted in a copy of the screen, at `t` (the game window alone is asked for and waited on).
+fn spotted_in_the_screen_copy(name: &str, t: f64) -> Meter {
+    let mut m = meter(name);
+    assert!(m.game_only(&mut ScreenCopy::default(), "menu", t), "waits for the game window");
+    m.game_only_gone(true, Some("menu"), t);
+    m
+}
+
+/// "A screen read from the screen copy is not in the game window": said only from reads of the game window's own
+/// pictures, not the first one after the switch, and only after two of them in a row miss it. Before, it was said on
+/// the first read handled after the switch, even one made from the screen copy (33 times since the Rust build, every
+/// one false).
+#[test]
+fn a_screen_gone_from_the_game_window_is_said_after_two_window_reads() {
+    let t = 1_800_000_000.0;
+    let mut m = spotted_in_the_screen_copy("pacing-gone", t);
+    // a read of the screen copy, handled after the switch: not judged
+    m.game_only_gone(true, None, t + 0.2);
+    assert!(m.pacing.game_only_spot.is_some());
+    // the first read of the game window's pictures: not judged either, but the next read comes at once
+    m.rs.last_results = 123.0;
+    m.game_only_gone(false, None, t + 0.4);
+    assert_eq!((m.pacing.gone_misses, m.pacing.gone_said), (0, 0));
+    assert_eq!(m.rs.last_results, 0.0, "read again at once");
+    // one miss: not yet
+    m.game_only_gone(false, None, t + 0.6);
+    assert_eq!((m.pacing.gone_misses, m.pacing.gone_said), (1, 0));
+    // two in a row: said once, and the spot is done with
+    m.game_only_gone(false, None, t + 0.8);
+    assert_eq!(m.pacing.gone_said, 1);
+    assert!(m.pacing.game_only_spot.is_none());
+    m.game_only_gone(false, None, t + 1.0);
+    m.game_only_gone(false, None, t + 1.2);
+    assert_eq!(m.pacing.gone_said, 1, "not said again");
+}
+
+#[test]
+fn a_screen_still_in_the_game_window_is_not_said_gone() {
+    let t = 1_800_000_000.0;
+    // the game window's picture shows it between two misses (the Party screen, still up): the count starts again
+    let mut m = spotted_in_the_screen_copy("pacing-gone-still", t);
+    m.game_only_gone(false, None, t + 0.4); // first after the switch
+    m.game_only_gone(false, None, t + 0.6); // a miss
+    m.game_only_gone(false, Some("menu"), t + 0.8); // there it is
+    m.game_only_gone(false, None, t + 1.0);
+    assert_eq!((m.pacing.gone_misses, m.pacing.gone_said), (1, 0));
+    // back on the screen copy in between: its reads say nothing about the game window, and the count starts again
+    let mut m = spotted_in_the_screen_copy("pacing-gone-copy", t);
+    m.game_only_gone(false, None, t + 0.4);
+    m.game_only_gone(false, None, t + 0.6);
+    m.game_only_gone(true, None, t + 0.8);
+    m.game_only_gone(false, None, t + 1.0); // first after a switch again
+    m.game_only_gone(false, None, t + 1.2);
+    assert_eq!((m.pacing.gone_misses, m.pacing.gone_said), (1, 0));
+    // too long after the spot to say anything about it
+    let mut m = spotted_in_the_screen_copy("pacing-gone-late", t);
+    m.game_only_gone(false, None, t + 0.4);
+    m.game_only_gone(false, None, t + 0.6);
+    m.game_only_gone(false, None, t + alogs_meter::pacing::GAME_ONLY_GONE_S + 1.0);
+    assert_eq!(m.pacing.gone_said, 0);
+    assert!(m.pacing.game_only_spot.is_none(), "forgotten");
+}
+
+/// The read's own frame decides, not what the capture does when the read is handled: a read of a screen copy handled
+/// once the capture shows the game window is still a screen-copy read.
+#[test]
+fn a_read_is_judged_by_its_own_frame() {
+    let t = 1_800_000_000.0;
+    let im = Image::new(alogs_pil::Mode::Rgb, 1920, 1080, &[0, 0, 0]);
+    let none = alogs_meter::screens::Heads::new();
+    let mut m = spotted_in_the_screen_copy("pacing-gone-own-frame", t);
+    m.args.replay = false;
+    m.ss.read_copy = true;
+    for i in 1..=3 {
+        m.read_screen(&mut Window, &mut Quiet, &im, t + 0.2 * f64::from(i), &none);
+    }
+    assert_eq!(m.pacing.gone_said, 0, "three reads of the screen copy, handled after the switch");
+    assert!(m.pacing.game_only_spot.is_some());
+    // the frame's source travels with the read from the look that made it
+    m.frame_full = true;
+    m.rs.last_results = 0.0;
+    m.check_battle_data(&mut ScreenCopy::default(), &mut Quiet, &im, t + 1.0);
+    assert!(m.ss.read_copy, "made from a screen copy");
+    m.rs.last_results = 0.0;
+    m.check_battle_data(&mut Window, &mut Quiet, &im, t + 1.2);
+    assert!(!m.ss.read_copy, "made from the game window's picture");
+}
+
 /// One setting changed in a copy of the settings.
 fn set(cfg: &alogs_pyval::Value, section: &str, key: &str, on: bool) -> alogs_pyval::Value {
     use alogs_pyval::Value;
