@@ -4,6 +4,7 @@
 pub mod bar;
 pub mod boss;
 pub mod bundles;
+pub mod cyrillic;
 pub mod gamefont;
 pub mod hangul;
 pub mod icons;

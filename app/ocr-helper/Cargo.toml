@@ -2,7 +2,7 @@
 name = "ocr-helper"
 version = "0.1.0"
 edition = "2021"
-description = "PaddleOCR text models (Latin and Korean) for player names, with Windows OCR as a fallback"
+description = "PaddleOCR text models (Latin, Korean and Cyrillic) for player names, with Windows OCR as a fallback"
 
 # its own workspace (its own Cargo.lock and release profile), wherever the checkout sits: cargo then never looks for
 # one above it (a git worktree inside another checkout found that checkout's Cargo.toml and refused to build)

@@ -57,7 +57,7 @@ const meter = join(resources, "meter");
 empty(meter);
 copy(meterExe, join(meter, "alogs-meter.exe"));
 copy(ocrExe, join(meter, "ocr-helper.exe"));
-copy(need(join(ocrHelper, "model", "LICENSE-model.txt"), "it comes with app/ocr-helper"), join(meter, "LICENSE-model.txt"));   // the Korean name model's licence (Apache-2.0)
+copy(need(join(ocrHelper, "model", "LICENSE-model.txt"), "it comes with app/ocr-helper"), join(meter, "LICENSE-model.txt"));   // the name models' licence (Apache-2.0)
 for (const name of DATA_FILES) copy(need(join(meterRes, name), "it comes with crates/alogs-meter/res"), join(meter, name));
 copy(need(pluginList, "it comes with crates/alogs-protocol"), join(meter, "plugins.json"));
 
