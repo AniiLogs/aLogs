@@ -8,19 +8,45 @@
 //! (aLogs' `npm run meter:build` runs it on `crates/alogs-meter/res`.) Without a game install only what can be checked
 //! without it is: every boss in the shipped week schedule has a boss row. Exit code 1 when anything differs.
 //!
-//! Nothing in the workspace rewrites the two files yet: the B16 build's `gamedata.py catalog` / `grades` does (in a
-//! checkout of the old commit, e.g. reference/aLogs/bossbar; it writes next to itself), then copy the file over.
+//! With `--write` it rewrites the two files from the installed game first (gamedata::write_catalog / write_grades: the
+//! same columns, quoting and line ends, rows in the shipped order with new ones after), then checks them:
+//!
+//!     cargo run --release -p alogs-gamedata --example check_data -- crates/alogs-meter/res --write
+//!
+//! (`npm run write:data` in app/). Read the diff before committing it.
 use alogs_gamedata::gamedata as g;
 use alogs_gamedata::pmdata::PmData;
 use std::path::PathBuf;
 
 fn main() {
-    let dir = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".into()));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let write = args.iter().any(|a| a == "--write");
+    let dir = PathBuf::from(args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_else(|| ".".into()));
     let game = g::find_game_data(None);
     let place = match &game {
         Some(p) => p.display().to_string(),
         None => "what can be checked without the game (no game install found)".into(),
     };
+    if write {
+        let Some(p) = &game else {
+            eprintln!("--write needs the game installed: no game data found");
+            std::process::exit(1);
+        };
+        match g::write_catalog(p, &dir.join("boss_catalog.csv")) {
+            Ok((n, changed)) => println!("boss_catalog.csv written from {place}: {n} rows, {changed} changed"),
+            Err(e) => {
+                eprintln!("boss_catalog.csv not written: {e}");
+                std::process::exit(1);
+            }
+        }
+        match PmData::open(p).map_err(|e| e.to_string()).and_then(|mut pm| g::write_grades(&mut pm, &dir.join("boss_rush_grades.csv")).map_err(|e| e.to_string())) {
+            Ok(n) => println!("boss_rush_grades.csv written from {place}: {n} grades"),
+            Err(e) => {
+                eprintln!("boss_rush_grades.csv not written: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
     let catalog = g::catalog_drift(game.as_deref(), &dir.join("boss_catalog.csv"), None);
     let grades = match &game {
         Some(p) => match PmData::open(p) {
@@ -30,7 +56,7 @@ fn main() {
         None => g::grades_drift(None, &dir.join("boss_rush_grades.csv")),
     };
     let mut stop = false;
-    for (name, fix, drift) in [("boss_catalog.csv", "catalog", catalog), ("boss_rush_grades.csv", "grades", grades)] {
+    for (name, drift) in [("boss_catalog.csv", catalog), ("boss_rush_grades.csv", grades)] {
         let drift = drift.unwrap_or_else(|e| vec![format!("can't be checked: {e}")]);
         if drift.is_empty() {
             println!("{name} checked against {place}");
@@ -40,7 +66,7 @@ fn main() {
         for line in drift.iter().take(40) {
             println!("  {line}");
         }
-        println!("  fix: `python gamedata.py {fix}` in the B16 meter's folder (a checkout of the old commit, e.g. reference/aLogs/bossbar), copy {name} into crates/alogs-meter/res and read the diff; or update the game first");
+        println!("  fix: `npm run write:data` in app/ (rewrites {name} and boss_rush_grades.csv in crates/alogs-meter/res from the installed game), then read the diff; or update the game first");
         stop = true;
     }
     if stop {

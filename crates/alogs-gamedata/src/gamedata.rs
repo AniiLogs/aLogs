@@ -755,3 +755,62 @@ pub fn catalog_drift(path: Option<&Path>, csv_path: &Path, cycles_path: Option<&
     }
     Ok(out)
 }
+
+/// Writes rows as CSV the way the shipped files are: a header line, fields quoted only when they need it, LF line ends.
+fn write_rows(csv_path: &Path, columns: &[String], rows: &[Vec<String>]) -> Result<()> {
+    let io = |e: std::io::Error| PmError(e.to_string());
+    let mut w = csv::WriterBuilder::new().terminator(csv::Terminator::Any(b'\n')).from_writer(Vec::new());
+    w.write_record(columns).map_err(|e| PmError(e.to_string()))?;
+    for r in rows {
+        w.write_record(r).map_err(|e| PmError(e.to_string()))?;
+    }
+    let bytes = w.into_inner().map_err(|e| PmError(e.to_string()))?;
+    let mut tmp = csv_path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    std::fs::write(&tmp, bytes).map_err(io)?;
+    std::fs::rename(&tmp, csv_path).map_err(io)
+}
+
+/// boss_catalog.csv from the game data at `path`: catalog_rows (every boss-type creature, plus the other rows the
+/// shipped file already keeps), in the shipped file's row order with new rows after it. Returns (rows written, rows
+/// that differ from the file it replaces).
+pub fn write_catalog(path: &Path, csv_path: &Path) -> Result<(usize, usize)> {
+    let shipped = if csv_path.exists() { shipped_catalog(csv_path)? } else { vec![] };
+    let key = |r: &Value| (r.get("table").py_str(), r.get("puppetId").py_str());
+    let rows = catalog_rows(path, &keep_of(&shipped))?;
+    let rows = rows.as_list().cloned().unwrap_or_default();
+    let place: std::collections::HashMap<(String, String), usize> = shipped.iter().enumerate().map(|(i, r)| (key(r), i)).collect();
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by_key(|&i| (place.get(&key(&rows[i])).copied().unwrap_or(usize::MAX), i));
+    let Some(first) = rows.first() else { return err("no boss rows in the game data") };
+    let columns: Vec<String> = first.as_dict().unwrap().keys().map(Value::py_str).collect();
+    let cells = |r: &Value| -> Vec<String> { columns.iter().map(|c| r.get(c).py_str()).collect() };
+    let out: Vec<Vec<String>> = order.iter().map(|&i| cells(&rows[i])).collect();
+    let before: std::collections::HashMap<(String, String), Vec<String>> = shipped.iter().map(|r| (key(r), cells(r))).collect();
+    let changed = order.iter().filter(|&&i| before.get(&key(&rows[i])) != Some(&cells(&rows[i]))).count() + shipped.len().saturating_sub(rows.len());
+    write_rows(csv_path, &columns, &out)?;
+    Ok((out.len(), changed))
+}
+
+/// boss_rush_grades.csv from the game data: grade, name, the three HP-bar columns (as Python's `float` repr gives
+/// them) and xn, the bar's counter at that grade (blank at grade 0). Returns the number of grades written.
+pub fn write_grades(pm: &mut PmData, csv_path: &Path) -> Result<usize> {
+    let rows = read_grades(pm)?;
+    let Some(rows) = rows.as_list().filter(|r| !r.is_empty()) else { return err("the game data's bossrush_grade_data is not a 0-to-1 ladder") };
+    let mut columns: Vec<String> = vec!["grade".into(), "name".into()];
+    columns.extend(GRADE_COLUMNS.iter().map(|c| c.to_string()));
+    columns.push("xn".into());
+    let n = rows.len() as i64;
+    let out: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| {
+            let g = r.get("grade").as_i64().unwrap_or(0);
+            let mut cells = vec![g.to_string(), r.get("name").py_str()];
+            cells.extend(GRADE_COLUMNS.iter().map(|c| Value::Float(r.get(c).as_f64().unwrap_or(0.0)).py_str()));
+            cells.push(if g == 0 { String::new() } else { (n - g).to_string() });
+            cells
+        })
+        .collect();
+    write_rows(csv_path, &columns, &out)?;
+    Ok(out.len())
+}

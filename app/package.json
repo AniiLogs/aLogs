@@ -5,6 +5,7 @@
   "scripts": {
     "ocr:build": "cargo build --release --manifest-path ocr-helper/Cargo.toml",
     "check:data": "cargo run --release --quiet --manifest-path ../Cargo.toml -p alogs-gamedata --example check_data -- ../crates/alogs-meter/res",
+    "write:data": "cargo run --release --quiet --manifest-path ../Cargo.toml -p alogs-gamedata --example check_data -- ../crates/alogs-meter/res --write",
     "meter:build": "npm run ocr:build && npm run check:data && cargo build --release --manifest-path ../Cargo.toml -p alogs-meter",
     "sanctum:build": "cargo build --release --manifest-path ../Cargo.toml -p alogs-sanctum",
     "resources": "node resources.mjs",
