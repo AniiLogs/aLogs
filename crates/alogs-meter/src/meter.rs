@@ -175,6 +175,8 @@ pub struct Meter {
     pub ss: crate::screens::ScreensState,
     pub auto: crate::leaderboards::AutoState,
     pub sim: crate::sim::SimState,
+    /// The Holo-Battle Sim run's levels, kept for its win (sim_stages.rs).
+    pub stages: crate::sim_stages::Stages,
     pub egg: crate::egg::EggState,
     /// The end-of-fight watch and the hold from its fade (fight_end.rs).
     pub fight_end: crate::fight_end::FightEndState,
@@ -338,6 +340,7 @@ impl Meter {
             ss: Default::default(),
             auto: Default::default(),
             sim: Default::default(),
+            stages: Default::default(),
             egg: Default::default(),
             fight_end: Default::default(),
             shots: Default::default(),
@@ -887,6 +890,7 @@ impl Meter {
             }
             if why != "meter closed" {
                 self.after_fight = Some((f.csv_name.clone(), now + 45.0, 0.0));
+                self.stages_fight(&f, now); // (a Sim room's only)
             }
             self.last_fight = Some((f, now));
         }
@@ -918,7 +922,9 @@ impl Meter {
                         self.set_uid(&u);
                     }
                     self.bossrush_space = self.rush_spaces.contains(&space);
+                    let was_sim = self.holosim_space;
                     self.holosim_space = self.sim_spaces.contains(&space);
+                    self.stages_enter(&space, delay, was_sim);
                     self.space = Some(space);
                     self.fight_end_off("the game entered another scene");
                     self.duds.clear();
@@ -957,7 +963,9 @@ impl Meter {
                         self.sim_spaces.insert(s.clone());
                     }
                     if sid.is_some() && sid == self.space {
+                        let was_sim = self.holosim_space;
                         self.holosim_space = true;
+                        self.stages_holosim(was_sim);
                     }
                     self.load_icons(); // the Victory screen's gizmo row needs them
                 }
@@ -1137,6 +1145,7 @@ impl Meter {
         }
         if self.bar.is_none() && self.holosim_space {
             self.sim_gate(&im, now, fg);
+            self.stages_look(&im, now, fg, !self.args.replay && frames.screen_copy()); // the run's level, once a second
         }
         // In a fight: its held ends (a new fight or frame size starts them over), this look's sight of them, and a
         // reading at them when their bracket check failed while the track still shows the fill's colour. Not in a

@@ -355,6 +355,8 @@ impl Meter {
             sim.insert(s("setup"), Value::Dict(setup));
         }
         let shot_rel = shot.as_ref().map(|p| rel(&self.env.data, p));
+        // the run's levels as seen (sim_stages.rs): sent with it, then cleared
+        let stages = self.stages_take();
         if self.env.write_files {
             let path = self.env.data.join("logs").join("sim_runs.csv");
             let _ = std::fs::create_dir_all(self.env.data.join("logs"));
@@ -375,6 +377,9 @@ impl Meter {
             let mut run = sim.clone();
             if let Some(g) = self.game_build_now() {
                 run.insert(s("game"), g);
+            }
+            if let Some(st) = stages {
+                run.insert(s("stages"), st);
             }
             let p = payloads::sim_payload(&Value::Dict(run), &Value::Str(uid), None, &clock);
             self.send_result(&p, shot_rel.as_deref(), None, None, Some(&shots));
