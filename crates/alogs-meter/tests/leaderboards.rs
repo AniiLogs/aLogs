@@ -715,3 +715,48 @@ fn a_result_screen_is_read_when_two_looks_agree() {
     m.rs.last_results = T + 3.2;
     assert!(!m.screen_read_due(T + 3.5, false), "once read, a result screen left up costs nothing more");
 }
+
+fn party_read(m: &mut Meter, at: f64) {
+    let member = |slot: i64, name: &str, me: bool| {
+        alogs_pyval::dict([("slot", Value::Int(slot)), ("name", Value::Str(name.into())), ("ai", Value::Bool(false)), ("self", Value::Bool(me))]).as_dict().cloned().unwrap()
+    };
+    m.set_party(vec![member(0, "Made-up One", true), member(1, "Made-up Two", false)], at);
+}
+
+/// The result screen's first read ends the open fight (stamped with the clock of that moment) and records its result
+/// with the look's time, a little before that end: Battle Data after it still goes with the Party read the result
+/// went with (decided by the count of results, not by the two times).
+#[test]
+fn battle_data_after_the_result_screen_that_ended_the_fight_gets_the_runs_party() {
+    let mut m = sending("lb-bd-party-ended", false);
+    party_read(&mut m, T - 60.0);
+    m.fight = Some(interlink_fight(&m, "fight_a"));
+    let im = alogs_pil::Image::new(alogs_pil::Mode::Rgb, 1920, 1080, &[20, 20, 20]);
+    let mut out = Said::default();
+    for at in [T, T + 1.6] {
+        m.env.fixed_now.set(Some(at + 0.2)); // (the meter's clock a little after the look's time)
+        m.ocr = result_answers("Made-up One");
+        m.result_screen(&mut NoFrames, &mut out, &im, at, 1920.0, 0.0, 1080.0, "Challenge Complete", None);
+        if at == T {
+            assert_eq!(m.ps.results, m.results_at_fight_end + 1, "recorded on the first look, at T: before the end's stamp");
+        }
+    }
+    assert!(m.fight.is_none() && m.fight_ended_at == T + 0.2, "the result screen ended the fight");
+    assert_eq!(m.ps.results, m.results_at_fight_end + 1, "its result counted after the end");
+    let party = m.battle_data_party(T + 5.0).expect("the run's Party read");
+    assert_eq!(party.len(), 2);
+    assert_eq!(party[1].get("name").py_str(), "Made-up Two");
+}
+
+/// A fight that ended with no result read (the result screen skipped): Battle Data takes a Party read no result went
+/// with; a result recorded for an earlier run doesn't change that.
+#[test]
+fn battle_data_with_no_result_read_takes_a_party_no_result_took() {
+    let mut m = sending("lb-bd-party-skipped", false);
+    m.ps.results = 3; // (results recorded for earlier runs)
+    party_read(&mut m, T - 60.0);
+    m.fight = Some(interlink_fight(&m, "fight_b"));
+    m.end_fight(&mut Said::default(), "scene changed (game log)");
+    let party = m.battle_data_party(T + 5.0).expect("the Party read no result took");
+    assert_eq!(party.len(), 2);
+}

@@ -69,8 +69,6 @@ pub struct PartyState {
     pub runs: u64,
     /// Interlink results recorded: a Party read goes with the first result after it only (party_for_result)
     pub results: u64,
-    /// when the last of them was
-    pub result_at: f64,
     pub egg_party: bool,
     pub party_seen: f64,
     pub interlink_seen: f64,

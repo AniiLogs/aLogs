@@ -142,6 +142,8 @@ pub struct Meter {
     pub catch_seen: f64,
     pub last_fight: Option<(Fight, f64)>,
     pub fight_ended_at: f64,
+    /// Interlink results recorded (ps.results) when the last fight ended: a higher count since means its result was read
+    pub results_at_fight_end: u64,
     pub awaiting: Option<f64>,
     pub after_fight: Option<(String, f64, f64)>,
     pub last_screen: Option<(i32, i32, usize, usize)>,
@@ -308,6 +310,7 @@ impl Meter {
             catch_seen: 0.0,
             last_fight: None,
             fight_ended_at: 0.0,
+            results_at_fight_end: 0,
             awaiting: None,
             after_fight: None,
             last_screen: None,
@@ -823,6 +826,7 @@ impl Meter {
         let ending = self.fight_ending(if self.bar_seen > 0.0 { self.bar_seen.min(now) } else { now }).is_some();
         if let Some(mut f) = self.fight.take() {
             self.fight_ended_at = now;
+            self.results_at_fight_end = self.ps.results;
             let left = if f.boss_hp != 0 { (f.max_hp - f.damage) as f64 / f.boss_hp as f64 } else { 1.0 };
             if why.starts_with("caught") && !f.bossrush && f.hit && f.timer.as_ref().is_none_or(|t| t.predict(now).is_none()) {
                 // the boss kill sound, when heard, dates the blow itself

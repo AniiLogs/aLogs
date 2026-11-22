@@ -121,7 +121,7 @@ fn no_note_when_a_result_was_read() {
     let mut m = meter("seat-note-result");
     fight(&mut m, "fight_r", 178.5);
     m.end_fight(&mut Log::default(), "boss bar gone");
-    m.ps.result_at = T + 3.0; // (the result screen's first read records it)
+    m.ps.results += 1; // (the result screen's first read records it)
     at(&mut m, T + SEAT_NOTE_WAIT_S + 0.5);
     assert!(note(&m, "fight_r").is_none());
     assert!(m.seat_note.pending.is_none());
@@ -140,7 +140,7 @@ fn no_note_when_the_result_screen_ended_the_fight() {
     fight(&mut m, "fight_q", 178.5);
     m.env.fixed_now.set(Some(T + 3.0));
     m.end_fight(&mut Log::default(), "result screen");
-    m.ps.result_at = T + 2.9; // (the look's time, before the end's stamp)
+    m.ps.results += 1; // (recorded after the end, with the look's time, a little before the end's stamp)
     run_file(&m, "fight_q", r#"{"result": {"score": 1234, "players": []}}"#);
     at(&mut m, T + 3.0 + SEAT_NOTE_WAIT_S + 0.5);
     assert!(note(&m, "fight_q").is_none());
