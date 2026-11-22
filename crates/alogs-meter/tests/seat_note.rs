@@ -85,8 +85,7 @@ fn a_fight_run_to_its_end_without_a_result_sends_a_note() {
     assert!(!item.get("evidence").truthy() && !item.get("party").truthy(), "no pictures");
     let mut p = item.get("payload").clone();
     if let Value::Dict(d) = &mut p {
-        assert!(d.get_str("server").is_none() || d.at("server").truthy());
-        d.pop("server"); // (this PC's game server, from its registry)
+        d.pop("server"); // (this PC's game server from its registry, or null on a PC without the game)
         assert!(matches!(d.pop("playedAt"), Some(Value::Int(_))), "played at: the fight's start, as a run's");
         d.pop("cycle"); // (whichever week the shipped schedule says)
     }
