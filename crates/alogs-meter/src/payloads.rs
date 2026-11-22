@@ -411,8 +411,65 @@ fn thousands(v: &Value) -> Option<String> {
     }
 }
 
-/// (title, details, accent) of the notice over the game when a record reached the leaderboards.
+/// What the meter put up for a run record (by clientRunId), so a later update of it only gets a notice when the run's
+/// standing got better since: was it announced as improving the submitter's standing, and its figure then.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Announced {
+    pub improved: bool,
+    /// Interlink: (stars, score); Sim and Egg Heist matches: (0, score) when the score is an int. None: no figure.
+    pub figure: Option<(i64, i64)>,
+}
+
+/// One reply's notice: what goes up (title, details, accent) or nothing, the reason for the log, and what to remember
+/// for the run (run records only, and only when a notice went up).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Notice {
+    pub show: Option<(String, String, String)>,
+    pub why: String,
+    pub announce: Option<Announced>,
+}
+
+fn plain_int(v: &Value) -> Option<i64> {
+    match v {
+        Value::Int(i) => Some(*i),
+        _ => None,
+    }
+}
+
+/// The site's `standing` from a reply: {best: bool, position: int >= 1 (optional), of: int >= position (optional)}.
+/// Wrong types are read as not there: (best, position, of).
+fn standing(reply: Option<&Value>) -> (Option<bool>, Option<i64>, Option<i64>) {
+    let Some(st) = reply.map(|r| r.get("standing")).filter(|s| s.as_dict().is_some()) else { return (None, None, None) };
+    let best = match st.get("best") {
+        Value::Bool(b) => Some(*b),
+        _ => None,
+    };
+    let position = plain_int(st.get("position")).filter(|p| *p >= 1);
+    let of = position.and_then(|p| plain_int(st.get("of")).filter(|o| *o >= p));
+    (best, position, of)
+}
+
+fn figure(payload: &Value) -> Option<(i64, i64)> {
+    let score = plain_int(payload.get("score"))?;
+    if payload.get("kind").as_str() == Some("interlink_run") { Some((plain_int(payload.get("stars"))?, score)) } else { Some((0, score)) }
+}
+
+fn int_str(i: i64) -> String {
+    thousands(&Value::Int(i)).unwrap_or_default()
+}
+
+/// (title, details, accent) of the notice over the game when a record reached the leaderboards, for a first send or a
+/// record the meter has no memory of. See `sent_notice_for`.
 pub fn sent_notice(payload: &Value, reply: Option<&Value>) -> Option<(String, String, String)> {
+    sent_notice_for(payload, reply, None).show
+}
+
+/// The notice for one reply of the sender. Run records (interlink_run, sim_run, eggheist_match): a first send says
+/// "<Mode> ranking updated" when it improved the submitter's standing (the site's `standing.best`, else for Interlink
+/// this PC's bests), with the site's placement last, else "<...> submitted"; an update shows nothing unless the run's
+/// standing got better than what `before` (its notice) announced. eggheist_season and interlink_best: "... submitted"
+/// on a first send, "... updated" on an update. Other kinds: none.
+pub fn sent_notice_for(payload: &Value, reply: Option<&Value>, before: Option<&Announced>) -> Notice {
     let kind = payload.get("kind").as_str().unwrap_or("");
     let stars = match payload.get("stars") {
         Value::Int(s) => Some(format!("{s} stars")),
@@ -420,17 +477,57 @@ pub fn sent_notice(payload: &Value, reply: Option<&Value>) -> Option<(String, St
         _ => None,
     };
     let boss = payload.get("boss").get("name").as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    let verb = if reply.is_some_and(|r| r.get("updated").truthy()) { "updated" } else { "sent" };
+    let updated = reply.is_some_and(|r| r.get("updated").truthy());
+    let verb = if updated { "updated" } else { "submitted" };
     let s = |v: &Value| if v.truthy() { Some(v.py_str()) } else { None };
-    let (head, parts, accent): (String, Vec<Option<String>>, &str) = match kind {
-        "interlink_run" => (format!("Interlink run {verb}"), vec![boss, stars, thousands(payload.get("score"))], "#7fb2ff"),
-        "interlink_best" => (format!("Interlink best {verb}"), vec![boss, stars, thousands(payload.get("score"))], "#7fb2ff"),
-        "sim_run" => (format!("Holo-Battle Sim run {verb}"), vec![s(payload.get("trial")), s(payload.get("difficulty"))], "#9be27a"),
-        "eggheist_match" => (format!("Egg Heist match {verb}"), vec![s(payload.get("difficulty")), thousands(payload.get("score"))], "#ffc861"),
-        "eggheist_season" => (format!("Egg Heist rank {verb}"), vec![s(payload.get("rank").get("name")), thousands(payload.get("score"))], "#ffc861"),
-        _ => return None,
+    // (the mode of "<mode> ranking updated" for run records, the title otherwise, the details' parts, accent)
+    let (mode, head, mut parts, accent): (Option<&str>, String, Vec<Option<String>>, &str) = match kind {
+        "interlink_run" => (Some("Interlink"), "Interlink run submitted".into(), vec![boss, stars, thousands(payload.get("score"))], "#7fb2ff"),
+        "sim_run" => (Some("Holo-Battle Sim"), "Holo-Battle Sim run submitted".into(), vec![s(payload.get("trial")), s(payload.get("difficulty"))], "#9be27a"),
+        "eggheist_match" => (Some("Egg Heist"), "Egg Heist match submitted".into(), vec![s(payload.get("difficulty")), thousands(payload.get("score"))], "#ffc861"),
+        "interlink_best" => (None, format!("Interlink best {verb}"), vec![boss, stars, thousands(payload.get("score"))], "#7fb2ff"),
+        "eggheist_season" => (None, format!("Egg Heist rank {verb}"), vec![s(payload.get("rank").get("name")), thousands(payload.get("score"))], "#ffc861"),
+        _ => {
+            let what = if kind.is_empty() { "a record without a kind" } else { kind };
+            return Notice { show: None, why: format!("no notice for {what}"), announce: None };
+        }
     };
-    Some((head, parts.into_iter().flatten().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" \u{b7} "), accent.into()))
+    let join = |parts: Vec<Option<String>>| parts.into_iter().flatten().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" \u{b7} ");
+    let Some(mode) = mode else {
+        let why = if updated { "an update" } else { "a first send" };
+        return Notice { show: Some((head, join(parts), accent.into())), why: why.into(), announce: None };
+    };
+    let (best, position, of) = standing(reply);
+    let pc_best = || kind == "interlink_run" && payload.get("extra").get("newBests").as_list().is_some_and(|l| l.iter().any(|b| b.as_str() == Some("score")));
+    let improved = best.unwrap_or_else(pc_best);
+    let placement = position.map(|p| match of {
+        Some(o) => format!("#{} of {}", int_str(p), int_str(o)),
+        None => format!("#{}", int_str(p)),
+    });
+    let source = match best {
+        Some(true) => format!("the site's standing: {}", placement.clone().unwrap_or_else(|| "a new best, no placement given".into())),
+        Some(false) => "the site's standing: not a new best".into(),
+        None if improved => "this PC's bests".into(),
+        None => "not a new best".into(),
+    };
+    let fig = figure(payload);
+    if updated {
+        let Some(b) = before else {
+            return Notice { show: None, why: "no notice for this update of the run (the meter has no notice of it)".into(), announce: None };
+        };
+        let higher = matches!((fig, b.figure), (Some(n), Some(o)) if n > o);
+        if !(improved && (!b.improved || higher)) {
+            return Notice { show: None, why: "no notice for this update of the run (its notice is up already)".into(), announce: None };
+        }
+    }
+    let head = if improved {
+        parts.push(placement);
+        format!("{mode} ranking updated")
+    } else {
+        head
+    };
+    let why = if updated { format!("{source}; an update, better than its notice") } else { source };
+    Notice { show: Some((head, join(parts), accent.into())), why, announce: Some(Announced { improved, figure: fig }) }
 }
 
 fn played_at(clock: &dyn Clock, started: &Value) -> Value {

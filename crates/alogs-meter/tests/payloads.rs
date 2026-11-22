@@ -208,3 +208,115 @@ fn the_result_screen_wins_a_real_disagreement() {
     assert_eq!((l[1]["name"].as_str(), l[2]["name"].as_str()), (Some("Zarvok"), Some("MinMax")));
     assert!(logged("sent as it is: the result's name is another seat's"));
 }
+
+fn notice(payload: &str, reply: &str, before: Option<&pl::Announced>) -> pl::Notice {
+    pl::sent_notice_for(&Value::json_loads(payload).unwrap(), Some(&Value::json_loads(reply).unwrap()), before)
+}
+fn shown(n: &pl::Notice) -> (String, String) {
+    let (a, b, _) = n.show.clone().expect("a notice");
+    (a, b)
+}
+const RUN: &str = r#"{"kind": "interlink_run", "clientRunId": "r1", "boss": {"name": "Made-up Boss"}, "stars": 30, "score": 12345, "extra": {"newBests": []}}"#;
+const RUN_BEST: &str = r#"{"kind": "interlink_run", "clientRunId": "r1", "boss": {"name": "Made-up Boss"}, "stars": 30, "score": 12345, "extra": {"newBests": ["score"]}}"#;
+const DOT: &str = " \u{b7} ";
+
+/// A first send that beat nothing says the run was submitted, with today's details.
+#[test]
+fn a_first_send_not_improved_is_submitted() {
+    let n = notice(RUN, r#"{"submissionId": "s1"}"#, None);
+    assert_eq!(shown(&n), ("Interlink run submitted".into(), format!("Made-up Boss{DOT}30 stars{DOT}12,345")));
+    assert_eq!(n.announce, Some(pl::Announced { improved: false, figure: Some((30, 12345)) }));
+    let sim = notice(r#"{"kind": "sim_run", "clientRunId": "s", "trial": "T", "difficulty": "Hard"}"#, "{}", None);
+    assert_eq!(shown(&sim), ("Holo-Battle Sim run submitted".into(), format!("T{DOT}Hard")));
+    let egg = notice(r#"{"kind": "eggheist_match", "clientRunId": "e", "difficulty": "Hard", "score": 40}"#, "{}", None);
+    assert_eq!(shown(&egg), ("Egg Heist match submitted".into(), format!("Hard{DOT}40")));
+}
+
+/// Without the site's word, this PC's bests (newBests has "score") make an Interlink run's ranking updated.
+#[test]
+fn a_first_send_improved_by_this_pcs_bests() {
+    let n = notice(RUN_BEST, "{}", None);
+    assert_eq!(shown(&n).0, "Interlink ranking updated");
+    assert_eq!(shown(&n).1, format!("Made-up Boss{DOT}30 stars{DOT}12,345"));
+    assert_eq!(n.why, "this PC's bests");
+    // only Interlink has bests on this PC
+    let egg = notice(r#"{"kind": "eggheist_match", "clientRunId": "e", "score": 40, "extra": {"newBests": ["score"]}}"#, "{}", None);
+    assert_eq!(shown(&egg).0, "Egg Heist match submitted");
+}
+
+/// The site's standing wins over this PC's bests, and its placement goes last.
+#[test]
+fn a_first_send_with_the_sites_standing() {
+    let n = notice(RUN, r#"{"standing": {"best": true, "position": 2, "of": 1041}}"#, None);
+    assert_eq!(shown(&n), ("Interlink ranking updated".into(), format!("Made-up Boss{DOT}30 stars{DOT}12,345{DOT}#2 of 1,041")));
+    assert_eq!(n.why, "the site's standing: #2 of 1,041");
+    let n = notice(RUN, r#"{"standing": {"best": true, "position": 1234}}"#, None);
+    assert_eq!(shown(&n).1, format!("Made-up Boss{DOT}30 stars{DOT}12,345{DOT}#1,234"));
+    let n = notice(RUN, r#"{"standing": {"best": true}}"#, None);
+    assert_eq!(shown(&n), ("Interlink ranking updated".into(), format!("Made-up Boss{DOT}30 stars{DOT}12,345")));
+    let n = notice(RUN_BEST, r#"{"standing": {"best": false, "position": 3, "of": 9}}"#, None);
+    assert_eq!(shown(&n), ("Interlink run submitted".into(), format!("Made-up Boss{DOT}30 stars{DOT}12,345")));
+    assert_eq!(n.announce.unwrap().improved, false);
+    let sim = notice(r#"{"kind": "sim_run", "clientRunId": "s", "trial": "T", "difficulty": "Hard"}"#, r#"{"standing": {"best": true, "position": 5, "of": 20}}"#, None);
+    assert_eq!(shown(&sim), ("Holo-Battle Sim ranking updated".into(), format!("T{DOT}Hard{DOT}#5 of 20")));
+    let egg = notice(r#"{"kind": "eggheist_match", "clientRunId": "e", "difficulty": "Hard", "score": 40}"#, r#"{"standing": {"best": true}}"#, None);
+    assert_eq!(shown(&egg).0, "Egg Heist ranking updated");
+}
+
+/// A standing of the wrong shape is read as not there, piece by piece.
+#[test]
+fn a_malformed_standing_is_not_there() {
+    for reply in [r#"{"standing": "best"}"#, r#"{"standing": [true]}"#, r#"{"standing": {"best": 1}}"#, r#"{"standing": {"best": "yes"}}"#] {
+        assert_eq!(shown(&notice(RUN, reply, None)).0, "Interlink run submitted", "{reply}");
+        assert_eq!(shown(&notice(RUN_BEST, reply, None)).0, "Interlink ranking updated", "{reply}");
+    }
+    let bad_place = [
+        r#"{"standing": {"best": true, "position": 0, "of": 5}}"#,
+        r#"{"standing": {"best": true, "position": "2", "of": 5}}"#,
+        r#"{"standing": {"best": true, "position": true}}"#,
+        r#"{"standing": {"best": true, "position": 2.0}}"#,
+    ];
+    for reply in bad_place {
+        assert_eq!(shown(&notice(RUN, reply, None)).1, format!("Made-up Boss{DOT}30 stars{DOT}12,345"), "{reply}");
+    }
+    let bad_of = notice(RUN, r#"{"standing": {"best": true, "position": 7, "of": 3}}"#, None);
+    assert_eq!(shown(&bad_of).1, format!("Made-up Boss{DOT}30 stars{DOT}12,345{DOT}#7"));
+}
+
+/// A run's update gets a notice only when its standing got better than its notice said.
+#[test]
+fn an_update_shows_only_a_better_standing() {
+    let was = |improved, figure| pl::Announced { improved, figure };
+    let up = r#"{"updated": true}"#;
+    // nothing changed: silent
+    let n = notice(RUN, up, Some(&was(false, Some((30, 12345)))));
+    assert_eq!(n.show, None);
+    assert_eq!(n.why, "no notice for this update of the run (its notice is up already)");
+    let n = notice(RUN_BEST, up, Some(&was(true, Some((30, 12345)))));
+    assert_eq!(n.show, None);
+    // it improved now (announced as not)
+    let n = notice(RUN_BEST, up, Some(&was(false, Some((30, 12345)))));
+    assert_eq!(shown(&n).0, "Interlink ranking updated");
+    assert_eq!(n.why, "this PC's bests; an update, better than its notice");
+    // a higher figure than the improved notice said
+    let n = notice(RUN, r#"{"updated": true, "standing": {"best": true, "position": 1, "of": 41}}"#, Some(&was(true, Some((30, 12000)))));
+    assert_eq!(shown(&n), ("Interlink ranking updated".into(), format!("Made-up Boss{DOT}30 stars{DOT}12,345{DOT}#1 of 41")));
+    // higher but not improved: silent
+    assert_eq!(notice(RUN, up, Some(&was(false, Some((29, 99999))))).show, None);
+    // a run the meter has no memory of
+    let n = notice(RUN_BEST, up, None);
+    assert_eq!(n.show, None);
+    assert_eq!(n.why, "no notice for this update of the run (the meter has no notice of it)");
+}
+
+/// The Egg Heist rank and the Interlink best keep "submitted" on a first send and "updated" on an update.
+#[test]
+fn season_and_best_records_say_submitted_then_updated() {
+    let season = r#"{"kind": "eggheist_season", "clientRunId": "eggheist-S2", "rank": {"name": "Gold"}, "score": 1319}"#;
+    assert_eq!(shown(&notice(season, "{}", None)), ("Egg Heist rank submitted".into(), format!("Gold{DOT}1,319")));
+    assert_eq!(shown(&notice(season, r#"{"updated": true}"#, None)).0, "Egg Heist rank updated");
+    let best = r#"{"kind": "interlink_best", "boss": {"name": "Made-up Boss"}, "stars": 3, "score": 9}"#;
+    assert_eq!(shown(&notice(best, "{}", None)).0, "Interlink best submitted");
+    assert_eq!(shown(&notice(best, r#"{"updated": true, "standing": {"best": true, "position": 1}}"#, None)).0, "Interlink best updated");
+    assert_eq!(notice(r#"{"kind": "interlink_presence", "clientRunId": "r1"}"#, "{}", None).show, None);
+}

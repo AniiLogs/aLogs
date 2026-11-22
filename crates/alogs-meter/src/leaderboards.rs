@@ -20,6 +20,8 @@ pub const BATTLE_DATA_PAUSE: f64 = 5.0;
 pub const HOLD_MIN: f64 = RESULT_PAUSE + BATTLE_DATA_PAUSE;
 /// Inputs held at most this long while a result is sent.
 pub const SEND_HOLD_S: f64 = 10.0;
+/// How many runs the meter remembers its leaderboard notice of (Meter::noticed_runs), in memory only.
+pub const NOTICED_RUNS: usize = 16;
 /// A run's fight evidence (fight_shots.rs) goes in a request of its own that holds nothing, never in the first send
 /// and never in an update that holds the player's inputs: no sooner than this long after the first send, and only
 /// once every other update of the run is out (the Battle Data update sent or given up). The automatic Battle Data
@@ -530,13 +532,29 @@ impl Meter {
         self.followup_at(path, now + crate::results_parse::BATTLE_DATA_SETTLE);
     }
 
-    /// A record reached the leaderboards: its notice over the game, unless turned off.
+    /// A record reached the leaderboards: its notice over the game, unless turned off. A run's update only gets one
+    /// when the run's standing got better than its notice said (payloads::sent_notice_for); one log line says why.
     pub fn sent_notice(&mut self, out: &mut dyn Out, payload: &Value, reply: &Value) {
         let on = self.args.cfg.get("leaderboard").as_dict().and_then(|d| d.get_str("notify_sent")).is_none_or(|v| v.truthy());
         if !on {
+            log::info!(target: "meter", "leaderboard: no notice (turned off in the settings)");
             return;
         }
-        if let Some((a, b, c)) = payloads::sent_notice(payload, Some(reply)) {
+        let run = payload.get("clientRunId").as_str().map(String::from);
+        let before = run.as_ref().and_then(|r| self.noticed_runs.iter().rev().find(|(id, _)| id == r)).map(|(_, a)| a.clone());
+        let n = payloads::sent_notice_for(payload, Some(reply), before.as_ref());
+        match &n.show {
+            Some((title, _, _)) => log::info!(target: "meter", "leaderboard: notice \"{title}\" ({})", n.why),
+            None => log::info!(target: "meter", "leaderboard: {}", n.why),
+        }
+        if let (Some(run), Some(a)) = (run, n.announce) {
+            self.noticed_runs.retain(|(id, _)| *id != run);
+            self.noticed_runs.push_back((run, a));
+            while self.noticed_runs.len() > NOTICED_RUNS {
+                self.noticed_runs.pop_front();
+            }
+        }
+        if let Some((a, b, c)) = n.show {
             out.out("toast", Value::List(vec![Value::Str(a), Value::Str(b), Value::Str(c)]));
         }
     }

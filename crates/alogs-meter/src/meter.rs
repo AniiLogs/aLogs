@@ -201,6 +201,9 @@ pub struct Meter {
     /// The copy of that record (its payload as queued) the hold waits for: an older copy of the same run being sent
     /// doesn't end it. None: any copy of it does.
     pub send_waiting_copy: Option<Value>,
+    /// What the leaderboard notice said for the last runs sent (clientRunId, what it announced), newest last, at most
+    /// NOTICED_RUNS: a run's update only gets a notice when its standing got better since (Meter::sent_notice).
+    pub noticed_runs: std::collections::VecDeque<(String, crate::payloads::Announced)>,
     pub presence_sent: Option<(String, &'static str, f64)>,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
@@ -350,6 +353,7 @@ impl Meter {
             told_inactive: Default::default(),
             send_waiting: None,
             send_waiting_copy: None,
+            noticed_runs: Default::default(),
             presence_sent: None,
             hit_at: 0.0,
             egg_space_at: 0.0,

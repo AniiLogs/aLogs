@@ -1307,7 +1307,7 @@ impl Overlay {
 /// Where the game is on screen, for a notice or the alert: where its last fight was drawn, else the game window's
 /// place with the size of its last whole picture (the meter has both from its first look), else a 1080p screen.
 /// (Only a fight sets `last`. Until 19 Nov a notice that came before the first fight since the meter started was
-/// drawn for 1920x1080 at the top left: on a 3840x2160 screen two "Interlink best sent" notices from the battle prep
+/// drawn for 1920x1080 at the top left: on a 3840x2160 screen two "Interlink best submitted" notices from the battle prep
 /// screen came out 360x64 px, half size, and slid in from the middle of the top edge.)
 pub fn game_screen(last: Option<(i32, i32, i32, i32)>, origin: (i32, i32), frame: (usize, usize)) -> (i32, i32, i32, i32) {
     last.or_else(|| (frame.0 > 0 && frame.1 > 0).then(|| (origin.0, origin.1, frame.0 as i32, frame.1 as i32))).unwrap_or((0, 0, 1920, 1080))
