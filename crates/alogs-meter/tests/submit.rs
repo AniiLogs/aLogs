@@ -42,8 +42,9 @@ fn server(statuses: Vec<u16>) -> (String, Arc<Mutex<Vec<(String, Vec<u8>)>>>) {
     (addr, seen)
 }
 
-fn setup(api: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("alogs-submit-{}", uuid_like()));
+fn setup(api: &str, test: &str) -> std::path::PathBuf {
+    // (named by the test too: two tests starting together read the same clock)
+    let d = std::env::temp_dir().join(format!("alogs-submit-{test}-{}", uuid_like()));
     std::fs::create_dir_all(&d).unwrap();
     std::fs::write(d.join("settings.json"), format!(r#"{{"leaderboard": {{"submit": true, "token": "alb_test", "api_url": "{api}"}}}}"#)).unwrap();
     let shot = Image::new(Mode::Rgb, 64, 36, &[10, 20, 30]);
@@ -79,7 +80,7 @@ fn wait_for(cond: impl Fn() -> bool) {
 #[test]
 fn fight_evidence_goes_with_the_result_screen() {
     let (api, seen) = server(vec![200, 200]);
-    let d = setup(&api);
+    let d = setup(&api, "fight");
     std::fs::create_dir_all(d.join("logs/screens")).unwrap();
     let jpg = |n: u8| {
         let mut out = Vec::new();
@@ -128,7 +129,7 @@ fn fight_evidence_goes_with_the_result_screen() {
 #[test]
 fn sends_and_sets_aside() {
     let (api, seen) = server(vec![200, 400, 500]);
-    let d = setup(&api);
+    let d = setup(&api, "aside");
     let s = Submitter::new(d.clone());
     let runner = s.clone();
     std::thread::spawn(move || runner.run());

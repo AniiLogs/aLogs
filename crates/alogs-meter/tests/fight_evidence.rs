@@ -5,7 +5,7 @@
 use alogs_meter::env::Env;
 use alogs_meter::fight_shots::{self, FIGHT_LOG_MAX, ShotPicker, part_of, top_copy};
 use alogs_meter::fights::Fight;
-use alogs_meter::leaderboards::{FIGHT_EVIDENCE_RECHECK_S, FIGHT_EVIDENCE_WAIT_S, LATE_BATTLE_DATA_S};
+use alogs_meter::leaderboards::{FIGHT_EVIDENCE_RECHECK_S, FIGHT_EVIDENCE_WAIT_S, LATE_BATTLE_DATA_S, MAX_FOLLOWUPS};
 use alogs_meter::meter::{Args, Meter};
 use alogs_pil::{Image, Mode};
 use alogs_pyval::{Dict, Value};
@@ -440,6 +440,10 @@ fn at(m: &mut Meter, t: f64) {
     m.check_followup(t);
 }
 
+fn avg_dps(item: &Value) -> Option<i64> {
+    item.get("payload").get("players").as_list().and_then(|l| l.first()).and_then(|p| p.get("avgDps").as_i64())
+}
+
 fn extra(item: &Value) -> &Value {
     item.get("payload").get("extra")
 }
@@ -476,40 +480,125 @@ fn never_in_the_first_request() {
     assert_eq!(fight_parts(&upd), vec![1, 3]);
 }
 
-/// Battle Data read a few seconds after the result: one update carries Battle Data and the fight's evidence, and
-/// nothing more goes for the evidence afterwards.
+/// A live meter whose sends hold the player's inputs (Automation and "hold inputs" on, the game in front); the hold
+/// is a stand-in that holds nothing.
+fn holding(name: &str) -> Meter {
+    let mut m = meter(name, true);
+    m.args.replay = false;
+    m.hold = alogs_capture::input::InputBlock::dry();
+    if let Value::Dict(d) = &mut m.args.cfg {
+        d.insert("leaderboard".into(), alogs_pyval::dict([("submit", Value::Bool(true)), ("automation", Value::Bool(true))]));
+        d.insert("results".into(), alogs_pyval::dict([("hold_inputs", Value::Bool(true))]));
+    }
+    assert!(m.holding_for_send());
+    m
+}
+
+/// Battle Data read a few seconds after the result: its update (which holds the player's inputs) carries none of the
+/// evidence; the evidence goes after it, alone, in a request that holds nothing, and counts apart from the updates.
 #[test]
-fn it_rides_with_battle_data() {
-    let mut m = meter("fe-with-bd", true);
+fn with_battle_data_it_goes_after_it_alone() {
+    let mut m = holding("fe-with-bd");
     let path = summary(&m, "fight_a", true);
     m.decide_run(&path);
-    uploaded(&m, "fight_a");
-    at(&mut m, T + 6.5); // the first look at the update: nothing changed, the evidence waits for Battle Data
+    assert!(m.send_waiting.is_some(), "the first send holds inputs");
+    let first = uploaded(&m, "fight_a");
+    assert!(fight_parts(&first).is_empty());
+    m.send_waiting = None;
+    at(&mut m, T + 6.5);
     assert!(queued(&m, "fight_a").is_none());
     m.env.fixed_now.set(Some(T + 9.0));
     battle_data(&m, &path, 500, Some(BD_PIC));
     m.send_late_battle_data("fight_a");
     let upd = queued(&m, "fight_a").expect("the Battle Data update");
+    assert!(m.send_waiting.is_some(), "the Battle Data update holds inputs");
     assert_eq!(upd.get("battle").py_str(), BD_PIC);
-    assert!(upd.get("evidence").py_str().starts_with("logs/screens/resend_"));
-    assert_eq!(fight_parts(&upd), vec![1, 3]);
-    assert_eq!(upd.get("fight").as_list().unwrap()[1].get("file").py_str(), fight_shots::shot_rel("fight_a", 3));
-    assert_eq!(upd.get("fightlog").py_str(), fight_shots::log_rel("fight_a"));
-    assert_eq!(extra(&upd).get("fightShots").json_dumps(), SHOTS);
-    assert_eq!(extra(&upd).get("fightLog").json_dumps(), r#"{"rows": 42}"#);
+    assert!(fight_parts(&upd).is_empty() && !upd.get("fightlog").truthy(), "no evidence in a request that holds inputs");
+    let e = extra(&upd).as_dict().unwrap();
+    assert!(e.get_str("fightShots").is_none() && e.get_str("fightLog").is_none());
+    // its wait is over, but the Battle Data update isn't out yet: the evidence waits for it
+    at(&mut m, T + FIGHT_EVIDENCE_WAIT_S + 0.1);
+    assert!(fight_parts(&queued(&m, "fight_a").unwrap()).is_empty());
+    uploaded(&m, "fight_a");
+    m.send_waiting = None;
+    at(&mut m, T + FIGHT_EVIDENCE_WAIT_S + 0.1 + FIGHT_EVIDENCE_RECHECK_S + 0.1);
+    let ev = queued(&m, "fight_a").expect("the evidence's own request");
+    assert_eq!(m.send_waiting, None, "it holds nothing");
+    assert_eq!(fight_parts(&ev), vec![1, 3]);
+    assert_eq!(ev.get("fight").as_list().unwrap()[1].get("file").py_str(), fight_shots::shot_rel("fight_a", 3));
+    assert_eq!(ev.get("fightlog").py_str(), fight_shots::log_rel("fight_a"));
+    assert!(ev.get("evidence").py_str().starts_with("logs/screens/resend_"), "with the result screen");
+    assert!(!ev.get("battle").truthy() && !ev.get("party").truthy());
+    assert_eq!(extra(&ev).get("fightShots").json_dumps(), SHOTS);
+    assert_eq!(extra(&ev).get("fightLog").json_dumps(), r#"{"rows": 42}"#);
+    assert_eq!(avg_dps(&ev), Some(500), "the run's numbers as they stand");
+    assert_eq!(read(&path).get("followups").as_i64(), Some(1), "counted apart from the updates");
     uploaded(&m, "fight_a");
 
-    at(&mut m, T + 25.0);
     at(&mut m, T + 60.0);
-    assert!(queued(&m, "fight_a").is_none(), "nothing more for the evidence");
-    assert_eq!(read(&path).get("followups").as_i64(), Some(1), "one update did both");
-
+    assert!(queued(&m, "fight_a").is_none(), "once");
     // a later update (a new Battle Data read) keeps the entries, without the files again
     battle_data(&m, &path, 501, None);
     m.send_late_battle_data("fight_a");
     let later = queued(&m, "fight_a").unwrap();
     assert!(fight_parts(&later).is_empty() && !later.get("fightlog").truthy());
     assert_eq!(extra(&later).get("fightShots").json_dumps(), SHOTS);
+}
+
+/// The evidence waiting in the queue, replaced by an update that holds inputs: that update carries none of it, and
+/// the evidence goes again on its own once the update is out.
+#[test]
+fn a_holding_update_never_takes_the_evidence_over() {
+    let mut m = holding("fe-hold-replace");
+    let path = summary(&m, "fight_a", true);
+    m.decide_run(&path);
+    uploaded(&m, "fight_a");
+    m.send_waiting = None;
+    at(&mut m, T + FIGHT_EVIDENCE_WAIT_S + 0.1);
+    assert_eq!(fight_parts(&queued(&m, "fight_a").unwrap()), vec![1, 3], "the evidence's request, not sent yet");
+    m.env.fixed_now.set(Some(T + 30.0));
+    battle_data(&m, &path, 500, Some(BD_PIC));
+    m.send_late_battle_data("fight_a");
+    let upd = queued(&m, "fight_a").unwrap();
+    assert!(m.send_waiting.is_some());
+    assert_eq!(upd.get("battle").py_str(), BD_PIC);
+    assert!(fight_parts(&upd).is_empty() && !upd.get("fightlog").truthy());
+    assert!(extra(&upd).as_dict().unwrap().get_str("fightShots").is_none());
+    assert!(on_disk(&m, &fight_shots::shot_rel("fight_a", 1)), "its files stay for its own request");
+    uploaded(&m, "fight_a");
+    m.send_waiting = None;
+    at(&mut m, T + 40.0);
+    let ev = queued(&m, "fight_a").expect("the evidence again, on its own");
+    assert_eq!(fight_parts(&ev), vec![1, 3]);
+    assert_eq!(m.send_waiting, None);
+}
+
+/// Battle Data updates using up all MAX_FOLLOWUPS: the evidence still gets its one request (counted apart, a cap of
+/// one of its own).
+#[test]
+fn the_evidence_is_counted_apart_from_the_updates() {
+    let mut m = meter("fe-count", true);
+    let path = summary(&m, "fight_a", true);
+    m.decide_run(&path);
+    uploaded(&m, "fight_a");
+    m.env.fixed_now.set(Some(T + 8.0));
+    for dps in [500, 501, 502] {
+        battle_data(&m, &path, dps, None);
+        m.send_late_battle_data("fight_a");
+        uploaded(&m, "fight_a");
+    }
+    assert_eq!(read(&path).get("followups").as_i64(), Some(MAX_FOLLOWUPS));
+    battle_data(&m, &path, 503, None);
+    m.send_late_battle_data("fight_a");
+    assert!(queued(&m, "fight_a").is_none(), "no fourth update");
+    // (that reading can't go as an update any more, so it doesn't keep the evidence waiting)
+    at(&mut m, T + FIGHT_EVIDENCE_WAIT_S + 0.1);
+    let ev = queued(&m, "fight_a").expect("the evidence still goes");
+    assert_eq!(fight_parts(&ev), vec![1, 3]);
+    assert_eq!(read(&path).get("followups").as_i64(), Some(MAX_FOLLOWUPS));
+    uploaded(&m, "fight_a");
+    at(&mut m, T + 60.0);
+    assert!(queued(&m, "fight_a").is_none(), "once");
 }
 
 /// No Battle Data: the evidence goes alone FIGHT_EVIDENCE_WAIT_S after the first send, with the result screen as
@@ -535,7 +624,7 @@ fn it_goes_alone_when_no_battle_data_comes() {
     uploaded(&m, "fight_a");
     at(&mut m, T + 100.0);
     assert!(queued(&m, "fight_a").is_none());
-    assert_eq!(read(&path).get("followups").as_i64(), Some(1));
+    assert_eq!(read(&path).get("followups").as_i64(), None, "the evidence's request isn't one of the run's updates");
     assert_eq!(read(&path).get("fight_evidence").get("shots").json_dumps(), SHOTS);
 }
 
@@ -555,7 +644,7 @@ fn it_waits_while_battle_data_is_on_its_way() {
     assert_eq!(fight_parts(&queued(&m, "fight_a").expect("then it goes alone")), vec![1, 3]);
 }
 
-/// Another run's window opening (or the meter closing) settles this one: the evidence goes then.
+/// Another run's window opening (or the meter closing) settles this one: the evidence goes then, on its own.
 #[test]
 fn it_goes_when_the_window_is_settled() {
     let mut m = meter("fe-settle", true);
@@ -619,7 +708,8 @@ fn keep_screenshots_keeps_the_files() {
     assert!(on_disk(&m, &fight_shots::shot_rel("fight_a", 1)) && on_disk(&m, &fight_shots::log_rel("fight_a")));
 }
 
-/// A queued update with the evidence, replaced by a newer one before it went: the newer one carries the files.
+/// The evidence's queued request, replaced by a newer update that holds nothing (here no hold is possible) before it
+/// went: the newer one carries the files.
 #[test]
 fn a_replacing_update_carries_the_evidence() {
     let mut m = meter("fe-replace", true);
