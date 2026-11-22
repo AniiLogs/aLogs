@@ -156,22 +156,30 @@ pub async fn auth_listen_wait() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
-    // the browser coming back: a favicon request is turned away, the callback hands over the code
+    fn get(port: u16, path: &str) -> String {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes()).unwrap();
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        out
+    }
+
+    // the browser coming back: a favicon request is turned away, the callback hands over the code. One visit after the
+    // other, as a browser makes them: the wait ends with the callback and closes the listener, so a favicon request
+    // sent alongside it from a thread of its own sometimes came after that and was refused (twice on CI, 22 Nov).
     #[test]
     fn browser_comes_back() {
         let port = super::auth_listen_start().unwrap();
-        let visit = move |path: &'static str| std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-            s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes()).unwrap();
-            let mut out = String::new(); let _ = s.read_to_string(&mut out); out
+        let browser = std::thread::spawn(move || {
+            let fav = get(port, "/favicon.ico");
+            let cb = get(port, "/callback?code=abcdefghijklmnopqrstuvwxyz0123456789-_AB");
+            (fav, cb)
         });
-        let fav = visit("/favicon.ico");
-        let cb = visit("/callback?code=abcdefghijklmnopqrstuvwxyz0123456789-_AB");
         let code = tauri::async_runtime::block_on(super::auth_listen_wait()).unwrap();
         assert_eq!(code, "abcdefghijklmnopqrstuvwxyz0123456789-_AB");
-        let (fav, cb) = (fav.join().unwrap(), cb.join().unwrap());
-        assert!(fav.starts_with("HTTP/1.1 404") || cb.contains("signed in"), "{fav} / {cb}");
+        let (fav, cb) = browser.join().unwrap();
+        assert!(fav.starts_with("HTTP/1.1 404"), "{fav}");
+        assert!(cb.contains("signed in"), "{cb}");
         // a cancelled sign-in
         let port = super::auth_listen_start().unwrap();
         std::thread::spawn(move || {
