@@ -915,6 +915,12 @@ impl Submitter {
                             let _ = std::fs::write(self.data.join("character_dispute.json"), d.json_dumps());
                             *self.dispute.lock().unwrap() = Some(d);
                         }
+                        // an "I was in this run" note an older site doesn't know (or turns down): dropped quietly
+                        if kind == "interlink_presence" && [400, 404, 409, 413, 422].contains(&code) {
+                            log::info!(target: "meter", "leaderboard: {name} not taken by the site ({code}), dropped");
+                            let _ = std::fs::remove_file(&path);
+                            continue;
+                        }
                         if [400, 409, 413].contains(&code) {
                             log::warn!(target: "meter", "leaderboard: rejected {name}: {code} {msg}");
                             *self.last_result.lock().unwrap() = Some((now(), format!("rejected {}: {}", &name[..name.len() - 5], msg.chars().take(120).collect::<String>())));
