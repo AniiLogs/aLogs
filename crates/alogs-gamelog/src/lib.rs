@@ -70,6 +70,62 @@ pub fn last_uid_in(tail: &[u8]) -> Option<String> {
     ids.last().map(|b| String::from_utf8_lossy(b).into_owned())
 }
 
+/// How much of Player.log's head [`game_build`] reads: the version lines sit near the top of a file that grows large.
+pub const GAME_BUILD_HEAD: u64 = 2 << 20;
+
+/// The running game's version, from Player.log's head (the game writes it at every start, the file is new each time).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameBuild {
+    /// The game's build (`scm[...]` of `PrintGameVersionInfo`).
+    pub build: i64,
+    /// The newer build the game was offered (`res[...]` of `MatchLuaVerList`): only on an install that isn't up to date.
+    pub patch: Option<i64>,
+    /// What the game was told to do about it (`act[...]`, e.g. `TipPatch`).
+    pub patch_action: Option<String>,
+}
+
+static RX_VERSION_LINE: LazyLock<BRegex> = LazyLock::new(|| BRegex::new(r"PrintGameVersionInfo:[^\r\n]*").unwrap());
+static RX_PATCH_LINE: LazyLock<BRegex> = LazyLock::new(|| BRegex::new(r"MatchLuaVerList:[^\r\n]*").unwrap());
+static RX_SCM: LazyLock<BRegex> = LazyLock::new(|| BRegex::new(r"(?:^|[\s,:])scm\[([^\]\r\n]*)\]").unwrap());
+static RX_RES: LazyLock<BRegex> = LazyLock::new(|| BRegex::new(r"(?:^|[\s,:])res\[([^\]\r\n]*)\]").unwrap());
+static RX_ACT: LazyLock<BRegex> = LazyLock::new(|| BRegex::new(r"(?:^|[\s,:])act\[([^\]\r\n]*)\]").unwrap());
+
+/// A build number: 1 to 10^12, digits only.
+fn build_number(b: &[u8]) -> Option<i64> {
+    if b.is_empty() || b.len() > 13 || !b.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let n: i64 = std::str::from_utf8(b).ok()?.parse().ok()?;
+    (1..=1_000_000_000_000).contains(&n).then_some(n)
+}
+
+/// The game's version from (the head of) Player.log: the last `PrintGameVersionInfo` line and the last
+/// `MatchLuaVerList` after it. None without a valid build.
+pub fn game_build_in(raw: &[u8]) -> Option<GameBuild> {
+    let line = RX_VERSION_LINE.find_iter(raw).last()?;
+    let build = build_number(RX_SCM.captures(line.as_bytes())?.get(1)?.as_bytes())?;
+    let mut out = GameBuild { build, patch: None, patch_action: None };
+    if let Some(p) = RX_PATCH_LINE.find_iter(&raw[line.end()..]).last() {
+        let p = p.as_bytes();
+        out.patch = RX_RES.captures(p).and_then(|c| build_number(c.get(1)?.as_bytes()));
+        out.patch_action = RX_ACT
+            .captures(p)
+            .map(|c| c.get(1).unwrap().as_bytes())
+            .filter(|a| !a.is_empty() && a.len() <= 24 && a.iter().all(u8::is_ascii_alphabetic))
+            .map(|a| String::from_utf8_lossy(a).into_owned());
+    }
+    Some(out)
+}
+
+/// The running game's version from Player.log (its first [`GAME_BUILD_HEAD`] bytes only). None for a missing file
+/// or one without a version line.
+pub fn game_build(path: &Path) -> Option<GameBuild> {
+    use std::io::Read;
+    let mut head = Vec::new();
+    std::fs::File::open(path).ok()?.take(GAME_BUILD_HEAD).read_to_end(&mut head).ok()?;
+    game_build_in(&head)
+}
+
 /// What the log watcher reports, with the delay (seconds between the game writing the line and us reading it) when
 /// the line had a time.
 #[derive(Clone, Debug, PartialEq)]

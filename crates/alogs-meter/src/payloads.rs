@@ -51,6 +51,21 @@ fn screen_checks(result: &Value, bd: &Value) -> Value {
     if checks.truthy() { dict([("screenCheck", checks)]) } else { Value::Dict(Dict::new()) }
 }
 
+/// A run's `game`: `{'build', 'patch', 'patchAction'}`, the last two only when the game was offered a patch.
+pub fn game_value(g: &alogs_gamelog::GameBuild) -> Value {
+    no_nones(vec![
+        ("build", Value::Int(g.build)),
+        ("patch", g.patch.map_or(Value::None, Value::Int)),
+        ("patchAction", g.patch_action.clone().map_or(Value::None, Value::Str)),
+    ])
+}
+
+/// `{'game': ...}` for a run's extra from its record's `game` (Meter::game_build_now), empty when the build isn't known.
+fn game_of(record: &Value) -> Value {
+    let g = record.get("game");
+    if matches!(g, Value::Dict(_)) && matches!(g.get("build"), Value::Int(_)) { dict([("game", g.clone())]) } else { Value::Dict(Dict::new()) }
+}
+
 fn fold(name: &str) -> String {
     Teammates::fold(name)
 }
@@ -545,6 +560,7 @@ pub fn run_payload(summary: &Value, uid: &Value, sched: &Schedule, clock: &dyn C
         extra.insert("timeLimitS".into(), meter.get("time_limit_s").clone());
     }
     extend(&mut extra, bosses(&meter));
+    extend(&mut extra, game_of(summary));
     out.insert("extra".into(), Value::Dict(extra));
     Value::Dict(out)
 }
@@ -596,6 +612,7 @@ pub fn sim_payload(sim: &Value, uid: &Value, played_at: Option<f64>, clock: &dyn
     if sim.get("setup").truthy() {
         extra.insert("setup".into(), sim.get("setup").clone());
     }
+    extend(&mut extra, game_of(sim));
     dict([
         ("kind", Value::Str("sim_run".into())),
         ("clientRunId", Value::Str(safe(&format!("sim-{who}-{at}")))),
@@ -629,6 +646,7 @@ pub fn egg_match_payload(m: &Value, season: &Value, uid: &Value, played_at: Opti
     if m.get("party").truthy() {
         extend(&mut extra, lineup(m.get("party")));
     }
+    extend(&mut extra, game_of(m));
     dict([
         ("kind", Value::Str("eggheist_match".into())),
         ("clientRunId", Value::Str(safe(&format!("egg-{who}-{at}")))),

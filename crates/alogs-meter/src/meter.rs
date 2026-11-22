@@ -207,6 +207,8 @@ pub struct Meter {
     /// None, 'loading', 'ready', 'failed'.
     pub icons_state: Option<String>,
     icons_job: Option<std::sync::mpsc::Receiver<Option<alogs_reader::icons::Icons>>>,
+    /// The game's build as last read from Player.log's head (game_build), to log it once per change.
+    pub game_build: Option<alogs_gamelog::GameBuild>,
     pub submitter: Option<std::sync::Arc<crate::submit::Submitter>>,
     /// Your in-game name (only ever from the game).
     pub character_name: Option<String>,
@@ -342,6 +344,7 @@ impl Meter {
             icons: None,
             icons_state: None,
             icons_job: None,
+            game_build: None,
             submitter: None,
             character_name: None,
             font_reader: None,
@@ -1353,6 +1356,23 @@ pub fn last_rush_level(data: &std::path::Path) -> Option<i64> {
 }
 
 impl Meter {
+    /// The running game's build, read from Player.log's head (one bounded read; the file is new at every game start),
+    /// as a run's `game` (payloads::game_value). Logged when first known or changed. None while it isn't known.
+    pub fn game_build_now(&mut self) -> Option<Value> {
+        let g = alogs_gamelog::game_build(&self.args.player_log)?;
+        if self.game_build.as_ref() != Some(&g) {
+            let offered = match (g.patch, &g.patch_action) {
+                (Some(p), Some(a)) => format!(" (offered {p}, {a})"),
+                (Some(p), None) => format!(" (offered {p})"),
+                (None, Some(a)) => format!(" ({a})"),
+                (None, None) => String::new(),
+            };
+            log::info!(target: "meter", "game build {}{offered}", g.build);
+            self.game_build = Some(g.clone());
+        }
+        Some(crate::payloads::game_value(&g))
+    }
+
     /// The game's own pictures (icons.py's cache in <data>/icons), loaded once in the background: read from the game
     /// first when there's no cache or the game was updated since.
     pub fn load_icons(&mut self) {

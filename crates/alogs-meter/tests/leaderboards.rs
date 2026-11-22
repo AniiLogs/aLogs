@@ -184,6 +184,35 @@ fn a_result_read_whole_is_sent_at_once() {
     assert!(queued(&m, "fight_b").is_none());
 }
 
+/// The game's build from Player.log's head goes into the fight's summary and the run's extra; none without a log.
+#[test]
+fn an_interlink_run_carries_the_game_build() {
+    let mut m = sending("lb-game-build", false);
+    let log = m.env.data.join("Player.log");
+    std::fs::write(&log, "[17.8][Log]|PrintGameVersionInfo: deploy[xwinpublish], scm[3900001], res[1], lua[1], ucs[1]\r\n\
+        [48.1][Log]|MatchLuaVerList: Matched cliVer[1.1.3900001], idx[1], cond[lt(v, '1.2')], act[TipPatch], res[3900777], url[]\r\n").unwrap();
+    m.args.player_log = log;
+    let f = interlink_fight(&m, "fight_g");
+    m.rs.result_seen = T;
+    m.rs.result_ready = T;
+    m.fight_summary(&f, vec![("result", result_read())]);
+    m.send_when_read(&f);
+    let want = r#"{"build": 3900001, "patch": 3900777, "patchAction": "TipPatch"}"#;
+    assert_eq!(read(&m.run_path("fight_g")).get("game").json_dumps(), want);
+    let item = queued(&m, "fight_g").expect("queued");
+    assert_eq!(item.get("payload").get("extra").get("game").json_dumps(), want);
+
+    m.args.player_log = PathBuf::new();
+    let f = interlink_fight(&m, "fight_h");
+    m.rs.result_seen = T + 1.0;
+    m.rs.result_ready = T + 1.0;
+    m.fight_summary(&f, vec![("result", result_read())]);
+    m.send_when_read(&f);
+    assert!(read(&m.run_path("fight_h")).as_dict().unwrap().get_str("game").is_none());
+    let item = queued(&m, "fight_h").expect("queued");
+    assert!(item.get("payload").get("extra").as_dict().unwrap().get_str("game").is_none());
+}
+
 /// A later read of the result screen that corrects a name, after the first look at the update (6 s after the send):
 /// the update goes BATTLE_DATA_SETTLE after that read. A later read that changes nothing (its read count aside) sends
 /// nothing.
