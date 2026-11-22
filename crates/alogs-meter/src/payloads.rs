@@ -771,6 +771,10 @@ pub fn sim_payload(sim: &Value, uid: &Value, played_at: Option<f64>, clock: &dyn
         extra.insert("setup".into(), sim.get("setup").clone());
     }
     extend(&mut extra, game_of(sim));
+    // the run's levels as aLogs saw them (sim_stages.rs), for the leaderboards' checks
+    if sim.get("stages").truthy() {
+        extra.insert("stages".into(), sim.get("stages").clone());
+    }
     dict([
         ("kind", Value::Str("sim_run".into())),
         ("clientRunId", Value::Str(safe(&format!("sim-{who}-{at}")))),
