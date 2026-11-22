@@ -342,7 +342,11 @@ impl Meter {
             };
             let clock = self.env.record_clock();
             let season = self.egg.season.clone().map_or(Value::None, Value::Str);
-            let payload = payloads::egg_match_payload(&Value::Dict(m.clone()), &season, &Value::Str(uid), Some(now), &clock);
+            let mut run = m.clone();
+            if let Some(g) = self.game_build_now() {
+                run.insert("game".into(), g);
+            }
+            let payload = payloads::egg_match_payload(&Value::Dict(run), &season, &Value::Str(uid), Some(now), &clock);
             self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: spare(&self.env.data, &party_shot) });
             self.send_result(&payload, shot_rel.as_deref(), None, party_rel.as_deref(), None);
         }

@@ -320,6 +320,10 @@ impl Meter {
                 ] {
                     s.insert(k.into(), v);
                 }
+                // the build of the game this fight was played in, read once as its summary is first put together
+                if let Some(g) = self.game_build_now() {
+                    s.insert("game".into(), g);
+                }
                 s
             }
         };

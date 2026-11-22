@@ -62,6 +62,93 @@ fn payloads_match_reference() {
     }
 }
 
+/// `game` from a run's record goes into its extra as it is (the goldens' records have none, so carry none); a record
+/// without a build gets no `game` key.
+#[test]
+fn runs_carry_the_game_build_when_known() {
+    use alogs_gamelog::GameBuild;
+    let full = pl::game_value(&GameBuild { build: 3900001, patch: Some(3900777), patch_action: Some("TipPatch".into()) });
+    assert_eq!(full.json_dumps(), r#"{"build": 3900001, "patch": 3900777, "patchAction": "TipPatch"}"#);
+    let only = pl::game_value(&GameBuild { build: 3900001, patch: None, patch_action: None });
+    assert_eq!(only.json_dumps(), r#"{"build": 3900001}"#);
+
+    let g: J = serde_json::from_str(&std::fs::read_to_string(dir().join("payload_goldens.json")).unwrap()).unwrap();
+    let clock = FixedClock(g["now"].as_f64().unwrap());
+    let sched = Schedule::new(dir().join("cycles.json"));
+    let with = |rec: &J, game: &Value| {
+        let mut v = pv(rec);
+        if let Value::Dict(d) = &mut v {
+            d.insert("game".into(), game.clone());
+        }
+        v
+    };
+    // the golden payload with extra.game added
+    let plus = |want: &J, game: &Value| {
+        let mut w = pv(want);
+        if let Value::Dict(d) = &mut w {
+            let mut e = d.at("extra").as_dict().cloned().unwrap();
+            e.insert("game".into(), game.clone());
+            d.insert("extra".into(), Value::Dict(e));
+        }
+        w.repr()
+    };
+    let no_game = |p: &Value| p.get("extra").as_dict().is_some_and(|e| e.get_str("game").is_none());
+    let bad = [Value::None, Value::Int(3900001), Value::json_loads(r#"{"patch": 5}"#).unwrap(), Value::json_loads(r#"{"build": "3900001"}"#).unwrap()];
+    for game in [&full, &only] {
+        for c in g["runs"].as_array().unwrap() {
+            assert!(c["summary"].get("game").is_none());
+            let p = pl::run_payload(&with(&c["summary"], game), &Value::Str("100000000009".into()), &sched, &clock);
+            assert_eq!(p.repr(), plus(&c["payload"], game), "run_payload");
+            assert_eq!(pl::send_check(&p, None).get("extra").get("game").repr(), game.repr(), "kept by send_check");
+        }
+        for c in g["sims"].as_array().unwrap() {
+            let a = &c[0];
+            let got = pl::sim_payload(&with(&a[0], game), &pv(&a[1]), a[2].as_f64(), &clock);
+            assert_eq!(got.repr(), plus(&c[1], game), "sim_payload {a}");
+        }
+        for c in g["eggs"].as_array().unwrap() {
+            let a = &c[0];
+            let got = pl::egg_match_payload(&with(&a[0], game), &pv(&a[1]), &pv(&a[2]), a.get(3).and_then(J::as_f64), &clock);
+            assert_eq!(got.repr(), plus(&c[1], game), "egg_match_payload {a}");
+        }
+    }
+    for game in &bad {
+        let c = &g["runs"][0];
+        assert!(no_game(&pl::run_payload(&with(&c["summary"], game), &Value::Str("1".into()), &sched, &clock)), "{}", game.repr());
+        let a = &g["sims"][0][0];
+        assert!(no_game(&pl::sim_payload(&with(&a[0], game), &pv(&a[1]), a[2].as_f64(), &clock)));
+        let a = &g["eggs"][0][0];
+        assert!(no_game(&pl::egg_match_payload(&with(&a[0], game), &pv(&a[1]), &pv(&a[2]), a.get(3).and_then(J::as_f64), &clock)));
+    }
+}
+
+/// The meter reads the build from its Player.log and logs it when first known or changed (numbers only).
+#[test]
+fn the_meter_reads_and_logs_the_game_build() {
+    use alogs_meter::{env::Env, meter::{Args, Meter}};
+    let _ = logged("");
+    let data = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("payload-game-build");
+    let _ = std::fs::remove_dir_all(&data);
+    std::fs::create_dir_all(&data).unwrap();
+    let log = data.join("Player.log");
+    let env = Env::new(data.join("res"), data.clone());
+    let args = Args { cfg: alogs_protocol::settings::defaults(), duration: 180.0, level: None, boss_id: None, replay: true,
+                      no_submit: true, no_debug_frames: true, no_overlay: true, no_auto_click: true, player_log: log.clone() };
+    let mut m = Meter::new(env, args, Box::new(alogs_reader::ocr::NoOcr), None);
+    assert!(m.game_build_now().is_none(), "no log yet");
+    std::fs::write(&log, "[17.8][Log]|PrintGameVersionInfo: deploy[xwinpublish], scm[3800005], res[1]\n").unwrap();
+    assert_eq!(m.game_build_now().unwrap().json_dumps(), r#"{"build": 3800005}"#);
+    assert!(logged("game build 3800005"));
+    let count = || LINES.lock().unwrap().iter().filter(|l| l.starts_with("game build ")).count();
+    let before = count();
+    m.game_build_now();
+    assert_eq!(count(), before, "logged once per change");
+    std::fs::write(&log, "[17.8][Log]|PrintGameVersionInfo: deploy[xwinpublish], scm[3800005], res[1]\n\
+        [48.1][Log]|MatchLuaVerList: Matched cliVer[1.1.3800005], act[TipPatch], res[3800009], url[]\n").unwrap();
+    assert_eq!(m.game_build_now().unwrap().json_dumps(), r#"{"build": 3800005, "patch": 3800009, "patchAction": "TipPatch"}"#);
+    assert!(logged("game build 3800005 (offered 3800009, TipPatch)"));
+}
+
 /// The meter's log lines, kept for the tests to look at.
 struct Lines;
 static LINES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());

@@ -372,7 +372,11 @@ impl Meter {
             && let Some(uid) = self.uid.clone()
         {
             let clock = self.env.record_clock();
-            let p = payloads::sim_payload(&Value::Dict(sim.clone()), &Value::Str(uid), None, &clock);
+            let mut run = sim.clone();
+            if let Some(g) = self.game_build_now() {
+                run.insert(s("game"), g);
+            }
+            let p = payloads::sim_payload(&Value::Dict(run), &Value::Str(uid), None, &clock);
             self.send_result(&p, shot_rel.as_deref(), None, None, Some(&shots));
         }
         let msg = format!("Holo-Battle Sim recorded: {} - {} in {} s{}", sim.at("trial").py_str(), sim.at("difficulty").py_str(), sim.at("time_s").py_str(),
