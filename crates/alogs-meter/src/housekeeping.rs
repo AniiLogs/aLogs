@@ -44,10 +44,16 @@ pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64)
     if let Ok(rd) = std::fs::read_dir(root.join("submit_queue")) {
         for e in rd.flatten() {
             if let Some(item) = std::fs::read_to_string(e.path()).ok().and_then(|s| serde_json::from_str::<J>(&s).ok()) {
-                for key in ["evidence", "battle", "proof"] {
+                // every picture a queued record names (Submitter::enqueue_with_fight, link_character, the app's
+                // disputes): kept until it is sent or set aside
+                for key in ["evidence", "battle", "party", "proof"] {
                     if let Some(p) = item.get(key).and_then(J::as_str).filter(|p| !p.is_empty()) {
                         needed.insert(norm(&data.join(p)));
                     }
+                }
+                // a Holo-Battle Sim run's gizmo screens
+                for p in item.get("gizmos").and_then(J::as_array).into_iter().flatten().filter_map(J::as_str).filter(|p| !p.is_empty()) {
+                    needed.insert(norm(&data.join(p)));
                 }
                 // an Interlink run's fight evidence: its pictures and its compressed log (fight_shots.rs)
                 let fight = item.get("fight").and_then(J::as_array).into_iter().flatten().filter_map(|e| e.get("file").and_then(J::as_str));

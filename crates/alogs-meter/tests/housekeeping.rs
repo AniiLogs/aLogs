@@ -38,3 +38,32 @@ fn old_pictures_go_needed_ones_stay() {
     assert_eq!(clean_old_fight_logs(&data, 30.0).0, 1);
     assert!(logs.join("scores.csv").exists());
 }
+
+/// A record waiting in the queue for hours keeps every picture it names: its Party screen and its gizmo screens too.
+/// The same pictures with no record waiting go.
+#[test]
+fn a_queued_records_party_and_gizmo_pictures_stay() {
+    let data = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("housekeeping-queued");
+    let _ = std::fs::remove_dir_all(&data);
+    let logs = data.join("logs");
+    let names = ["screens/party_a.jpg", "screens/gizmo_a_1.jpg", "screens/gizmo_a_2.jpg", "screens/result_a.jpg"];
+    for n in names {
+        file(&logs.join(n), 30);
+    }
+    file(&logs.join("screens/other.jpg"), 30);
+    std::fs::create_dir_all(logs.join("submit_queue")).unwrap();
+    std::fs::write(logs.join("submit_queue/sim_run__a.json"), r#"{"evidence": "logs/screens/result_a.jpg", "battle": null,
+        "party": "logs/screens/party_a.jpg", "gizmos": ["logs/screens/gizmo_a_1.jpg", "logs/screens/gizmo_a_2.jpg"]}"#).unwrap();
+    let (files, _) = clean_old_screenshots(&data, Some(0));
+    assert_eq!(files, 1, "only the picture no record names");
+    assert!(!logs.join("screens/other.jpg").exists());
+    for n in names {
+        assert!(logs.join(n).exists(), "{n} kept while its record waits");
+    }
+    // the record sent: the same pictures go
+    std::fs::remove_file(logs.join("submit_queue/sim_run__a.json")).unwrap();
+    assert_eq!(clean_old_screenshots(&data, Some(0)).0, 4);
+    for n in names {
+        assert!(!logs.join(n).exists(), "{n}");
+    }
+}
