@@ -36,6 +36,8 @@ window.PATCH_NOTES = [
    {
     "heading": "Fixed",
     "items": [
+     "**Every player on the Party screen goes with the run, even when a name can't be read:** a seat whose name aLogs couldn't read was left out, with its Aniimo, level and CP. It is now sent for its seat without a name, and your own seat (the yellow one) takes your character's name. A name made of two symbols is kept too.",
+     "**A run never goes out with the team of the run before:** when aLogs didn't see a run's Party screen, it could send the previous run's Party (its players, picture and Overtime) with it. A run now only goes with the Party screen read for it.",
      "**A run waiting hours to be sent keeps all its pictures:** if a leaderboard record couldn't be sent for a while (offline, or the site unreachable), the hourly cleanup could delete its Party screen and Holo-Battle Sim gizmo pictures after 6 hours, so the run went without them. Every picture a waiting record needs is now kept until it is sent.",
      "**Players with a one- or two-character name keep their place in a run:** a name like \"7\" or \"ab\" on the Party screen was taken for a stray mark and dropped, so the run went out without that player's seat, Aniimo, level and CP, even when it was your own. A short name is now kept when it is all that stands beside the seat's 1P-4P badge.",
      "**Battle Data is read when you play with a controller:** the game then shows a button prompt under the cards and draws them a little higher, and aLogs only knew where they sit with mouse and keyboard, so a run's Battle Data numbers and names came out blank. Both layouts are read now.",
