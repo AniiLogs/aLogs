@@ -2,7 +2,7 @@
 //! Needs reference/ (the shipped grade table and boss_break.json); skipped without it.
 
 use alogs_meter::env::Env;
-use alogs_meter::fights::{BreakTracker, Fight, Timer};
+use alogs_meter::fights::{BREAK_CONFIRM_S, BreakTracker, Fight, Timer};
 use alogs_reader::boss::{self, Row, Schedule};
 use serde_json::{Value as J, json};
 use std::path::PathBuf;
@@ -112,15 +112,109 @@ fn timers_and_break_gauges_match_reference() {
             assert!(same(&got, s), "timer: got {got}, want {s}");
         }
     }
+    // (the reference counts a break on its first empty look; here it needs a look BREAK_CONFIRM_S on that is still
+    // empty: that look is fed after the empty one, the empty look's own row isn't compared, and every later row is the
+    // reference's, the break dated from the first empty look)
     for seq in g["breaks"].as_array().unwrap() {
         let mut b = BreakTracker::new(Some(1234.5));
         for s in seq.as_array().unwrap() {
             let t = s[0].as_f64().unwrap();
             let kind = None;
+            let before = b.breaks;
             b.feed(s[1].as_f64(), kind, t);
+            if s[6].as_i64() == Some(before + 1) {
+                assert_eq!((b.breaks, b.phase), (before, "drain"), "not counted on its first empty look at {t}");
+                b.feed(s[1].as_f64(), kind, t + BREAK_CONFIRM_S);
+                assert_eq!((b.breaks, b.phase), (before + 1, "broken"), "counted on the look that confirms it");
+                continue;
+            }
             let i = b.info(t);
             let got = json!([t, s[1], i.left, i.phase, i.rate, i.rate_now, i.breaks, i.last_after]);
             assert!(same(&got, s), "break: got {got}, want {s}");
         }
     }
+}
+
+/// The bar's red, and grey where a skill animation hid the HUD.
+const RED: [u8; 3] = [240, 110, 100];
+const GREY: [u8; 3] = [120, 120, 120];
+const GOLD: [u8; 3] = [250, 210, 90];
+
+/// A Holo-Battle Sim fight: a skill animation hides the HUD (no bar read), a golden flash where the bar was reads
+/// "broken", the bar comes back half full: no break. Later the real one: a drain to empty that stays, one break dated
+/// at its first empty look and counted half a second on.
+#[test]
+fn a_hidden_bar_and_a_flash_are_no_break() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    b.feed_look(Some(0.384), None, RED, 16.88);
+    for t in [17.16, 17.54, 18.14] {
+        b.feed_look(Some(0.384), None, GREY, t);
+    }
+    for t in [18.32, 19.42] {
+        b.feed_look(Some(0.0), None, GOLD, t);
+    }
+    assert_eq!((b.breaks, b.phase), (0, "drain"));
+    b.feed_look(Some(0.353), None, RED, 19.84);
+    let mut t = 19.84;
+    let mut g: f64 = 0.353;
+    while g > 0.05 {
+        t += 0.1;
+        g -= 0.0072;
+        b.feed_look(Some(g.max(0.046)), None, RED, t);
+    }
+    assert_eq!(b.breaks, 0, "no break while it drains");
+    for (t, g) in [(24.49, 0.046), (24.59, 0.009), (24.7, 0.009), (24.9, 0.005)] {
+        b.feed_look(Some(g), None, RED, t);
+    }
+    assert_eq!((b.breaks, b.phase), (0, "drain"), "not yet: empty for under half a second");
+    b.feed_look(Some(0.009), None, RED, 25.1);
+    assert_eq!((b.breaks, b.phase), (1, "broken"), "counted by 25.1");
+    for i in 0..200 {
+        b.feed_look(Some(if i % 2 == 0 { 0.009 } else { 0.005 }), None, RED, 25.2 + i as f64 * 0.1);
+    }
+    assert_eq!(b.breaks, 1, "once");
+}
+
+/// One look that reads empty with the bar on screen, the gauge back 0.13 s later: no break, the drain carries on.
+#[test]
+fn a_one_look_misread_is_no_break() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    let mut t = 0.0;
+    for i in 0..40 {
+        t = i as f64 * 0.1;
+        b.feed_look(Some(0.705 - 0.01 * i as f64), None, RED, t);
+    }
+    let mut clean = b.clone(); // the same fight without the misread
+    b.feed_look(Some(0.0), None, RED, t + 0.1);
+    b.feed_look(Some(0.358), None, RED, t + 0.23);
+    clean.feed_look(Some(0.358), None, RED, t + 0.23);
+    assert_eq!((b.breaks, b.phase), (0, "drain"));
+    assert_eq!(b.left, Some(0.358));
+    assert!(b.rate(t + 0.23).0.is_some(), "the drain rate carries on");
+    assert_eq!(b.info(t + 0.5), clean.info(t + 0.5), "as if the misread never was");
+}
+
+/// A real break by a burst: 0.40, then empty on every look for 9 s: one break, dated from the first empty look.
+#[test]
+fn a_burst_break_counts_from_its_first_empty_look() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    b.feed(Some(0.99), None, 0.0);
+    b.feed(Some(0.40), None, 10.0);
+    for i in 0..90 {
+        b.feed(Some(0.0), None, 10.1 + i as f64 * 0.1);
+    }
+    assert_eq!((b.breaks, b.phase), (1, "broken"));
+    assert!((b.last_after.unwrap() - 10.1).abs() < 1e-9, "{:?}", b.last_after);
+}
+
+/// Empty for 0.3 s, then the fight ends: never counted.
+#[test]
+fn an_empty_spell_cut_by_the_fights_end_is_not_counted() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    b.feed(Some(0.30), None, 0.0);
+    for t in [0.1, 0.2, 0.3, 0.4] {
+        b.feed(Some(0.0), None, t);
+    }
+    assert_eq!((b.breaks, b.phase), (0, "drain"));
+    assert_eq!(b.info(0.4).breaks, 0);
 }

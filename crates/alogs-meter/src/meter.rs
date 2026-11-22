@@ -1359,10 +1359,11 @@ impl Meter {
         }
         if self.fight.is_some() {
             self.snapshot(&im, &b, now);
-            if now - self.brk_at >= CONFIRM_GAP {
+            // (only from a look on which the bar itself was read: feed_look)
+            if now - self.brk_at >= CONFIRM_GAP && crate::fights::bar_red(fill_rgb) {
                 self.brk_at = now;
                 let (gauge, kind, _) = bar::measure_break(&im, &b);
-                self.fight.as_mut().unwrap().brk.feed(gauge, kind, now);
+                self.fight.as_mut().unwrap().brk.feed_look(gauge, kind, fill_rgb, now);
             }
             // A low first reading that is followed by a much fuller one, before anyone has hit, is dropped: always
             // (it was the Dev switch fight-bar-slide-in; a wrong reading kept is no trade-off to choose).

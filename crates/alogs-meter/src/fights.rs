@@ -15,6 +15,16 @@ pub const XN_STALE: f64 = 40.0;
 pub const OVERTIME_S: i64 = 60;
 pub const MAX_CLOCK: f64 = 900.0;
 pub const CONFIRM_GAP: f64 = 0.09;
+/// A break counts only once the gauge has stayed empty this long (a one-look misread, or a flash where the bar is,
+/// reads empty for a moment and is back at once): from its first empty look to a later one still empty.
+pub const BREAK_CONFIRM_S: f64 = 0.5;
+
+/// The fill's colour is the boss bar's red: the bar itself was read on this look (else the fight CSV's fill_pct is
+/// empty: the bar hidden by a skill animation, gone, or covered by a flash).
+pub fn bar_red(rgb: [u8; 3]) -> bool {
+    let [r, g, b] = rgb;
+    r >= 225 && (80..=140).contains(&g) && (75..=135).contains(&b)
+}
 /// A reading more than 15 points under the last is taken once it has stood this long, every reading in between
 /// agreeing (the live meter's rule; `Fight::low_confirm`). At CONFIRM_GAP, two readings 0.09 s apart were enough,
 /// and since HP only drops a wrong one stayed for the rest of the fight: one row at 0.51% put a fight 219,000
@@ -107,6 +117,10 @@ pub struct BreakTracker {
     pub last_after: Option<f64>,
     pub left: Option<f64>,
     pub kind: Option<&'static str>,
+    /// An empty gauge not confirmed yet: (its first empty look, the drain's start then, the reading before it, the
+    /// gauge shown before it). The phase stays "drain" and nothing counts it until a look BREAK_CONFIRM_S on is still
+    /// empty; a spell still pending when the fight ends is never counted.
+    pending: Option<(f64, (f64, f64), Option<f64>, Option<f64>)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -136,15 +150,41 @@ impl BreakTracker {
             last_after: None,
             left: None,
             kind: None,
+            pending: None,
+        }
+    }
+
+    /// One look's gauge reading, fed only when the fight's bar itself was read on that look (`bar_rgb`: the fill's
+    /// colour): with the bar hidden or gone, a gauge read where it was (a golden flash reads "broken") means nothing.
+    pub fn feed_look(&mut self, g: Option<f64>, kind: Option<&'static str>, bar_rgb: [u8; 3], now: f64) {
+        if bar_red(bar_rgb) {
+            self.feed(g, kind, now);
         }
     }
 
     pub fn feed(&mut self, g: Option<f64>, kind: Option<&'static str>, now: f64) {
         let Some(g) = g else { return };
-        let prev = self.prev;
-        self.prev = Some(g);
-        self.left = Some(g);
+        let mut prev = self.prev;
         self.kind = kind;
+        if let Some((first, start, before, shown)) = self.pending {
+            if g > 0.05 {
+                // back before it stayed empty: a misread, the drain carries on as if it never was
+                self.pending = None;
+                prev = before;
+                self.left = shown;
+            } else {
+                self.prev = Some(g);
+                if g <= 0.02 && now - first >= BREAK_CONFIRM_S {
+                    self.pending = None;
+                    self.left = Some(g);
+                    self.count_break(first, start);
+                }
+                return;
+            }
+        }
+        self.prev = Some(g);
+        let shown = self.left;
+        self.left = Some(g);
         match self.phase {
             "drain" => {
                 if self.start.is_none() {
@@ -156,19 +196,9 @@ impl BreakTracker {
                     self.peak = g;
                     self.start = None;
                 } else if g <= 0.02 && prev.is_some_and(|p| p <= 0.5) {
-                    let (t0, g0) = self.start.unwrap();
-                    if now - t0 > 1.0 {
-                        self.drained += g0;
-                        self.drain_time += now - t0;
-                    }
-                    self.breaks += 1;
-                    self.last_after = if g0 > 0.9 { Some(now - t0) } else { None };
-                    match self.last_after {
-                        Some(a) => log::info!(target: "meter", "break #{} after {:.0} s", self.breaks, a),
-                        None => log::info!(target: "meter", "break #{}", self.breaks),
-                    }
-                    self.phase = "broken";
-                    self.start = None;
+                    // empty: a break once it stays so (the gauge shown and the drain's figures wait for that)
+                    self.pending = Some((now, self.start.unwrap(), prev, shown));
+                    self.left = shown;
                 } else {
                     self.recent.push_back((now, g));
                     while self.recent.front().is_some_and(|r| now - r.0 > 5.0) {
@@ -191,6 +221,23 @@ impl BreakTracker {
                 }
             }
         }
+    }
+
+    /// A break, dated from its first empty look `at`, the drain having started at `start`.
+    fn count_break(&mut self, at: f64, start: (f64, f64)) {
+        let (t0, g0) = start;
+        if at - t0 > 1.0 {
+            self.drained += g0;
+            self.drain_time += at - t0;
+        }
+        self.breaks += 1;
+        self.last_after = if g0 > 0.9 { Some(at - t0) } else { None };
+        match self.last_after {
+            Some(a) => log::info!(target: "meter", "break #{} after {:.0} s", self.breaks, a),
+            None => log::info!(target: "meter", "break #{}", self.breaks),
+        }
+        self.phase = "broken";
+        self.start = None;
     }
 
     /// (% per second over the fight, % per second over the last ~5 s), None while unknown.
@@ -478,8 +525,7 @@ impl Fight {
         let mut cum = self.cum(grades).clone();
         let top = cum.len() as i64 - 1;
         let xn_ocr = xn_ocr.filter(|x| 1 <= *x && *x <= top);
-        let [r_, g_, b_] = fill_rgb;
-        let fill = if r_ >= 225 && (80..=140).contains(&g_) && (75..=135).contains(&b_) { fill } else { None };
+        let fill = if bar_red(fill_rgb) { fill } else { None };
         if self.bossrush {
             if let Some(x) = xn_ocr.filter(|x| *x != 0)
                 && now - self.vote_at >= CONFIRM_GAP
