@@ -378,7 +378,7 @@ impl Meter {
             if now - self.stages.last_read >= crate::sim_stages::READ_EVERY_S {
                 self.stages_feed(Some(&t), now); // the run's level record takes this read in place of its own
             }
-            let m =regex::Regex::new(r"(\d{1,2})\s*/\s*(\d{1,2})").unwrap().captures(&t).map(|m| (m[1].to_string(), m[2].to_string()));
+            let m = regex::Regex::new(r"(\d{1,2})\s*/\s*(\d{1,2})").unwrap().captures(&t).map(|m| (m[1].to_string(), m[2].to_string()));
             self.sim.gate.last = m.is_some_and(|(a, b)| a == b && a.parse::<i64>().unwrap_or(0) > 1);
             if !self.sim.gate.last {
                 return;
