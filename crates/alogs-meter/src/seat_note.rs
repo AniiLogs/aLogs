@@ -68,7 +68,10 @@ impl Meter {
     }
 
     /// Every look: a pending note goes once SEAT_NOTE_WAIT_S has passed with no result recorded for its fight; a result
-    /// recorded meanwhile drops it (the run itself is sent).
+    /// recorded meanwhile drops it (the run itself is sent). What decides is the fight's run file: a result in it, or
+    /// the run taken up for sending or sent, means no note. (The time check is only a shortcut: the result screen's
+    /// first read ends the fight with the clock of that moment but records the result with its look's time, a little
+    /// earlier, so that result's time is before the fight's end.)
     pub fn seat_note_check(&mut self, now: f64) {
         let Some((ended, note, name)) = self.seat_note.pending.clone() else { return };
         if self.ps.result_at >= ended {
@@ -80,6 +83,10 @@ impl Meter {
         }
         self.seat_note.pending = None;
         self.seat_note.sent.push(name.clone());
+        if self.run_has_result(&name) {
+            log::info!(target: "meter", "seat note: none for {name} (its result was read)");
+            return;
+        }
         let Some(sub) = self.submitter.clone() else { return };
         log::info!(target: "meter", "seat note: {name} ran to its end but no result screen was read - telling the site you were in it");
         sub.enqueue(&note, None, None, None, None);

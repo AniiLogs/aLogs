@@ -127,6 +127,37 @@ fn no_note_when_a_result_was_read() {
     assert!(m.seat_note.pending.is_none());
 }
 
+/// The fight's run file, as fight_summary writes it.
+fn run_file(m: &Meter, csv: &str, json: &str) {
+    std::fs::write(m.run_path(csv), json).unwrap();
+}
+
+/// The real order: the result screen's first read ends the fight (stamped with the clock of that moment) and then
+/// records its result with the look's time, a little before that end. The run file holds the result: no note.
+#[test]
+fn no_note_when_the_result_screen_ended_the_fight() {
+    let mut m = meter("seat-note-result-ended");
+    fight(&mut m, "fight_q", 178.5);
+    m.env.fixed_now.set(Some(T + 3.0));
+    m.end_fight(&mut Log::default(), "result screen");
+    m.ps.result_at = T + 2.9; // (the look's time, before the end's stamp)
+    run_file(&m, "fight_q", r#"{"result": {"score": 1234, "players": []}}"#);
+    at(&mut m, T + 3.0 + SEAT_NOTE_WAIT_S + 0.5);
+    assert!(note(&m, "fight_q").is_none());
+    assert!(m.seat_note.pending.is_none());
+}
+
+/// A run file marked sent: no note either.
+#[test]
+fn no_note_when_the_run_was_sent() {
+    let mut m = meter("seat-note-run-sent");
+    fight(&mut m, "fight_t", 178.5);
+    m.end_fight(&mut Log::default(), "boss bar gone");
+    run_file(&m, "fight_t", r#"{"sent": true}"#);
+    at(&mut m, T + SEAT_NOTE_WAIT_S + 0.5);
+    assert!(note(&m, "fight_t").is_none());
+}
+
 /// A fight left long before its end (abandoned), or one with no instance known: no note.
 #[test]
 fn no_note_for_a_fight_left_early_or_without_its_instance() {

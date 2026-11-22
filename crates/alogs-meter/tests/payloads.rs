@@ -180,6 +180,17 @@ fn sent(party: Vec<J>, players: Vec<J>) -> Vec<J> {
     serde_json::from_str::<J>(&l.json_dumps()).unwrap()["lineup"].as_array().unwrap().clone()
 }
 
+/// The payload is built at every send and update: a run's "sent as" line is logged once, not every time.
+#[test]
+fn a_runs_lineup_line_is_logged_once() {
+    let party = || vec![card(0, "Brimwen", true, "Irisalis", 3578), card(1, "Oskarel", false, "Leafy", 3001)];
+    for _ in 0..5 {
+        sent(party(), vec![row(0, "Brimwen", false), row(1, "Oskare1", false)]);
+    }
+    let n = LINES.lock().unwrap().iter().filter(|l| l.contains("\"Oskarel\" sent as the result screen's \"Oskare1\"")).count();
+    assert_eq!(n, 1);
+}
+
 /// At send, a seat's name the result screen settled by its own repeats wins a wholly different lineup name, when the
 /// two screens' other seats line up; the seat's Aniimo and CP stay the Party screen's.
 #[test]

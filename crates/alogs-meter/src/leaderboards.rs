@@ -86,6 +86,11 @@ impl Meter {
         (!matches!(s.get_str("submit"), Some(Value::Bool(false))) && !s.at("sent").truthy()) || self.late_open(&s)
     }
 
+    /// Does this fight's run file hold a result, or was the run taken up for sending or sent?
+    pub fn run_has_result(&self, csv_name: &str) -> bool {
+        read_json(&self.run_path(csv_name)).is_some_and(|s| s.get_str("result").is_some_and(|v| v.truthy()) || s.get_str("submit").is_some() || s.at("sent").truthy())
+    }
+
     /// Which of your bests on this boss this week the run beats ('score', 'clear', 'dps', 'break', 'taken', 'heal').
     pub fn beats_best(&self, s: &Dict) -> Vec<String> {
         let empty = Value::Dict(Dict::new());
