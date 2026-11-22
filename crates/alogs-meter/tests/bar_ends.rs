@@ -266,9 +266,47 @@ fn the_first_reading_at_changed_ends_waits_a_look() {
     assert!(!m.ends_moved(&other));
 }
 
-/// A place kept that isn't centred on its frame (a wrong find: the bar always is) isn't loaded.
+/// A Holo-Battle Sim room reads its bar as before 22 Nov: nobody has seen whether a Sim bar is centred. A bar drawn
+/// 10 px off centre keeps its own right bracket (not the mirror), its fill is read there, and no ends are held.
 #[test]
-fn an_uncentred_place_is_not_loaded() {
+fn a_sim_room_reads_as_before() {
+    let ends = (WORLD.0 + 10, WORLD.1 + 10);
+    let im = frame(ends, 0.6);
+    // what the new rules would make of it: the mirror of its left bracket, 20 px short
+    let new = bar::find_bar(&im, false, 8).unwrap();
+    assert_eq!(ends_of(&new), (ends.0, W as i64 - ends.0));
+    assert!(!new.brackets_found);
+    let mut m = meter("ends-sim");
+    m.holosim_space = true;
+    assert!(m.old_rules());
+    let mut frames = Script { frame: im, asked: vec![] };
+    let mut t = T0;
+    m.frame_size = (W, H);
+    m.bar = bar::find_bar_old(&frames.frame, false, 8);
+    assert_eq!(ends_of(m.bar.as_ref().unwrap()), ends, "the old finder takes its own right bracket");
+    m.bar_seen = t;
+    let mut f = Fight::new(&m.env, "Test Boss", 50, row(false), 1_000_000, false, false, None, None);
+    f.hit = true;
+    m.fight = Some(f);
+    run(&mut m, &mut frames, &mut t, 10);
+    assert!(m.ends.old_noted, "said once in the log");
+    assert!(m.ends.held.is_none(), "no ends held in a Sim room");
+    assert_eq!(ends_of(m.bar.as_ref().unwrap()), ends);
+    assert!(m.ends.last_read.is_none(), "no wait at changed ends either");
+    let f = m.fight.as_ref().unwrap();
+    assert!((f.seg_fill - 0.6).abs() < 0.01, "read at its own ends: {}", f.seg_fill);
+    // another bar shows (20 px off centre): the old rules take the new find at once, as before
+    frames.frame = frame((WORLD.0 + 20, WORLD.1 + 20), 0.5);
+    run(&mut m, &mut frames, &mut t, 2);
+    assert_eq!(ends_of(m.bar.as_ref().unwrap()), (WORLD.0 + 20, WORLD.1 + 20));
+    assert!((m.fight.as_ref().unwrap().seg_fill - 0.5).abs() < 0.01);
+    assert!(m.ends.held.is_none());
+}
+
+/// A place kept that isn't centred on its frame (a wrong find: the bar always is) is loaded (a Sim room's may be
+/// one) but not used outside a Sim room.
+#[test]
+fn an_uncentred_place_is_not_used() {
     let e = env("ends-spots");
     let kept = r#"[{"yc": 194, "track_left": 1243, "left_bracket": 1227, "span": 1367, "thickness": 25, "fight": true, "frame": [3840, 2160]},
                   {"yc": 194, "track_left": 1181, "left_bracket": 1164, "span": 1512, "thickness": 27, "fight": true, "frame": [3840, 2160]}]"#;
@@ -276,6 +314,12 @@ fn an_uncentred_place_is_not_loaded() {
     let args = Args { cfg: alogs_protocol::settings::defaults(), duration: 180.0, level: None, boss_id: None, replay: false,
                       no_submit: true, no_debug_frames: true, no_overlay: true, no_auto_click: true, player_log: PathBuf::new() };
     let m = Meter::new(e, args, Box::new(NoOcr), None);
-    assert_eq!(m.bar_spots.len(), 1);
-    assert_eq!(m.bar_spots[0].span, 1512.0);
+    assert_eq!(m.bar_spots.len(), 2, "both kept as they were");
+    assert!(!bar::spot_centred(&m.bar_spots[0]) && bar::spot_centred(&m.bar_spots[1]));
+    // a picture with brackets at an uncentred place: bar_at doesn't take it, the old rules (a Sim room) do
+    let spot = Spot { frame: (W, H), yc: YC as f64, thickness: TH as f64, left_bracket: 623.0, span: 694.0, track_left: 631.0 };
+    let im = frame((623, 1317), 0.6);
+    assert!(bar::bar_at(&im, std::slice::from_ref(&spot)).is_none());
+    let old = bar::bar_at_old(&im, &[spot]).expect("the old rules use it");
+    assert!((old.left_bracket - 623.0).abs() <= 1.0 && (old.left_bracket + old.span - 1317.0).abs() <= 1.0, "{old:?}");
 }

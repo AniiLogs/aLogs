@@ -4,7 +4,7 @@
 //! fraction of the bracket span, measured once on a 2000x1125 screenshot (span 789 px).
 
 use alogs_pil::ops::{darker, lighter};
-use alogs_pil::{Filter, Image, Mode};
+use alogs_pil::{Filter, Image, Mode, Transpose};
 use regex::bytes::Regex;
 use std::sync::Mutex;
 
@@ -168,6 +168,73 @@ fn is_bracket(im: &Image, x: i64, yc: i64, thick: i64, h: i64) -> bool {
     bracket_side(im, x, yc, thick, h) == Side::Pass
 }
 
+// OLD: the bracket test from before 22 Nov, kept as it was for a Holo-Battle Sim room (`find_bar_old`, `bar_at_old`,
+// `verify_bar_old`): nobody has seen whether a Sim bar is centred, or how its brackets look to the new test.
+
+fn line_px(im: &Image, x: i64, y: i64) -> bool {
+    let p = px(im, x, y);
+    if is_white(p) {
+        return true;
+    }
+    if *p.iter().min().unwrap() < 140 {
+        return false;
+    }
+    for nx in [x - 1, x + 1] {
+        if let Some(q) = px_at(im, nx, y)
+            && *q.iter().min().unwrap() >= 140
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn white_run(im: &Image, x: i64, yc: i64, reach: i64, h: i64) -> i64 {
+    ((yc - reach).max(0)..(yc + reach).min(h)).filter(|&y| line_px(im, x, y)).count() as i64
+}
+
+fn is_bracket_old(im: &Image, x: i64, yc: i64, thick: i64, w: i64, h: i64) -> bool {
+    if (white_run(im, x, yc, 2 * thick, h) as f64) < 1.3 * thick as f64 - 1.5 {
+        return false;
+    }
+    let off = (thick / 3).max(3);
+    let mut n = 0;
+    for s in [-off, off] {
+        for yy in [yc - thick / 3, yc + thick / 3] {
+            if is_white(px(im, (x + s).max(0).min(w - 1), yy)) {
+                n += 1;
+            }
+        }
+    }
+    n <= 2
+}
+
+/// `_bright_columns`: per column, how many pixels in the rows around `yc` have their darkest channel at 140 or more.
+fn bright_columns(im: &Image, yc: i64, reach: i64, h: i64) -> Option<Vec<u32>> {
+    let (y0, y1) = ((yc - reach).max(0), (yc + reach).min(h));
+    if y1 <= y0 {
+        return None;
+    }
+    let (r, g, b) = rgb3(&im.crop_i(0, y0, im.width as i64, y1));
+    let rows = darker(&darker(&r, &g), &b).point(|v| if v >= 140 { 1.0 } else { 0.0 });
+    let t = rows.transpose(Transpose::Transpose);
+    let hh = (y1 - y0) as usize;
+    Some((0..im.width).map(|x| t.data[x * hh..(x + 1) * hh].iter().filter(|&&v| v == 1).count() as u32).collect())
+}
+
+/// `verify_bar` by the rules from before 22 Nov (a Holo-Battle Sim room): both brackets within 2 px, the old test.
+pub fn verify_bar_old(im: &Image, bar: &Bar) -> bool {
+    if bar.track_right >= im.width as i64 || bar.yc >= im.height as i64 {
+        return false;
+    }
+    let (w, h) = (im.width as i64, im.height as i64);
+    let t = bar.thickness;
+    let lb = pyround(bar.left_bracket);
+    let rb = pyround(bar.left_bracket + bar.span);
+    let near = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).any(|x| is_bracket_old(im, x, bar.yc, t, w, h));
+    near(lb) && near(rb)
+}
+
 /// How the bracket near x0 (within 2 px) looks: Pass if any column passes, else Unknown if any is covered, else Fail.
 fn side_near(im: &Image, x0: i64, yc: i64, thick: i64) -> Side {
     let (w, h) = (im.width as i64, im.height as i64);
@@ -278,6 +345,16 @@ fn band_runs(bandim: &Image, gap: i64) -> Vec<(i64, i64, i64)> {
 
 /// Locate the boss bar: the best few red/orange rows, each checked for the bar's two white brackets.
 pub fn find_bar(im: &Image, cropped: bool, tries: usize) -> Option<Bar> {
+    find_bar_by(im, cropped, tries, false)
+}
+
+/// `find_bar` by the rules from before 22 Nov (`OLD` below): for a Holo-Battle Sim room, whose bar nobody has checked
+/// is centred.
+pub fn find_bar_old(im: &Image, cropped: bool, tries: usize) -> Option<Bar> {
+    find_bar_by(im, cropped, tries, true)
+}
+
+fn find_bar_by(im: &Image, cropped: bool, tries: usize, old: bool) -> Option<Bar> {
     let (w, h) = (im.width as i64, im.height as i64);
     let (y0, y1) = if cropped { (0, h) } else { (0, (h as f64 * 0.22) as i64) };
     let (x0, x1) = if cropped { (0, w) } else { ((w as f64 * 0.08) as i64, (w as f64 * 0.92) as i64) };
@@ -301,7 +378,7 @@ pub fn find_bar(im: &Image, cropped: bool, tries: usize) -> Option<Bar> {
             continue;
         }
         tried.push(by);
-        match check_candidate(im, x0 + pyround(bs as f64 * f), y0 + pyround(by as f64 * f), d, cropped, None, true, true) {
+        match check_candidate(im, x0 + pyround(bs as f64 * f), y0 + pyround(by as f64 * f), d, cropped, None, true, true, old) {
             Ok(bar) => {
                 LAST_FAIL.lock().unwrap().clear();
                 return Some(bar);
@@ -332,24 +409,33 @@ pub struct Spot {
 
 /// The boss bar where it was last seen: the same checks as `find_bar` on that one spot.
 pub fn bar_at(im: &Image, spots: &[Spot]) -> Option<Bar> {
+    bar_at_by(im, spots, false)
+}
+
+/// `bar_at` by the rules from before 22 Nov (a Holo-Battle Sim room).
+pub fn bar_at_old(im: &Image, spots: &[Spot]) -> Option<Bar> {
+    bar_at_by(im, spots, true)
+}
+
+fn bar_at_by(im: &Image, spots: &[Spot], old: bool) -> Option<Bar> {
     let (w, h) = (im.width as i64, im.height as i64);
     let d = pyround(w as f64 / 960.0).max(1);
     for spot in spots {
-        if spot.frame != im.size() || !spot_centred(spot) {
+        if spot.frame != im.size() || (!old && !spot_centred(spot)) {
             // (a place that isn't centred is a wrong find: the bar always is)
             continue;
         }
         let (yc, t) = (spot.yc as i64, spot.thickness as i64);
         let lb = pyround(spot.left_bracket);
         let rb = pyround(spot.left_bracket + spot.span);
-        let at = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).find(|&x| is_bracket(im, x, yc, t, h));
+        let at = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).find(|&x| if old { is_bracket_old(im, x, yc, t, w, h) } else { is_bracket(im, x, yc, t, h) });
         if !(0 <= yc && yc < h && rb < w) {
             continue;
         }
         let Some(lbx) = at(lb) else { continue };
         let Some(rbx) = at(rb) else { continue };
         for dx in [2, 8, 20] {
-            if let Ok(bar) = check_candidate(im, spot.track_left as i64 + dx, spot.yc as i64, d, false, Some((lbx, rbx)), false, true) {
+            if let Ok(bar) = check_candidate(im, spot.track_left as i64 + dx, spot.yc as i64, d, false, Some((lbx, rbx)), false, true, old) {
                 return Some(bar);
             }
         }
@@ -381,9 +467,10 @@ fn bar_rows(im: &Image, col: i64, yg: i64, h: i64) -> (i64, i64) {
 }
 
 /// Refine one candidate run at full resolution and check it is the boss bar. `thick_check`: its thickness is checked
-/// against the picture's height (not in a picture of the top part only).
+/// against the picture's height (not in a picture of the top part only). `old`: by the rules from before 22 Nov (the
+/// thickness from one column, the old bracket test, the right bracket nearest the mirror within 6% of the width).
 #[allow(clippy::too_many_arguments)]
-fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets: Option<(i64, i64)>, fast: bool, thick_check: bool) -> Result<Bar, String> {
+fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets: Option<(i64, i64)>, fast: bool, thick_check: bool, old: bool) -> Result<Bar, String> {
     let (w, h) = (im.width as i64, im.height as i64);
     let col = (w - 1).min(xg + 4 * d);
     let mut yg = yg;
@@ -398,7 +485,7 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
     // The thickness is the most of a few columns along the fill: the break state's lock icon covers the lower half
     // of the bar's left end, and from one column there the bar read 13 to 16 px thick at 4K instead of 25 to 28
     // and its row 4 to 6 px high (92 of 526 finds in fights, 17-22 Nov).
-    for k in 1..=6 {
+    for k in 1..=if old { 0 } else { 6 } {
         let c = col + k * 6 * d;
         if c >= w || !colored(px(im, c, yg)) {
             break;
@@ -424,7 +511,14 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
     } else {
         let (_, s) = if fast { colored_run(im, yc, (xg - 4 * d).max(0), w) } else { longest_run(im, yc, (xg - 4 * d).max(0), w, colored) };
         start = s;
-        let bracket = |x: i64| is_bracket(im, x, yc, thick, h);
+        let bright = if old && fast { bright_columns(im, yc, 2 * thick, h) } else { None };
+        let need = 1.3 * thick as f64 - 1.5;
+        let bracket = |x: i64| {
+            if !old {
+                return is_bracket(im, x, yc, thick, h);
+            }
+            bright.as_ref().is_none_or(|b| f64::from(b[x as usize]) >= need) && is_bracket_old(im, x, yc, thick, w, h)
+        };
         let mut x = start - 1;
         while x > (start - 4 * thick).max(0) - 1 {
             if bracket(x) {
@@ -434,8 +528,9 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
             x -= 1;
         }
         if let Some(l) = lb {
-            if cropped {
-                // (a crop isn't centred on the screen: the right bracket nearest the mirror, from further off)
+            if cropped || old {
+                // (a crop isn't centred on the screen, and the old rules don't take the bar for centred: the right
+                // bracket nearest the mirror, from further off)
                 let u = (w as f64).min(h as f64 * 16.0 / 9.0);
                 let hi = (w - 1).min((w as f64 - l + 0.06 * u) as i64);
                 let lo = ((l + 0.3 * u) as i64).max((w as f64 - l - 0.06 * u) as i64);
@@ -544,7 +639,7 @@ pub fn find_at(im: &Image, near: &Bar) -> Option<Bar> {
         return None;
     }
     let d = pyround(near.frame.0 as f64 / 960.0).max(1);
-    let b = check_candidate(im, near.track_left + 2, near.yc, d, false, None, true, false).ok()?;
+    let b = check_candidate(im, near.track_left + 2, near.yc, d, false, None, true, false, false).ok()?;
     Some(Bar { frame: near.frame, ..b })
 }
 
@@ -832,6 +927,8 @@ pub struct EndsHold {
     /// Looks read at the held ends although their bracket check failed; search results not taken.
     pub held_reads: u32,
     pub not_taken: u32,
+    /// The meter said this fight's ends aren't held (a Holo-Battle Sim room).
+    pub old_noted: bool,
 }
 
 impl EndsHold {

@@ -69,8 +69,17 @@ fn frames_match_reference() {
         };
         let found = bar::find_bar(&im, false, 8);
         check("find_bar", found.as_ref().map_or(J::Null, bar_json), &c["find_bar"]);
+        let fail = bar::LAST_FAIL.lock().unwrap().clone();
+        // the rules from before 22 Nov (a Holo-Battle Sim room) give the reference's answers too
+        let old = bar::find_bar_old(&im, false, 8);
+        check("find_bar_old", old.as_ref().map_or(J::Null, bar_json), &c["find_bar"]);
+        if let Some(b) = &old {
+            let spot = Spot { frame: b.frame, yc: b.yc as f64, thickness: b.thickness as f64, left_bracket: b.left_bracket, span: b.span, track_left: b.track_left as f64 };
+            check("bar_at_old", bar::bar_at_old(&im, &[spot]).as_ref().map_or(J::Null, bar_json), &c["bar_at"]);
+            check("verify_old", json!(bar::verify_bar_old(&im, b)), &c["verify"]);
+        }
         let Some(b) = found else {
-            check("last_fail", json!(bar::LAST_FAIL.lock().unwrap().clone()), &c["last_fail"]);
+            check("last_fail", json!(fail), &c["last_fail"]);
             continue;
         };
         let spot = Spot { frame: b.frame, yc: b.yc as f64, thickness: b.thickness as f64, left_bracket: b.left_bracket, span: b.span, track_left: b.track_left as f64 };
