@@ -439,7 +439,7 @@ fn a_sent_record_gets_its_notice_unless_turned_off() {
     assert_eq!(out.0.len(), 1, "{:?}", out.0.iter().map(|o| o.1.json_dumps()).collect::<Vec<_>>());
     assert_eq!(out.0[0].0, "toast");
     let said = out.0[0].1.json_dumps();
-    assert!(said.contains("Interlink run sent") && said.contains("Made-up Boss") && said.contains("12,345"), "{said}");
+    assert!(said.contains("Interlink run submitted") && said.contains("Made-up Boss") && said.contains("12,345"), "{said}");
     m.take_sent(&mut out, &rx); // nothing new: nothing said again
     assert_eq!(out.0.len(), 1);
 
@@ -450,6 +450,72 @@ fn a_sent_record_gets_its_notice_unless_turned_off() {
     m.take_sent(&mut out, &rx);
     assert_eq!(out.0.len(), 1, "a notice with the setting off");
     assert!(rx.try_recv().is_err(), "the record was taken in all the same");
+}
+
+/// An Interlink run goes up to three times (the run, its Battle Data update, its fight evidence): one notice, unless an
+/// update makes the run's standing better than that notice said. The hold ends on a silent update all the same.
+#[test]
+fn a_runs_updates_are_silent_unless_its_standing_got_better() {
+    let mut m = meter("lb-update-notice");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let run = |score: i64, best: &str| {
+        Value::json_loads(&format!(r#"{{"kind": "interlink_run", "clientRunId": "run-1", "boss": {{"name": "Made-up Boss"}}, "stars": 30, "score": {score}, "extra": {{"newBests": [{best}]}}}}"#)).unwrap()
+    };
+    let first = Value::json_loads(r#"{"submissionId": "s1"}"#).unwrap();
+    let update = Value::json_loads(r#"{"submissionId": "s1", "updated": true}"#).unwrap();
+    let mut out = Said::default();
+    let titles = |out: &Said| out.0.iter().map(|o| o.1.as_list().unwrap()[0].py_str()).collect::<Vec<_>>();
+
+    tx.send((run(12000, ""), first.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(titles(&out), ["Interlink run submitted"]);
+
+    // its Battle Data update, nothing better: silent, and the hold waiting for it ends
+    m.send_waiting = Some("run-1".into());
+    tx.send((run(12000, ""), update.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), 1, "an update with nothing better got a notice");
+    assert_eq!(m.send_waiting, None, "the silent update kept the inputs held");
+
+    // an update that makes it a new best
+    tx.send((run(12000, r#""score""#), update.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(titles(&out), ["Interlink run submitted", "Interlink ranking updated"]);
+    // the same again (the fight evidence): silent
+    tx.send((run(12000, r#""score""#), update.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), 2);
+    // a higher score than its improved notice said
+    tx.send((run(12500, r#""score""#), update.clone())).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), 3);
+    assert!(out.0[2].1.json_dumps().contains("12,500"));
+
+    // a run the meter has no memory of (sent before a restart): no notice for its update
+    let mut other = run(20000, r#""score""#);
+    if let Value::Dict(d) = &mut other {
+        d.insert("clientRunId".into(), Value::Str("run-unknown".into()));
+    }
+    tx.send((other, update)).unwrap();
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), 3);
+}
+
+/// The meter remembers the notices of its last runs only.
+#[test]
+fn the_meter_remembers_only_its_last_runs_notices() {
+    let mut m = meter("lb-notice-memory");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reply = Value::json_loads(r#"{"submissionId": "s1"}"#).unwrap();
+    let mut out = Said::default();
+    for i in 0..(alogs_meter::leaderboards::NOTICED_RUNS + 5) {
+        let p = Value::json_loads(&format!(r#"{{"kind": "sim_run", "clientRunId": "run-{i}", "trial": "Made-up Trial"}}"#)).unwrap();
+        tx.send((p, reply.clone())).unwrap();
+    }
+    m.take_sent(&mut out, &rx);
+    assert_eq!(out.0.len(), alogs_meter::leaderboards::NOTICED_RUNS + 5);
+    assert_eq!(m.noticed_runs.len(), alogs_meter::leaderboards::NOTICED_RUNS);
+    assert_eq!(m.noticed_runs.back().unwrap().0, format!("run-{}", alogs_meter::leaderboards::NOTICED_RUNS + 4));
 }
 
 /// Inputs held for a result come back when that result is sent, whatever else is still waiting to go.
