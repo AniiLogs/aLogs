@@ -304,6 +304,7 @@ impl Meter {
             if now - self.rs.result_seen >= 30.0 && !self.args.no_auto_click && !self.args.replay && fg {
                 self.start_auto(now); // a new result screen: before anything slow
             }
+            self.fight_end_handover(); // a hold from the fight's fade: the result screen's own carries on
             // the first click once the screen is wholly read (result_ready), else RESULT_PAUSE in; retries every second
             let ready = self.auto.clicks == 0 && self.rs.result_ready >= self.auto.hold_started;
             if self.auto_active() && (now - self.auto.last_click > 1.0 || ready) {
