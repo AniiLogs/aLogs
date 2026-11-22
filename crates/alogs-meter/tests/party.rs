@@ -170,3 +170,105 @@ fn a_portrait_counts_only_clearly_ahead() {
     assert!(tile_sure(&m(0.55, 0.15)) && tile_sure(&m(0.68, 0.10)));
     assert!(!tile_sure(&m(0.60, 0.12)) && !tile_sure(&m(0.9, 0.09)) && !tile_sure(&None));
 }
+
+fn lobby(names: &[&str]) -> Vec<alogs_pyval::Dict> {
+    names.iter().enumerate().map(|(i, n)| member(i as i64, n, false)).collect()
+}
+
+/// A party's votes are one lobby's: the next lobby, seven minutes on with the same four seats and two new players,
+/// reads as its own players at once, on its first look already, whichever sign of the new lobby the meter saw.
+#[test]
+fn the_next_lobby_is_voted_afresh() {
+    let first = ["Kyhra", "Zarvok", "MinMax", "Ashgrove"];
+    let second = ["Kyhra", "Pellinore", "MinMax", "Quillon"];
+    let t = 1_800_000_000.0;
+    // (game log scene, a run between, minutes between the lobbies)
+    for (i, (spaces, run, gap)) in [((Some("lobbyA"), Some("lobbyB")), true, 7.0), ((Some("lobbyA"), Some("lobbyB")), false, 0.5),
+                                    ((None, None), true, 0.5), ((None, None), false, 7.0)].into_iter().enumerate() {
+        let mut m = meter(&format!("party-lobbies-{i}"), &[]);
+        m.space = spaces.0.map(String::from);
+        for k in 0..60 {
+            m.set_party(lobby(&first), t + 2.0 * k as f64);
+        }
+        assert_eq!(names(&m), first);
+        if run {
+            m.ps.runs += 1; // a fight started (or a result was recorded)
+        }
+        m.space = spaces.1.map(String::from);
+        let t2 = t + 120.0 + gap * 60.0;
+        m.set_party(lobby(&second), t2);
+        assert_eq!(names(&m), second, "case {i}: one look of the new lobby");
+        for k in 1..6 {
+            m.set_party(lobby(&second), t2 + 2.0 * k as f64);
+        }
+        assert_eq!(names(&m), second, "case {i}: a handful of looks");
+        // a look of the new lobby that misses a seat doesn't bring the old lobby's player back
+        let mut m = meter(&format!("party-lobbies-kept-{i}"), &[]);
+        m.space = spaces.0.map(String::from);
+        m.set_party(lobby(&first), t);
+        if run {
+            m.ps.runs += 1;
+        }
+        m.space = spaces.1.map(String::from);
+        let t2 = t + gap * 60.0;
+        m.set_party(lobby(&second[..3]), t2);
+        assert_eq!(names(&m), second[..3], "case {i}: no seat kept from the lobby before");
+    }
+    // within one lobby (same scene, no run, a minute away) the seats' votes carry on as before
+    let mut m = meter("party-lobbies-same", &[]);
+    m.space = Some("lobbyA".into());
+    for k in 0..5 {
+        m.set_party(lobby(&first), t + 2.0 * k as f64);
+    }
+    m.set_party(lobby(&["Kyhra", "Zarv0k", "MinMax", "Ashgrove"]), t + 70.0);
+    assert_eq!(names(&m), first, "a misread is outvoted");
+}
+
+/// Within one lobby a player can leave and another take the seat: two looks in a row with a new name there, and the
+/// new name leads. One odd look between doesn't unseat a settled name, and a misread (a name alike) never counts.
+#[test]
+fn a_new_player_takes_a_seat_after_two_looks() {
+    let t = 1_800_000_000.0;
+    let mut m = meter("party-seat-change", &[]);
+    for k in 0..10 {
+        m.set_party(lobby(&["Kyhra", "Zarvok"]), t + 2.0 * k as f64);
+    }
+    m.set_party(lobby(&["Kyhra", "Pellinore"]), t + 30.0);
+    assert_eq!(names(&m), ["Kyhra", "Zarvok"], "one look: still the settled name");
+    m.set_party(lobby(&["Kyhra", "Pellinore"]), t + 32.0);
+    assert_eq!(names(&m), ["Kyhra", "Pellinore"], "two looks in a row: the new player");
+    m.set_party(lobby(&["Kyhra", "Zarvok"]), t + 34.0);
+    assert_eq!(names(&m), ["Kyhra", "Pellinore"], "one look of the old name doesn't bring it back");
+    // one odd look (a banner over the name) between settled looks
+    let mut m = meter("party-seat-odd", &[]);
+    for k in 0..10 {
+        m.set_party(lobby(&["Kyhra", "Zarvok"]), t + 2.0 * k as f64);
+    }
+    for (k, n) in ["Wwmmqq", "Zarvok", "Pellinore", "Zarv0k", "Wwmmqq", "Pellinore"].iter().enumerate() {
+        m.set_party(lobby(&["Kyhra", n]), t + 30.0 + 2.0 * k as f64);
+        assert_eq!(names(&m), ["Kyhra", "Zarvok"], "look {k} ({n}): odd looks not in a row, or not alike each other");
+    }
+}
+
+/// A result column read alike again and again keeps its own name over a wholly different Party name, and says so
+/// (the lineup yields to it at send); a first look, before any repeat, still takes the Party screen's name.
+#[test]
+fn a_settled_result_name_is_marked() {
+    use alogs_meter::results_parse::party_slots;
+    use alogs_meter::team::Teammates;
+    use std::collections::BTreeSet;
+    let team = Teammates::load(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("settled-teammates.json"));
+    let party: Vec<Value> = lobby(&["Kyhra", "Zarvok", "MinMax"]).into_iter().map(Value::Dict).collect();
+    let read = || vec![member(0, "Kyhra", false), member(1, "Pellinore", false), member(2, "MinMax", false)];
+    let mut players = read();
+    let settled = party_slots(&team, &mut players, Some(&party), &BTreeSet::new(), None, &[0, 1, 2].into());
+    assert_eq!(players[1].at("name").py_str(), "Pellinore");
+    assert_eq!(settled, [1].into());
+    let mut players = read();
+    let settled = party_slots(&team, &mut players, Some(&party), &BTreeSet::new(), None, &BTreeSet::new());
+    assert_eq!(players[1].at("name").py_str(), "Zarvok", "a first look: the Party screen's name, a first guess");
+    assert!(settled.is_empty());
+    // an alike misread of the Party name is not a settled other name
+    let mut players = vec![member(0, "Kyhra", false), member(1, "Zarv0kk", false)];
+    assert!(party_slots(&team, &mut players, Some(&party), &BTreeSet::new(), None, &[0, 1].into()).is_empty());
+}

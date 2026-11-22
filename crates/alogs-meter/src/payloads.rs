@@ -1,6 +1,7 @@
 //! What goes to the AniiLogs leaderboards: each record's payload from a saved run, the lineup pairing, the last check
 //! before sending, and the notice that says what was sent. Port of the payload half of aLogs B16 `bossbar/submit.py`.
 
+use crate::results_parse::names_alike;
 use crate::team::{Teammates, casefold};
 use alogs_gamelog::Clock;
 use alogs_gamelog::difflib::{SequenceMatcher, ratio};
@@ -117,13 +118,55 @@ pub fn lineup_names(party: &[Value], players: &[Value]) -> HashMap<usize, String
             used.insert(p);
         }
     }
+    // a seat whose result-screen name the screen settled by its own repeats (party_slots), wholly unlike the lineup's:
+    // the result's, when the two screens' seats line up (two other seats alike, your own counted); else as it is
+    let mut different: HashSet<usize> = HashSet::new();
+    let seat = |v: &Value| v.get("slot").as_i64();
+    for &m in &cards {
+        if pair.contains_key(&m) || !party[m].get("name").truthy() || seat(&party[m]).is_none() {
+            continue;
+        }
+        let Some(p) = free_rows(&used).into_iter().find(|&p| seat(&players[p]) == seat(&party[m]) && players[p].get("settled").truthy()) else { continue };
+        let (n, got) = (name(&party[m]), name(&players[p]));
+        if names_alike(&n, &got) {
+            continue;
+        }
+        let lined = cards
+            .iter()
+            .filter(|&&o| o != m && party[o].get("name").truthy())
+            .filter(|&&o| rows.iter().any(|&q| seat(&players[q]) == seat(&party[o]) && names_alike(&name(&party[o]), &name(&players[q]))))
+            .count();
+        let bots = party[m].get("ai").truthy() || players[p].get("ai").truthy();
+        // never one player in two seats
+        let twice = cards.iter().any(|&o| o != m && (names_alike(&name(&party[o]), &got) || pair.get(&o).is_some_and(|&q| names_alike(&name(&players[q]), &got))));
+        let why = if bots {
+            Some("a bot's seat".to_string())
+        } else if party[m].get("self").truthy() {
+            Some("your own seat".to_string())
+        } else if lined < 2 {
+            Some(format!("only {lined} other seat(s) line up between the two screens"))
+        } else if twice {
+            Some("the result's name is another seat's".to_string())
+        } else {
+            None
+        };
+        match why {
+            None => {
+                pair.insert(m, p);
+                used.insert(p);
+                different.insert(m);
+            }
+            Some(why) => log::info!(target: "meter", "lineup: slot {}'s {:?} and the result screen's {:?} disagree (a different name), sent as it is: {why}", seat(&party[m]).unwrap_or(0) + 1, n, got),
+        }
+    }
     let mut out: HashMap<usize, String> = HashMap::new();
     for &m in &cards {
         let mut n = name(&party[m]);
         if let Some(&p) = pair.get(&m) {
             let got = name(&players[p]);
             if got != n {
-                log::info!(target: "meter", "lineup: slot {}'s {:?} sent as the result screen's {:?}", party[m].get("slot").as_i64().unwrap_or(0) + 1, n, got);
+                log::info!(target: "meter", "lineup: slot {}'s {:?} sent as the result screen's {:?}{}", party[m].get("slot").as_i64().unwrap_or(0) + 1, n, got,
+                    if different.contains(&m) { " (a different name)" } else { "" });
             }
             n = got;
         }

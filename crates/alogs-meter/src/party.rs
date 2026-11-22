@@ -5,7 +5,7 @@
 
 use crate::meter::{Frames, Meter, Out};
 use crate::results::star_caps;
-use crate::results_parse::{bot_sign, is_bot_name};
+use crate::results_parse::{bot_sign, is_bot_name, names_alike};
 use crate::sim::str_map_repr;
 use crate::team::{Teammates, party_pill};
 use alogs_gamelog::difflib::ratio;
@@ -37,13 +37,36 @@ static CARD_LEAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*([A-Za-z][
 static CP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"CP\W{0,3}(\d{3,6})").unwrap());
 static LV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"L\s*v\s*\.?\s*(\d{1,2})").unwrap());
 
-/// The voting state behind `Meter::party` (Counters, sets and tuple keys Python keeps in the same dict).
+/// Longer than the Party screen is away within one lobby (in the owner's logs: 76 s at most, 693 gaps), so a Party
+/// screen seen again after it is another lobby's even when the game log said nothing.
+pub const LOBBY_AWAY_S: f64 = 180.0;
+
+/// Where the seats' votes were cast: the game log's scene, how many fights and results the meter had seen, the last
+/// look. Any of the three changed = another lobby.
+#[derive(Clone, Debug, PartialEq)]
+struct Lobby {
+    space: Option<String>,
+    runs: u64,
+    at: f64,
+}
+
+/// The voting state behind `Meter::party` (Counters, sets and tuple keys Python keeps in the same dict). All of it
+/// belongs to one lobby: a new lobby starts it again (Meter::lobby_change).
 #[derive(Default)]
 pub struct PartyState {
+    /// each seat's names over the looks
     votes: BTreeMap<i64, IndexMap<String, i64>>,
+    /// the seats whose player was counted as seen (Teammates::saw) once
     counted: BTreeSet<i64>,
+    /// the seats the last look missed (kept for that one look)
     missed: BTreeSet<i64>,
+    /// bot or player, by (seat, name), over the looks
     ai_signs: IndexMap<(i64, String), [i64; 2]>,
+    /// each seat's names on the looks in a row that read it unlike its leading name (a new player once two agree)
+    unlike: BTreeMap<i64, Vec<String>>,
+    lobby: Option<Lobby>,
+    /// fights started and results recorded: a party's votes never outlive a run
+    pub runs: u64,
     pub egg_party: bool,
     pub party_seen: f64,
     pub interlink_seen: f64,
@@ -319,7 +342,7 @@ impl Meter {
     /// Each player in a slot of their own.
     fn own_slots(&self, mut members: Vec<Dict>, now: f64) -> Vec<Dict> {
         let recent: Vec<Dict> = match &self.party {
-            Some(p) if now - p.get("at").as_f64().unwrap_or(0.0) < 60.0 => p.get("members").as_list().map(|l| l.iter().filter_map(|m| m.as_dict().cloned()).collect()).unwrap_or_default(),
+            Some(p) if now - p.get("at").as_f64().unwrap_or(0.0) < 60.0 && self.lobby_change(now).is_none() => p.get("members").as_list().map(|l| l.iter().filter_map(|m| m.as_dict().cloned()).collect()).unwrap_or_default(),
             _ => vec![],
         };
         for m in &mut members {
@@ -456,6 +479,22 @@ impl Meter {
         self.read_party_icons(im, &cards, u, ux, h);
     }
 
+    /// Why the Party screen seen now is another lobby than the one its votes were cast in, if it is: the game log's
+    /// scene changed, a fight started or a result was recorded since, or the screen was away for longer than it is
+    /// within one lobby.
+    pub fn lobby_change(&self, now: f64) -> Option<String> {
+        let l = self.ps.lobby.as_ref()?;
+        if l.space != self.space {
+            Some("the game log's scene changed".into())
+        } else if l.runs != self.ps.runs {
+            Some("a run since".into())
+        } else if now - l.at > LOBBY_AWAY_S {
+            Some(format!("the Party screen away for {:.0} s", now - l.at))
+        } else {
+            None
+        }
+    }
+
     /// This run's party, each slot's name voted over a few reads.
     pub fn set_party(&mut self, members: Vec<Dict>, now: f64) {
         self.screen_settled("party", now);
@@ -463,12 +502,23 @@ impl Meter {
             return;
         }
         let mut members = members;
+        // every seat's memory belongs to one lobby
+        let fresh = self.lobby_change(now);
+        if let Some(why) = &fresh {
+            log::info!(target: "meter", "party: another lobby ({why}): the seats are voted again");
+            self.ps.votes.clear();
+            self.ps.counted.clear();
+            self.ps.missed.clear();
+            self.ps.ai_signs.clear();
+            self.ps.unlike.clear();
+        }
+        self.ps.lobby = Some(Lobby { space: self.space.clone(), runs: self.ps.runs, at: now });
         let party = self.party.clone().and_then(|p| p.as_dict().cloned());
         let at = party.as_ref().map_or(f64::MIN, |p| p.at("at").as_f64().unwrap_or(0.0));
         let slot = |m: &Dict| m.at("slot").as_i64().unwrap_or(0);
         let old: Vec<Dict> = party.as_ref().and_then(|p| p.at("members").as_list().cloned()).unwrap_or_default().iter().filter_map(|m| m.as_dict().cloned()).collect();
         let mut missed_now = BTreeSet::new();
-        if party.is_some() && now - at < 60.0 {
+        if party.is_some() && now - at < 60.0 && fresh.is_none() {
             let got: BTreeSet<i64> = members.iter().map(slot).collect();
             let mut keep: Vec<Dict> = old.iter().filter(|m| !got.contains(&slot(m)) && !self.ps.missed.contains(&slot(m))).cloned().collect();
             for m in &mut keep {
@@ -480,12 +530,16 @@ impl Meter {
             }
             missed_now = old.iter().map(slot).filter(|s| !got.contains(s)).collect();
         }
-        let same = party.is_some() && now - at < 900.0 && old.iter().map(slot).collect::<Vec<_>>() == members.iter().map(slot).collect::<Vec<_>>();
+        let same = fresh.is_none() && party.is_some() && now - at < 900.0 && old.iter().map(slot).collect::<Vec<_>>() == members.iter().map(slot).collect::<Vec<_>>();
         if !same {
             self.ps.votes.clear();
         }
         for m in &members {
-            *self.ps.votes.entry(slot(m)).or_default().entry(m.at("name").py_str()).or_insert(0) += 1;
+            let (s, name) = (slot(m), m.at("name").py_str());
+            if !m.at("kept").truthy() {
+                self.new_player(s, &name);
+            }
+            *self.ps.votes.entry(s).or_default().entry(name).or_insert(0) += 1;
         }
         for m in &mut members {
             let n = most_common(&self.ps.votes[&slot(m)]);
@@ -504,7 +558,7 @@ impl Meter {
             }
         }
         let recent = party.is_some() && now - at < 900.0;
-        if !recent {
+        if !recent || fresh.is_some() {
             self.ps.ai_signs.clear();
         }
         // bot or player, voted over this Party screen's looks: each look's sign (bot_sign) counts, the most win; the
@@ -640,5 +694,32 @@ impl Meter {
             }).collect();
             log::info!(target: "meter", "party: {}", line.join(", "));
         }
+    }
+
+    /// Within one lobby a player can leave and another take the seat: a look whose name for `seat` is unlike the
+    /// seat's leading name (names_alike), twice in a row and alike each other, drops the seat's votes for the new
+    /// name. One odd look (a misread, a banner over the name) leaves a settled name where it is.
+    fn new_player(&mut self, seat: i64, name: &str) {
+        let leader = self.ps.votes.get(&seat).filter(|v| !v.is_empty()).map(most_common);
+        let Some(leader) = leader.filter(|l| !name.is_empty() && !names_alike(l, name)) else {
+            self.ps.unlike.remove(&seat);
+            return;
+        };
+        let streak = self.ps.unlike.entry(seat).or_default();
+        if streak.last().is_some_and(|p| !names_alike(p, name)) {
+            streak.clear();
+        }
+        streak.push(name.to_string());
+        if streak.len() < 2 {
+            return;
+        }
+        let new: Vec<String> = std::mem::take(streak);
+        log::info!(target: "meter", "party: slot {} reads {:?} twice in a row, not its {:?}: a new player in that seat", seat + 1, name, leader);
+        let mut votes = IndexMap::new();
+        for n in &new[..new.len() - 1] {
+            *votes.entry(n.clone()).or_insert(0) += 1;
+        }
+        self.ps.votes.insert(seat, votes);
+        self.ps.counted.remove(&seat);
     }
 }

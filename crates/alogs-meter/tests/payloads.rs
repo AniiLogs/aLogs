@@ -61,3 +61,63 @@ fn payloads_match_reference() {
         assert_eq!(notice_repr(pl::sent_notice(&pv(&c[0]), None)), want, "sent_notice {}", c[0]);
     }
 }
+
+/// The meter's log lines, kept for the tests to look at.
+struct Lines;
+static LINES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+impl log::Log for Lines {
+    fn enabled(&self, _: &log::Metadata) -> bool { true }
+    fn log(&self, r: &log::Record) { LINES.lock().unwrap().push(r.args().to_string()); }
+    fn flush(&self) {}
+}
+fn logged(part: &str) -> bool {
+    let _ = log::set_logger(&Lines);
+    log::set_max_level(log::LevelFilter::Info);
+    LINES.lock().unwrap().iter().any(|l| l.contains(part))
+}
+
+fn card(slot: i64, name: &str, me: bool, aniimo: &str, cp: i64) -> J {
+    serde_json::json!({"slot": slot, "name": name, "ai": false, "self": me, "aniimo": aniimo, "aniimo_level": 60, "cp": cp})
+}
+fn row(slot: i64, name: &str, settled: bool) -> J {
+    let mut r = serde_json::json!({"slot": slot, "name": name, "ai": false, "self": slot == 0, "stat": "Damage", "value": 1000});
+    if settled {
+        r["settled"] = J::Bool(true);
+    }
+    r
+}
+fn sent(party: Vec<J>, players: Vec<J>) -> Vec<J> {
+    let _ = logged("");
+    let summary = pv(&serde_json::json!({"party": party, "result": {"players": players}}));
+    let l = pl::lineup(&summary);
+    serde_json::from_str::<J>(&l.json_dumps()).unwrap()["lineup"].as_array().unwrap().clone()
+}
+
+/// At send, a seat's name the result screen settled by its own repeats wins a wholly different lineup name, when the
+/// two screens' other seats line up; the seat's Aniimo and CP stay the Party screen's.
+#[test]
+fn the_result_screen_wins_a_real_disagreement() {
+    let party = || vec![card(0, "Kyhra", true, "Irisalis", 3578), card(1, "Zarvok", false, "Leafy", 3001), card(2, "MinMax", false, "Sparkelf", 2900), card(3, "Ashgrove", false, "Leafy", 3100)];
+    let l = sent(party(), vec![row(0, "Kyhra", false), row(1, "Pellinore", true), row(2, "MinMax", false), row(3, "Ashgrove", false)]);
+    assert_eq!(l[1]["name"], "Pellinore");
+    assert_eq!((l[1]["aniimo"].as_str(), l[1]["cp"].as_i64(), l[1]["aniimoLevel"].as_i64()), (Some("Leafy"), Some(3001), Some(60)), "the Party screen's lead");
+    assert!(logged("lineup: slot 2's \"Zarvok\" sent as the result screen's \"Pellinore\" (a different name)"));
+    // two seats wholly different, two lining up (yours counted)
+    let l = sent(party(), vec![row(0, "Kyhra", false), row(1, "Pellinore", true), row(2, "MinMax", false), row(3, "Quillon", true)]);
+    assert_eq!((l[1]["name"].as_str(), l[3]["name"].as_str()), (Some("Pellinore"), Some("Quillon")));
+    // fewer than two other seats line up: the screens' seats may not be the same players' at all
+    let l = sent(party(), vec![row(0, "Kyhra", false), row(1, "Pellinore", true), row(2, "Tobiah", false), row(3, "Quillon", false)]);
+    assert_eq!(l[1]["name"], "Zarvok");
+    assert!(logged("lineup: slot 2's \"Zarvok\" and the result screen's \"Pellinore\" disagree (a different name), sent as it is: only 1 other seat(s) line up"));
+    // a name the result screen didn't settle by itself is no reason
+    let l = sent(party(), vec![row(0, "Kyhra", false), row(1, "Pellinore", false), row(2, "MinMax", false), row(3, "Ashgrove", false)]);
+    assert_eq!(l[1]["name"], "Zarvok");
+    // an alike misread is handled as before
+    let l = sent(party(), vec![row(0, "Kyhra", false), row(1, "Zarv0k", false), row(2, "MinMax", false), row(3, "Ashgrove", false)]);
+    assert_eq!(l[1]["name"], "Zarv0k");
+    assert!(logged("lineup: slot 2's \"Zarvok\" sent as the result screen's \"Zarv0k\""));
+    // never one player in two seats
+    let l = sent(party(), vec![row(0, "Kyhra", false), row(1, "MinMax", true), row(2, "MinMax", false), row(3, "Ashgrove", false)]);
+    assert_eq!((l[1]["name"].as_str(), l[2]["name"].as_str()), (Some("Zarvok"), Some("MinMax")));
+    assert!(logged("sent as it is: the result's name is another seat's"));
+}

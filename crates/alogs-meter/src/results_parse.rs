@@ -586,9 +586,21 @@ fn s(v: &Value) -> String {
     v.as_str().unwrap_or("").to_string()
 }
 
+/// How alike two names must read (folded) to be one name read twice, a misread, rather than two players' names.
+pub const NAME_ALIKE: f64 = 0.6;
+
+/// Two reads of one name (a misread of it), not two different names: the measure the result screen uses to tell a
+/// misread of the Party screen's name from another player's (party_slots), and the Party screen to tell a seat's
+/// misread from a new player in it.
+pub fn names_alike(a: &str, b: &str) -> bool {
+    ratio(&Teammates::fold(a), &Teammates::fold(b)) >= NAME_ALIKE
+}
+
 /// Each result-screen (or Battle Data) column takes the Party screen's player of the same slot (see the Python's
-/// long docstring in results.py: party_slots).
-pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value]>, sure: &BTreeSet<i64>, you: Option<&str>, agreed: &BTreeSet<i64>) {
+/// long docstring in results.py: party_slots). Returns the columns that keep their own name, read alike again and
+/// again, wholly unlike the Party screen's: names the result screen settled by itself (the lineup's name for that seat
+/// yields to it at send: payloads::lineup_names).
+pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value]>, sure: &BTreeSet<i64>, you: Option<&str>, agreed: &BTreeSet<i64>) -> BTreeSet<i64> {
     let Some(party) = party.filter(|p| !p.is_empty()) else {
         for p in players.iter_mut() {
             let name = s(p.at("name"));
@@ -596,7 +608,7 @@ pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value
                 p.insert("name".into(), Value::Str(team.steady(&name)));
             }
         }
-        return;
+        return BTreeSet::new();
     };
     let mut by_slot: IndexMap<i64, Value> = IndexMap::new();
     for m in party {
@@ -607,6 +619,7 @@ pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value
     let party: Vec<Value> = by_slot.values().cloned().collect();
     let sim = |a: &str, b: &str| ratio(&Teammates::fold(a), &Teammates::fold(b));
     let mut taken: BTreeSet<i64> = BTreeSet::new();
+    let settled = std::cell::RefCell::new(BTreeSet::new());
     let mine: BTreeSet<i64> = party
         .iter()
         .filter(|x| x.get("self").truthy() || you.is_some_and(|y| same_name(x.get("name").as_str(), Some(y))))
@@ -618,9 +631,12 @@ pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value
         let mname = s(m.get("name"));
         let pslot = p.at("slot").as_i64().unwrap_or(-1);
         if agreed.contains(&pslot) && !own.is_empty() && twins(&own) != twins(&mname) {
-            let alike = sim(&own, &mname) >= 0.6;
+            let alike = names_alike(&own, &mname);
             if own != mname {
                 log::info!(target: "meter", "result: column {} keeps {:?}, read alike again and again, not the Party screen's {:?}", pslot + 1, own, mname);
+            }
+            if !alike {
+                settled.borrow_mut().insert(pslot);
             }
             let npc = INTERLINK_NPCS.contains(&casefold(&own).as_str());
             p.insert("ai".into(), Value::Bool(m.get("ai").truthy() && (alike || npc)));
@@ -736,6 +752,7 @@ pub fn party_slots(team: &Teammates, players: &mut [Dict], party: Option<&[Value
         }
         give(&mut players[pi], &m, &mut taken);
     }
+    settled.into_inner()
 }
 
 /// After `party_slots`, on the result screen and Battle Data: a slot is a bot only when it has a bot's name and its
