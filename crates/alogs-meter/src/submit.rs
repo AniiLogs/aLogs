@@ -218,6 +218,7 @@ impl Proofs {
         if let Some(g) = item.get("gizmos").as_list() {
             rels.extend(g.iter().map(Value::py_str));
         }
+        rels.extend(fight_files(item));
         let paths: Vec<PathBuf> = rels.iter().map(|r| std::fs::canonicalize(data_dir.join(r)).unwrap_or_else(|_| data_dir.join(r))).collect();
         let drop: Vec<_> = self.kept.keys().filter(|k| paths.contains(&k.1)).cloned().collect();
         for k in drop {
@@ -317,7 +318,9 @@ pub fn multipart(payload: &Value, files: &IndexMap<String, Vec<u8>>) -> (Vec<u8>
         if data.is_empty() {
             continue;
         }
-        out.extend(format!("--{b}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{field}.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n").as_bytes());
+        // the fight's log (fight evidence) is the CSV gzip-compressed; every other part is a JPEG
+        let (filename, ctype) = if field == "fightlog" { (format!("{field}.csv.gz"), "application/gzip") } else { (format!("{field}.jpg"), "image/jpeg") };
+        out.extend(format!("--{b}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\nContent-Type: {ctype}\r\n\r\n").as_bytes());
         out.extend(data);
         out.extend(b"\r\n");
     }
@@ -330,6 +333,16 @@ enum Sent {
     Ok(u16, Value),
     Http(u16, String),
     Io(String),
+}
+
+/// A queued record's fight evidence files (fight_shots.rs), relative to the data folder: its pictures ("fight":
+/// [{n, file}]) and its compressed log ("fightlog").
+pub fn fight_files(item: &Value) -> Vec<String> {
+    let mut out: Vec<String> = item.get("fight").as_list().map(|l| l.iter().map(|e| e.get("file").py_str()).filter(|f| !f.is_empty() && f != "None").collect()).unwrap_or_default();
+    if item.get("fightlog").truthy() {
+        out.push(item.get("fightlog").py_str());
+    }
+    out
 }
 
 /// The background sender and the meter's calls into it.
@@ -429,6 +442,15 @@ impl Submitter {
     /// Queue one record (the same kind + run id replaces an older queued copy); nothing while off. Gives the payload
     /// as queued (what the sender's on_sent hands back once this copy is sent).
     pub fn enqueue(&self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>) -> Option<Value> {
+        self.enqueue_with_fight(payload, evidence, battle, party, gizmos, &[], None)
+    }
+
+    /// enqueue, with an Interlink run's fight evidence: its pictures as (part number, file) and its compressed log.
+    /// They go only with the result screen as "evidence" (the site takes them only so), and with no setting of their
+    /// own: the meter attaches them only to an update of a run it can send its result screen with.
+    #[allow(clippy::too_many_arguments)]
+    pub fn enqueue_with_fight(&self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>,
+                              fight: &[(i64, String)], fightlog: Option<&str>) -> Option<Value> {
         self.refresh();
         let Some(cfg) = self.config.lock().unwrap().clone() else { return None };
         let species = species_names(&self.data.join("icons").join("icons.json"));
@@ -446,7 +468,7 @@ impl Submitter {
         } else {
             Value::None
         };
-        let item = dict([
+        let mut item = dict([
             ("endpoint", Value::Str("submissions".into())),
             ("payload", p.clone()),
             ("evidence", s(evidence)),
@@ -455,6 +477,15 @@ impl Submitter {
             ("gizmos", g),
             ("queued_at", Value::Float(now())),
         ]);
+        if let Value::Dict(d) = &mut item {
+            if !fight.is_empty() {
+                let l = fight.iter().map(|(n, f)| dict([("n", Value::Int(*n)), ("file", Value::Str(f.clone()))])).collect();
+                d.insert("fight".into(), Value::List(l));
+            }
+            if let Some(g) = fightlog {
+                d.insert("fightlog".into(), Value::Str(g.into()));
+            }
+        }
         let _ = write_json(&self.queue.join(&name), &item, Some(1));
         log::info!(target: "meter", "leaderboard: queued {} {}", p.get("kind").py_str(), p.get("clientRunId").py_str());
         self.wake();
@@ -566,6 +597,9 @@ impl Submitter {
         for rel in item.get("gizmos").as_list().cloned().unwrap_or_default() {
             let _ = std::fs::remove_file(self.data.join(rel.py_str()));
         }
+        for rel in fight_files(item) {
+            let _ = std::fs::remove_file(self.data.join(rel));
+        }
     }
 
     /// Records waiting to go.
@@ -636,6 +670,27 @@ impl Submitter {
                 let path = self.data.join(rel.py_str());
                 if let Some(b) = proofs.get("full", &path, || full_bytes(&path)) {
                     files.insert(format!("gizmo{}", i + 1), b);
+                }
+            }
+        }
+        if files.contains_key("evidence") {
+            // fight evidence (fight_shots.rs): its pictures are JPEGs already and its log is gzip, both sent as they are
+            for e in item.get("fight").as_list().cloned().unwrap_or_default() {
+                let n = e.get("n").as_i64().unwrap_or(0);
+                let path = self.data.join(e.get("file").py_str());
+                if (1..=crate::fight_shots::PARTS as i64).contains(&n)
+                    && let Some(b) = proofs.get("as is", &path, || std::fs::read(&path).ok())
+                {
+                    files.insert(format!("fight{n}"), b);
+                }
+            }
+            if item.get("fightlog").truthy() {
+                let path = self.data.join(item.get("fightlog").py_str());
+                match proofs.get("as is", &path, || std::fs::read(&path).ok()) {
+                    Some(b) => {
+                        files.insert("fightlog".into(), b);
+                    }
+                    None => log::info!(target: "meter", "leaderboard: the fight's log is not sent: {} is missing", item.get("fightlog").py_str()),
                 }
             }
         }

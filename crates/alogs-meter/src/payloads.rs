@@ -561,8 +561,23 @@ pub fn run_payload(summary: &Value, uid: &Value, sched: &Schedule, clock: &dyn C
     }
     extend(&mut extra, bosses(&meter));
     extend(&mut extra, game_of(summary));
+    extend(&mut extra, fight_evidence_of(summary));
     out.insert("extra".into(), Value::Dict(extra));
     Value::Dict(out)
+}
+
+/// The fight's evidence the run's update carried (`fight_evidence`, set once it is attached), kept in every later copy:
+/// `fightShots` [{n, t}] and `fightLog` {rows}. Nothing before it is attached, so the first copy has none.
+fn fight_evidence_of(summary: &Value) -> Value {
+    let e = summary.get("fight_evidence");
+    let mut d = Dict::new();
+    if let Some(shots) = e.get("shots").as_list().filter(|l| !l.is_empty()) {
+        d.insert("fightShots".into(), Value::List(shots.clone()));
+    }
+    if matches!(e.get("log"), Value::Dict(_)) {
+        d.insert("fightLog".into(), e.get("log").clone());
+    }
+    Value::Dict(d)
 }
 
 /// `time.strftime('%Y-W%W')` for a time, in the clock's zone.

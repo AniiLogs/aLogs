@@ -20,6 +20,14 @@ pub const BATTLE_DATA_PAUSE: f64 = 5.0;
 pub const HOLD_MIN: f64 = RESULT_PAUSE + BATTLE_DATA_PAUSE;
 /// Inputs held at most this long while a result is sent.
 pub const SEND_HOLD_S: f64 = 10.0;
+/// A run's fight evidence (fight_shots.rs) rides with its Battle Data update, or with any other update of it; with
+/// none by this long after the first send, it goes in an update of its own. The automatic Battle Data session reads
+/// Battle Data about 5 to 12 s after the result screen (RESULT_PAUSE, then BATTLE_DATA_SETTLE), and a Battle Data read
+/// started before this pushes the look later (sent_run_written): so in the usual case one update carries both.
+pub const FIGHT_EVIDENCE_WAIT_S: f64 = 20.0;
+/// Looked at again this often while it can't go yet (a copy of the run still waits in the queue, or the automatic
+/// Battle Data session runs).
+pub const FIGHT_EVIDENCE_RECHECK_S: f64 = 5.0;
 
 /// The automatic Battle Data session's state.
 #[derive(Default)]
@@ -41,6 +49,13 @@ fn read_json(p: &Path) -> Option<Dict> {
 
 fn write_json(p: &Path, s: &Dict) {
     let _ = alogs_protocol::settings::write_whole(p, &team::unescape_unicode(&Value::Dict(s.clone()).json_dumps_indent(1)));
+}
+
+/// The run's fight evidence still to go: recorded in its summary, not attached to an update yet, not given up on.
+pub fn fight_pending(s: &Dict) -> bool {
+    (s.at("fight_shots").as_list().is_some_and(|l| !l.is_empty()) || matches!(s.at("fight_log"), Value::Dict(_)))
+        && s.get_str("fight_evidence").is_none()
+        && !s.at("fight_skipped").truthy()
 }
 
 /// A run payload's signature: kept in the run's json as `sent_sig`, so an update goes only when it differs.
@@ -122,13 +137,16 @@ impl Meter {
     }
 
     pub(crate) fn send_result(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>) {
-        self.send_result_held(payload, evidence, battle, party, gizmos, true);
+        self.send_result_held(payload, evidence, battle, party, gizmos, true, &[], None);
     }
 
-    /// Queue a record; with `hold` (and holding_for_send), the player's inputs are held until this copy is sent.
-    fn send_result_held(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>, hold: bool) {
+    /// Queue a record (with an Interlink run's fight evidence, when given); with `hold` (and holding_for_send), the
+    /// player's inputs are held until this copy is sent.
+    #[allow(clippy::too_many_arguments)]
+    fn send_result_held(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>, hold: bool,
+                        fight: &[(i64, String)], fightlog: Option<&str>) {
         let Some(s) = self.submitter.clone() else { return };
-        let queued = s.enqueue(payload, evidence, battle, party, gizmos);
+        let queued = s.enqueue_with_fight(payload, evidence, battle, party, gizmos, fight, fightlog);
         if !hold || !self.holding_for_send() {
             return;
         }
@@ -176,7 +194,16 @@ impl Meter {
     /// from what was last sent; inside the run's window, MAX_FOLLOWUPS at most. A Battle Data picture not sent yet
     /// goes with the result screen as its evidence (the site takes it only so); otherwise no pictures go, and the site
     /// keeps the ones it has. A copy of the run still queued is replaced: its pictures go with this one.
+    ///
+    /// The run's fight evidence (its pictures and log, fight_shots.rs) goes with the first update that goes anyway
+    /// (Battle Data's, as a rule), else alone from FIGHT_EVIDENCE_WAIT_S after the first send, or as the window closes
+    /// (`closing`): once, never while a copy of the run still waits in the queue (so never with the first copy), and
+    /// only with the result screen as evidence (the site takes it only so).
     pub fn send_followup(&mut self, path: &Path, hold: bool) -> bool {
+        self.send_followup_ex(path, hold, false)
+    }
+
+    pub fn send_followup_ex(&mut self, path: &Path, hold: bool, closing: bool) -> bool {
         let Some(mut s) = read_json(path) else { return false };
         if self.submitter.is_none() || !self.late_open(&s) {
             return false;
@@ -184,7 +211,10 @@ impl Meter {
         let uid = self.uid.clone().map_or(Value::None, Value::Str);
         let clock = self.env.record_clock();
         let p = payloads::run_payload(&Value::Dict(s.clone()), &uid, &self.env.schedule, &clock);
-        if s.at("sent_sig").as_str() == Some(payload_sig(&p).as_str()) {
+        let changed = s.at("sent_sig").as_str() != Some(payload_sig(&p).as_str());
+        let (fight, fightlog) = self.fight_to_attach(path, &mut s, &p, changed, closing);
+        let attach = !fight.is_empty() || fightlog.is_some();
+        if !changed && !attach {
             return false;
         }
         let better = self.beats_best(&s);
@@ -196,24 +226,20 @@ impl Meter {
         s.insert("followups".into(), Value::Int(n));
         s.insert("sent_sig".into(), Value::Str(payload_sig(&p)));
         let (mut ev, mut bt, mut pt) = (None::<String>, None::<String>, None::<String>);
+        let (mut fight, mut fightlog) = (fight, fightlog);
         let data = self.env.data.clone();
         let on_disk = |rel: &str| !rel.is_empty() && data.join(rel).is_file();
         let bd_shot = s.at("battle_data").get("screenshot").as_str().map(String::from).filter(|b| on_disk(b));
         if self.sends_screenshots()
             && let Some(b) = bd_shot.filter(|b| s.at("sent_battle").as_str() != Some(b.as_str()))
         {
-            // the result screen as it was first sent: still on disk while its first copy waits in the queue, else a
-            // copy of the one kept for this (the kept one stays for a later update)
-            let shot = s.at("result").get("screenshot").as_str().map(String::from).filter(|r| on_disk(r));
-            ev = shot.or_else(|| {
-                let late = s.at("late_result").as_str().map(String::from).filter(|l| on_disk(l))?;
-                let name = Path::new(&late).file_name()?.to_string_lossy().into_owned();
-                let copy = format!("logs/screens/resend_{}", name.trim_start_matches("late_"));
-                std::fs::copy(data.join(&late), data.join(&copy)).is_ok().then_some(copy)
-            });
+            ev = self.result_evidence(&s);
             s.insert("sent_battle".into(), Value::Str(b.clone()));
             bt = Some(b);
             pt = s.at("party_screenshot").as_str().map(String::from);
+        }
+        if attach && ev.is_none() {
+            ev = self.result_evidence(&s); // (the fight's evidence goes only with it)
         }
         if let Some(old) = self.submitter.as_ref().and_then(|sub| sub.queued_item(&p)) {
             let keep = alogs_pyval::py_int(alogs_protocol::settings::load(&data).get("capture").get("keep_hours")).unwrap_or(0) != 0;
@@ -225,13 +251,106 @@ impl Meter {
                     let _ = std::fs::remove_file(data.join(&o)); // replaced in the queue: nothing else names it
                 }
             }
+            // a queued update that carries the fight's evidence: this one carries it instead
+            if fight.is_empty() && fightlog.is_none() {
+                fight = old
+                    .get("fight")
+                    .as_list()
+                    .map(|l| l.iter().filter_map(|e| Some((e.get("n").as_i64()?, e.get("file").as_str()?.to_string()))).filter(|(_, f)| on_disk(f)).collect())
+                    .unwrap_or_default();
+                fightlog = old.get("fightlog").as_str().map(String::from).filter(|f| on_disk(f));
+            }
         }
         write_json(path, &s);
-        let what = if bt.is_some() { "with its Battle Data picture" } else { "numbers only" };
+        let mut what = if bt.is_some() { "with its Battle Data picture".to_string() } else { "numbers only".to_string() };
+        if !fight.is_empty() || fightlog.is_some() {
+            what += &format!(", with the fight's evidence: {} pictures{}", fight.len(), if fightlog.is_some() { " and its log" } else { "" });
+        }
         log::info!(target: "meter", "leaderboard: what follows the sent run changed - sending its update {n} of at most {MAX_FOLLOWUPS} ({what}){}",
             if better.is_empty() { String::new() } else { format!(", a new best: {}", better.join(", ")) });
-        self.send_result_held(&p, ev.as_deref(), bt.as_deref(), pt.as_deref(), None, hold);
+        self.send_result_held(&p, ev.as_deref(), bt.as_deref(), pt.as_deref(), None, hold, &fight, fightlog.as_deref());
         true
+    }
+
+    /// The result screen to send as an update's evidence: as it was first sent (still on disk while its first copy waits
+    /// in the queue), else a copy of the one kept for this (the kept one stays for a later update).
+    fn result_evidence(&self, s: &Dict) -> Option<String> {
+        let data = &self.env.data;
+        let on_disk = |rel: &str| !rel.is_empty() && data.join(rel).is_file();
+        let shot = s.at("result").get("screenshot").as_str().map(String::from).filter(|r| on_disk(r));
+        shot.or_else(|| {
+            let late = s.at("late_result").as_str().map(String::from).filter(|l| on_disk(l))?;
+            let name = Path::new(&late).file_name()?.to_string_lossy().into_owned();
+            let copy = format!("logs/screens/resend_{}", name.trim_start_matches("late_"));
+            std::fs::copy(data.join(&late), data.join(&copy)).is_ok().then_some(copy)
+        })
+    }
+
+    /// Does the run's fight evidence go with this update (send_followup_ex)? When it is pending and an update goes
+    /// anyway (`changed`), the window closes, or its own wait is over with no automatic Battle Data session running;
+    /// never while a copy of the run waits in the queue. Then what is on disk of it ((part, picture), log), recorded in
+    /// the summary as `fight_evidence` (what makes this payload differ: extra.fightShots / fightLog). Without the result
+    /// screen to send it with ("Attach the screenshots as proof" off, or no picture kept) it is given up on, once.
+    fn fight_to_attach(&mut self, path: &Path, s: &mut Dict, p: &Value, changed: bool, closing: bool) -> (Vec<(i64, String)>, Option<String>) {
+        let none = (vec![], None);
+        if !fight_pending(s) {
+            return none;
+        }
+        let now = self.env.now();
+        let own_turn = now >= s.at("fight_due").as_f64().unwrap_or(0.0) && self.auto.auto_until == 0.0;
+        if !(changed || closing || own_turn) || self.submitter.as_ref().and_then(|sub| sub.queued_item(p)).is_some() {
+            return none;
+        }
+        let data = self.env.data.clone();
+        let on_disk = |rel: &str| !rel.is_empty() && data.join(rel).is_file();
+        let mut fight = vec![];
+        let mut shots = vec![];
+        for e in s.at("fight_shots").as_list().cloned().unwrap_or_default() {
+            let (Some(n), Some(file)) = (e.get("n").as_i64(), e.get("file").as_str().map(String::from)) else { continue };
+            if on_disk(&file) {
+                shots.push(alogs_pyval::dict([("n", Value::Int(n)), ("t", e.get("t").clone())]));
+                fight.push((n, file));
+            }
+        }
+        let fl = s.at("fight_log").clone();
+        let fightlog = fl.get("file").as_str().map(String::from).filter(|f| on_disk(f));
+        let result = s.at("result").get("screenshot").as_str().is_some_and(on_disk) || s.at("late_result").as_str().is_some_and(on_disk);
+        let why = if !self.sends_screenshots() {
+            Some("\"Attach the screenshots as proof\" is off")
+        } else if !result {
+            Some("no result screen kept to send it with")
+        } else if fight.is_empty() && fightlog.is_none() {
+            Some("none of it was written")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            log::info!(target: "meter", "leaderboard: the fight's evidence is not sent: {why}");
+            s.insert("fight_skipped".into(), Value::Bool(true));
+            write_json(path, s);
+            self.drop_fight_files(s);
+            return none;
+        }
+        let mut e = Dict::new();
+        e.insert("shots".into(), Value::List(shots));
+        if fightlog.is_some() {
+            e.insert("log".into(), alogs_pyval::dict([("rows", fl.get("rows").clone())]));
+        }
+        s.insert("fight_evidence".into(), Value::Dict(e));
+        (fight, fightlog)
+    }
+
+    /// The run's fight evidence files, removed (unless Keep screenshots is on): it isn't going to be sent.
+    fn drop_fight_files(&self, s: &Dict) {
+        if alogs_pyval::py_int(alogs_protocol::settings::load(&self.env.data).get("capture").get("keep_hours")).unwrap_or(0) != 0 {
+            return;
+        }
+        let shots = s.at("fight_shots").as_list().cloned().unwrap_or_default();
+        for f in shots.iter().map(|e| e.get("file")).chain([s.at("fight_log").get("file")]) {
+            if let Some(f) = f.as_str() {
+                let _ = std::fs::remove_file(self.env.data.join(f));
+            }
+        }
     }
 
     /// Is "Attach the screenshots as proof" on (with submissions on)?
@@ -259,7 +378,9 @@ impl Meter {
         match read_json(&p) {
             Some(s) if self.late_open(&s) => {
                 let until = s.at("late_until").as_f64().unwrap_or(0.0);
-                self.rs.followup = Some((p, until));
+                // the fight's evidence still to go: looked at when its own wait is over (again shortly while it can't)
+                let next = if fight_pending(&s) { s.at("fight_due").as_f64().unwrap_or(0.0).max(now + FIGHT_EVIDENCE_RECHECK_S).min(until) } else { until };
+                self.rs.followup = Some((p, next));
             }
             _ => self.end_followup(&p),
         }
@@ -268,7 +389,7 @@ impl Meter {
     /// Now (another run, or the meter closing): the open window's last update if anything changed, and its end.
     pub fn settle_followup(&mut self) {
         if let Some((p, _)) = self.rs.followup.clone() {
-            self.send_followup(&p, false);
+            self.send_followup_ex(&p, false, true);
             self.end_followup(&p);
         }
     }
@@ -283,6 +404,12 @@ impl Meter {
             let _ = std::fs::remove_file(self.env.data.join(&late));
             s.pop("late_result");
             write_json(path, &s);
+        }
+        if fight_pending(&s) {
+            log::info!(target: "meter", "leaderboard: the fight's evidence is not sent: the run's window ended first");
+            s.insert("fight_skipped".into(), Value::Bool(true));
+            write_json(path, &s);
+            self.drop_fight_files(&s);
         }
     }
 
@@ -342,11 +469,16 @@ impl Meter {
         let shot = s.at("result").get("screenshot").as_str().map(String::from);
         let screenshots = self.sends_screenshots();
         let b = s.at("battle_data").get("screenshot").as_str().map(String::from);
+        let fight = fight_pending(&s);
+        if fight {
+            s.insert("fight_due".into(), Value::Float(now + FIGHT_EVIDENCE_WAIT_S));
+        }
         if let Some(shot) = &shot
-            && b.is_none()
+            && (b.is_none() || fight)
             && screenshots
         {
-            // kept for an update that brings a Battle Data picture once this copy (and its picture) is sent
+            // kept for an update that brings a Battle Data picture (or the fight's evidence) once this copy (and its
+            // picture) is sent
             let name = Path::new(shot).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let late = format!("logs/screens/late_{name}");
             if std::fs::copy(self.env.data.join(shot), self.env.data.join(&late)).is_ok() {

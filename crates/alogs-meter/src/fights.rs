@@ -330,6 +330,8 @@ pub struct Fight {
     pub frames: Option<std::path::PathBuf>,
     /// The fight's file name without its .csv (logs/<name>.csv).
     pub csv_name: String,
+    /// Data rows written to its CSV so far.
+    pub rows: u64,
     /// The bar this fight follows: (span, yc).
     pub bar_geom: Option<(f64, f64)>,
     pub foreign_logged: bool,
@@ -432,6 +434,7 @@ impl Fight {
             boss_col,
             frames,
             csv_name: name,
+            rows: 0,
             bar_geom: None,
             foreign_logged: false,
             scene_ok: false,
@@ -713,8 +716,10 @@ impl Fight {
             }
             cells.push(opt_i(self.order));
         }
-        if let Some(w) = self.csv.as_mut() {
-            let _ = w.write_record(cells.iter().map(Cell::text));
+        if let Some(w) = self.csv.as_mut()
+            && w.write_record(cells.iter().map(Cell::text)).is_ok()
+        {
+            self.rows += 1;
         }
     }
 
