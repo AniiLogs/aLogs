@@ -4,7 +4,7 @@
 //! fraction of the bracket span, measured once on a 2000x1125 screenshot (span 789 px).
 
 use alogs_pil::ops::{darker, lighter};
-use alogs_pil::{Filter, Image, Mode, Transpose};
+use alogs_pil::{Filter, Image, Mode};
 use regex::bytes::Regex;
 use std::sync::Mutex;
 
@@ -92,42 +92,94 @@ pub fn label_span(left: f64, span: f64, width: f64) -> f64 {
     mirror
 }
 
-fn line_px(im: &Image, x: i64, y: i64) -> bool {
-    let p = px(im, x, y);
-    if is_white(p) {
-        return true;
-    }
-    if *p.iter().min().unwrap() < 140 {
-        return false;
-    }
-    for nx in [x - 1, x + 1] {
-        if let Some(q) = px_at(im, nx, y)
-            && *q.iter().min().unwrap() >= 140
-        {
-            return true;
-        }
-    }
-    false
+/// What one column showed of a bracket: the bracket, something else, or too little of it to say (most of it under
+/// the COVER of our own windows).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Pass,
+    Fail,
+    Unknown,
 }
 
-fn white_run(im: &Image, x: i64, yc: i64, reach: i64, h: i64) -> i64 {
-    ((yc - reach).max(0)..(yc + reach).min(h)).filter(|&y| line_px(im, x, y)).count() as i64
-}
+/// The bracket's own rows: from the bar's top row down to this share of its thickness below its centre row. In the
+/// game the bracket runs from the bar's top past the break gauge below it (43 rows at 4K for a bar 25 to 28 thick,
+/// rows 181 to 223 for a bar centred on row 194, measured 22 Nov); on the drawn test frames it reaches 0.7 to 0.8 of
+/// the thickness above and below the centre. These rows are bracket in both.
+const BRACKET_REACH: f64 = 0.7;
+/// A bracket pixel differs this much (the channels' differences added up) from some pixel within a few px on that
+/// side: a bright background (a daytime sky is (148, 215, 235)) is as bright beside a column as on it, and a pale sky
+/// beside the white bracket still differs by 59 (195, 242, 251 against 245, 245, 245).
+const BRACKET_CONTRAST: i32 = 45;
+/// ...and is brighter than it by this much (the channels added up): the soft edge between a pale sky and the bar's
+/// dark rim differs from both, but is darker than the sky.
+const BRACKET_BRIGHTER: i32 = 30;
+/// A right bracket is taken this close to the left one's mirror about the frame's centre line, px. Both bar kinds are
+/// centred: at 4K the true ends are 0 to 1 px from it, on the drawn test frames of every size 0 to 2 px.
+pub const MIRROR_PX: f64 = 3.0;
+/// The bar is centred on the frame: its ends' midpoint is this close to the centre line, px.
+pub const CENTRED_PX: f64 = 2.0;
 
-fn is_bracket(im: &Image, x: i64, yc: i64, thick: i64, w: i64, h: i64) -> bool {
-    if (white_run(im, x, yc, 2 * thick, h) as f64) < 1.3 * thick as f64 - 1.5 {
-        return false;
-    }
-    let off = (thick / 3).max(3);
-    let mut n = 0;
-    for s in [-off, off] {
-        for yy in [yc - thick / 3, yc + thick / 3] {
-            if is_white(px(im, (x + s).max(0).min(w - 1), yy)) {
-                n += 1;
+/// Is column x the bar's bracket? Only the bracket's own rows count; a pixel counts when it is bright (its darkest
+/// channel 140 or more) and stands out from some pixel within `off` px on its left and on its right (the line is a
+/// few px wide): differs from it and is brighter. On both sides: strong; on one: where the bracket's tabs reach in
+/// towards the bar. Most rows must count and half must be strong. Covered pixels say nothing either way.
+fn bracket_side(im: &Image, x: i64, yc: i64, thick: i64, h: i64) -> Side {
+    let reach = ((BRACKET_REACH * thick as f64).round() as i64).max(3);
+    let off = (thick / 5).max(3);
+    let (mut known, mut cover, mut line, mut strong) = (0, 0, 0, 0);
+    // (true too when there's nothing to compare with on that side: every pixel covered or outside the picture)
+    let side = |p: Px, dir: i64, y: i64| {
+        let mut any = false;
+        for k in 1..=off {
+            if let Some(q) = px_at(im, x + dir * k, y).filter(|q| !covered(*q)) {
+                if sum3(p) as i32 - sum3(q) as i32 >= BRACKET_BRIGHTER && diff(p, q) >= BRACKET_CONTRAST {
+                    return true;
+                }
+                any = true;
             }
         }
+        !any
+    };
+    for y in (yc - thick / 2).max(0)..=(yc + reach).min(h - 1) {
+        let p = px(im, x, y);
+        if covered(p) {
+            cover += 1;
+            continue;
+        }
+        known += 1;
+        if *p.iter().min().unwrap() < 140 {
+            continue;
+        }
+        let (l, r) = (side(p, -1, y), side(p, 1, y));
+        if l || r {
+            line += 1;
+        }
+        if l && r {
+            strong += 1;
+        }
     }
-    n <= 2
+    if known * 5 < (known + cover) * 2 {
+        return Side::Unknown;
+    }
+    if line * 5 >= known * 4 && strong * 2 >= known { Side::Pass } else { Side::Fail }
+}
+
+fn is_bracket(im: &Image, x: i64, yc: i64, thick: i64, h: i64) -> bool {
+    bracket_side(im, x, yc, thick, h) == Side::Pass
+}
+
+/// How the bracket near x0 (within 2 px) looks: Pass if any column passes, else Unknown if any is covered, else Fail.
+fn side_near(im: &Image, x0: i64, yc: i64, thick: i64) -> Side {
+    let (w, h) = (im.width as i64, im.height as i64);
+    let mut any_unknown = false;
+    for x in (x0 - 2).max(0)..(x0 + 3).min(w) {
+        match bracket_side(im, x, yc, thick, h) {
+            Side::Pass => return Side::Pass,
+            Side::Unknown => any_unknown = true,
+            Side::Fail => {}
+        }
+    }
+    if any_unknown { Side::Unknown } else { Side::Fail }
 }
 
 fn longest_run(im: &Image, y: i64, x0: i64, x1: i64, test: fn(Px) -> bool) -> (i64, i64) {
@@ -164,19 +216,6 @@ fn fill_ghost(im: &Image) -> (Image, Image, (Image, Image, Image)) {
     let fill = darker(&darker(&r.point(band(220, 255)), &g.point(band(90, 195))), &b.point(band(0, 125)));
     let ghost = darker(&darker(&r.point(band(165, 215)), &g.point(band(55, 105))), &b.point(band(55, 100)));
     (fill, ghost, (r, g, b))
-}
-
-/// `_bright_columns`: per column, how many pixels in the rows around `yc` have their darkest channel at 140 or more.
-fn bright_columns(im: &Image, yc: i64, reach: i64, h: i64) -> Option<Vec<u32>> {
-    let (y0, y1) = ((yc - reach).max(0), (yc + reach).min(h));
-    if y1 <= y0 {
-        return None;
-    }
-    let (r, g, b) = rgb3(&im.crop_i(0, y0, im.width as i64, y1));
-    let rows = darker(&darker(&r, &g), &b).point(|v| if v >= 140 { 1.0 } else { 0.0 });
-    let t = rows.transpose(Transpose::Transpose);
-    let hh = (y1 - y0) as usize;
-    Some((0..im.width).map(|x| t.data[x * hh..(x + 1) * hh].iter().filter(|&&v| v == 1).count() as u32).collect())
 }
 
 /// `_colored_run`: the first longest run of fill/ghost pixels on row y between x0 and x1.
@@ -262,7 +301,7 @@ pub fn find_bar(im: &Image, cropped: bool, tries: usize) -> Option<Bar> {
             continue;
         }
         tried.push(by);
-        match check_candidate(im, x0 + pyround(bs as f64 * f), y0 + pyround(by as f64 * f), d, cropped, None, true) {
+        match check_candidate(im, x0 + pyround(bs as f64 * f), y0 + pyround(by as f64 * f), d, cropped, None, true, true) {
             Ok(bar) => {
                 LAST_FAIL.lock().unwrap().clear();
                 return Some(bar);
@@ -296,20 +335,21 @@ pub fn bar_at(im: &Image, spots: &[Spot]) -> Option<Bar> {
     let (w, h) = (im.width as i64, im.height as i64);
     let d = pyround(w as f64 / 960.0).max(1);
     for spot in spots {
-        if spot.frame != im.size() {
+        if spot.frame != im.size() || !spot_centred(spot) {
+            // (a place that isn't centred is a wrong find: the bar always is)
             continue;
         }
         let (yc, t) = (spot.yc as i64, spot.thickness as i64);
         let lb = pyround(spot.left_bracket);
         let rb = pyround(spot.left_bracket + spot.span);
-        let at = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).find(|&x| is_bracket(im, x, yc, t, w, h));
+        let at = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).find(|&x| is_bracket(im, x, yc, t, h));
         if !(0 <= yc && yc < h && rb < w) {
             continue;
         }
         let Some(lbx) = at(lb) else { continue };
         let Some(rbx) = at(rb) else { continue };
         for dx in [2, 8, 20] {
-            if let Ok(bar) = check_candidate(im, spot.track_left as i64 + dx, spot.yc as i64, d, false, Some((lbx, rbx)), false) {
+            if let Ok(bar) = check_candidate(im, spot.track_left as i64 + dx, spot.yc as i64, d, false, Some((lbx, rbx)), false, true) {
                 return Some(bar);
             }
         }
@@ -317,8 +357,33 @@ pub fn bar_at(im: &Image, spots: &[Spot]) -> Option<Bar> {
     None
 }
 
-/// Refine one candidate run at full resolution and check it is the boss bar.
-fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets: Option<(i64, i64)>, fast: bool) -> Result<Bar, String> {
+/// Is a remembered place centred on its frame (as the bar always is)?
+pub fn spot_centred(s: &Spot) -> bool {
+    (s.left_bracket + s.span / 2.0 - s.frame.0 as f64 / 2.0).abs() <= CENTRED_PX
+}
+
+/// Is this bar centred on its frame (as the true bar always is)?
+pub fn centred(b: &Bar) -> bool {
+    (b.left_bracket + b.span / 2.0 - b.frame.0 as f64 / 2.0).abs() <= CENTRED_PX
+}
+
+/// The bar's top and bottom rows in column `col` around row `yg` (the fill or ghost colour, unbroken).
+fn bar_rows(im: &Image, col: i64, yg: i64, h: i64) -> (i64, i64) {
+    let mut top = yg;
+    while top > 0 && colored(px(im, col, top - 1)) {
+        top -= 1;
+    }
+    let mut bot = yg;
+    while bot < h - 1 && colored(px(im, col, bot + 1)) {
+        bot += 1;
+    }
+    (top, bot)
+}
+
+/// Refine one candidate run at full resolution and check it is the boss bar. `thick_check`: its thickness is checked
+/// against the picture's height (not in a picture of the top part only).
+#[allow(clippy::too_many_arguments)]
+fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets: Option<(i64, i64)>, fast: bool, thick_check: bool) -> Result<Bar, String> {
     let (w, h) = (im.width as i64, im.height as i64);
     let col = (w - 1).min(xg + 4 * d);
     let mut yg = yg;
@@ -329,20 +394,27 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
         }
         yg = near[0];
     }
-    let mut top = yg;
-    while top > 0 && colored(px(im, col, top - 1)) {
-        top -= 1;
-    }
-    let mut bot = yg;
-    while bot < h - 1 && colored(px(im, col, bot + 1)) {
-        bot += 1;
+    let (mut top, mut bot) = bar_rows(im, col, yg, h);
+    // The thickness is the most of a few columns along the fill: the break state's lock icon covers the lower half
+    // of the bar's left end, and from one column there the bar read 13 to 16 px thick at 4K instead of 25 to 28
+    // and its row 4 to 6 px high (92 of 526 finds in fights, 17-22 Nov).
+    for k in 1..=6 {
+        let c = col + k * 6 * d;
+        if c >= w || !colored(px(im, c, yg)) {
+            break;
+        }
+        let (t2, b2) = bar_rows(im, c, yg, h);
+        if b2 - t2 > bot - top {
+            (top, bot) = (t2, b2);
+        }
     }
     let yc = (top + bot).div_euclid(2);
     let thick = (bot - top + 1).max(3);
-    if !cropped && thick as f64 > h as f64 * 0.03 {
+    if !cropped && thick_check && thick as f64 > h as f64 * 0.03 {
         return Err(format!("too thick ({thick}px)"));
     }
     let (mut lb, mut rb): (Option<f64>, Option<f64>) = (None, None);
+    let mut mirrored = false;
     let start;
     let est = SPAN_PER_THICKNESS * thick as f64;
     if let Some((l, r)) = brackets {
@@ -352,15 +424,7 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
     } else {
         let (_, s) = if fast { colored_run(im, yc, (xg - 4 * d).max(0), w) } else { longest_run(im, yc, (xg - 4 * d).max(0), w, colored) };
         start = s;
-        let bright = if fast { bright_columns(im, yc, 2 * thick, h) } else { None };
-        let need = 1.3 * thick as f64 - 1.5;
-        let bracket = |x: i64| {
-            let ok = match &bright {
-                None => true,
-                Some(b) => f64::from(b[x as usize]) >= need,
-            };
-            ok && is_bracket(im, x, yc, thick, w, h)
-        };
+        let bracket = |x: i64| is_bracket(im, x, yc, thick, h);
         let mut x = start - 1;
         while x > (start - 4 * thick).max(0) - 1 {
             if bracket(x) {
@@ -370,26 +434,25 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
             x -= 1;
         }
         if let Some(l) = lb {
-            let u = (w as f64).min(h as f64 * 16.0 / 9.0);
-            let hi = (w - 1).min((w as f64 - l + 0.06 * u) as i64);
-            let lo = ((l + 0.3 * u) as i64).max((w as f64 - l - 0.06 * u) as i64);
-            let mut lines = Vec::new();
-            let mut x = hi;
-            while x > lo {
-                if bracket(x) {
-                    lines.push(x);
+            if cropped {
+                // (a crop isn't centred on the screen: the right bracket nearest the mirror, from further off)
+                let u = (w as f64).min(h as f64 * 16.0 / 9.0);
+                let hi = (w - 1).min((w as f64 - l + 0.06 * u) as i64);
+                let lo = ((l + 0.3 * u) as i64).max((w as f64 - l - 0.06 * u) as i64);
+                rb = nearest_line(&bracket, hi, lo, l, w);
+            } else {
+                // The bar is centred: its right bracket is the left one's mirror. Only a bracket within MIRROR_PX of
+                // it is taken; anything further off (the fill's bright edge, a hit's pale flash, the "1" of the
+                // counter "x1", the counter box's edge, icons, sky: all taken within 230 px before 22 Nov) is not.
+                // When none shows there (the game's "250%" badge, an icon, a hit over it) the mirror itself is the end.
+                let m = w as f64 - l;
+                let (hi, lo) = ((w - 1).min((m + MIRROR_PX) as i64), (m - MIRROR_PX).ceil() as i64 - 1);
+                rb = nearest_line(&bracket, hi, lo, l, w);
+                if rb.is_none() && m < w as f64 {
+                    rb = Some(m);
+                    mirrored = true;
                 }
-                x -= 1;
             }
-            // min() keeps the first of equals
-            let mut best: Option<(f64, i64)> = None;
-            for x in lines {
-                let k = (l + (x as f64 - l) / 2.0 - w as f64 / 2.0).abs();
-                if best.is_none_or(|b| k < b.0) {
-                    best = Some((k, x));
-                }
-            }
-            rb = best.map(|b| b.1 as f64);
         }
     }
     let span;
@@ -448,7 +511,7 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
         yc,
         left_bracket: lbv,
         span,
-        brackets_found: rb.is_some(),
+        brackets_found: rb.is_some() && !mirrored,
         world,
         right_red,
         track_left: pyround(lbv + TRACK.0 * span),
@@ -456,6 +519,40 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
         thickness: thick,
         frame: im.size(),
     })
+}
+
+/// The bracket column nearest the mirror of `l` between `hi` and `lo` (scanned down from `hi`: the first of equals).
+fn nearest_line(bracket: &dyn Fn(i64) -> bool, hi: i64, lo: i64, l: f64, w: i64) -> Option<f64> {
+    let mut best: Option<(f64, i64)> = None;
+    let mut x = hi;
+    while x > lo {
+        if bracket(x) {
+            let k = (l + (x as f64 - l) / 2.0 - w as f64 / 2.0).abs();
+            if best.is_none_or(|b| k < b.0) {
+                best = Some((k, x));
+            }
+        }
+        x -= 1;
+    }
+    best.map(|b| b.1 as f64)
+}
+
+/// The bar's ends looked for again where a bar is locked (`near`), in this picture (a whole frame or its top part):
+/// the same checks as `find_bar` from that bar's track. The frame size is the locked bar's.
+pub fn find_at(im: &Image, near: &Bar) -> Option<Bar> {
+    if near.yc >= im.height as i64 || near.track_left >= im.width as i64 {
+        return None;
+    }
+    let d = pyround(near.frame.0 as f64 / 960.0).max(1);
+    let b = check_candidate(im, near.track_left + 2, near.yc, d, false, None, true, false).ok()?;
+    Some(Bar { frame: near.frame, ..b })
+}
+
+/// In an Interlink fight the bar always has the Interlink track (its xN box at the right end), whatever the right end
+/// showed: the game's orange "250%" badge sits where a world bar's track goes on, and a fight read on the world track
+/// read its fill 6 to 7 points low (21 Nov).
+pub fn interlink_track(bar: &Bar) -> Bar {
+    Bar { world: false, track_right: pyround(bar.left_bracket + TRACK.1 * bar.span), ..bar.clone() }
 }
 
 /// In an Interlink fight a bar found without its xN box still has the Interlink track.
@@ -668,17 +765,109 @@ pub fn measure_break(im: &Image, bar: &Bar) -> (Option<f64>, Option<&'static str
     (if broken { Some(0.0) } else { None }, None, broken)
 }
 
-/// Is the boss bar still where it was locked? The two white brackets only.
-pub fn verify_bar(im: &Image, bar: &Bar) -> bool {
+/// The two brackets of a locked bar as this picture shows them (each within 2 px of its place).
+pub fn bracket_sides(im: &Image, bar: &Bar) -> (Side, Side) {
     if bar.track_right >= im.width as i64 || bar.yc >= im.height as i64 {
-        return false;
+        return (Side::Fail, Side::Fail);
     }
-    let (w, h) = (im.width as i64, im.height as i64);
-    let t = bar.thickness;
     let lb = pyround(bar.left_bracket);
     let rb = pyround(bar.left_bracket + bar.span);
-    let near = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).any(|x| is_bracket(im, x, bar.yc, t, w, h));
-    near(lb) && near(rb)
+    (side_near(im, lb, bar.yc, bar.thickness), side_near(im, rb, bar.yc, bar.thickness))
+}
+
+/// Is the boss bar still where it was locked? The two white brackets only: neither may show something else, and at
+/// least one must show (a bracket under our own windows' cover is neither).
+pub fn verify_bar(im: &Image, bar: &Bar) -> bool {
+    let (l, r) = bracket_sides(im, bar);
+    l != Side::Fail && r != Side::Fail && (l == Side::Pass || r == Side::Pass)
+}
+
+/// Both brackets seen where the bar is locked: a look that confirms its ends.
+pub fn verify_strict(im: &Image, bar: &Bar) -> bool {
+    bracket_sides(im, bar) == (Side::Pass, Side::Pass)
+}
+
+/// Looks on which a fight's bar ends must be seen the same (both brackets, centred) before they are its ends.
+pub const HOLD_LOOKS: u32 = 3;
+/// Two sights of the ends agree when each end is within this many px (and the row within 3).
+pub const AGREE_PX: f64 = 2.0;
+
+/// Do two bars have the same ends?
+pub fn same_ends(a: &Bar, b: &Bar) -> bool {
+    a.frame.0 == b.frame.0
+        && (a.left_bracket - b.left_bracket).abs() <= AGREE_PX
+        && (a.left_bracket + a.span - b.left_bracket - b.span).abs() <= AGREE_PX
+        && (a.yc - b.yc).abs() <= 3
+}
+
+/// What one look did to the held ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoldNews {
+    Nothing,
+    /// The fight's ends are held from now on.
+    Held,
+    /// The held ends were replaced (once a fight, early in it).
+    Replaced,
+}
+
+/// A fight's bar ends, held once seen. The bar never moves during a fight, so every other span the finder returns is
+/// a measuring error: once the ends have been seen the same on HOLD_LOOKS looks (both brackets, centred on the frame)
+/// they are the fight's, and the bar is read there whatever a later search says. The ends a fight merely started on
+/// are not trusted (first finds measured spans of 1153 and 1367 px, the bar's being 1387): early in the
+/// fight the held ends are replaced once by a pair that is better, i.e. seen HOLD_LOOKS times on looks where the
+/// held ones were not seen at all (any look that sees the held ends starts that count over).
+#[derive(Clone, Debug, Default)]
+pub struct EndsHold {
+    pub held: Option<Bar>,
+    /// Looks the held ends were seen on.
+    pub seen: u32,
+    pub replaced: bool,
+    cand: Option<(Bar, u32)>,
+    /// The fight the ends are of (its log's name), the frame size, when it was first looked at.
+    pub fight: Option<String>,
+    pub frame: (usize, usize),
+    pub since: f64,
+    /// The ends the last reading was taken at (left bracket, span, row).
+    pub last_read: Option<(f64, f64, i64)>,
+    /// Looks read at the held ends although their bracket check failed; search results not taken.
+    pub held_reads: u32,
+    pub not_taken: u32,
+}
+
+impl EndsHold {
+    /// Nothing held yet, for this fight (its id) at this frame size, first looked at since.
+    pub fn new(fight: Option<String>, frame: (usize, usize), since: f64) -> EndsHold {
+        EndsHold { fight, frame, since, ..Default::default() }
+    }
+
+    /// One look's sight of the ends: a bar whose both brackets were seen (None: not seen on this look). `early`: the
+    /// held ends may still be replaced.
+    pub fn look(&mut self, seen: Option<&Bar>, early: bool) -> HoldNews {
+        let Some(s) = seen.filter(|s| s.brackets_found && centred(s)) else { return HoldNews::Nothing };
+        if let Some(h) = &self.held {
+            if same_ends(s, h) {
+                self.seen += 1;
+                self.cand = None;
+                return HoldNews::Nothing;
+            }
+            if self.replaced || !early {
+                return HoldNews::Nothing;
+            }
+        }
+        self.cand = match self.cand.take() {
+            Some((c, n)) if same_ends(&c, s) => Some((c, n + 1)),
+            _ => Some((s.clone(), 1)),
+        };
+        if self.cand.as_ref().is_some_and(|c| c.1 < HOLD_LOOKS) {
+            return HoldNews::Nothing;
+        }
+        let (c, n) = self.cand.take().unwrap();
+        let news = if self.held.is_some() { HoldNews::Replaced } else { HoldNews::Held };
+        self.replaced |= news == HoldNews::Replaced;
+        self.held = Some(c);
+        self.seen = n;
+        news
+    }
 }
 
 pub fn box_at(bar: &Bar, rel: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {

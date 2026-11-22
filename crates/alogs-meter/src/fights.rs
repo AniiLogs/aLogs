@@ -335,6 +335,9 @@ pub struct Fight {
     /// The bar this fight follows: (span, yc).
     pub bar_geom: Option<(f64, f64)>,
     pub foreign_logged: bool,
+    /// The bar's ends changed on this look (the meter sets it before `update`): its reading waits for one more look
+    /// before it counts as damage, so a wrong end can't credit damage that wasn't dealt.
+    pub ends_moved: bool,
     /// The game log confirmed an Interlink scene.
     pub scene_ok: bool,
     pub ended: Option<f64>,
@@ -437,6 +440,7 @@ impl Fight {
             rows: 0,
             bar_geom: None,
             foreign_logged: false,
+            ends_moved: false,
             scene_ok: false,
             ended: None,
         }
@@ -467,6 +471,7 @@ impl Fight {
     ) {
         let now = at.filter(|a| *a != 0.0).unwrap_or_else(|| env.now());
         let mut note = String::new();
+        let ends_moved = std::mem::take(&mut self.ends_moved);
         if self.timer.is_none() {
             self.timer = Some(Timer::new(duration));
         }
@@ -572,7 +577,10 @@ impl Fight {
         {
             let lp = self.low_pending;
             let agrees = lp.is_some_and(|l| f <= l.0 + 0.02);
-            if f < self.seg_fill - 0.15 && !(agrees && now - lp.unwrap().1 >= self.low_confirm) {
+            if ends_moved && f < self.seg_fill {
+                // read at ends other than the last reading's: not damage until the next look at these ends (in a
+                // burst of 8 re-finds in 0.7 s, 22 Nov, one row credited 5.7% of a boss's HP that wasn't dealt)
+            } else if f < self.seg_fill - 0.15 && !(agrees && now - lp.unwrap().1 >= self.low_confirm) {
                 if !agrees {
                     self.low_pending = Some((f, now));
                 }

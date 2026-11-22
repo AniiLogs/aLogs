@@ -294,7 +294,11 @@ pub struct Overlay {
     in_capture: Option<bool>,
     own: Arc<Mutex<Own>>,
     cur: HashMap<usize, (i32, i32, i32, i32)>,
-    old: Vec<(i32, i32, i32, i32, f64)>,
+    /// Spots just left: (x0, y0, x1, y1, until, window).
+    old: Vec<(i32, i32, i32, i32, f64, usize)>,
+    /// Windows Windows keeps out of every capture (the HP labels, once that took): never in a picture of the screen,
+    /// so the meter doesn't cover them in its own.
+    uncaptured: std::collections::HashSet<usize>,
     published: f64,
     shared: alogs_capture::shared::SharedCapture,
 }
@@ -352,6 +356,7 @@ impl Overlay {
             own,
             cur: HashMap::new(),
             old: vec![],
+            uncaptured: Default::default(),
             published: 0.0,
             shared: alogs_capture::shared::SharedCapture::new(3),
         };
@@ -408,7 +413,7 @@ impl Overlay {
             return;
         }
         if let Some(p) = prev {
-            self.old.push((p.0, p.1, p.2, p.3, t + 0.5));
+            self.old.push((p.0, p.1, p.2, p.3, t + 0.5, hwnd));
         }
         match rect {
             Some(r) => {
@@ -425,11 +430,15 @@ impl Overlay {
     /// Our spots for Sanctum Helper and the app to cover in their pictures (and again each second).
     fn publish_own(&mut self, t: f64) {
         self.published = t;
-        let mut rects: Vec<(i32, i32, i32, i32, f64)> = self.cur.values().map(|r| (r.0, r.1, r.2, r.3, 0.0)).collect();
+        let mut rects: Vec<(i32, i32, i32, i32, f64, usize)> = self.cur.iter().map(|(h, r)| (r.0, r.1, r.2, r.3, 0.0, *h)).collect();
         rects.extend(self.old.iter().copied());
         let live: Vec<(i32, i32, i32, i32)> = rects.iter().filter(|r| r.4 == 0.0 || r.4 > t).map(|r| (r.0, r.1, r.2, r.3)).collect();
         self.shared.publish_overlays(alogs_capture::shared::OWNER_METER, &live);
-        self.own.lock().unwrap().rects = rects;
+        // The meter covers only the windows that can be in its pictures. The HP labels are kept out of captures (in
+        // tick): covered all the same, the HP numbers' window (anchored at the right bracket, with its shadow margin)
+        // blanked the bracket's lowest rows in 25 of 26 fight frames (22 Nov), and the bracket check failed on the
+        // true bar in 4 of them for that alone.
+        self.own.lock().unwrap().rects = rects.into_iter().filter(|r| !self.uncaptured.contains(&r.5)).map(|r| (r.0, r.1, r.2, r.3, r.4)).collect();
     }
 
     fn win_mut(&mut self, which: &str) -> &mut Win {
@@ -943,8 +952,16 @@ impl Overlay {
                 w.hide_from_capture(!want_in);
             }
             for e in self.hp.values() {
-                e.0.w.hide_from_capture(true); // the HP labels sit on the bar the meter reads
+                // the HP labels sit on the bar the meter reads: kept out of captures (and so not covered, where that
+                // took: Windows 10 2004 and later)
+                let h = e.0.w.hwnd;
+                if e.0.w.hide_from_capture(true) {
+                    self.uncaptured.insert(h);
+                } else {
+                    self.uncaptured.remove(&h);
+                }
             }
+            self.publish_own(now());
         }
         let front = self.game_in_front(&v);
         if self.away != !front {
