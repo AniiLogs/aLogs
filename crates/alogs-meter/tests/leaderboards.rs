@@ -627,6 +627,35 @@ fn the_last_strike_needs_no_number() {
     assert!(queued(&m, "fight_a").is_none());
 }
 
+/// The result screen's "New Best Record" banner is someone in the party's new best, not necessarily yours: it stays
+/// in the run (new_best) but nothing is recorded from it as your best (no scores.csv row, no status line, your menu
+/// best as it was), so a menu read of your unchanged best sends nothing, and a changed one still goes.
+#[test]
+fn the_new_best_banner_is_not_your_best() {
+    let mut m = sending("lb-new-best-banner", false);
+    m.last_fight = Some((interlink_fight(&m, "fight_a"), T));
+    m.rs.last_scores.insert("Made-up Boss".into(), (Some(34_333), Some(30))); // your best, as a menu showed it
+    let im = alogs_pil::Image::new(alogs_pil::Mode::Rgb, 1920, 1080, &[20, 20, 20]);
+    let mut out = Said::default();
+    for at in [T, T + 1.6] {
+        m.env.fixed_now.set(Some(at));
+        m.ocr = result_answers("Made-up One");
+        m.result_screen(&mut NoFrames, &mut out, &im, at, 1920.0, 0.0, 1080.0, "New Best Record", None);
+    }
+    let q = queued(&m, "fight_a").expect("the run is sent");
+    assert!(q.get("payload").get("extra").get("newBest").truthy(), "the banner stays a fact about the run");
+    assert_eq!(m.rs.last_scores.get("Made-up Boss"), Some(&(Some(34_333), Some(30))), "your best is left alone");
+    assert!(!m.env.data.join("logs/scores.csv").exists(), "no scores.csv row from the banner");
+    assert!(!out.0.iter().any(|(k, v)| k == "status" && v.py_str().starts_with("score recorded")), "no status line from the banner");
+    let bests = |m: &Meter| std::fs::read_dir(m.env.data.join("logs/submit_queue")).unwrap().flatten().filter(|e| { let n = e.file_name().to_string_lossy().into_owned(); n.starts_with("interlink_best") || n.starts_with("interlink_week") }).count();
+    assert_eq!(bests(&m), 0, "no best (interlink_best or interlink_week) from the banner");
+    // the menu shows your best unchanged: nothing sent; changed: sent
+    m.record_score(&mut NoFrames, &mut out, &im, "challenge_stats", "Made-up Boss", Some(34_333), Some(30));
+    assert_eq!(bests(&m), 0, "an unchanged menu best is not sent again");
+    m.record_score(&mut NoFrames, &mut out, &im, "challenge_stats", "Made-up Boss", Some(35_010), Some(31));
+    assert_eq!(bests(&m), 1, "a changed menu best is sent");
+}
+
 /// A result screen counts as read only when two looks in a row agree: a first look read whole neither clicks View
 /// Battle Data nor sends; a second that reads one name differently doesn't either; a third that agrees with the
 /// second does both, with its names, and the run's proof is that look's picture (the first one's file is gone). A

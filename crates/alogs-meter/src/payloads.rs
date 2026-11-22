@@ -70,8 +70,24 @@ fn fold(name: &str) -> String {
     Teammates::fold(name)
 }
 
+/// A line logged once per run: the run's payload is built again at every send and update, its lines need not be.
+fn log_once(run: &str, line: String) {
+    static SEEN: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let key = (run.to_string(), line);
+    if seen.contains(&key) {
+        return;
+    }
+    log::info!(target: "meter", "{}", key.1);
+    if seen.len() >= 64 {
+        seen.remove(0);
+    }
+    seen.push(key);
+}
+
 /// Each Party member (by index) paired with the run's result-screen player it is: the name its lineup card goes by.
-pub fn lineup_names(party: &[Value], players: &[Value]) -> HashMap<usize, String> {
+/// (`run_key`: which run it is for, so its lines are logged once.)
+pub fn lineup_names(party: &[Value], players: &[Value], run_key: &str) -> HashMap<usize, String> {
     let sim = |a: &str, b: &str| ratio(&fold(a), &fold(b));
     let run = |a: &str, b: &str| SequenceMatcher::new(&fold(a), &fold(b)).matching_blocks().iter().map(|x| x.2).max().unwrap_or(0);
     let cards: Vec<usize> = (0..party.len()).filter(|&i| matches!(party[i], Value::Dict(_))).collect();
@@ -180,8 +196,9 @@ pub fn lineup_names(party: &[Value], players: &[Value]) -> HashMap<usize, String
         if let Some(&p) = pair.get(&m) {
             let got = name(&players[p]);
             if got != n {
-                log::info!(target: "meter", "lineup: slot {}'s {:?} sent as the result screen's {:?}{}", party[m].get("slot").as_i64().unwrap_or(0) + 1, n, got,
+                let line = format!("lineup: slot {}'s {:?} sent as the result screen's {:?}{}", party[m].get("slot").as_i64().unwrap_or(0) + 1, n, got,
                     if different.contains(&m) { " (a different name)" } else { "" });
+                log_once(run_key, line);
             }
             n = got;
         }
@@ -320,7 +337,8 @@ pub fn lineup(summary: &Value) -> Value {
     let teams = summary.get("teams").as_list().cloned().unwrap_or_default();
     let party = summary.get("party").as_list().cloned().unwrap_or_default();
     let players = summary.get("result").get("players").as_list().cloned().unwrap_or_default();
-    let names = lineup_names(&party, &players);
+    let run = format!("{} {} {}", summary.get("puppetId").py_str(), summary.get("level").py_str(), summary.get("started").py_str());
+    let names = lineup_names(&party, &players, &run);
     let mut out = Vec::new();
     for (i, m) in party.iter().enumerate() {
         let card_name = names.get(&i).cloned().unwrap_or_else(|| m.get("name").as_str().unwrap_or("").to_string());
@@ -667,6 +685,7 @@ pub fn run_payload(summary: &Value, uid: &Value, sched: &Schedule, clock: &dyn C
         out.insert("buffs".into(), Value::List(b));
     }
     let mut extra = Dict::new();
+    // (the result screen's "New Best Record" banner: someone in the party got a new best; yours are newBests)
     extra.insert("newBest".into(), res.get("new_best").clone());
     extra.insert("newBests".into(), or_none(summary.get("new_bests"), &Value::List(vec![])).clone());
     extra.insert("trackedFromStart".into(), meter.get("tracked_from_start").clone());

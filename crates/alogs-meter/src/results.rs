@@ -426,7 +426,8 @@ impl Meter {
             .cloned()
     }
 
-    /// One row in logs/scores.csv per new value (plus a picture), for the leaderboards.
+    /// One row in logs/scores.csv per new value (plus a picture), for the leaderboards: your own best as a menu shows
+    /// it (battle prep, challenge stats), never the result screen's banner (a team-mate's new best shows it too).
     #[allow(clippy::too_many_arguments)]
     pub fn record_score(&mut self, frames: &mut dyn Frames, out: &mut dyn Out, im: &Image, screen: &str, boss: &str, score: Option<i64>, stars: Option<i64>) {
         if self.rs.last_scores.get(boss) == Some(&(score, stars)) {
@@ -804,6 +805,8 @@ impl Meter {
                 self.open_battle_data(out, im, u, ux, h, fg);
             }
         }
+        // the "New Best Record" banner: someone in the party got a new best, not necessarily you. Kept with the run as
+        // a fact about it (new_best), never recorded as your own best (that is the menu's: battle prep, challenge stats)
         let best = banner.to_lowercase().contains("best");
         let result = |shot: &Option<String>, check: &Option<Value>, players: Value, reads: Option<i64>| {
             let mut d = Dict::new();
@@ -897,9 +900,6 @@ impl Meter {
             self.fight_summary(&f.0, parts);
             self.send_when_read(&f.0);
             self.last_fight = Some(f);
-            if best && score.is_some() {
-                self.record_score(frames, out, im, "new_best", &boss, score, rating);
-            }
         }
         out.out("status", Value::Str(format!("result recorded: {boss} - score {}, {} stars, {}s", score.map_or("None".into(), |s| s.to_string()), rating.map_or("None".into(), |s| s.to_string()), secs.map_or("None".into(), |s| s.to_string()))));
         self.rs.end_sig = Some(team::screen_sig(im));
