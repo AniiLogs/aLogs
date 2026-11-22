@@ -272,3 +272,45 @@ fn a_settled_result_name_is_marked() {
     let mut players = vec![member(0, "Kyhra", false), member(1, "Zarv0kk", false)];
     assert!(party_slots(&team, &mut players, Some(&party), &BTreeSet::new(), None, &[0, 1].into()).is_empty());
 }
+
+/// A name of one or two characters ("7", "ab", "42") is all the pill holds beside a clean badge: kept. A crumb beside
+/// a real name is still dropped, and a crumb with no badge, or beside a misread one, is still nothing.
+#[test]
+fn a_short_name_beside_a_clean_badge_is_kept() {
+    use alogs_meter::team::party_pill;
+    let p = |s: &str, i: i64| party_pill(s, i);
+    assert_eq!(p("1P 7", 0), Some((0, "7".into())), "a one-character name");
+    assert_eq!(p("2P ab", 1), Some((1, "ab".into())), "two lowercase letters");
+    assert_eq!(p("3P 42", 2), Some((2, "42".into())), "two digits");
+    assert_eq!(p("4P q", 3), Some((3, "q".into())));
+    assert_eq!(p("2P7", 1), Some((1, "7".into())), "glued to its badge");
+    assert_eq!(p("3P Mira Vosk x", 2), Some((2, "MiraVosk".into())), "a crumb beside a real name is dropped");
+    assert_eq!(p("2P @ Flora O", 0), Some((1, "Flora".into())));
+    assert_eq!(p("x", 0), None, "no badge, only a crumb");
+    assert_eq!(p("@ iA", 0), None);
+    assert_eq!(p("lP x", 0), None, "a misread badge doesn't vouch for a crumb");
+    assert_eq!(p(".4pR", 0), None);
+    assert_eq!(p("2P @ O", 1), None, "two crumbs: no name");
+    assert_eq!(p("2P @", 1), None, "a sign alone is no name");
+    assert_eq!(p("2P", 1), None, "the badge alone");
+}
+
+/// The Party screen with a one-character player: the seat is kept, and the run's lineup carries it.
+#[test]
+fn a_one_character_player_keeps_their_seat_in_the_lineup() {
+    let mut m = meter("party-short-name", &[("n0", "1P Zarvok"), ("n1", "2P 7"), ("n2", "3P ab"),
+                                            ("a0", "Irisalis / Lv.60 CP:3578"), ("a1", "Spark / Lv.52 CP 2901"), ("a2", "Mossy / Lv.40 CP 1200")]);
+    m.character_name = Some("7".into());
+    let im = Image::new(Mode::Rgb, 1920, 1080, &[40, 40, 40]);
+    let t = 1_800_000_000.0;
+    m.party_screen(&im, t, 1920.0, 0.0, 1080.0);
+    m.party_screen(&im, t + 2.0, 1920.0, 0.0, 1080.0);
+    assert_eq!(names(&m), ["Zarvok", "7", "ab"]);
+    let party = m.party.as_ref().unwrap().get("members").as_list().unwrap().clone();
+    assert!(party[1].get("self").truthy(), "your own seat, by your name");
+    assert_eq!(party[1].get("cp").as_i64(), Some(2901));
+    let summary = alogs_pyval::dict([("party", Value::List(party)), ("result", alogs_pyval::dict([("players", Value::List(vec![]))]))]);
+    let lineup = alogs_meter::payloads::lineup(&summary);
+    let seats: Vec<(i64, String)> = lineup.get("lineup").as_list().unwrap().iter().map(|e| (e.get("slot").as_i64().unwrap(), e.get("name").py_str())).collect();
+    assert_eq!(seats, [(0, "Zarvok".to_string()), (1, "7".to_string()), (2, "ab".to_string())]);
+}
