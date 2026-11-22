@@ -180,6 +180,8 @@ pub struct Meter {
     pub fight_evidence: Option<crate::fight_shots::FightEvidence>,
     /// Its pictures and log being written (tests wait for it).
     pub fight_evidence_job: Option<std::thread::JoinHandle<()>>,
+    /// "I was in this run" for a fight run to its end whose result screen was never read (seat_note.rs).
+    pub seat_note: crate::seat_note::SeatNoteState,
     pub ps: crate::party::PartyState,
     pub menu: crate::menu::MenuState,
     pub icon: crate::party_icons::IconState,
@@ -332,6 +334,7 @@ impl Meter {
             shots: Default::default(),
             fight_evidence: None,
             fight_evidence_job: None,
+            seat_note: Default::default(),
             ps: Default::default(),
             menu: Default::default(),
             icon: Default::default(),
@@ -658,6 +661,7 @@ impl Meter {
         // an Interlink fight followed live with submissions on: its evidence pictures are picked as it goes
         let submits = self.submitter.as_ref().is_some_and(|s| s.config.lock().unwrap().is_some());
         self.shots.start(bossrush && submits && !self.args.replay);
+        self.seat_note_start(bossrush, submits);
         self.shots.limit_s = self.overtime_limit(now).map_or(if self.args.duration > 0.0 { self.args.duration } else { crate::fight_shots::DEFAULT_LIMIT_S }, |l| l as f64);
         self.status(out, msg);
     }
@@ -782,6 +786,9 @@ impl Meter {
 
     pub fn end_fight(&mut self, out: &mut dyn Out, why: &str) {
         let now = self.now();
+        // (its last seconds or its last bar nearly empty, as the fight's end watch knows them, as of the bar's last
+        // sight: the fight can be ended seconds after the bar went, by its grace or the game log's scene change)
+        let ending = self.fight_ending(if self.bar_seen > 0.0 { self.bar_seen.min(now) } else { now }).is_some();
         if let Some(mut f) = self.fight.take() {
             self.fight_ended_at = now;
             let left = if f.boss_hp != 0 { (f.max_hp - f.damage) as f64 / f.boss_hp as f64 } else { 1.0 };
@@ -836,6 +843,9 @@ impl Meter {
             f.ended = Some(now);
             f.close(&self.env);
             self.fight_evidence_done(&f);
+            if why != "meter closed" {
+                self.seat_note_end(&f, ending, now);
+            }
             if f.elapsed > 20.0 {
                 self.awaiting = Some(now + 60.0);
             }
@@ -983,6 +993,7 @@ impl Meter {
             self.audio_cue = frames.audio_cue();
         }
         self.check_pending_run(self.now()); // (Battle Data waiting for its names counts)
+        self.seat_note_check(self.now());
         self.check_followup(self.now());
         let now = self.now();
         self.fight_end_tick(now); // an Interlink fight about to end: its fade is watched for, on whole frames

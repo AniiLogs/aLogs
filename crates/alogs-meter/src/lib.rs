@@ -24,6 +24,7 @@ pub mod results;
 pub mod submit;
 pub mod results_parse;
 pub mod screens;
+pub mod seat_note;
 pub mod sim;
 pub mod sim_tour;
 pub mod team;

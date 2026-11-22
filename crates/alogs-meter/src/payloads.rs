@@ -441,6 +441,33 @@ fn played_at(clock: &dyn Clock, started: &Value) -> Value {
     clock.local_to_unix(c[1].parse().unwrap(), n(2), n(3), n(4), n(5), n(6)).map_or(Value::None, |t| Value::Int(t as i64))
 }
 
+/// interlink_presence, "I was in this run" (seat_note.rs): a run's own fields from a summary-like dict (no result) and
+/// extra {instanceId, slot (your Party seat, when known), name (your character's, when known), game}. No score, stars,
+/// players or pictures.
+pub fn presence_payload(summary: &Value, run_id: &str, uid: &Value, slot: Option<i64>, name: Option<&str>, clock: &dyn Clock) -> Value {
+    let mut out = Dict::new();
+    out.insert("kind".into(), "interlink_presence".into());
+    out.insert("clientRunId".into(), Value::Str(run_id.to_string()));
+    if summary.get("server").truthy() {
+        out.insert("server".into(), summary.get("server").clone());
+    }
+    out.insert("gameUid".into(), or_none(summary.get("uid"), uid).clone());
+    out.insert("cycle".into(), summary.get("cycle").clone());
+    out.insert("boss".into(), dict([("id", summary.get("puppetId").clone()), ("name", summary.get("boss").clone()), ("level", summary.get("level").clone())]));
+    out.insert("playedAt".into(), played_at(clock, summary.get("started")));
+    let mut extra = Dict::new();
+    extra.insert("instanceId".into(), summary.get("instance").clone());
+    if let Some(s) = slot.filter(|s| (0..=3).contains(s)) {
+        extra.insert("slot".into(), Value::Int(s));
+    }
+    if let Some(n) = name.filter(|n| !n.is_empty()) {
+        extra.insert("name".into(), Value::Str(n.chars().take(40).collect()));
+    }
+    extend(&mut extra, game_of(summary));
+    out.insert("extra".into(), Value::Dict(extra));
+    Value::Dict(out)
+}
+
 /// interlink_run from a logs/fights/<fight>.json summary.
 pub fn run_payload(summary: &Value, uid: &Value, sched: &Schedule, clock: &dyn Clock) -> Value {
     let empty = Value::Dict(Dict::new());
