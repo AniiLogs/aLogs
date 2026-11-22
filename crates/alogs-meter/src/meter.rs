@@ -172,6 +172,8 @@ pub struct Meter {
     pub auto: crate::leaderboards::AutoState,
     pub sim: crate::sim::SimState,
     pub egg: crate::egg::EggState,
+    /// The end-of-fight watch and the hold from its fade (fight_end.rs).
+    pub fight_end: crate::fight_end::FightEndState,
     pub ps: crate::party::PartyState,
     pub menu: crate::menu::MenuState,
     pub icon: crate::party_icons::IconState,
@@ -318,6 +320,7 @@ impl Meter {
             auto: Default::default(),
             sim: Default::default(),
             egg: Default::default(),
+            fight_end: Default::default(),
             ps: Default::default(),
             menu: Default::default(),
             icon: Default::default(),
@@ -837,6 +840,7 @@ impl Meter {
                     self.bossrush_space = self.rush_spaces.contains(&space);
                     self.holosim_space = self.sim_spaces.contains(&space);
                     self.space = Some(space);
+                    self.fight_end_off("the game entered another scene");
                     self.duds.clear();
                     self.dud_cand = None;
                     // the timer check may already have ended this fight; the log only ends it if it is still running
@@ -847,6 +851,7 @@ impl Meter {
                 }
                 Event::Leave(space, delay) => {
                     said("leave", Some(&space), delay);
+                    self.fight_end_off("the game left the fight's scene");
                     // the fade that follows is a load, not a match's end (egg_fade)
                     self.egg_space_at = self.env.now();
                 }
@@ -905,6 +910,7 @@ impl Meter {
             if rest {
                 self.end_auto("the DPS meter and the leaderboards were switched off");
                 self.egg_hold_end("the DPS meter and the leaderboards were switched off");
+                self.fight_end_off("the DPS meter and the leaderboards were switched off");
                 self.hold.stop();
                 self.told_inactive.stop();
                 if alogs_capture::input::controllers_hidden() {
@@ -945,7 +951,10 @@ impl Meter {
         self.check_pending_run(self.now()); // (Battle Data waiting for its names counts)
         self.check_followup(self.now());
         let now = self.now();
-        let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay && self.sim.tour.is_none()).then_some(TOP_PART);
+        self.fight_end_tick(now); // an Interlink fight about to end: its fade is watched for, on whole frames
+        let mut partial: Option<f64> = (self.fight.is_some() && self.bar.is_some() && now - self.bar_seen < 1.0 && !self.args.replay && self.sim.tour.is_none()
+            && !self.fight_end.watching())
+        .then_some(TOP_PART);
         self.band_frame = false;
         if partial.is_some() && !self.text_due(now) && self.frame_size.1 != 0 {
             let b = self.bar.as_ref().unwrap();
@@ -1012,6 +1021,12 @@ impl Meter {
         }
         self.last_step = now;
         let fg = self.args.replay || frames.is_foreground(hwnd);
+        if self.fight_end.held.is_some() && !fg {
+            self.fight_end_release("the game is not the active window");
+        }
+        if self.frame_full {
+            self.fight_end_look(&im, now, fg); // (nothing unless the watch is open)
+        }
         self.away_note(Some(&im), fg);
         if !self.quiet {
             self.hit_watch(frames, now);
@@ -1175,6 +1190,7 @@ impl Meter {
         }
         self.not_bar_since = None;
         self.bar_seen = now;
+        self.fight_end_bar_back(); // a hold from a fade the fight came back from ends at once
         let scale = b.span / bar::REF_SPAN;
         let need_title = self.fight.is_none() || now - self.last_title > self.title_gap();
         let xn_box = bar::box_at(&b, bar::XN_BOX);

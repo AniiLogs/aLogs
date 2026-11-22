@@ -433,7 +433,8 @@ impl Meter {
         if r.get("results").get("hold_inputs").truthy() {
             self.hold.start(until - now);
         }
-        if r.get("results").get("hold_controller").truthy() && alogs_capture::input::hidhide_available() {
+        // (already hidden by the fight's fade: fight_end.rs)
+        if r.get("results").get("hold_controller").truthy() && !alogs_capture::input::controllers_hidden() && alogs_capture::input::hidhide_available() {
             alogs_capture::input::hide_controllers(true);
         }
     }

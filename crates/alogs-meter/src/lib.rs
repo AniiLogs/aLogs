@@ -5,6 +5,7 @@ pub mod diag;
 pub mod egg;
 pub mod eggheist;
 pub mod env;
+pub mod fight_end;
 pub mod fights;
 pub mod hits;
 pub mod housekeeping;

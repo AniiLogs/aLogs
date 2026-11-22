@@ -26,15 +26,31 @@ pub fn key_down(vk: i32) -> bool {
 }
 
 #[derive(Default)]
-pub struct InputBlock;
+pub struct InputBlock {
+    /// A stand-in that holds nothing (tests): when its hold would end (ms), 0 for none.
+    dry: Option<Arc<AtomicU64>>,
+}
 
 impl InputBlock {
+    /// For tests: holds nothing (no hooks are set), only keeps when its hold would end, so `active` answers as the
+    /// real one would.
+    pub fn dry() -> InputBlock {
+        InputBlock { dry: Some(Arc::new(AtomicU64::new(0))) }
+    }
+
     pub fn active(&self) -> bool {
-        RUNNING.load(Ordering::SeqCst)
+        match &self.dry {
+            Some(d) => now_ms() < d.load(Ordering::SeqCst),
+            None => RUNNING.load(Ordering::SeqCst),
+        }
     }
 
     /// Hold for `seconds` from now (already holding: for this long from now).
     pub fn start(&self, seconds: f64) {
+        if let Some(d) = &self.dry {
+            d.store(now_ms() + (seconds * 1000.0) as u64, Ordering::SeqCst);
+            return;
+        }
         STOP_AT.store(now_ms() + (seconds * 1000.0) as u64, Ordering::SeqCst);
         if RUNNING.swap(true, Ordering::SeqCst) {
             return;
@@ -47,11 +63,18 @@ impl InputBlock {
     }
 
     pub fn stop(&self) {
+        if let Some(d) = &self.dry {
+            d.store(0, Ordering::SeqCst);
+            return;
+        }
         STOP_AT.store(0, Ordering::SeqCst);
     }
 
     /// Hold back the player's mouse movement too for `seconds` (while the hold is on): around our own click.
     pub fn freeze_moves(&self, seconds: f64) {
+        if self.dry.is_some() {
+            return;
+        }
         MOVES_UNTIL.store(now_ms() + (seconds * 1000.0) as u64, Ordering::SeqCst);
     }
 }
