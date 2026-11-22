@@ -125,6 +125,7 @@ dependencies = [
  "alogs-reader",
  "chrono",
  "csv",
+ "flate2",
  "indexmap 2.14.2",
  "jpeg-decoder",
  "jpeg-encoder",

@@ -34,7 +34,8 @@ fn norm(p: &Path) -> String {
 }
 
 /// The meter's screenshots older than keep_hours (None or < 0: keep everything; 0: LEFTOVER_HOURS), except proof
-/// a queued record still has to send and the test pictures and character proofs. (files, bytes) removed.
+/// a queued record still has to send and the test pictures and character proofs. (files, bytes) removed. A fight's
+/// compressed log in logs/screens (fight evidence) counts as one of its pictures.
 pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64) {
     let Some(h) = keep_hours.filter(|h| *h >= 0) else { return (0, 0) };
     let cutoff = now() - if h == 0 { LEFTOVER_HOURS } else { h as f64 } * 3600.0;
@@ -47,6 +48,11 @@ pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64)
                     if let Some(p) = item.get(key).and_then(J::as_str).filter(|p| !p.is_empty()) {
                         needed.insert(norm(&data.join(p)));
                     }
+                }
+                // an Interlink run's fight evidence: its pictures and its compressed log (fight_shots.rs)
+                let fight = item.get("fight").and_then(J::as_array).into_iter().flatten().filter_map(|e| e.get("file").and_then(J::as_str));
+                for p in fight.chain(item.get("fightlog").and_then(J::as_str)).filter(|p| !p.is_empty()) {
+                    needed.insert(norm(&data.join(p)));
                 }
             }
         }
@@ -61,7 +67,8 @@ pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64)
         let base = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         for p in names {
             let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            if !(IMAGE_TYPES.iter().any(|t| n.ends_with(t)) || (n.ends_with(".txt") && TEXT_DIAGNOSTICS.contains(&base.as_str()))) {
+            // (a fight's compressed log kept to send beside its pictures goes with them)
+            if !(IMAGE_TYPES.iter().any(|t| n.ends_with(t)) || (n.ends_with(".txt") && TEXT_DIAGNOSTICS.contains(&base.as_str())) || (n.ends_with(".csv.gz") && base == "screens")) {
                 continue;
             }
             if needed.contains(&norm(p)) {

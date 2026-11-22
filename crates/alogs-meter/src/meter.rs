@@ -174,6 +174,12 @@ pub struct Meter {
     pub egg: crate::egg::EggState,
     /// The end-of-fight watch and the hold from its fade (fight_end.rs).
     pub fight_end: crate::fight_end::FightEndState,
+    /// An Interlink fight's pictures for its evidence, picked as it goes (fight_shots.rs).
+    pub shots: crate::fight_shots::ShotPicker,
+    /// The last such fight's evidence once it was over, for its summary.
+    pub fight_evidence: Option<crate::fight_shots::FightEvidence>,
+    /// Its pictures and log being written (tests wait for it).
+    pub fight_evidence_job: Option<std::thread::JoinHandle<()>>,
     pub ps: crate::party::PartyState,
     pub menu: crate::menu::MenuState,
     pub icon: crate::party_icons::IconState,
@@ -323,6 +329,9 @@ impl Meter {
             sim: Default::default(),
             egg: Default::default(),
             fight_end: Default::default(),
+            shots: Default::default(),
+            fight_evidence: None,
+            fight_evidence_job: None,
             ps: Default::default(),
             menu: Default::default(),
             icon: Default::default(),
@@ -646,7 +655,28 @@ impl Meter {
             if f.column != GRADE_BASE { format!(", HP bars {}", f.column) } else { String::new() },
             partner.as_ref().map_or(String::new(), |p| format!(", two-boss fight: {} ({}) comes next", get(p, "bossTitle_en"), partner_id.clone().unwrap_or_default())));
         self.fight = Some(f);
+        // an Interlink fight followed live with submissions on: its evidence pictures are picked as it goes
+        let submits = self.submitter.as_ref().is_some_and(|s| s.config.lock().unwrap().is_some());
+        self.shots.start(bossrush && submits && !self.args.replay);
+        self.shots.limit_s = self.overtime_limit(now).map_or(if self.args.duration > 0.0 { self.args.duration } else { crate::fight_shots::DEFAULT_LIMIT_S }, |l| l as f64);
         self.status(out, msg);
+    }
+
+    /// The fight is over: its kept pictures are written (JPEG) and its log compressed, off the meter's loop; what its
+    /// summary records of them is kept for the summary (fight_summary).
+    pub fn fight_evidence_done(&mut self, f: &Fight) {
+        if !self.shots.on {
+            return;
+        }
+        let (forced, ms) = (self.shots.forced, self.shots.copy_ms);
+        let shots = self.shots.finish();
+        let ev = crate::fight_shots::evidence_of(&f.csv_name, &shots, f.rows);
+        log::info!(target: "meter", "fight evidence: {} pictures kept ({forced} looks made top-part looks for them, copies {ms:.1} ms in all), {} log rows",
+            shots.len(), f.rows);
+        self.fight_evidence = Some(ev);
+        let (data, name) = (self.env.data.clone(), f.csv_name.clone());
+        let csv = data.join("logs").join(format!("{name}.csv"));
+        self.fight_evidence_job = Some(std::thread::spawn(move || crate::fight_shots::write_evidence(&data, &name, shots, csv)));
     }
 
     /// A fight started on this bar: its place is kept, and looked at first by the next search (`bar_at`). Kept at
@@ -805,6 +835,7 @@ impl Meter {
             self.status(out, msg);
             f.ended = Some(now);
             f.close(&self.env);
+            self.fight_evidence_done(&f);
             if f.elapsed > 20.0 {
                 self.awaiting = Some(now + 60.0);
             }
@@ -963,8 +994,13 @@ impl Meter {
             let b = self.bar.as_ref().unwrap();
             let band = (b.yc as f64 + 0.06 * b.span + 4.0) / self.frame_size.1 as f64;
             if band < TOP_PART {
-                partial = Some(band);
-                self.band_frame = true;
+                if self.shots.force_due(now) {
+                    // a fight evidence picture is wanted: this look is a top-part one (once a second at most)
+                    self.shots.forced_at(now);
+                } else {
+                    partial = Some(band);
+                    self.band_frame = true;
+                }
             }
         }
         self.hwnd = frames.window();
@@ -1269,9 +1305,22 @@ impl Meter {
             let f = self.fight.as_mut().unwrap();
             let bosses = f.phases.len();
             f.update(&self.env, Some(fill), fill_rgb, edge_rgb, xnv, timer, &grades, self.args.duration, at, slide);
-            if f.phases.len() != bosses {
+            let (handed, damage, elapsed, limit) = (f.phases.len() != bosses, f.damage, f.elapsed, f.limit.filter(|l| *l != 0));
+            if handed {
                 let seg = f.seg;
                 self.boss_handed_over(out, &format!("its bar came back at x{}", seg.map_or("None".into(), |s| s.to_string())));
+            }
+            if self.shots.on {
+                // a look holding the top part (a whole frame is cropped to it) is the picture a rise asked for; then
+                // this look's own rise is weighed (fight_shots.rs)
+                if !self.band_frame && self.shots.wants().is_some() {
+                    let rows = ((self.frame_size.1 as f64 * TOP_PART) as usize).min(im.height);
+                    self.shots.look(&im, rows, elapsed);
+                }
+                // the fight's expected length: its time limit as read off its timer, else as known at its start
+                // (240 s with Overtime picked, else 180 s)
+                let limit = limit.map_or(self.shots.limit_s, |l| l as f64);
+                self.shots.damage(damage, elapsed, limit, !handed);
             }
             if partial.is_none() {
                 self.test_frame(&im, "fight", now);

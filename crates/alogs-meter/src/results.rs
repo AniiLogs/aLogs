@@ -327,6 +327,13 @@ impl Meter {
                 s
             }
         };
+        // the fight's evidence (pictures and log, written after the fight), sent as an update of its run (fight_shots.rs)
+        if let Some(ev) = self.fight_evidence.as_ref().filter(|e| e.csv_name == f.csv_name)
+            && s.get_str("fight_shots").is_none()
+        {
+            s.insert("fight_shots".into(), ev.shots.clone());
+            s.insert("fight_log".into(), ev.log.clone());
+        }
         for (k, v) in parts {
             s.insert(k.into(), v);
         }
