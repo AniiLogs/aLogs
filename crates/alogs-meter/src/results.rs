@@ -200,6 +200,13 @@ impl Meter {
         if this_run && now - p.get("at").as_f64().unwrap_or(0.0) < 900.0 { p.get("members").as_list().cloned() } else { None }
     }
 
+    /// The Party read Battle Data goes with: the one the run's result went with when a result was recorded since the
+    /// last fight ended, else one no result took. By the count, not the time: the result screen's first read ends the
+    /// fight with the clock of that moment and records its result with the look's older time.
+    pub fn battle_data_party(&self, now: f64) -> Option<Vec<Value>> {
+        self.party_for_result(now, self.ps.results == self.results_at_fight_end)
+    }
+
     /// The game-font reader, with the font cache in the data folder (read from the game first if needed); None
     /// when the game's font can't be read.
     pub fn name_reader(&mut self) -> Option<&NameReader> {
@@ -841,7 +848,6 @@ impl Meter {
         }
         self.ps.runs += 1; // a result recorded: the next Party screen is another lobby's (Meter::lobby_change)
         self.ps.results += 1; // (and the Party read is this run's: party_for_result)
-        self.ps.result_at = now;
         let stamp = local(now, "%Y%m%d_%H%M%S");
         let shot = self.picture(frames, im, "screens", &format!("result_{stamp}"), true, true);
         self.rs.result_shot = shot.as_ref().map(|p| rel(&self.env.data, p));
@@ -1070,9 +1076,7 @@ impl Meter {
         }
         let shown_already = now - self.rs.bd_seen < 6.0;
         self.rs.bd_seen = now;
-        // (the run's result screen read since its fight ended: the Party read it went with; else one no result took)
-        let first = !(self.ps.result_at > self.fight_ended_at && self.ps.result_at > 0.0);
-        let party = self.party_for_result(now, first).unwrap_or_default();
+        let party = self.battle_data_party(now).unwrap_or_default();
         let budget = rp::SCREEN_READS * if party.len() > self.rs.bd_cards { 2 } else { 1 };
         let again = shown_already && now - self.rs.battle_saved < 30.0 && self.rs.bd_reads < budget && now - self.rs.bd_last >= 0.5;
         if (shown_already || now - self.rs.battle_saved < 30.0) && !again {

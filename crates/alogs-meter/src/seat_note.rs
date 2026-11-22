@@ -17,9 +17,9 @@ pub const SEAT_NOTE_WAIT_S: f64 = 30.0;
 pub struct SeatNoteState {
     /// The followed fight's instance (its space when it started), for its end.
     pub instance: Option<String>,
-    /// A fight that ran to its end: (when it ended, its note, its fight's name), sent SEAT_NOTE_WAIT_S on unless a
-    /// result is recorded meanwhile.
-    pub pending: Option<(f64, Value, String)>,
+    /// A fight that ran to its end: (when it ended, the results recorded by then (ps.results), its note, its fight's
+    /// name), sent SEAT_NOTE_WAIT_S on unless a result is recorded meanwhile.
+    pub pending: Option<(f64, u64, Value, String)>,
     /// The fights a note went for (never twice for one).
     pub sent: Vec<String>,
 }
@@ -64,17 +64,15 @@ impl Meter {
         let uid = self.uid.clone().map_or(Value::None, Value::Str);
         let clock = self.env.record_clock();
         let note = crate::payloads::presence_payload(&Value::Dict(s), &f.csv_name, &uid, slot, self.character_name.as_deref(), &clock);
-        self.seat_note.pending = Some((now, note, f.csv_name.clone()));
+        self.seat_note.pending = Some((now, self.ps.results, note, f.csv_name.clone()));
     }
 
     /// Every look: a pending note goes once SEAT_NOTE_WAIT_S has passed with no result recorded for its fight; a result
     /// recorded meanwhile drops it (the run itself is sent). What decides is the fight's run file: a result in it, or
-    /// the run taken up for sending or sent, means no note. (The time check is only a shortcut: the result screen's
-    /// first read ends the fight with the clock of that moment but records the result with its look's time, a little
-    /// earlier, so that result's time is before the fight's end.)
+    /// the run taken up for sending or sent, means no note. (A result counted since the fight ended is a shortcut.)
     pub fn seat_note_check(&mut self, now: f64) {
-        let Some((ended, note, name)) = self.seat_note.pending.clone() else { return };
-        if self.ps.result_at >= ended {
+        let Some((ended, results, note, name)) = self.seat_note.pending.clone() else { return };
+        if self.ps.results > results {
             self.seat_note.pending = None;
             return;
         }
