@@ -152,7 +152,11 @@ fn json_unicode_indent(v: &Value) -> String {
 }
 
 /// A Party screen pill's read ("2P @ Flora O") as (its slot, the name), the pill being the i-th; None without a name.
+/// Words under three characters are crumbs of the pill's icons around a name, except that a name of one or two
+/// characters ("7", "ab") is kept when it is all the pill holds beside a badge read cleanly at its very start (a digit
+/// and a capital P): the badge shows the pill was read. A misread badge ("lP", ".4p") doesn't vouch for it.
 pub fn party_pill(pill: &str, i: i64) -> Option<(i64, String)> {
+    let raw = pill;
     let lead = regex::Regex::new(r"^[\s.,]+([1-4]\s*[Pp]|[Il]\s*P)").unwrap();
     let pill = lead.replace(pill, "$1").into_owned();
     let glued = regex::Regex::new(r"^\s*([1-4]\s*[Pp]|[Il]\s*P)([^\s/|])").unwrap();
@@ -168,9 +172,14 @@ pub fn party_pill(pill: &str, i: i64) -> Option<(i64, String)> {
                 && (n >= 3 || (n == 2 && cs[0].is_uppercase() && !cs[1].is_uppercase()) || alogs_reader::hangul::has_hangul(w) || alogs_reader::cyrillic::has_cyrillic(w))
         })
         .collect();
-    let name: String = words.concat();
+    let mut name: String = words.concat();
     if name.is_empty() {
-        return None;
+        let clean = regex::Regex::new(r"^\s*[1-4]P").unwrap().is_match(raw);
+        let rest: Vec<&str> = regex::Regex::new(r"[\s/|]+").unwrap().split(&pill).filter(|w| !w.is_empty() && !badge_word.is_match(w)).collect();
+        match rest.as_slice() {
+            [only] if clean && only.chars().all(char::is_alphanumeric) => name = (*only).to_string(),
+            _ => return None,
+        }
     }
     let badge = regex::Regex::new(r"^\s*([1-4])\s*[Pp]|^\s*([Il])\s*P").unwrap();
     let slot = match badge.captures(&pill) {
