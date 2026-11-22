@@ -314,3 +314,120 @@ fn a_one_character_player_keeps_their_seat_in_the_lineup() {
     let seats: Vec<(i64, String)> = lineup.get("lineup").as_list().unwrap().iter().map(|e| (e.get("slot").as_i64().unwrap(), e.get("name").py_str())).collect();
     assert_eq!(seats, [(0, "Zarvok".to_string()), (1, "7".to_string()), (2, "ab".to_string())]);
 }
+
+/// A picture with the given Interlink pills painted yellow (as your own pill is drawn).
+fn party_picture(yellow_pills: &[usize]) -> Image {
+    let mut im = Image::new(Mode::Rgb, 1920, 1080, &[40, 40, 40]);
+    for &i in yellow_pills {
+        let b = alogs_meter::party::PARTY_SLOTS[i];
+        let paint = Image::new(Mode::Rgb, ((b.2 - b.0) * 1920.0) as usize, ((b.3 - b.1) * 1080.0) as usize, &[235, 190, 40]);
+        im.paste(&paint, (b.0 * 1920.0) as i64 + 1, (b.1 * 1080.0) as i64 + 1);
+    }
+    im
+}
+
+fn members(m: &Meter) -> Vec<Value> {
+    m.party.as_ref().unwrap().get("members").as_list().unwrap().clone()
+}
+
+/// The pill boxes are the seats 1P-4P in order (on screen, left to right, they stand 3P 1P 2P 4P), so a pill whose
+/// badge didn't read takes its seat from its place.
+#[test]
+fn the_pill_boxes_are_the_seats_in_order() {
+    let mut by_x: Vec<usize> = (0..4).collect();
+    by_x.sort_by(|&a, &b| alogs_meter::party::PARTY_SLOTS[a].0.total_cmp(&alogs_meter::party::PARTY_SLOTS[b].0));
+    assert_eq!(by_x, [2, 0, 1, 3], "3P 1P 2P 4P left to right");
+    assert_eq!(alogs_meter::team::party_pill("Zarvok", 2), Some((2, "Zarvok".into())), "no badge: its place");
+}
+
+/// A seat whose card was read but whose name wasn't is kept, without a name, with its card's numbers; a seat with
+/// nothing read is not. Its lineup entry has the seat and the card, no name.
+#[test]
+fn a_seat_whose_card_was_read_is_kept_without_a_name() {
+    let mut m = meter("party-nameless", &[("n0", "1P Zarvok"), ("n1", ""), ("n2", "3P @"), ("n3", ""),
+                                          ("a0", "Irisalis / Lv.60 CP:3578"), ("a1", "Spark / Lv.52 CP 2901"), ("a2", "Mossy / Lv.40"), ("a3", "")]);
+    let t = 1_800_000_000.0;
+    m.party_screen(&party_picture(&[]), t, 1920.0, 0.0, 1080.0);
+    let p = members(&m);
+    let seats: Vec<(i64, String)> = p.iter().map(|e| (e.get("slot").as_i64().unwrap(), e.get("name").py_str())).collect();
+    assert_eq!(seats, [(0, "Zarvok".to_string()), (1, String::new()), (2, String::new())], "seat 4 read nothing: not kept");
+    assert_eq!(p[1].get("cp").as_i64(), Some(2901));
+    assert_eq!(p[1].get("nickname").py_str(), "Spark");
+    assert_eq!(p[2].get("aniimo_level").as_i64(), Some(40));
+    assert!(!p[1].get("ai").truthy() && !p[1].get("self").truthy() && !p[2].get("ai").truthy());
+    let summary = alogs_pyval::dict([("party", Value::List(p)), ("result", alogs_pyval::dict([("players", Value::List(vec![]))]))]);
+    let lineup = alogs_meter::payloads::lineup(&summary).get("lineup").as_list().unwrap().clone();
+    assert_eq!(lineup.len(), 3);
+    assert!(lineup[1].as_dict().unwrap().get_str("name").is_none(), "no name sent: {}", lineup[1].json_dumps());
+    assert_eq!((lineup[1].get("slot").as_i64(), lineup[1].get("cp").as_i64()), (Some(1), Some(2901)));
+}
+
+/// A seat read with its name on some looks and without on others keeps its name: a blank look casts no vote.
+#[test]
+fn a_blank_look_casts_no_vote() {
+    let t = 1_800_000_000.0;
+    let mut m = meter("party-blank-votes", &[]);
+    let named = |n: &str| vec![member(0, "Zarvok", false), member(1, n, false)];
+    m.set_party(named("Pellinore"), t);
+    for k in 1..4 {
+        m.set_party(named(""), t + 2.0 * k as f64);
+    }
+    assert_eq!(names(&m), ["Zarvok", "Pellinore"]);
+    let mut m = meter("party-blank-only", &[]);
+    m.set_party(named(""), t);
+    m.set_party(named(""), t + 2.0);
+    assert_eq!(names(&m), ["Zarvok", ""]);
+}
+
+/// Interlink: your own pill (the one drawn yellow) whose name can't be read takes your character's name, but only when
+/// exactly one pill is yellow.
+#[test]
+fn your_yellow_pill_takes_your_name() {
+    let ocr = [("n0", "1P Zarvok"), ("n1", "2P"), ("a0", "Irisalis / Lv.60 CP:3578"), ("a1", "Spark / Lv.52 CP 2901")];
+    let t = 1_800_000_000.0;
+    let mut m = meter("party-own-yellow", &ocr);
+    m.character_name = Some("Quillon".into());
+    m.party_screen(&party_picture(&[1]), t, 1920.0, 0.0, 1080.0);
+    let p = members(&m);
+    assert_eq!(p[1].get("name").py_str(), "Quillon");
+    assert!(p[1].get("self").truthy());
+    // two pills yellow: no telling which is yours; the seat is kept without a name
+    let mut m = meter("party-two-yellow", &ocr);
+    m.character_name = Some("Quillon".into());
+    m.party_screen(&party_picture(&[0, 1]), t, 1920.0, 0.0, 1080.0);
+    let p = members(&m);
+    assert_eq!(p[1].get("name").py_str(), "");
+    assert!(!p[1].get("self").truthy());
+}
+
+/// A name of two signs beside a clean badge is kept; a single sign is how the pill's icons read, so it isn't.
+#[test]
+fn a_name_of_signs_beside_a_clean_badge() {
+    use alogs_meter::team::party_pill;
+    assert_eq!(party_pill("2P !?", 1), Some((1, "!?".into())));
+    assert_eq!(party_pill("2P ~_~", 1), Some((1, "~_~".into())));
+    assert_eq!(party_pill("2P @", 1), None);
+    assert_eq!(party_pill("lP !?", 0), None, "beside a misread badge");
+}
+
+/// A Party read goes with the first result after it only: a run whose lobby the meter never saw goes without a party
+/// (and so without its picture and Overtime), not with the lobby's before.
+#[test]
+fn a_party_read_goes_with_its_own_run_only() {
+    let t = 1_800_000_000.0;
+    let mut m = meter("party-own-run", &[]);
+    m.set_party(vec![member(0, "Zarvok", false), member(1, "Pellinore", false)], t);
+    if let Some(Value::Dict(p)) = &mut m.party {
+        p.insert("buffs".into(), Value::json_loads(r#"[{"name": "Overtime"}]"#).unwrap());
+    }
+    assert_eq!(m.party_for_result(t + 200.0, true).map(|p| p.len()), Some(2), "its run's result screen, first read");
+    assert_eq!(m.overtime_limit(t + 200.0), Some(240));
+    m.ps.results += 1; // that result recorded
+    assert!(m.party_for_result(t + 201.0, false).is_some(), "its later reads and its Battle Data");
+    assert!(m.party_for_result(t + 400.0, true).is_none(), "the next run's result: another lobby's");
+    assert_eq!(m.overtime_limit(t + 400.0), Some(240), "(the next fight's start still counts it: only its shot parts)");
+    m.ps.results += 1; // the next run's result recorded
+    assert!(m.party_for_result(t + 401.0, false).is_none());
+    assert!(m.party_for_result(t + 401.0, true).is_none());
+    assert_eq!(m.overtime_limit(t + 401.0), None);
+}

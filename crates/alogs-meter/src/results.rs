@@ -188,10 +188,16 @@ impl Meter {
         }
     }
 
-    /// The party read on this run's prep screen (recent enough), or None.
-    pub fn party_for_result(&self, now: f64) -> Option<Vec<Value>> {
+    /// The party read on this run's prep screen (recent enough), or None. Only this run's: a result screen read for the
+    /// first time (`first`) takes a Party read that no result has gone with yet, its later reads and its Battle Data
+    /// the one the run's result went with. A run whose lobby the meter never saw goes out without a party, rather than
+    /// with the lobby's before (stored runs of early betas had a lineup of four players with CP on a run of one player
+    /// and three bots).
+    pub fn party_for_result(&self, now: f64, first: bool) -> Option<Vec<Value>> {
         let p = self.party.as_ref()?;
-        if now - p.get("at").as_f64().unwrap_or(0.0) < 900.0 { p.get("members").as_list().cloned() } else { None }
+        let since = self.ps.results.saturating_sub(p.get("results").as_i64().unwrap_or(0).max(0) as u64);
+        let this_run = since == if first { 0 } else { 1 };
+        if this_run && now - p.get("at").as_f64().unwrap_or(0.0) < 900.0 { p.get("members").as_list().cloned() } else { None }
     }
 
     /// The game-font reader, with the font cache in the data folder (read from the game first if needed); None
@@ -404,7 +410,9 @@ impl Meter {
     /// The run's clock when the leader's Special Offering read as Overtime, else None.
     pub fn overtime_limit(&self, now: f64) -> Option<i64> {
         let p = self.party.as_ref()?;
-        let recent = now - p.get("at").as_f64().unwrap_or(0.0) < 900.0;
+        // (a Party read with two results since is another run's)
+        let ours = self.ps.results.saturating_sub(p.get("results").as_i64().unwrap_or(0).max(0) as u64) <= 1;
+        let recent = ours && now - p.get("at").as_f64().unwrap_or(0.0) < 900.0;
         let picked = recent && p.get("buffs").as_list().is_some_and(|b| b.iter().any(|x| x.get("name").as_str() == Some("Overtime")));
         picked.then(|| self.args.duration as i64 + crate::fights::OVERTIME_S)
     }
@@ -725,7 +733,7 @@ impl Meter {
                 ]));
             }
         }
-        let party = self.party_for_result(now);
+        let party = self.party_for_result(now, !again);
         let sure_slots: std::collections::BTreeSet<i64> = (0..4).filter(|i| self.ocr_sure(&named[&format!("name{i}")])).collect();
         let agreed = rp::agreed_slots(&self.rs.result_votes, |i| format!("name{i}"));
         let you = self.you_if_verified();
@@ -829,6 +837,8 @@ impl Meter {
             return;
         }
         self.ps.runs += 1; // a result recorded: the next Party screen is another lobby's (Meter::lobby_change)
+        self.ps.results += 1; // (and the Party read is this run's: party_for_result)
+        self.ps.result_at = now;
         let stamp = local(now, "%Y%m%d_%H%M%S");
         let shot = self.picture(frames, im, "screens", &format!("result_{stamp}"), true, true);
         self.rs.result_shot = shot.as_ref().map(|p| rel(&self.env.data, p));
@@ -1060,7 +1070,9 @@ impl Meter {
         }
         let shown_already = now - self.rs.bd_seen < 6.0;
         self.rs.bd_seen = now;
-        let party = self.party_for_result(now).unwrap_or_default();
+        // (the run's result screen read since its fight ended: the Party read it went with; else one no result took)
+        let first = !(self.ps.result_at > self.fight_ended_at && self.ps.result_at > 0.0);
+        let party = self.party_for_result(now, first).unwrap_or_default();
         let budget = rp::SCREEN_READS * if party.len() > self.rs.bd_cards { 2 } else { 1 };
         let again = shown_already && now - self.rs.battle_saved < 30.0 && self.rs.bd_reads < budget && now - self.rs.bd_last >= 0.5;
         if (shown_already || now - self.rs.battle_saved < 30.0) && !again {

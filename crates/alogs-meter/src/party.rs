@@ -67,6 +67,10 @@ pub struct PartyState {
     lobby: Option<Lobby>,
     /// fights started and results recorded: a party's votes never outlive a run
     pub runs: u64,
+    /// Interlink results recorded: a Party read goes with the first result after it only (party_for_result)
+    pub results: u64,
+    /// when the last of them was
+    pub result_at: f64,
     pub egg_party: bool,
     pub party_seen: f64,
     pub interlink_seen: f64,
@@ -421,6 +425,11 @@ impl Meter {
         };
         let old_members: Vec<Dict> = self.party.as_ref().and_then(|p| p.get("members").as_list().cloned()).unwrap_or_default().iter().filter_map(|m| m.as_dict().cloned()).collect();
         let fold = |v: &Value| crate::team::casefold(&(if v.is_none() { String::new() } else { v.py_str() }).chars().filter(|c| c.is_alphanumeric() || *c == '_').collect::<String>());
+        // your own pill is drawn in yellow: on Interlink's Party screen only when exactly one is (measured on 13 4K
+        // Party pictures, 22 Nov: your pill 3.6-5.3% yellow at this test, every other pill 1.4% at most, one picture
+        // with none over 2.5%)
+        let yellows: Vec<usize> = (0..self.slots().len()).filter(|&i| yellow(i)).collect();
+        let own_pill = |i: usize| if self.ps.egg_party { yellows.contains(&i) } else { yellows == [i] };
         let mut members = vec![];
         for i in 0..4usize {
             let card = g(&t, &format!("a{i}"));
@@ -428,8 +437,14 @@ impl Meter {
                 continue;
             }
             let mut got = party_pill(&g(&t, &format!("n{i}")), i as i64);
-            if got.is_none() && self.ps.egg_party && known.is_some() && i < self.slots().len() && yellow(i) {
+            if got.is_none() && known.is_some() && i < self.slots().len() && own_pill(i) {
                 got = Some((i as i64, known.clone().unwrap()));
+            }
+            // Interlink: a seat whose card was read (its lead or its CP) is kept when its name can't be read, without a
+            // name: the site places a run's Party data by seat. Its seat is its place on the screen (PARTY_SLOTS are
+            // 1P-4P in order, standing 3P 1P 2P 4P left to right).
+            if got.is_none() && !self.ps.egg_party && i < self.slots().len() && (CARD_LEAD.is_match(&card) || CP.is_match(&card)) {
+                got = Some((i as i64, String::new()));
             }
             let Some((slot, mut name)) = got else { continue };
             let pet = CARD_LEAD.captures(&card).map(|c| c[1].trim().to_string());
@@ -447,7 +462,8 @@ impl Meter {
                     || (!(cp.is_some() && m.at("cp").truthy()) && m.at("name").as_str() == Some(name.as_str())))).unwrap_or(&empty);
             // a bot has a bot's name and no CP on its card (see bot_sign); a card that didn't read leaves the name as
             // this look's guess, for the looks that did to decide
-            let sign = if mine { Some(false) } else { bot_sign(&self.bot_names, &name, !card.trim().is_empty(), cp) };
+            // (no name, no sign: a seat without its name is neither told a bot nor a player by its looks)
+            let sign = if mine { Some(false) } else if name.is_empty() { None } else { bot_sign(&self.bot_names, &name, !card.trim().is_empty(), cp) };
             let ai = sign.unwrap_or_else(|| is_bot_name(&self.bot_names, &name));
             let m = dict([
                 ("slot", Value::Int(slot)), ("name", Value::Str(name)), ("self", Value::Bool(mine)), ("pill", Value::Int(i as i64)), ("ai", Value::Bool(ai)),
@@ -539,10 +555,14 @@ impl Meter {
             if !m.at("kept").truthy() {
                 self.new_player(s, &name);
             }
-            *self.ps.votes.entry(s).or_default().entry(name).or_insert(0) += 1;
+            // (a seat read without its name casts no vote: its name is the one its other looks read, if any)
+            let seat = self.ps.votes.entry(s).or_default();
+            if !name.is_empty() {
+                *seat.entry(name).or_insert(0) += 1;
+            }
         }
         for m in &mut members {
-            let n = most_common(&self.ps.votes[&slot(m)]);
+            let n = self.ps.votes.get(&slot(m)).map(most_common).unwrap_or_default();
             m.insert("name".into(), Value::Str(n));
         }
         if same {
@@ -643,6 +663,7 @@ impl Meter {
         let keep_buffs = recent && lead(&members).is_some() && lead(&members) == lead(&old);
         let mut np = Dict::new();
         np.insert("at".into(), Value::Float(now));
+        np.insert("results".into(), Value::Int(self.ps.results as i64));
         np.insert("members".into(), Value::List(members.iter().cloned().map(Value::Dict).collect()));
         if let Some(p) = &party
             && (same || keep_buffs)
