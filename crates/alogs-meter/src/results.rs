@@ -718,7 +718,11 @@ impl Meter {
         let sure_slots: std::collections::BTreeSet<i64> = (0..4).filter(|i| self.ocr_sure(&named[&format!("name{i}")])).collect();
         let agreed = rp::agreed_slots(&self.rs.result_votes, |i| format!("name{i}"));
         let you = self.you_if_verified();
-        party_slots(&self.team, &mut players, party.as_deref(), &sure_slots, you.as_deref(), &agreed);
+        let settled = party_slots(&self.team, &mut players, party.as_deref(), &sure_slots, you.as_deref(), &agreed);
+        // a name the screen read alike again and again, wholly unlike the Party screen's: the lineup yields to it at send
+        for p in players.iter_mut().filter(|p| p.at("slot").as_i64().is_some_and(|s| settled.contains(&s))) {
+            p.insert("settled".into(), Value::Bool(true));
+        }
         rp::settle_bots(&mut players, party.as_deref(), &self.bot_names);
         let mine = you.clone().or_else(|| {
             let names: Vec<String> = players.iter().map(|p| p.at("name").py_str()).collect();
@@ -813,6 +817,7 @@ impl Meter {
             }
             return;
         }
+        self.ps.runs += 1; // a result recorded: the next Party screen is another lobby's (Meter::lobby_change)
         let stamp = local(now, "%Y%m%d_%H%M%S");
         let shot = self.picture(frames, im, "screens", &format!("result_{stamp}"), true, true);
         self.rs.result_shot = shot.as_ref().map(|p| rel(&self.env.data, p));

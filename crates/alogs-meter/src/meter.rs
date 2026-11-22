@@ -614,6 +614,7 @@ impl Meter {
         let cal = boss::load_calibration(&self.env.data);
         let hp = boss::boss_max_hp(&row, level, Some(&cal)).unwrap_or(0);
         let now = self.now();
+        self.ps.runs += 1; // the Party screen's votes are this lobby's: a fight ends them (Meter::lobby_change)
         let (_, order, partner_id) = if bossrush { self.env.schedule.stage_of(Some(get(&row, "puppetId")), None, now) } else { (None, None, None) };
         let partner = if order == Some(1) {
             self.catalog
