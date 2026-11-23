@@ -241,7 +241,7 @@ impl Core {
         }
         if *log_now {
             let info = self.island_tracker().last_info.clone();
-            crate::log::write(&format!("{info} -> {}", if ip.is_none() { "rejected" } else { "ok" }));
+            crate::log::write(&format!("{info} -> {}{}", if ip.is_none() { "rejected" } else { "ok" }, if self.odo_still { " (standing still)" } else { "" }));
             // the island's weak spots (mostly by the Sanctum doors): their minimap pictures, to see what's there
             let weak = ip.is_none() || self.island_tracker().last_score < 0.55;
             if weak && self.settings().save_debug_frames {
@@ -254,7 +254,11 @@ impl Core {
                 crate::log::write("island candidate dropped (local tracking failed)");
             }
             if let (Some(d0), Some(_)) = (dead, step) {
-                self.move_on_island(d0, now);
+                if self.odo_still {
+                    self.island_time = Some(now); // standing: held, while the tracker keeps looking wider around it
+                } else {
+                    self.move_on_island(d0, now);
+                }
             }
             return;
         };
@@ -287,8 +291,13 @@ impl Core {
             let score = self.island_tracker().last_score;
             let agrees = manhattan(ip, d1) < 80.0;
             if !(score >= 0.75 || (score >= 0.5 && agrees)) {
-                // a weak match that disagrees with how the player moved is a look-alike: follow the movement
-                self.move_on_island(d1, now);
+                // a weak match that disagrees with how the player moved is a look-alike: follow the movement (standing
+                // still: hold, and let the tracker keep looking wider)
+                if self.odo_still {
+                    self.island_time = Some(now);
+                } else {
+                    self.move_on_island(d1, now);
+                }
                 return;
             }
         }
@@ -416,9 +425,23 @@ impl Core {
                 *v = mean;
             }
         }
+        self.odo_still = false;
         let prev = self.odo_prev.replace(cur.clone())?;
         let (x, y, response) = cv2::phase_correlate(&prev, &cur, None::<&MatF>);
         if response < 0.08 || x.abs() + y.abs() > 24.0 {
+            // open ground (a field, one path): nothing to measure a scroll by. A picture that hasn't changed means the
+            // player stands still, not "unknown": the position is held instead of going stale.
+            let (mut changed, mut n) = (0usize, 0usize);
+            for ((a, b), m) in prev.data.iter().zip(&cur.data).zip(&blank.data) {
+                if *m == 0 {
+                    changed += usize::from((a - b).abs() > STILL_LEVELS);
+                    n += 1;
+                }
+            }
+            if n > 0 && (changed as f64) <= STILL_SHARE * n as f64 {
+                self.odo_still = true;
+                return Some((0.0, 0.0));
+            }
             return None;
         }
         // the map scrolls the opposite way to the player; 1.2 minimap px per island map px
@@ -562,6 +585,12 @@ impl Core {
         Some(scored[0].0)
     }
 }
+
+/// The minimap's middle stood still between two pictures: at most this share of its pixels (the cone and marker left
+/// out) changed by more than STILL_LEVELS grey levels. A path line scrolling by while walking changes its two edges,
+/// ~1.5% of the middle; a picture of the same spot changes nearly nothing.
+const STILL_LEVELS: f32 = 10.0;
+const STILL_SHARE: f64 = 0.003;
 
 /// The island minimap is almost all map art; the Sanctum's always shows dark void and walls.
 pub fn looks_outside(mm: &Mat) -> bool {

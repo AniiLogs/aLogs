@@ -267,6 +267,8 @@ pub struct Core {
     pub last_landmark: P2,
     pub last_landmark_at: Option<Instant>,
     pub odo_prev: Option<MatF>,
+    /// The last minimap_step saw the minimap stand still (nothing to measure, nothing changed): the player stands.
+    pub odo_still: bool,
     pub last_slow_tick: Option<Instant>,
     pub hud_visible: bool,
     pub hud_last_seen: Option<Instant>,
@@ -897,6 +899,7 @@ impl Engine {
             last_landmark: (0.0, 0.0),
             last_landmark_at: None,
             odo_prev: None,
+            odo_still: false,
             last_slow_tick: None,
             hud_visible: false,
             hud_last_seen: None,
