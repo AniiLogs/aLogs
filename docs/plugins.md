@@ -61,6 +61,15 @@ stages: {
   sent.
 - Whether area starts are levels or levels + 1 isn't settled: they are sent as they came.
 
+## The game's build (`extra.game`)
+
+Every record the leaderboards send (`interlink_run`, `interlink_presence`, `interlink_week`, `interlink_best`,
+`sim_run`, `eggheist_match`, `eggheist_season`) carries `extra.game: {build, patch?, patchAction?}`: the game's build
+from Player.log's version line (`scm[...]`), and the patch the game was offered with what it did about it
+(`cliVer` line), when there was one. Numbers and the game's own word only. No key at all while the build isn't known
+(no Player.log yet, or no version line in its head). Runs take it when their record is made (`Meter::game_build_now`,
+`payloads::game_of`); the others when they are built (`payloads::with_game`).
+
 ## The list's fields
 
 | Field | Meaning |
@@ -168,7 +177,7 @@ ported to `crates/alogs-sanctum/src/hosted.rs`, `shared_capture.rs` and `notices
 | --- | --- | --- |
 | `settings.json` | both | Its options. The Sanctum Helper page edits them (`sanctum_save`, merged key by key; `Layers` merged inside). It reloads the file when it changes. aLogs keeps `WindowTitle` and `RecordableOverlay` in step with its own General Settings (`share_settings`). |
 | `hosted\info.json` | Sanctum Helper | The choices its page offers (languages, layers...). |
-| `hosted\status.json` | Sanctum Helper | What it sees. It must carry `time` (ms since 1970); one older than 5 s counts as not running. The meter reads `inRun` (an Egg Heist run is on) for Egg Heist's input hold. |
+| `hosted\status.json` | Sanctum Helper | What it sees. It must carry `time` (ms since 1970); one older than 5 s counts as not running. The meter reads `inRun` (an Egg Heist run is on) to know where you are: while it is on, the meter isn't idle (it looks and reads more often, `diag.rs` `idle`), takes whole pictures (`pacing.rs`) and skips the boxes that can't show in Egg Heist (`screens.rs` `place`). Egg Heist's input hold doesn't use it: that starts when the end screen is spotted (`egg.rs`). |
 | `hosted\cmd-<ms>-<pid>.json` | aLogs | A command: written to `.tmp` then renamed. Sanctum Helper picks it up and deletes it. `{"command": ...}` is one of `new-run`, `position-map`, `capture-key`, `capture-pad`, `clear-pad`, `render-layout` (`layout`, `width`, `height`), `open-logs`, `quit`. |
 
 ### Notices

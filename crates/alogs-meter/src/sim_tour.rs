@@ -177,16 +177,80 @@ pub fn sim_count(rows: &[String]) -> i64 {
     rows.iter().map(|n| if n.ends_with(": Final") { 3 } else if n.ends_with(" α") { 2 } else { 1 }).sum()
 }
 
-/// One view's names added to the list read so far: the longest end of `rows` the view starts with is the overlap.
+/// One view's names added to the list read so far. The overlap is the longest end of `rows` the view starts with;
+/// failing that (one name not read in a view: a row cut at the list's edge, or one the OCR missed), the end of `rows`
+/// the view lines up with when at most STITCH_SKIPS names are missing on either side, at least two agreeing and two
+/// more for each name missing: the view's
+/// names after it are new, and one it has that `rows` lacks inside the overlap goes in its place. Only when neither
+/// fits is the whole view added (22 Nov: the views were added whole when one name was missing, and a run went out with
+/// 38 picks of 32, its first rows twice or three times).
 pub fn sim_stitch(rows: &[String], view: &[String]) -> Vec<String> {
-    let base = |names: &[String]| -> Vec<String> { names.iter().map(|n| n.split(':').next().unwrap_or("").trim_end_matches(" α").to_string()).collect() };
-    for k in (1..=rows.len().min(view.len())).rev() {
-        if base(&rows[rows.len() - k..]) == base(&view[..k]) {
+    let base = |n: &String| -> String { n.split(':').next().unwrap_or("").trim_end_matches(" α").to_string() };
+    let same = |a: &[String], b: &[String]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| base(x) == base(y));
+    for k in (2..=rows.len().min(view.len())).rev() {
+        if same(&rows[rows.len() - k..], &view[..k]) {
             return rows.iter().chain(&view[k..]).cloned().collect();
         }
     }
+    // (matches, skips, start in rows, the overlap as merged, where the view's new names start)
+    let mut best: Option<(usize, usize, usize, Vec<String>, usize)> = None;
+    for start in rows.len().saturating_sub(view.len() + STITCH_SKIPS)..rows.len() {
+        let t = &rows[start..];
+        let (mut i, mut j, mut skips, mut matches, mut merged) = (0, 0, 0, 0, vec![]);
+        let ok = loop {
+            if i == t.len() {
+                break true;
+            }
+            if j == view.len() {
+                // the view ends inside the overlap: the rest of rows stays as it is
+                if t.len() - i > STITCH_SKIPS {
+                    break false;
+                }
+                merged.extend(t[i..].iter().cloned());
+                break true;
+            }
+            if base(&t[i]) == base(&view[j]) {
+                merged.push(t[i].clone());
+                (i, j, matches) = (i + 1, j + 1, matches + 1);
+            } else if skips < STITCH_SKIPS && i + 1 < t.len() && base(&t[i + 1]) == base(&view[j]) {
+                merged.push(t[i].clone()); // not read in this view
+                (i, skips) = (i + 1, skips + 1);
+            } else if skips < STITCH_SKIPS && j + 1 < view.len() && base(&t[i]) == base(&view[j + 1]) {
+                if j > 0 {
+                    merged.push(view[j].clone()); // not read in the views before; the view's first: a cut row
+                }
+                (j, skips) = (j + 1, skips + 1);
+            } else if t.len() - i + skips <= STITCH_SKIPS {
+                // the last names read so far are not in this view (cut at the list's edge): they stay, the view follows
+                merged.extend(t[i..].iter().cloned());
+                break true;
+            } else {
+                break false;
+            }
+        };
+        // (each name missing wants two more agreeing: a short view can't line up anywhere by skipping)
+        if ok && matches >= 2 && matches > 2 * skips && best.as_ref().is_none_or(|b| (matches, std::cmp::Reverse(skips)) > (b.0, std::cmp::Reverse(b.1))) {
+            best = Some((matches, skips, start, merged, j));
+        }
+    }
+    if let Some((_, _, start, merged, j)) = best {
+        return rows[..start].iter().chain(&merged).chain(&view[j..]).cloned().collect();
+    }
+    if !rows.is_empty() && !view.is_empty() && same(&rows[rows.len() - 1..], &view[..1]) {
+        return rows.iter().chain(&view[1..]).cloned().collect();
+    }
     rows.iter().chain(view).cloned().collect()
 }
+
+/// A series' rows read as more picks than its badge (`count`) says, or, its badge unread, while the whole list read
+/// more than All says (`all_over`): a misread (rows taken twice), so the series goes out unread, never as "n of N"
+/// with n over N.
+pub fn series_overread(rows: &[String], count: Option<i64>, all_over: bool) -> bool {
+    count.map_or(all_over, |n| sim_count(rows) > n)
+}
+
+/// How many names sim_stitch lets be missing, on either side together, where a view overlaps the list read so far.
+pub const STITCH_SKIPS: usize = 2;
 
 fn norm(x: &str) -> String {
     x.to_lowercase().chars().filter(char::is_ascii_lowercase).collect()
@@ -238,7 +302,7 @@ impl Meter {
             return;
         }
         let r = self.args.cfg.get("results").clone();
-        let seconds = crate::leaderboards::HOLD_MIN.max(120f64.min(alogs_pyval::py_int(r.get("hold_seconds")).filter(|v| *v != 0).unwrap_or(60) as f64));
+        let seconds = crate::leaderboards::hold_limit(&self.args.cfg);
         let held = r.get("hold_inputs").truthy();
         let mut rewasd = false;
         if held {
@@ -472,9 +536,19 @@ impl Meter {
                 setup.insert("gizmos".into(), Value::List(sids.iter().enumerate().map(|(i, s)| dict([("series", series(s)), ("sid", Value::Str((*s).clone())),
                     ("count", if counts.len() == n { counts[i].clone() } else { Value::None })])).collect()));
             }
+            let total: i64 = tour.read.values().map(|r| sim_count(r)).sum();
+            let all_over = tour.all_n.is_some_and(|a| total > a);
             let gizmos: Vec<Value> = setup.at("gizmos").as_list().cloned().unwrap_or_default().into_iter().map(|g| {
                 let mut d = g.as_dict().cloned().unwrap_or_default();
-                if let Some(rows) = tour.read.get(&d.at("sid").py_str()) {
+                let rows = tour.read.get(&d.at("sid").py_str());
+                // more picks read than the series' badge says (or, its badge unread, than All says in all): misread,
+                // rows taken twice, so the series is unread
+                let over = rows.filter(|r| series_overread(r, d.at("count").as_i64(), all_over));
+                if let Some(r) = over {
+                    log::info!(target: "meter", "Holo-Battle Sim Gizmo screen: {} picks read for series {}, more than {}: left unread", sim_count(r), d.at("sid").py_str(),
+                        d.at("count").as_i64().map_or_else(|| format!("All's {}", tour.all_n.unwrap_or(0)), |n| n.to_string()));
+                }
+                if let Some(rows) = rows.filter(|_| over.is_none()) {
                     d.insert("picked".into(), Value::List(rows.iter().map(|n| dict([("name", Value::Str(n.clone())), ("rarity", self.sim_rarity(n))])).collect()));
                     d.insert("complete".into(), Value::Bool(Value::Int(sim_count(rows)).py_eq(d.at("count"))));
                     got += sim_count(rows);

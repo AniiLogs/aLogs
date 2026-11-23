@@ -1,4 +1,4 @@
-//! A name's 0, O and o told apart by their own ink (`NameReader::settle_round`): a capital's height or a small
+//! A name's 0, O and o told apart by their own ink (`NameReader::settle_look_alikes`): a capital's height or a small
 //! letter's, and the width for the height (0 narrow, O round). The game's font can't be in the repository, so the
 //! shapes are drawn by hand and given to the reader as its font's; the names are drawn from them in white, as the game
 //! shows names, on a dark ground.
@@ -84,7 +84,7 @@ fn drawn(text: &str) -> Image {
 }
 
 fn settle(r: &NameReader, picture: &str, read: &str) -> (String, Vec<usize>) {
-    r.settle_round(&drawn(picture), (0.0, 0.0, 400.0, 60.0), read)
+    r.settle_look_alikes(&drawn(picture), (0.0, 0.0, 400.0, 60.0), read)
 }
 
 #[test]

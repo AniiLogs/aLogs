@@ -29,16 +29,18 @@ pub const LEADER_NOTE: (f64, f64, f64, f64) = (0.33, 0.140, 0.67, 0.195);
 pub const CLEAR_STARS: i64 = 20;
 pub const CENTER_STARS: i64 = 40;
 
-/// The name read in box `key` of `read`, its 0, O and o settled by their own ink (`NameReader::settle_round`; nothing
-/// without the game's font). Positions left as read are logged on the screen's first read (`first`).
-fn settle_round_name(reader: Option<&NameReader>, im: &Image, b: (f64, f64, f64, f64), key: &str, read: &mut IndexMap<String, String>, first: bool) {
+/// The name read in box `key` of `read`, its look-alikes (0 / O / o, 1 / l / I) settled by their own ink
+/// (`NameReader::settle_look_alikes`, or `settle_look_alikes_in_line` when `line`: the name shares its box with a badge
+/// and icons; nothing without the game's font). Positions left as read are logged on the screen's first read
+/// (`first`).
+pub fn settle_name(reader: Option<&NameReader>, im: &Image, b: (f64, f64, f64, f64), key: &str, read: &mut IndexMap<String, String>, first: bool, line: bool) {
     let (Some(r), Some(text)) = (reader, read.get(key).map(|t| t.trim_matches(|c| " /|".contains(c)).to_string())) else { return };
-    if !text.contains(['0', 'O', 'o']) {
+    if alogs_reader::names::look_alike_positions(&text).is_empty() {
         return;
     }
-    let (settled, left) = r.settle_round(im, b, &text);
+    let (settled, left) = if line { r.settle_look_alikes_in_line(im, b, &text) } else { r.settle_look_alikes(im, b, &text) };
     if settled != text {
-        log::info!(target: "meter", "name box {key}: a 0 / O / o settled by its ink against the game's font");
+        log::info!(target: "meter", "name box {key}: a look-alike (0 / O / o, 1 / l / I) settled by its ink against the game's font");
     }
     if first {
         for p in left {
@@ -505,6 +507,7 @@ impl Meter {
         let bid = row.as_ref().map_or(Value::None, |r| Value::Str(get(r, "puppetId").into()));
         let clock = self.env.record_clock();
         let p = crate::payloads::score_payload(screen, &boss, &opt_i(score), &opt_i(stars), &self.uid.clone().map_or(Value::None, Value::Str), &cycle, &bid, &self.env.schedule, &clock);
+        let p = crate::payloads::with_game(p, self.game_build_now());
         let ev = shot.map(|p| rel(&self.env.data, &p));
         sub.enqueue(&p, ev.as_deref(), None, None, None);
     }
@@ -716,7 +719,7 @@ impl Meter {
             let dx = i as f64 * 0.1765;
             let key = format!("name{i}");
             let nb = (ux + u * (0.13 + dx), h * 0.618, ux + u * (0.24 + dx), h * 0.655);
-            settle_round_name(self.name_reader(), im, nb, &key, &mut t, first);
+            settle_name(self.name_reader(), im, nb, &key, &mut t, first, false);
         }
         let tg = |k: &str| t.get(k).map(String::as_str);
         let (sure, stars, sure_time, values): (Option<i64>, Option<i64>, Option<i64>, Vec<Option<i64>>) = match self.name_reader() {
@@ -1177,7 +1180,7 @@ impl Meter {
         for i in 0..n {
             let c = bd_centre(i, n);
             let nb = (ux + u * (c - 0.045), h * (0.512 + dy), ux + u * (c + 0.045), h * (0.547 + dy));
-            settle_round_name(self.name_reader(), im, nb, &i.to_string(), &mut nread, first);
+            settle_name(self.name_reader(), im, nb, &i.to_string(), &mut nread, first, false);
         }
         for (i, c) in cards.iter_mut().enumerate() {
             let nm = nread.get(&i.to_string()).map_or("", |s| s.trim_matches(|ch| " /|".contains(ch))).to_string();

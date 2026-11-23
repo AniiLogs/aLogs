@@ -122,6 +122,48 @@ fn runs_carry_the_game_build_when_known() {
     }
 }
 
+/// The kinds built without a run record (interlink_week, interlink_best, eggheist_season) get `extra.game` through
+/// with_game: added beside what extra already holds, an extra made for it when there was none, nothing without a build.
+#[test]
+fn scores_and_seasons_carry_the_game_build_when_known() {
+    use alogs_gamelog::GameBuild;
+    let game = pl::game_value(&GameBuild { build: 3900001, patch: None, patch_action: None });
+    let g: J = serde_json::from_str(&std::fs::read_to_string(dir().join("payload_goldens.json")).unwrap()).unwrap();
+    let clock = FixedClock(g["now"].as_f64().unwrap());
+    let sched = Schedule::new(dir().join("cycles.json"));
+    let plus = |want: &J| {
+        let mut w = pv(want);
+        if let Value::Dict(d) = &mut w {
+            let mut e = d.at("extra").as_dict().cloned().unwrap_or_default();
+            e.insert("game".into(), game.clone());
+            d.insert("extra".into(), Value::Dict(e));
+        }
+        w.repr()
+    };
+    let bad = [Value::Int(3900001), Value::json_loads(r#"{"patch": 5}"#).unwrap(), Value::json_loads(r#"{"build": "3900001"}"#).unwrap()];
+    let mut kinds = BTreeSet::new();
+    for c in g["scores"].as_array().unwrap() {
+        let a = &c[0];
+        let boss_id = a.get(6).map_or(Value::None, pv);
+        let p = || pl::score_payload(a[0].as_str().unwrap(), a[1].as_str().unwrap(), &pv(&a[2]), &pv(&a[3]), &pv(&a[4]), &pv(&a[5]), &boss_id, &sched, &clock);
+        kinds.insert(p().get("kind").py_str());
+        assert_eq!(pl::with_game(p(), Some(game.clone())).repr(), plus(&c[1]), "score_payload {a}");
+        assert_eq!(pl::with_game(p(), None).repr(), pv(&c[1]).repr());
+        for b in &bad {
+            assert_eq!(pl::with_game(p(), Some(b.clone())).repr(), pv(&c[1]).repr(), "{}", b.repr());
+        }
+    }
+    for c in g["seasons"].as_array().unwrap() {
+        let a = &c[0];
+        let prof = a.get(3).map(pv);
+        let p = || pl::eggheist_payload(&pv(&a[0]), &pv(&a[1]), &pv(&a[2]), prof.as_ref(), &clock);
+        kinds.insert(p().get("kind").py_str());
+        assert_eq!(pl::with_game(p(), Some(game.clone())).repr(), plus(&c[1]), "eggheist_payload {a}");
+        assert_eq!(pl::with_game(p(), None).repr(), pv(&c[1]).repr());
+    }
+    assert!(["interlink_week", "interlink_best", "eggheist_season"].iter().all(|k| kinds.contains(*k)), "{kinds:?}");
+}
+
 /// The meter reads the build from its Player.log and logs it when first known or changed (numbers only).
 #[test]
 fn the_meter_reads_and_logs_the_game_build() {

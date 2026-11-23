@@ -228,6 +228,7 @@ impl Meter {
         let mut crops = IndexMap::new();
         let mut kinds = vec![];
         let mut mine = vec![];
+        let mut name_boxes = vec![];
         for i in 0..4 {
             let x0 = (ux + u * (0.5125 + i as f64 * 0.0655)) as i64;
             let x1 = (x0 as f64 + u * 0.016) as i64;
@@ -241,13 +242,19 @@ impl Meter {
             let c = ux + u * (0.5375 + i as f64 * 0.0655);
             let b = (c - u * 0.03, h * (yc + 0.051), c + u * 0.03, h * (yc + 0.077));
             crops.insert(format!("n{i}"), prep::prep_text(im, b, k, 190, 3.0, 24));
+            name_boxes.push(b);
             let name_px: Vec<[u8; 3]> = ((b.0 as i64)..(b.2 as i64)).step_by(2).flat_map(|x| ((b.1 as i64)..(b.3 as i64)).step_by(2).map(move |y| (x, y))).map(|(x, y)| px(im, x, y)).collect();
             let green = name_px.iter().filter(|p| p[1] >= 0xb0 && i32::from(p[1]) - i32::from(p[0]) >= 0x30 && i32::from(p[1]) - i32::from(p[2]) >= 0x30).count();
             let bright = name_px.iter().filter(|p| *p.iter().min().unwrap() >= 0xd0).count();
             mine.push(green > 40 && green > 3 * bright);
         }
         let sizes: IndexMap<String, usize> = (0..4).map(|i| (format!("n{i}"), 24)).collect();
-        let names = self.ocr.read(&crops, &sizes, &IndexMap::new());
+        let mut names = self.ocr.read(&crops, &sizes, &IndexMap::new());
+        // each name's look-alikes (0 / O / o, 1 / l / I) settled by their own ink (white names only: your own, in green,
+        // is left as read)
+        for (i, b) in name_boxes.iter().enumerate() {
+            crate::results::settle_name(self.name_reader(), im, *b, &format!("n{i}"), &mut names, false, false);
+        }
         let members: Vec<Dict> = kinds.iter().enumerate().filter_map(|(i, kind)| {
             let kind = (*kind)?;
             let name = names.get(&format!("n{i}")).map_or("", String::as_str).trim_matches(|c| c == ' ' || c == '/' || c == '|').to_string();
@@ -415,6 +422,7 @@ impl Meter {
             }
         }
         let known = self.character_name.clone();
+        let _ = self.name_reader(); // (loaded here: the reads below borrow the meter)
         let yellow = |i: usize| -> bool {
             let Some(s) = self.slots().get(i) else { return false };
             let b = bx(s);
@@ -435,6 +443,15 @@ impl Meter {
                 continue;
             }
             let mut got = party_pill(&g(&t, &format!("n{i}")), i as i64);
+            // the name's look-alikes (0 / O / o, 1 / l / I) settled by their own ink: the pill's white lettering, the
+            // badge and icons beside it left out (a yellow pill, your own, isn't white: left as read)
+            if let (Some((_, n)), Some(s), Some(r)) = (got.as_mut(), self.slots().get(i), self.font_reader.as_ref()) {
+                let (settled, _) = r.settle_look_alikes_in_line(im, bx(s), n);
+                if settled != *n {
+                    log::info!(target: "meter", "Party screen pill {i}: a look-alike (0 / O / o, 1 / l / I) settled by its ink against the game's font");
+                    *n = settled;
+                }
+            }
             if got.is_none() && known.is_some() && i < self.slots().len() && own_pill(i) {
                 got = Some((i as i64, known.clone().unwrap()));
             }

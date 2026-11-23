@@ -194,7 +194,7 @@
               <option value="144">For 6 days</option><option value="168">For 7 days</option>
               <option value="-1">Keep everything (don't delete)</option>
             </select></label>
-          <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Anything left over is cleared every hour. Your records are kept either way.</p>
+          <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Anything left over is cleared every hour, and past 1 GB of pictures the oldest go first (unless you keep everything). Your records are kept either way.</p>
           <p class="hint"><strong>Troubleshooting a problem?</strong> Set this to at least 1 day first. aLogs also keeps a few sample pictures of the screens it reads (the Party screen, Interlink fights), and with "Only until their data is saved" they are gone within a few hours, before anyone can look at them.</p>
         </div>
       </div>
@@ -238,7 +238,7 @@
             <div><strong>Holo-Battle Sim: read the gizmos</strong><small>After a win, opens the Gizmo screen from the Victory screen, reads every gizmo you picked, takes a picture of each part of the list as proof, and goes back.</small></div></label>
           <label class="toggle"><input type="checkbox" data-k="results.sim_gate"><span></span>
             <div><strong>Holo-Battle Sim: take over at the exit gate</strong><small>On the last level, when you press End Holo-Battle Sim at the exit gate (Y on a controller, F on the keyboard), aLogs takes control from that press: it keeps the Victory screen from being skipped, reads the gizmos, and gives control back once everything is saved. aLogs only reads your controller to see the press; it never presses anything on it. Off by default.</small></div></label>
-          <p class="hint">Egg Heist's end screen has its own setting, on the Sanctum Helper page.</p>
+          <p class="hint">Egg Heist: aLogs takes control from the moment the end screen shows (and the rank screen after it) until it is read and sent. Pressing Next for you is set on the Sanctum Helper page.</p>
         </div>
         <div class="group">
           <h2>Blocking</h2>
@@ -310,10 +310,9 @@
         <div class="group">
           <h2>Egg Heist on the leaderboards</h2>
           <label class="toggle"><input type="checkbox" data-k="results.egg_auto_next"><span></span>
-            <div><strong>Press Next after the end screen</strong><small>Once the end screen is read, aLogs presses Next for you, on to the rank screen, which is read and sent too. A notice shows each time something is sent.</small></div>
+            <div><strong>Press Next after the end screen</strong><small>Once the end screen is read, aLogs presses Next for you, on to the rank screen, which is read and sent too. One notice shows per match.</small></div>
           </label>
-          <label class="toggle"><input type="checkbox" data-k="results.egg_fade_hold"><span></span>
-            <div><strong>Block from the fade to black</strong><small>When an Egg Heist match ends, blocks button presses from the moment the screen fades to black until the meter has read the end screen, so it can't be skipped. Sanctum Helper tells the meter when a run is on. If a loading screen follows, the block ends 5 s after the picture comes back. Needs Leaderboards › Automation on; how long it may block is set there. Experimental, off unless you turn it on.</small></div></label>
+          <p class="hint">As with Interlink and the Holo-Battle Sim, aLogs takes control from the moment the end screen shows (and the rank screen after it) until it is read and sent, then gives control back at once. When it presses Next for you, it keeps control through the loading to the rank screen. It needs Leaderboards › Automation on; what is blocked, and for how long at most, is set there.</p>
         </div>
       </section>
 
@@ -499,10 +498,11 @@
         </div>
       </section>
 
-      <section class="page" data-page-body="about">
+      <section class="page page-about" data-page-body="about">
         <header class="page-head"><h1>About</h1></header>
         <p class="lead"><strong>aLogs: Aniiloger's Companion App</strong> <span data-app-version></span> — an unofficial community companion for Aniimo. Not affiliated with Aniimo or its developers.</p>
-        <div class="group">
+        <div class="about-grid">
+        <div class="group about-main">
           <p>The meter reads the game (its picture, its sound during boss fights, its text log and its data files) and, if you let it, clicks View Battle Data for you. It never changes the game's memory or files.</p>
           <div class="notice" data-win10-capture hidden>
             <p><strong>How aLogs sees the game on Windows 10.</strong> Windows 11 lets aLogs capture just the game window. Windows 10 only allows that with a yellow border drawn round the game, so you choose (General Settings › Capture only the game window):</p>
@@ -517,6 +517,7 @@
           <p class="hint">Reads player names with PaddleOCR's text models (Latin and Korean) by the PaddlePaddle Authors (Apache License 2.0).</p>
           <p class="hint" data-sanctum-credit>Includes Sanctum Helper by sargeeva (MIT License): an Egg Heist companion. Like the meter, it only looks at screen pixels. Map art, icons and game terms come from the game's own files and belong to their owners.</p>
         </div>
+        <div class="about-side">
         <div class="group">
           <h2>Updates</h2>
           <label class="toggle"><input type="checkbox" data-k="app.auto_download"><span></span>
@@ -535,12 +536,14 @@
             <button type="button" data-open="https://github.com/nefarius/HidHide">HidHide</button>
           </div>
         </div>
-        <div class="group">
+        </div>
+        <div class="group about-notes">
           <div class="group-head"><h2>Patch notes</h2></div>
           <div class="notes" data-patch-notes></div>
           <div class="row">
             <button type="button" data-open="https://github.com/AniiLogs/aniilogs.github.io/releases">All releases</button>
           </div>
+        </div>
         </div>
       </section>
     </main>
