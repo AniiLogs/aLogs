@@ -168,7 +168,7 @@ ported to `crates/alogs-sanctum/src/hosted.rs`, `shared_capture.rs` and `notices
 | --- | --- | --- |
 | `settings.json` | both | Its options. The Sanctum Helper page edits them (`sanctum_save`, merged key by key; `Layers` merged inside). It reloads the file when it changes. aLogs keeps `WindowTitle` and `RecordableOverlay` in step with its own General Settings (`share_settings`). |
 | `hosted\info.json` | Sanctum Helper | The choices its page offers (languages, layers...). |
-| `hosted\status.json` | Sanctum Helper | What it sees. It must carry `time` (ms since 1970); one older than 5 s counts as not running. The meter reads `inRun` (an Egg Heist run is on) for Egg Heist's input hold. |
+| `hosted\status.json` | Sanctum Helper | What it sees. It must carry `time` (ms since 1970); one older than 5 s counts as not running. The meter reads `inRun` (an Egg Heist run is on) to know where you are: while it is on, the meter isn't idle (it looks and reads more often, `diag.rs` `idle`), takes whole pictures (`pacing.rs`) and skips the boxes that can't show in Egg Heist (`screens.rs` `place`). Egg Heist's input hold doesn't use it: that starts when the end screen is spotted (`egg.rs`). |
 | `hosted\cmd-<ms>-<pid>.json` | aLogs | A command: written to `.tmp` then renamed. Sanctum Helper picks it up and deletes it. `{"command": ...}` is one of `new-run`, `position-map`, `capture-key`, `capture-pad`, `clear-pad`, `render-layout` (`layout`, `width`, `height`), `open-logs`, `quit`. |
 
 ### Notices

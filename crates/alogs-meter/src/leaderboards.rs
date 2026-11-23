@@ -54,7 +54,13 @@ fn write_json(p: &Path, s: &Dict) {
     let _ = alogs_protocol::settings::write_whole(p, &team::unescape_unicode(&Value::Dict(s.clone()).json_dumps_indent(1)));
 }
 
-/// The run's fight evidence still to go: recorded in its summary, not attached to an update yet, not given up on.
+/// How long aLogs may keep control of an end screen at most (General Settings' "Take control for at most",
+/// results.hold_seconds, 60 unless set), between HOLD_MIN and 120 s: the Sim's end and Egg Heist's hold.
+pub fn hold_limit(cfg: &Value) -> f64 {
+    HOLD_MIN.max(120f64.min(alogs_pyval::py_int(cfg.get("results").get("hold_seconds")).filter(|v| *v != 0).unwrap_or(60) as f64))
+}
+
+/// The run's fight evidence still to go:recorded in its summary, not attached to an update yet, not given up on.
 pub fn fight_pending(s: &Dict) -> bool {
     (s.at("fight_shots").as_list().is_some_and(|l| !l.is_empty()) || matches!(s.at("fight_log"), Value::Dict(_)))
         && s.get_str("fight_evidence").is_none()
@@ -149,19 +155,27 @@ impl Meter {
     }
 
     /// Queue a record (with an Interlink run's fight evidence, when given); with `hold` (and holding_for_send), the
-    /// player's inputs are held until this copy is sent.
+    /// player's inputs are held until this copy is sent. While Egg Heist's hold runs, it is the one held: its own time
+    /// limit stays, and it ends (or carries on to the rank screen) once this copy is sent (egg_sent). The copy as
+    /// queued, if it was.
     #[allow(clippy::too_many_arguments)]
-    fn send_result_held(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>, hold: bool,
-                        fight: &[(i64, String)], fightlog: Option<&str>) {
-        let Some(s) = self.submitter.clone() else { return };
+    pub(crate) fn send_result_held(&mut self, payload: &Value, evidence: Option<&str>, battle: Option<&str>, party: Option<&str>, gizmos: Option<&[String]>,
+                                   hold: bool, fight: &[(i64, String)], fightlog: Option<&str>) -> Option<Value> {
+        let s = self.submitter.clone()?;
         let queued = s.enqueue_with_fight(payload, evidence, battle, party, gizmos, fight, fightlog);
-        if !hold || !self.holding_for_send() {
-            return;
+        let egg = self.egg.hold.is_some();
+        if !hold || !(egg || self.holding_for_send()) {
+            return queued;
         }
         self.send_waiting = Some(payload.get("clientRunId").py_str());
-        self.send_waiting_copy = queued;
-        self.hold.start(SEND_HOLD_S);
-        log::info!(target: "meter", "holding inputs until this is sent (at most {SEND_HOLD_S} s)");
+        self.send_waiting_copy = queued.clone();
+        if egg {
+            log::info!(target: "meter", "Egg Heist: inputs stay held until this is sent");
+        } else {
+            self.hold.start(SEND_HOLD_S);
+            log::info!(target: "meter", "holding inputs until this is sent (at most {SEND_HOLD_S} s)");
+        }
+        queued
     }
 
     /// Does a record sent now hold the player's inputs until it is sent? Only with Automation and "hold inputs" on,
@@ -185,8 +199,12 @@ impl Meter {
     }
 
     /// The send's hold ends; the automatic Battle Data session's, if one runs now, stays until Battle Data is read.
+    /// Egg Heist's hold decides for itself (egg_sent).
     fn stop_send_hold(&mut self) {
-        if self.auto.auto_until == 0.0 {
+        if self.egg.hold.is_some() {
+            let now = self.env.now();
+            self.egg_sent(now);
+        } else if self.auto.auto_until == 0.0 {
             self.hold.stop();
         }
     }
@@ -540,7 +558,13 @@ impl Meter {
     /// A record reached the leaderboards: its notice over the game, unless turned off. A run's update only gets one
     /// when the run's standing got better than its notice said (payloads::sent_notice_for); one log line says why.
     pub fn sent_notice(&mut self, out: &mut dyn Out, payload: &Value, reply: &Value) {
-        let on = self.args.cfg.get("leaderboard").as_dict().and_then(|d| d.get_str("notify_sent")).is_none_or(|v| v.truthy());
+        let sent = payload.json_dumps();
+        if let Some(i) = self.quiet_sends.iter().position(|q| *q == sent) {
+            self.quiet_sends.remove(i);
+            log::info!(target: "meter", "leaderboard: no notice for this record (the notice of the run it belongs to is up already)");
+            return;
+        }
+        let on =self.args.cfg.get("leaderboard").as_dict().and_then(|d| d.get_str("notify_sent")).is_none_or(|v| v.truthy());
         if !on {
             log::info!(target: "meter", "leaderboard: no notice (turned off in the settings)");
             return;

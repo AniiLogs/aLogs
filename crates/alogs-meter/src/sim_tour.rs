@@ -238,7 +238,7 @@ impl Meter {
             return;
         }
         let r = self.args.cfg.get("results").clone();
-        let seconds = crate::leaderboards::HOLD_MIN.max(120f64.min(alogs_pyval::py_int(r.get("hold_seconds")).filter(|v| *v != 0).unwrap_or(60) as f64));
+        let seconds = crate::leaderboards::hold_limit(&self.args.cfg);
         let held = r.get("hold_inputs").truthy();
         let mut rewasd = false;
         if held {

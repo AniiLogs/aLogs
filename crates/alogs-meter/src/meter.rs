@@ -209,7 +209,8 @@ pub struct Meter {
     pub presence: Option<alogs_capture::presence::Presence>,
     /// Holding the player's keys and mouse buttons (Automation › hold inputs).
     pub hold: alogs_capture::input::InputBlock,
-    /// The controller kept away while aLogs has control of the Sim's end: the game told it is inactive, in front.
+    /// The controller kept away while aLogs has control of the Sim's end or an Egg Heist end screen: the game told it
+    /// is inactive, in front.
     pub told_inactive: alogs_capture::inactive::Inactive,
     /// The clientRunId inputs are held for until it's sent.
     pub send_waiting: Option<String>,
@@ -222,8 +223,9 @@ pub struct Meter {
     pub presence_sent: Option<(String, &'static str, f64)>,
     /// When "You're being attacked" was last raised (the overlay shows it for 5 s).
     pub hit_at: f64,
-    /// When the game log last said you left a space (Egg Heist's fade after it is a load).
-    pub egg_space_at: f64,
+    /// Queued records (their payload as queued, as json) whose arrival shows no notice: the notice of the run they
+    /// belong to went up already (an Egg Heist rank after its match: one notice per run). At most NOTICED_RUNS.
+    pub quiet_sends: std::collections::VecDeque<String>,
     /// The overlay's windows, to cover in a picture of the screen.
     pub own: Option<std::sync::Arc<std::sync::Mutex<crate::overlay::Own>>>,
     /// The app's newest audio cue (Frames::audio_cue), as of the last look.
@@ -378,7 +380,7 @@ impl Meter {
             noticed_runs: Default::default(),
             presence_sent: None,
             hit_at: 0.0,
-            egg_space_at: 0.0,
+            quiet_sends: Default::default(),
             own: None,
             audio_cue: None,
             hp_ocr: None,
@@ -1042,8 +1044,6 @@ impl Meter {
                 Event::Leave(space, delay) => {
                     said("leave", Some(&space), delay);
                     self.fight_end_off("the game left the fight's scene");
-                    // the fade that follows is a load, not a match's end (egg_fade)
-                    self.egg_space_at = self.env.now();
                 }
                 Event::BossRush(sid, delay) => {
                     said("bossrush", sid.as_deref(), delay);
@@ -1082,7 +1082,7 @@ impl Meter {
         self.reload_settings(self.env.now());
         self.bar_gone_check(out);
         // holds end on time even without a picture
-        if self.egg.hold.as_ref().is_some_and(|h| self.env.now() > h.0) {
+        if self.egg.hold.as_ref().is_some_and(|h| self.env.now() > h.until) {
             self.egg_hold_end("time limit");
         }
         self.auto_active();
@@ -1231,9 +1231,7 @@ impl Meter {
         }
         let top_h = (self.frame_size.1 as f64 * TOP_PART).max(1.0);
         self.top_sig = Some(crate::team::top_sig_direct(&im, top_h));
-        if self.frame_full {
-            self.egg_fade(&im, now); // Egg Heist: ends a screen hold that's done
-        }
+        self.egg_hold_tick(now, fg); // Egg Heist: its hold's time limit, and the game going to the background
         self.sim_check(now);
         self.game_only_keep(frames, now);
         self.sim_cards_warm();

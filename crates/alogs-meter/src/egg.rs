@@ -1,6 +1,12 @@
 //! Egg Heist's screens: the end screen (one record per match, two reads alike), the rank screens (Rank Info, the
 //! post-match rank, Egg Emperor's eggs) and boss rush's Challenge Stats. Port of those parts of aLogs B16
-//! `bossbar/results.py`. Holding the player's inputs while a screen is read: egg_screen_hold, egg_fade.
+//! `bossbar/results.py`.
+//!
+//! Holding the player's inputs while a screen is read, as for Interlink and the Holo-Battle Sim: from the moment the
+//! end screen (or the rank screen after it) is spotted, keyboard, mouse buttons and the controller (the game told it
+//! is inactive) are held while it is read and sent, and let go once it is sent; at most results.hold_seconds
+//! (egg_screen_hold, egg_sent, egg_hold_end). When aLogs presses Next itself, the hold carries on through the loading
+//! to the rank screen, a new time limit from the end screen's send. One notice per match: its rank goes silently.
 
 use crate::eggheist as e;
 use crate::meter::{Frames, Meter, Out};
@@ -23,7 +29,6 @@ pub const EGG_GONE_S: f64 = 4.0;
 pub const EGG_SENT_S: f64 = 60.0;
 pub const EGG_PARTY_S: f64 = 1800.0;
 pub const EGG_RANK_WAIT_S: f64 = 90.0;
-pub const EGG_SCREEN_HOLD_S: f64 = 10.0;
 pub const EGG_NEXT_TRIES: i64 = 4;
 pub const EGG_NEXT_GAP_S: f64 = 1.5;
 pub const EGG_NEXT_S: f64 = 30.0;
@@ -64,10 +69,26 @@ pub struct EggState {
     pub gain_seen: f64,
     pub stats_seen: f64,
     pub season: Option<String>,
-    /// Inputs held while an end or rank screen is read: (ends at, picture came back at, space it started in).
-    pub hold: Option<(f64, f64, Option<String>)>,
+    /// Inputs held while an end or rank screen is read and sent.
+    pub hold: Option<EggHold>,
+    /// When an Egg Heist record last went with a notice to come: a rank record within EGG_RANK_WAIT_S of it belongs to
+    /// the same run (or the same look at Rank Info) and goes silently.
+    pub noticed_at: f64,
     /// What each kind of rank record last sent ('egg_rank', 'egg_gain').
     pub last: IndexMap<String, String>,
+}
+
+/// Egg Heist's hold: one per screen visit (the end screen, on through the rank screen when aLogs presses Next).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EggHold {
+    /// Let go at this time whatever happens (results.hold_seconds from its start, or from the end screen's send).
+    pub until: f64,
+    /// "end screen" or "rank screen": what it is held for now.
+    pub screen: &'static str,
+    /// The end screen is sent and aLogs pressed Next: held on through the loading to the rank screen.
+    pub on_to_rank: bool,
+    /// Keyboard and mouse buttons are held (Ctrl+Shift+F12 lets them go, and with them the rest).
+    pub held: bool,
 }
 
 static POINTS_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\d{1,6}\s*/\s*\d{1,6}\s*$").unwrap());
@@ -133,11 +154,13 @@ impl Meter {
         if now - click.at > EGG_NEXT_S || click.tries >= EGG_NEXT_TRIES {
             log::info!(target: "meter", "Egg Heist: Next not pressed through, after {} tries; it's left to the player", click.tries);
             self.egg.click = None;
+            self.egg_next_given_up();
             return;
         }
         if self.hwnd.is_some_and(|w| !frames.is_foreground(w)) {
             self.egg.click = None;
             log::info!(target: "meter", "Egg Heist: Next not pressed, the game is not the active window");
+            self.egg_next_given_up();
             return;
         }
         click.last = now;
@@ -246,9 +269,13 @@ impl Meter {
         }
         let agreed = ["outcome", "loot", "defeats", "time_s"].iter().all(|k| !confirmed(&read.votes, k).is_none());
         if agreed || read.reads >= EGG_MAX_READS {
-            self.egg_send(frames, out, now);
-            if !self.args.replay && alogs_protocol::settings::automation(&self.args.cfg, Some("egg_auto_next")) {
+            // (Next is to be pressed before the send: a hold sent at once carries on to the rank screen)
+            let next = !self.args.replay && alogs_protocol::settings::automation(&self.args.cfg, Some("egg_auto_next"));
+            if next {
                 self.egg.click = Some(EggClick { at: now, last: 0.0, tries: 0 });
+            }
+            self.egg_send(frames, out, now);
+            if next && self.egg.click.is_some() {
                 self.egg_next(frames, im, now, u, ux, h);
             }
         }
@@ -288,7 +315,7 @@ impl Meter {
             m.insert(k.into(), confirmed(&votes, k));
         }
         if m.at("loot").is_none() && m.at("time_s").is_none() {
-            self.egg_hold_end("end screen read");
+            self.egg_hold_end("the end screen gave nothing to send");
             return;
         }
         if m.at("time_s").is_none()
@@ -348,12 +375,11 @@ impl Meter {
             }
             let payload = payloads::egg_match_payload(&Value::Dict(run), &season, &Value::Str(uid), Some(now), &clock);
             self.egg.pending = Some(EggPending { at: now, payload: payload.clone(), shot: spare(&self.env.data, &shot), party: spare(&self.env.data, &party_shot) });
-            self.send_result(&payload, shot_rel.as_deref(), None, party_rel.as_deref(), None);
+            if self.send_result_held(&payload, shot_rel.as_deref(), None, party_rel.as_deref(), None, true, &[], None).is_some() {
+                self.egg.noticed_at = now; // the match's notice: its rank goes silently
+            }
         }
-        self.egg.hold = None;
-        if self.send_waiting.is_none() {
-            self.hold.stop();
-        }
+        self.egg_queued(now);
         self.screen_settled("egg_result", self.env.now());
         let (outcome, loot, difficulty) = (m.at("outcome").clone(), m.at("loot").as_i64(), m.at("difficulty").clone());
         let msg = format!("Egg Heist match recorded: {}{}{}",
@@ -420,11 +446,27 @@ impl Meter {
             st.get("points").as_i64().map_or(String::new(), |p| format!(" - {} rank points", thousands(p))),
             st.get("stars").as_i64().map_or(String::new(), |s| format!(" - {} stars", thousands(s))));
         out.out("status", Value::Str(msg));
-        if let Some(sub) = self.submitter.clone() {
+        if self.submitter.is_some() {
             let profile = self.egg_profile(season.as_deref(), &[("nextRankAt", opt(next_start))]);
             let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&profile), &clock);
-            sub.enqueue(&p, shot_rel.as_deref(), None, None, None);
+            // (a menu screen the player opened and leaves when they like: nothing is held for it)
+            self.egg_send_rank(&p, shot_rel.as_deref(), false, now);
+        }
+    }
+
+    /// A rank record goes the leaderboards' way (held until sent with `hold` while Egg Heist's hold runs). Silent when
+    /// an Egg Heist record with a notice went within EGG_RANK_WAIT_S: its match, or an earlier read of the same screen.
+    fn egg_send_rank(&mut self, p: &Value, shot: Option<&str>, hold: bool, now: f64) {
+        let Some(queued) = self.send_result_held(p, shot, None, None, None, hold, &[], None) else { return };
+        if now - self.egg.noticed_at < EGG_RANK_WAIT_S {
+            self.quiet_sends.push_back(queued.json_dumps());
+            while self.quiet_sends.len() > crate::leaderboards::NOTICED_RUNS {
+                self.quiet_sends.pop_front();
+            }
+            log::info!(target: "meter", "Egg Heist: the rank goes without a notice of its own (one notice per run)");
+        } else {
+            self.egg.noticed_at = now;
         }
     }
 
@@ -539,11 +581,12 @@ impl Meter {
         self.egg_rank_seen(frames, im, now);
         let key = format!("{season:?}|{points}|{gain:?}");
         if self.egg.last.get("egg_gain") == Some(&key) {
+            self.egg_queued(now);
             return;
         }
         self.egg.last.insert("egg_gain".into(), key);
         out.out("status", Value::Str(format!("Egg Heist: {}Rank Points ({}, {})", gain.map_or(String::new(), |g| format!("{g:+} ")), st.get("name").py_str(), thousands(points))));
-        if let Some(sub) = self.submitter.clone() {
+        if self.submitter.is_some() {
             let mut vals = vec![];
             if let Some(g) = gain {
                 vals.push(("lastGain", Value::Int(g)));
@@ -553,25 +596,21 @@ impl Meter {
             let profile = self.egg_profile(season.as_deref(), &vals);
             let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&profile), &clock);
-            sub.enqueue(&p, None, None, None, None);
+            self.egg_send_rank(&p, None, true, now);
         }
+        self.egg_queued(now);
     }
 
-    /// The rank screen after a match is read: its picture goes with the match waiting for it.
+    /// The rank screen after a match is read: its picture goes with the match waiting for it (held until sent, as
+    /// the rank record after it).
     fn egg_rank_seen(&mut self, frames: &mut dyn Frames, im: &Image, now: f64) {
         self.egg.rank_read_at = now;
         self.egg.click = None;
         self.egg.rank_frame = None;
         if self.egg.pending.is_some() {
             let shot = self.picture(frames, im, "screens", &format!("egg_rank_{}", local(now, "%Y%m%d_%H%M%S")), true, true);
-            self.egg.hold = None;
             let r = shot.map(|p| rel(&self.env.data, &p));
             self.egg_update(r);
-            if self.send_waiting.is_none() {
-                self.hold.stop();
-            }
-        } else {
-            self.egg_hold_end("rank screen read");
         }
     }
 
@@ -599,11 +638,12 @@ impl Meter {
         let (Some(st), Some(eggs)) = (st, eggs) else { return };
         let key = format!("{season:?}|emperor|{eggs}");
         if self.egg.last.get("egg_gain") == Some(&key) {
+            self.egg_queued(now);
             return;
         }
         self.egg.last.insert("egg_gain".into(), key);
         out.out("status", Value::Str(format!("Egg Heist: Egg Emperor, {} eggs", thousands(eggs))));
-        if let Some(sub) = self.submitter.clone() {
+        if self.submitter.is_some() {
             let mut profile = Dict::new();
             for (k, v) in self.egg_profile(season.as_deref(), &[]).as_dict().cloned().unwrap_or_default().iter() {
                 if !matches!(k.py_str().as_str(), "bar" | "barAt" | "lastGain" | "nextRankAt") {
@@ -612,8 +652,9 @@ impl Meter {
             }
             let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&Value::Dict(profile)), &clock);
-            sub.enqueue(&p, None, None, None, None);
+            self.egg_send_rank(&p, None, true, now);
         }
+        self.egg_queued(now);
     }
 
     /// Esc menu in boss rush: 'Challenge Stats' with this week's Best Score and Current Best stars.
@@ -658,68 +699,116 @@ impl Meter {
         false
     }
 
+    /// Does an Egg Heist screen spotted now get held? The leaderboards' Automation on, something to hold (keyboard and
+    /// mouse buttons, or the controller), a live meter and the game in front: the gates of a send's hold
+    /// (holding_for_send).
+    fn egg_hold_allowed(&self, foreground: bool) -> bool {
+        let r = self.args.cfg.get("results");
+        let something = !matches!(r.get("hold_inputs"), Value::Bool(false)) || r.get("hold_controller").truthy();
+        !self.args.replay && alogs_protocol::settings::automation(&self.args.cfg, None) && something && (self.hwnd.is_none() || foreground)
+    }
+
+    /// Hold now (again: for the whole time limit from now), as the Sim's end does (sim_control): keyboard and mouse
+    /// buttons, and the controller, by telling the game it is inactive (it stays in front); HidHide's too when "Block
+    /// the controller too" is on.
+    fn egg_hold_take(&mut self, now: f64, screen: &'static str, on_to_rank: bool) -> f64 {
+        let seconds = crate::leaderboards::hold_limit(&self.args.cfg);
+        let r = self.args.cfg.get("results").clone();
+        let held = !matches!(r.get("hold_inputs"), Value::Bool(false));
+        if held {
+            self.hold.start(seconds);
+            if let Some(h) = self.hwnd
+                && !self.args.replay
+            {
+                self.told_inactive.take(h, seconds);
+            }
+        }
+        if r.get("hold_controller").truthy() && !alogs_capture::input::controllers_hidden() && alogs_capture::input::hidhide_available() {
+            alogs_capture::input::hide_controllers(true);
+        }
+        self.egg.hold = Some(EggHold { until: now + seconds, screen, on_to_rank, held });
+        seconds
+    }
+
+    /// Lets go: keyboard, mouse and the controller back to the player at once.
     pub fn egg_hold_end(&mut self, why: &str) {
         if self.egg.hold.take().is_none() {
             return;
         }
         self.hold.stop();
+        self.told_inactive.stop();
         if alogs_capture::input::controllers_hidden() {
             alogs_capture::input::hide_controllers(false);
         }
         log::info!(target: "meter", "Egg Heist input hold ended: {why}");
     }
 
-    /// Inputs held while an Egg Heist end screen, or the rank screen after it, is read, so a press can't skip past it.
+    /// An Egg Heist end screen, or the rank screen after a match, is spotted: inputs held from now (before it is
+    /// read) until what it shows is sent, so a press can't skip past it. The hold that carries on from the end screen
+    /// to the rank screen goes on.
     pub fn egg_screen_hold(&mut self, spotted: Option<&str>, heads: &Heads, now: f64, foreground: bool) {
-        if spotted != Some("Egg Heist") || self.args.replay || self.egg.hold.is_some() {
+        if spotted != Some("Egg Heist") {
             return;
         }
-        if !alogs_protocol::settings::automation(&self.args.cfg, Some("egg_fade_hold")) || (self.hwnd.is_some() && !foreground) {
+        let end = heads.get("eh").is_some_and(|v| v.to_lowercase().contains("adventure"));
+        if let Some(h) = &mut self.egg.hold {
+            if !end && h.screen == "end screen" && h.on_to_rank {
+                h.screen = "rank screen";
+                log::info!(target: "meter", "Egg Heist: the rank screen is up; inputs stay held until it is read and sent");
+            }
             return;
         }
-        if heads.get("eh").is_some_and(|v| v.to_lowercase().contains("adventure")) {
+        if !self.egg_hold_allowed(foreground) {
+            return;
+        }
+        if end {
             if now - self.egg.sent_at < EGG_SENT_S {
                 return;
             }
         } else if !(now - self.egg.sent_at.max(self.egg.end_seen) < EGG_RANK_WAIT_S && now - self.egg.rank_read_at > EGG_RANK_WAIT_S) {
             return;
         }
-        self.egg.hold = Some((now + EGG_SCREEN_HOLD_S, 0.0, self.space.clone()));
-        self.hold.start(EGG_SCREEN_HOLD_S);
-        log::info!(target: "meter", "Egg Heist: holding inputs while this screen is read (at most {EGG_SCREEN_HOLD_S} s)");
+        let screen = if end { "end screen" } else { "rank screen" };
+        let seconds = self.egg_hold_take(now, screen, false);
+        log::info!(target: "meter", "Egg Heist: the {screen} is up: holding inputs until it is read and sent (at most {seconds} s)");
     }
 
-    /// Ends a hold egg_screen_hold started: the time limit, a new space, or the picture back 5 s without an end screen.
-    pub fn egg_fade(&mut self, im: &Image, now: f64) {
-        let Some(hold) = self.egg.hold.clone() else { return };
-        let small = im.reduce((im.width / 64).max(1)).convert(Mode::L);
-        let mut lum = small.data.clone();
-        lum.sort_unstable();
-        let black = !lum.is_empty() && lum[lum.len() / 2] < 14 && lum[(lum.len() as f64 * 0.95) as usize] < 40;
-        if now > hold.0 {
+    /// Something of this screen was queued (or nothing was to be): with nothing waiting to be sent, that's as sent.
+    fn egg_queued(&mut self, now: f64) {
+        if self.egg.hold.is_some() && self.send_waiting.is_none() {
+            self.egg_sent(now);
+        }
+    }
+
+    /// What the hold waited for is sent: the end screen's record with Next pressed by aLogs carries on to the rank
+    /// screen (a new time limit from now); anything else lets go at once.
+    pub fn egg_sent(&mut self, now: f64) {
+        let Some(h) = self.egg.hold.clone() else { return };
+        if h.screen == "end screen" && !h.on_to_rank && self.egg.click.is_some() {
+            let seconds = self.egg_hold_take(now, "end screen", true);
+            log::info!(target: "meter", "Egg Heist: the match is sent and aLogs presses Next: inputs stay held until the rank screen is read and sent (at most {seconds} s more)");
+            return;
+        }
+        self.egg_hold_end(&format!("the {} is sent", h.screen));
+    }
+
+    /// aLogs gave up pressing Next: the player goes on, so a hold kept for the rank screen lets go.
+    fn egg_next_given_up(&mut self) {
+        if self.egg.hold.as_ref().is_some_and(|h| h.on_to_rank && h.screen == "end screen") {
+            self.egg_hold_end("Next was not pressed: it's left to the player");
+        }
+    }
+
+    /// Every look: the hold's time limit, the player taking control back, and the game going to the background, let
+    /// go.
+    pub fn egg_hold_tick(&mut self, now: f64, foreground: bool) {
+        let Some(h) = &self.egg.hold else { return };
+        if now > h.until {
             self.egg_hold_end("time limit");
-        } else if self.space != hold.2 {
-            self.egg_fade_frame(im, "load");
-            self.egg_hold_end("the game loaded a new scene");
-        } else if black {
-            self.egg.hold.as_mut().unwrap().1 = 0.0;
-        } else if hold.1 == 0.0 {
-            self.egg.hold.as_mut().unwrap().1 = now;
-        } else if now - hold.1 > 5.0 {
-            self.egg_fade_frame(im, "back");
-            self.egg_hold_end("the screen came back without an end screen");
+        } else if h.held && !self.hold.active() && now - h.until < -1.0 {
+            self.egg_hold_end("you took control back (Ctrl+F12)");
+        } else if !foreground {
+            self.egg_hold_end("the game is not the active window");
         }
-    }
-
-    fn egg_fade_frame(&self, im: &Image, what: &str) {
-        if !self.args.cfg.get("capture").get("debug_frames").truthy() {
-            return;
-        }
-        let d = self.env.data.join("logs").join("egg_fade");
-        if std::fs::create_dir_all(&d).is_err() {
-            return;
-        }
-        let small = im.convert(Mode::Rgb).thumbnail(1280, 720);
-        let _ = std::fs::write(d.join(format!("{}_{what}.jpg", local(self.env.now(), "%Y%m%d_%H%M%S"))), crate::submit::jpeg(&small, 80));
     }
 }

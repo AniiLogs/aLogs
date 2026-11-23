@@ -60,8 +60,8 @@ impl FightEndState {
     }
 }
 
-/// Is this picture faded to black? With its brightness's median and 95th percentile (on a picture 64 px wide). The
-/// same measure as Egg Heist's fade (egg_fade): median under 14, 95% under 40.
+/// Is this picture faded to black? With its brightness's median and 95th percentile (on a picture 64 px wide): median
+/// under 14, 95% under 40.
 pub fn black(im: &Image) -> (bool, u8, u8) {
     let small = im.reduce((im.width / 64).max(1)).convert(Mode::L);
     let mut lum = small.data.clone();
