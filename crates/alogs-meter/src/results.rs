@@ -29,6 +29,25 @@ pub const LEADER_NOTE: (f64, f64, f64, f64) = (0.33, 0.140, 0.67, 0.195);
 pub const CLEAR_STARS: i64 = 20;
 pub const CENTER_STARS: i64 = 40;
 
+/// The name read in box `key` of `read`, its 0, O and o settled by their own ink (`NameReader::settle_round`; nothing
+/// without the game's font). Positions left as read are logged on the screen's first read (`first`).
+fn settle_round_name(reader: Option<&NameReader>, im: &Image, b: (f64, f64, f64, f64), key: &str, read: &mut IndexMap<String, String>, first: bool) {
+    let (Some(r), Some(text)) = (reader, read.get(key).map(|t| t.trim_matches(|c| " /|".contains(c)).to_string())) else { return };
+    if !text.contains(['0', 'O', 'o']) {
+        return;
+    }
+    let (settled, left) = r.settle_round(im, b, &text);
+    if settled != text {
+        log::info!(target: "meter", "name box {key}: a 0 / O / o settled by its ink against the game's font");
+    }
+    if first {
+        for p in left {
+            log::info!(target: "meter", "name box {key}: name look-alike unsettled at position {p}");
+        }
+    }
+    read.insert(key.to_string(), settled);
+}
+
 /// Battle Data's card i of n: its centre across the screen (share of u), the same in both layouts.
 fn bd_centre(i: usize, n: usize) -> f64 {
     0.5 + (i as f64 - (n as f64 - 1.0) / 2.0) * 0.1943
@@ -690,7 +709,15 @@ impl Meter {
             crops.insert(format!("stat{i}"), prep::prep_text(im, b(0.21 + dx, 0.575, 0.33 + dx, 0.625), k, 160, 3.0, 24));
         }
         let pad: IndexMap<String, usize> = (0..4).map(|i| (format!("name{i}"), 24)).collect();
-        let t = self.ocr.read(&crops, &pad, &grey);
+        let mut t = self.ocr.read(&crops, &pad, &grey);
+        // a name's 0, O and o by their own ink against the game's font (the text reader mixes them up)
+        let first = self.rs.result_reads == 1;
+        for i in 0..4 {
+            let dx = i as f64 * 0.1765;
+            let key = format!("name{i}");
+            let nb = (ux + u * (0.13 + dx), h * 0.618, ux + u * (0.24 + dx), h * 0.655);
+            settle_round_name(self.name_reader(), im, nb, &key, &mut t, first);
+        }
         let tg = |k: &str| t.get(k).map(String::as_str);
         let (sure, stars, sure_time, values): (Option<i64>, Option<i64>, Option<i64>, Vec<Option<i64>>) = match self.name_reader() {
             Some(r) => (
@@ -1145,7 +1172,13 @@ impl Meter {
         }
         let (bcrops, grey) = Self::bd_names(im, n, u, ux, h, dy);
         let pad: IndexMap<String, usize> = bcrops.keys().map(|k| (k.clone(), 0)).collect();
-        let nread = if n > 0 { self.ocr.read(&bcrops, &pad, &grey) } else { IndexMap::new() };
+        let mut nread = if n > 0 { self.ocr.read(&bcrops, &pad, &grey) } else { IndexMap::new() };
+        let first = self.rs.bd_reads <= 1;
+        for i in 0..n {
+            let c = bd_centre(i, n);
+            let nb = (ux + u * (c - 0.045), h * (0.512 + dy), ux + u * (c + 0.045), h * (0.547 + dy));
+            settle_round_name(self.name_reader(), im, nb, &i.to_string(), &mut nread, first);
+        }
         for (i, c) in cards.iter_mut().enumerate() {
             let nm = nread.get(&i.to_string()).map_or("", |s| s.trim_matches(|ch| " /|".contains(ch))).to_string();
             let voted = vote(&mut self.rs.bd_votes, &format!("{i}|name"), if nm.is_empty() { Value::None } else { Value::Str(nm) });
