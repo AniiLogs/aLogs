@@ -1,7 +1,7 @@
 //! The hourly cleanup: old screenshots go, proof a queued record still needs and character proofs stay; old
 //! per-frame fight logs go.
 
-use alogs_meter::housekeeping::{LOG_MIN_AGE_HOURS, clean_logs_over, clean_old_fight_logs, clean_old_screenshots};
+use alogs_meter::housekeeping::{LOG_FOLDER_BYTES, LOG_MIN_AGE_HOURS, clean_logs_over, log_folder_limit, clean_old_fight_logs, clean_old_screenshots};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -119,4 +119,15 @@ fn a_queued_records_party_and_gizmo_pictures_stay() {
     for n in names {
         assert!(!logs.join(n).exists(), "{n}");
     }
+}
+
+#[test]
+fn the_size_limit_is_the_players_setting() {
+    let cfg = |j: &str| alogs_pyval::Value::from_json(&serde_json::from_str(j).unwrap());
+    assert_eq!(log_folder_limit(&cfg(r#"{}"#)), Some(LOG_FOLDER_BYTES));
+    assert_eq!(log_folder_limit(&cfg(r#"{"capture": {"keep_gb": 1}}"#)), Some(1 << 30));
+    assert_eq!(log_folder_limit(&cfg(r#"{"capture": {"keep_gb": 0.5}}"#)), Some(1 << 29));
+    assert_eq!(log_folder_limit(&cfg(r#"{"capture": {"keep_gb": 10}}"#)), Some(10 << 30));
+    assert_eq!(log_folder_limit(&cfg(r#"{"capture": {"keep_gb": 0}}"#)), None);
+    assert_eq!(log_folder_limit(&cfg(r#"{"capture": {"keep_gb": -3}}"#)), Some(LOG_FOLDER_BYTES));
 }

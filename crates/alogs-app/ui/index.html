@@ -192,9 +192,15 @@
               <option value="6">For 6 hours</option><option value="24">For 1 day</option><option value="48">For 2 days</option>
               <option value="72">For 3 days</option><option value="96">For 4 days</option><option value="120">For 5 days</option>
               <option value="144">For 6 days</option><option value="168">For 7 days</option>
-              <option value="-1">Keep everything (don't delete)</option>
+              <option value="-1">No time limit</option>
             </select></label>
-          <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Anything left over is cleared every hour, and past 1 GB of pictures the oldest go first (unless you keep everything). Your records are kept either way.</p>
+          <label class="field"><span>Size limit</span>
+            <select data-k="capture.keep_gb" data-type="number">
+              <option value="0.5">500 MB</option><option value="1">1 GB (default)</option><option value="2">2 GB</option>
+              <option value="5">5 GB</option><option value="10">10 GB</option><option value="20">20 GB</option>
+              <option value="0">No size limit</option>
+            </select></label>
+          <p class="hint">The meter reads each screen's numbers into your records (scores, results, Battle Data) and only keeps a picture when it's needed: as proof for the leaderboards, until it has been sent. Every hour, pictures older than Keep screenshots are cleared, and when all of them together go over Size limit the oldest go first. A picture a record still has to send, and anything from the last hour, is never removed. Your records are kept either way. With No time limit and No size limit nothing is deleted.</p>
           <p class="hint"><strong>Troubleshooting a problem?</strong> Set this to at least 1 day first. aLogs also keeps a few sample pictures of the screens it reads (the Party screen, Interlink fights), and with "Only until their data is saved" they are gone within a few hours, before anyone can look at them.</p>
         </div>
       </div>

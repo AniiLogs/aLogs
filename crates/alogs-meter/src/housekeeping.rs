@@ -18,9 +18,21 @@ pub const TEST_FRAME_BYTES: u64 = 3 << 30;
 pub const FIGHT_LOG_DAYS: f64 = 30.0;
 pub const LEFTOVER_HOURS: f64 = 6.0;
 pub const KEEP_FOLDERS: [&str; 3] = ["submit_queue", "fights", "characters"];
-/// The meter's pictures and diagnostics in logs/ all together (test pictures apart: TEST_FRAME_BYTES). Over it the
-/// oldest go first, whatever Keep screenshots says, except "Keep everything".
+/// The meter's pictures and diagnostics in logs/ all together (test pictures apart: TEST_FRAME_BYTES), when the player
+/// hasn't set Size limit (`capture.keep_gb`, in GB; 0 = no limit). Over it the oldest go first, whatever Keep
+/// screenshots says.
 pub const LOG_FOLDER_BYTES: u64 = 1 << 30;
+
+/// The size limit the player set, in bytes; None for "No size limit". A missing or unreadable setting is the default.
+pub fn log_folder_limit(cfg: &alogs_pyval::Value) -> Option<u64> {
+    let gb = cfg.get("capture").get("keep_gb");
+    let gb = gb.as_f64().or_else(|| alogs_pyval::py_int(gb).map(|v| v as f64)).filter(|v| v.is_finite() && *v >= 0.0);
+    match gb {
+        Some(v) if v == 0.0 => None,
+        Some(v) => Some((v * (1u64 << 30) as f64) as u64),
+        None => Some(LOG_FOLDER_BYTES),
+    }
+}
 /// Nothing changed this recently goes for the size bound, nor a folder left empty: the fight going on now.
 pub const LOG_MIN_AGE_HOURS: f64 = 1.0;
 
@@ -227,7 +239,7 @@ pub fn clean_test_frames(data: &Path, days: i64, limit: u64) -> (u64, u64) {
     (files, size)
 }
 
-/// At start and every hour: old screenshots (then the oldest while over LOG_FOLDER_BYTES), per-frame fight logs and
+/// At start and every hour: old screenshots (then the oldest while over the size limit), per-frame fight logs and
 /// test pictures.
 pub fn start_cleanup(data: PathBuf, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
@@ -238,10 +250,10 @@ pub fn start_cleanup(data: PathBuf, stop: Arc<AtomicBool>) {
             if f > 0 {
                 log::info!(target: "meter", "removed {f} screenshots older than {} hours ({:.0} MB)", if hours == 0 { LEFTOVER_HOURS as i64 } else { hours }, s as f64 / 1048576.0);
             }
-            if hours >= 0 {
-                let (f, s) = clean_logs_over(&data, LOG_FOLDER_BYTES, LOG_MIN_AGE_HOURS);
+            if let Some(limit) = log_folder_limit(&cfg) {
+                let (f, s) = clean_logs_over(&data, limit, LOG_MIN_AGE_HOURS);
                 if f > 0 {
-                    log::info!(target: "meter", "removed {f} screenshots, the oldest, to keep them under {} GB ({:.0} MB)", LOG_FOLDER_BYTES >> 30, s as f64 / 1048576.0);
+                    log::info!(target: "meter", "removed {f} screenshots, the oldest, to keep them under {:.1} GB ({:.0} MB)", limit as f64 / (1u64 << 30) as f64, s as f64 / 1048576.0);
                 }
             }
             let (f, s) = clean_old_fight_logs(&data, FIGHT_LOG_DAYS);

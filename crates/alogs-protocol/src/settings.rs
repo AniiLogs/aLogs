@@ -49,7 +49,7 @@ const DEFAULTS_JSON: &str = r#"{
              "rush_position": "corner", "result_seconds": 10},
  "capture": {"game_window_only": false, "look_interval": 0.05, "damage_numbers": false, "test_frames": false,
              "fight_rate": 30, "gpu_priority": "normal", "debug_frames": false, "end_screens": false,
-             "nobar_frames": false, "keep_hours": 0},
+             "nobar_frames": false, "keep_hours": 0, "keep_gb": 1},
  "results": {"auto_open_battle_data": true, "sim_gizmos": true, "sim_gate": false, "egg_auto_next": true,
              "hold_inputs": true, "hold_controller": false, "egg_fade_hold": false, "hold_seconds": 60},
  "leaderboard": {"submit": false, "automation": false, "api_url": "https://aniilogs-api.pages.dev/api", "token": "",
