@@ -17,11 +17,12 @@ static LAST_PAGE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new()
 /// creations would race ("a webview with label `site` already exists").
 static BUSY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Pages the site view may show itself: the site, its API (sign-in round trip) and Discord's sign-in pages.
+/// Pages the site view may show itself: the site, its API (sign-in round trip, and placement links on its own domain,
+/// aniilogs.app, which forward to the boards) and Discord's sign-in pages.
 pub(crate) fn stays_inside(url: &Url) -> bool {
     match url.host_str() {
         Some(host) => url.scheme() == "https"
-            && (host == "aniilogs.github.io" || host == "aniilogs-api.pages.dev" || host == "discord.com" || host.ends_with(".discord.com")),
+            && (host == "aniilogs.github.io" || host == "aniilogs-api.pages.dev" || host == "aniilogs.app" || host == "discord.com" || host.ends_with(".discord.com")),
         None => url.scheme() == "about",
     }
 }
