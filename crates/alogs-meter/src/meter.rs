@@ -6,7 +6,7 @@
 //! Left out: the Dev switches' calm pacing (busy-half-pace), and the damage-number recorder (paused in B16).
 
 use crate::env::Env;
-use crate::fights::{CONFIRM_GAP, EARLY_GAP_S, EARLY_S, FIGHT_INTERVAL, Fight, LEVEL_CONFIRM, LOW_CONFIRM_S, TOP_BAR};
+use crate::fights::{CONFIRM_GAP, EARLY_GAP_S, EARLY_S, FIGHT_INTERVAL, Fight, LEVEL_CONFIRM, LEVEL_FIX_READS, LEVEL_SEEN_S, LEVEL_VOTE_S, LOW_CONFIRM_S, TOP_BAR};
 use alogs_gamelog::{Event, scene_of};
 use alogs_pil::Image;
 use alogs_protocol::devflags::DevFlags;
@@ -124,6 +124,12 @@ pub struct Meter {
     pub last_text: f64,
     pub last_title: f64,
     pub switch_votes: Vec<(String, i64)>,
+    /// Title reads before a fight starts: (boss, level, when); a fight starts on agreeing reads (`level_needs`).
+    pub level_votes: Vec<(String, i64, f64)>,
+    /// The level a fight of each boss was last settled on, in its space: (space, boss) -> (level, when).
+    pub levels_seen: std::collections::HashMap<(Option<String>, String), (i64, f64)>,
+    /// "fight level: unread" said for the bar showing now (once per bar).
+    pub level_unread_said: bool,
     pub space: Option<String>,
     pub bossrush_space: bool,
     pub holosim_space: bool,
@@ -297,6 +303,9 @@ impl Meter {
             last_text: 0.0,
             last_title: 0.0,
             switch_votes: vec![],
+            level_votes: vec![],
+            levels_seen: Default::default(),
+            level_unread_said: false,
             space: None,
             bossrush_space: false,
             holosim_space: false,
@@ -402,6 +411,10 @@ impl Meter {
 
     /// Seconds between reads of the name above the bar: 8, and 2 while a two-boss fight's partner can show up.
     pub fn title_gap(&self) -> f64 {
+        // (a fight whose level isn't read again yet, or is being read as another: its name about once a second)
+        if self.fight.as_ref().is_some_and(|f| f.level_reads < LEVEL_FIX_READS as u32 && !f.bossrush) || !self.switch_votes.is_empty() {
+            return 1.0;
+        }
         if let Some(f) = &self.fight
             && let Some(p) = &f.partner
             && (f.partner_due() || self.switch_votes.last().is_some_and(|v| v.0 == get(p, "puppetId")))
@@ -572,6 +585,10 @@ impl Meter {
         let Some(row) = row else {
             if self.fight.is_none() && !title.is_empty() && self.bar.is_some() {
                 let lvs = level.map_or("None".to_string(), |l| l.to_string());
+                if level.is_none() && !self.level_unread_said {
+                    self.level_unread_said = true;
+                    log::info!(target: "meter", "fight level: unread (running on the bar alone; title read {})", alogs_pyval::str_repr(title_text.unwrap_or("")));
+                }
                 self.status(out, format!("reading boss name... (\"{title}\" Lv {lvs})"));
             }
             return;
@@ -581,6 +598,29 @@ impl Meter {
         if let Some(f) = &mut self.fight {
             if pid == get(&f.row, "puppetId") && level == f.level {
                 self.switch_votes.clear();
+                f.level_reads += 1;
+                return;
+            }
+            // the same boss read at another level: on LEVEL_FIX_READS agreeing reads its level was wrong (a fight with
+            // one boss and one bar: its HP and damage are put right; anything else is left as it is)
+            if pid == get(&f.row, "puppetId") && !f.bossrush && f.phases.len() == 1 && self.args.level.is_none() {
+                self.switch_votes.push((pid.clone(), level));
+                if self.switch_votes.len() > LEVEL_FIX_READS {
+                    self.switch_votes.remove(0);
+                }
+                if self.switch_votes.len() < LEVEL_FIX_READS || self.switch_votes.iter().any(|v| *v != self.switch_votes[0]) {
+                    return;
+                }
+                self.switch_votes.clear();
+                let cal = boss::load_calibration(&self.env.data);
+                let hp = boss::boss_max_hp(&row, level, Some(&cal)).unwrap_or(0);
+                if hp <= 0 {
+                    return;
+                }
+                let size = boss::boss_break_points(&self.env.res, &row, level as f64);
+                log::info!(target: "meter", "fight level corrected: Lv {} -> Lv {level}, max HP {} -> {}", f.level, thousands(f.max_hp), thousands(hp));
+                f.correct_level(level, hp, size);
+                self.levels_seen.insert((self.space.clone(), pid), (level, now));
                 return;
             }
             if f.partner.as_ref().is_some_and(|p| get(p, "puppetId") == pid) {
@@ -626,10 +666,49 @@ impl Meter {
             }
         }
         self.odd_level = None;
+        // the level is voted: a fight starts on agreeing reads, and runs on its bar alone until then (replay_early)
+        let mut source = "given on the command line".to_string();
+        if self.fight.is_none() && self.args.level.is_none() {
+            let need = self.level_needs(&pid, level, bossrush, now);
+            source = match need {
+                1 if bossrush => "title read, the Interlink run's level".into(),
+                1 => "title read, as the last fight of this boss here".into(),
+                n => format!("{n} title reads agree"),
+            };
+            self.level_votes.retain(|v| now - v.2 <= LEVEL_VOTE_S);
+            self.level_votes.push((pid.clone(), level, now));
+            let n = self.level_votes.len();
+            if n < need || !self.level_votes[n - need..].iter().all(|v| v.0 == pid && v.1 == level) {
+                self.status(out, format!("reading boss level... (\"{title}\" Lv {level})"));
+                return;
+            }
+            self.level_votes.clear();
+        }
         let how = format!("title read {}, xN {}", alogs_pyval::str_repr(title_text.unwrap_or("")), xn.map_or("None".into(), |x| x.to_string()));
+        self.levels_seen.insert((self.space.clone(), pid), (level, now));
+        log::info!(target: "meter", "fight level: {level} ({source})");
         self.start_fight(out, row, level, &title, bossrush, &how);
         if bossrush {
             self.rush_level = Some(level);
+        }
+    }
+
+    /// How many agreeing title reads start a fight at this level: one when it is the level this boss was settled on
+    /// here within LEVEL_SEEN_S (or an Interlink run's level), three when it is another one (a single read of 6 after
+    /// fights at 65 is a misread until it is read again), else two.
+    fn level_needs(&self, pid: &str, level: i64, bossrush: bool, now: f64) -> usize {
+        if bossrush && self.rush_level == Some(level) {
+            return 1;
+        }
+        match self.levels_seen.get(&(self.space.clone(), pid.to_string())) {
+            Some(&(l, at)) if now - at <= LEVEL_SEEN_S => {
+                if l == level {
+                    1
+                } else {
+                    3
+                }
+            }
+            _ => 2,
         }
     }
 
@@ -646,6 +725,7 @@ impl Meter {
         let hp = boss::boss_max_hp(&row, level, Some(&cal)).unwrap_or(0);
         let now = self.now();
         self.ps.runs += 1; // the Party screen's votes are this lobby's: a fight ends them (Meter::lobby_change)
+        self.level_unread_said = false;
         let (_, order, partner_id) = if bossrush { self.env.schedule.stage_of(Some(get(&row, "puppetId")), None, now) } else { (None, None, None) };
         let partner = if order == Some(1) {
             self.catalog
@@ -804,6 +884,7 @@ impl Meter {
         }
         let row = self.prep_boss.take().unwrap().1;
         let t = get(&row, "bossTitle_en").to_string();
+        log::info!(target: "meter", "fight level: {rl} (carried from the last Interlink fight)");
         self.start_fight(out, row, rl, &t, true, &format!("from the prep screen, xN {x}"));
     }
 

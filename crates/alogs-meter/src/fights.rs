@@ -15,6 +15,12 @@ pub const XN_STALE: f64 = 40.0;
 pub const OVERTIME_S: i64 = 60;
 pub const MAX_CLOCK: f64 = 900.0;
 pub const CONFIRM_GAP: f64 = 0.09;
+/// Agreeing title reads that put a fight's level right (Meter::identify), read about once a second while needed.
+pub const LEVEL_FIX_READS: usize = 3;
+/// Title reads before a fight count together this long (Meter::identify).
+pub const LEVEL_VOTE_S: f64 = 10.0;
+/// The level a boss was settled on in a place counts for the next fight there this long (Meter::level_needs).
+pub const LEVEL_SEEN_S: f64 = 600.0;
 /// A break counts only once the gauge has stayed empty this long (a one-look misread, or a flash where the bar is,
 /// reads empty for a moment and is back at once): from its first empty look to a later one still empty.
 pub const BREAK_CONFIRM_S: f64 = 0.5;
@@ -475,6 +481,8 @@ pub struct Fight {
     pub joined: bool,
     pub hit: bool,
     pub first_damage: Option<i64>,
+    /// Title reads that agreed with the fight's level since it started.
+    pub level_reads: u32,
     pub last_at: f64,
     pub low_pending: Option<(f64, f64)>,
     /// How long a much lower reading must stand before it is taken (CONFIRM_GAP as in the Python; the live meter
@@ -586,6 +594,7 @@ impl Fight {
             joined: false,
             hit: bossrush,
             first_damage: None,
+            level_reads: 0,
             last_at: now,
             low_pending: None,
             low_confirm: CONFIRM_GAP,
@@ -623,6 +632,28 @@ impl Fight {
             scene_ok: false,
             ended: None,
         }
+    }
+
+    /// The fight's level was read wrong: its HP is the right level's, and the damage so far (from the bar's fill, which
+    /// the fight keeps) scales with it. Only for a fight with one boss and one bar, where damage = the fill lost x HP.
+    pub fn correct_level(&mut self, level: i64, max_hp: i64, break_size: Option<f64>) {
+        let k = max_hp as f64 / self.max_hp.max(1) as f64;
+        let scale = |v: i64| (v as f64 * k).round() as i64;
+        self.level = level;
+        self.max_hp = max_hp;
+        self.boss_hp = max_hp;
+        self.damage = scale(self.damage);
+        let p = self.phases.last_mut().unwrap();
+        p.max_hp = max_hp;
+        p.damage = scale(p.damage);
+        for s in self.samples.iter_mut() {
+            s.1 = scale(s.1);
+        }
+        self.first_damage = self.first_damage.map(scale);
+        self.avg *= k;
+        self.recent *= k;
+        self.brk.size = break_size;
+        self.level_reads = LEVEL_FIX_READS as u32;
     }
 
     fn cum<'a>(&self, grades: &'a IndexMap<String, Vec<f64>>) -> &'a Vec<f64> {
