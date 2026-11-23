@@ -411,6 +411,12 @@ impl Core {
 
     /// A debug picture (PNG) every 3 s at most; the newest 200 stay, info.txt starts over past 2 MB.
     pub fn save_debug(&mut self, frame: &Mat, tag: &str) {
+        let info = self.matcher.last_info.clone();
+        self.save_debug_with(frame, tag, &info);
+    }
+
+    /// As save_debug, with the line for info.txt given (the island tracker's, for an island minimap).
+    pub fn save_debug_with(&mut self, frame: &Mat, tag: &str, info_line: &str) {
         if self.last_debug_save.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
             return;
         }
@@ -436,7 +442,7 @@ impl Core {
         let _ = write_png(&dir.join(format!("{}_{tag}.png", stamp.format("%Y%m%d_%H%M%S"))), frame);
         use std::io::Write;
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&info) {
-            let _ = writeln!(f, "{} {tag} {}", stamp.format("%H:%M:%S"), self.matcher.last_info);
+            let _ = writeln!(f, "{} {tag} {info_line}", stamp.format("%H:%M:%S"));
         }
     }
 }

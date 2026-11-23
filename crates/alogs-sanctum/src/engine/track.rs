@@ -242,6 +242,11 @@ impl Core {
         if *log_now {
             let info = self.island_tracker().last_info.clone();
             crate::log::write(&format!("{info} -> {}", if ip.is_none() { "rejected" } else { "ok" }));
+            // the island's weak spots (mostly by the Sanctum doors): their minimap pictures, to see what's there
+            let weak = ip.is_none() || self.island_tracker().last_score < 0.55;
+            if weak && self.settings().save_debug_frames {
+                self.save_debug_with(mm, if ip.is_none() { "island_rejected" } else { "island_weak" }, &info);
+            }
         }
         let Some(ip) = ip else {
             if self.island_probation > 0 {
