@@ -1,5 +1,6 @@
-//! The layout from the minimap (standard; the full map is the fallback). Every run starts at the orange door, so each
-//! candidate layout gets a tracker seeded at its orange door; the right one keeps matching as the player explores.
+//! The layout from the minimap (standard; the full map is the fallback). The player comes in at a known door (the
+//! orange one, or the blue one when the island's blue door was gone in by), so each candidate layout gets a tracker
+//! seeded at that door; the right one keeps matching as the player explores.
 //! Rounds run in the background. Port of Engine.cs's ClearGuesses and GuessLayout.
 
 use super::Core;
@@ -44,8 +45,8 @@ impl Core {
 
     fn new_guess(&self, l: &Layout) -> Guess {
         let mut t = MinimapTracker::new(self.arts.clone());
-        if let Some(o) = l.orange() {
-            t.seed((o.img[0], o.img[1]));
+        if let Some(e) = self.entry_spot(l) {
+            t.seed(e);
         }
         Arc::new(Mutex::new((t, vec![])))
     }
@@ -75,7 +76,7 @@ impl Core {
                 self.lock_layout(&winner, "minimap");
                 // hand over to the main tracker from where the guess has the player now
                 self.minimap.reset();
-                let start = spot.or_else(|| winner.orange().map(|o| (o.img[0], o.img[1]))).unwrap_or((0.0, 0.0));
+                let start = spot.or_else(|| self.entry_spot(&winner)).unwrap_or((0.0, 0.0));
                 self.minimap.seed(start);
                 self.clear_guesses();
                 return;
@@ -131,7 +132,7 @@ impl Core {
             self.clear_guesses(); // difficulty changed: start over next round
             return;
         }
-        // nobody fits after 20 s: the right layout averages 0.55+ within a few rounds from the orange door
+        // nobody fits after 20 s: the right layout averages 0.55+ within a few rounds from the door gone in by
         let restart = !self.guesses.whole_search
             && elapsed > 20.0
             && live.iter().all(|g| {
@@ -155,7 +156,7 @@ impl Core {
                     g.0.reset();
                     g.1.clear();
                 }
-                crate::log::write("guess: no layout fits from the orange door, searching whole layouts");
+                crate::log::write("guess: no layout fits from the door gone in by, searching whole layouts");
             }
             for (_, l, g) in &live {
                 let mut g = g.lock().unwrap();

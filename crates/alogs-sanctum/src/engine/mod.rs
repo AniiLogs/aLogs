@@ -8,6 +8,7 @@ pub mod guess;
 pub mod heading;
 pub mod map;
 pub mod named;
+pub mod places;
 pub mod run;
 pub mod track;
 
@@ -475,6 +476,11 @@ impl Core {
         self.on_island = false;
         self.island_player = None;
         self.island_pose = None;
+        // the run's boat landing and the door gone in by belong to the run that's over
+        self.island_spawn = None;
+        self.island_door = None;
+        self.island_door_kind = None;
+        places::RunPlaces::forget();
         {
             let mut t = self.island_tracker();
             t.reset();
@@ -948,6 +954,7 @@ impl Engine {
                 crate::log::write(&format!("layout restored: {} (saved {a:.0} min ago)", saved.number));
             }
         }
+        core.restore_run_places();
         Engine { sh, status: Arc::new(Mutex::new(Status::default())), commands: Arc::new(Mutex::new(vec![])), core: Some(core), threads: vec![] }
     }
 

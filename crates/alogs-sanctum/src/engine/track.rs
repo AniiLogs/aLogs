@@ -346,6 +346,7 @@ impl Core {
                 self.island_spawn = Some(at);
                 self.island_door = None;
                 self.island_door_kind = None;
+                self.save_run_places();
             }
             if arrival != "boat" {
                 let same = best_kind.is_some() && expected.is_some_and(|e| manhattan(e, at) < 1.0);
@@ -464,11 +465,13 @@ impl Core {
                 self.island_door = None;
                 self.island_door_kind = None;
                 crate::log::write(&format!("island: went into the Sanctum away from any door ({:.0},{:.0})", p.0, p.1));
+                self.save_run_places();
             }
             Some(d) => {
                 self.island_door = Some((d.img[0], d.img[1]));
                 self.island_door_kind = Some(d.kind.clone());
                 crate::log::write(&format!("island: went into the Sanctum by the {} at ({:.0},{:.0})", door_name(Some(&d.kind)), d.img[0], d.img[1]));
+                self.save_run_places();
                 if let Some(l) = self.current_layout.clone().filter(|l| !l.is_island()) {
                     let e = self.sanctum_entry(&l);
                     self.minimap.seed(e);
@@ -492,8 +495,13 @@ impl Core {
 
     /// Where the Sanctum map starts: its orange door; its blue door when the island's blue door was gone in by.
     pub fn sanctum_entry(&self, l: &Layout) -> P2 {
+        self.entry_spot(l).unwrap_or((0.0, 0.0))
+    }
+
+    /// The Sanctum door the player comes in at (sanctum_entry), None when the layout has neither door.
+    pub fn entry_spot(&self, l: &Layout) -> Option<P2> {
         let room = if self.island_door_kind.as_deref() == Some("entrance_side") && l.rooms.iter().any(|r| r.kind == "blue") { l.blue() } else { l.orange() };
-        room.map_or((0.0, 0.0), |r| (r.img[0], r.img[1]))
+        room.map(|r| (r.img[0], r.img[1]))
     }
 
     /// The player's island position from a Sanctum exit-portal icon on the minimap (1.2 minimap px per map px), the
