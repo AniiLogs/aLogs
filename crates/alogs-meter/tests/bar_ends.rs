@@ -266,45 +266,28 @@ fn the_first_reading_at_changed_ends_waits_a_look() {
     assert!(!m.ends_moved(&other));
 }
 
-/// A Holo-Battle Sim room reads its bar as before 22 Nov: nobody has seen whether a Sim bar is centred. A bar drawn
-/// 10 px off centre keeps its own right bracket (not the mirror), its fill is read there, and no ends are held.
+/// A Holo-Battle Sim room holds its bar's ends like the open world (its bar sits where the open world's does): held
+/// after a few looks, read on there, and a search result elsewhere mid-fight not taken.
 #[test]
-fn a_sim_room_reads_as_before() {
-    let ends = (WORLD.0 + 10, WORLD.1 + 10);
-    let im = frame(ends, 0.6);
-    // what the new rules would make of it: the mirror of its left bracket, 20 px short
-    let new = bar::find_bar(&im, false, 8).unwrap();
-    assert_eq!(ends_of(&new), (ends.0, W as i64 - ends.0));
-    assert!(!new.brackets_found);
+fn a_sim_room_holds_its_ends_like_the_open_world() {
     let mut m = meter("ends-sim");
     m.holosim_space = true;
-    assert!(m.old_rules());
-    let mut frames = Script { frame: im, asked: vec![] };
+    let mut frames = Script { frame: frame(WORLD, 0.9), asked: vec![] };
     let mut t = T0;
-    m.frame_size = (W, H);
-    m.bar = bar::find_bar_old(&frames.frame, false, 8);
-    assert_eq!(ends_of(m.bar.as_ref().unwrap()), ends, "the old finder takes its own right bracket");
-    m.bar_seen = t;
-    let mut f = Fight::new(&m.env, "Test Boss", 50, row(false), 1_000_000, false, false, None, None);
-    f.hit = true;
-    m.fight = Some(f);
-    run(&mut m, &mut frames, &mut t, 10);
-    assert!(m.ends.old_noted, "said once in the log");
-    assert!(m.ends.held.is_none(), "no ends held in a Sim room");
-    assert_eq!(ends_of(m.bar.as_ref().unwrap()), ends);
-    assert!(m.ends.last_read.is_none(), "no wait at changed ends either");
-    let f = m.fight.as_ref().unwrap();
-    assert!((f.seg_fill - 0.6).abs() < 0.01, "read at its own ends: {}", f.seg_fill);
-    // another bar shows (20 px off centre): the old rules take the new find at once, as before
-    frames.frame = frame((WORLD.0 + 20, WORLD.1 + 20), 0.5);
-    run(&mut m, &mut frames, &mut t, 2);
-    assert_eq!(ends_of(m.bar.as_ref().unwrap()), (WORLD.0 + 20, WORLD.1 + 20));
-    assert!((m.fight.as_ref().unwrap().seg_fill - 0.5).abs() < 0.01);
-    assert!(m.ends.held.is_none());
+    fight_on(&mut m, &mut frames, false, &mut t, 5);
+    let held = m.ends.held.clone().expect("held in a Sim room too");
+    assert_eq!(ends_of(&held), WORLD);
+    for _ in 0..(ENDS_REPLACE_S as usize + 5) {
+        run(&mut m, &mut frames, &mut t, 10);
+    }
+    // another bar 30 px in at each end: not taken
+    frames.frame = frame((WORLD.0 + 30, WORLD.1 - 30), 0.9);
+    run(&mut m, &mut frames, &mut t, 8);
+    assert!(bar::same_ends(m.bar.as_ref().unwrap(), &held), "still the held ends: {:?}", m.bar);
+    assert!(m.ends.not_taken >= 5);
 }
 
-/// A place kept that isn't centred on its frame (a wrong find: the bar always is) is loaded (a Sim room's may be
-/// one) but not used outside a Sim room.
+/// A place kept that isn't centred on its frame (a wrong find: the bar always is) is loaded but not used.
 #[test]
 fn an_uncentred_place_is_not_used() {
     let e = env("ends-spots");
@@ -316,10 +299,8 @@ fn an_uncentred_place_is_not_used() {
     let m = Meter::new(e, args, Box::new(NoOcr), None);
     assert_eq!(m.bar_spots.len(), 2, "both kept as they were");
     assert!(!bar::spot_centred(&m.bar_spots[0]) && bar::spot_centred(&m.bar_spots[1]));
-    // a picture with brackets at an uncentred place: bar_at doesn't take it, the old rules (a Sim room) do
+    // a picture with brackets at an uncentred place: bar_at doesn't take it
     let spot = Spot { frame: (W, H), yc: YC as f64, thickness: TH as f64, left_bracket: 623.0, span: 694.0, track_left: 631.0 };
     let im = frame((623, 1317), 0.6);
     assert!(bar::bar_at(&im, std::slice::from_ref(&spot)).is_none());
-    let old = bar::bar_at_old(&im, &[spot]).expect("the old rules use it");
-    assert!((old.left_bracket - 623.0).abs() <= 1.0 && (old.left_bracket + old.span - 1317.0).abs() <= 1.0, "{old:?}");
 }

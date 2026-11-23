@@ -660,12 +660,8 @@ impl Meter {
         let mut f = Fight::new(&self.env, &name, level, row.clone(), hp, bossrush, !self.args.no_debug_frames, partner.clone(), order);
         f.scene_ok = bossrush && self.bossrush_space;
         if let Some(b) = self.bar.clone() {
-            // (its place is kept once its ends are held: see ends_look; in a Holo-Battle Sim room, as before 22 Nov,
-            // where the fight starts)
+            // (its place is kept once its ends are held: see ends_look)
             f.bar_geom = Some((b.span, b.yc as f64));
-            if self.old_rules() {
-                self.remember_spot_old(&b);
-            }
         }
         f.low_confirm = LOW_CONFIRM_S;
         self.replay_early(&mut f);
@@ -698,17 +694,6 @@ impl Meter {
         let (data, name) = (self.env.data.clone(), f.csv_name.clone());
         let csv = data.join("logs").join(format!("{name}.csv"));
         self.fight_evidence_job = Some(std::thread::spawn(move || crate::fight_shots::write_evidence(&data, &name, shots, csv)));
-    }
-
-    /// A Holo-Battle Sim fight started on this bar: its place is kept as before 22 Nov (added unless one is kept at
-    /// its row and track already; nothing replaced).
-    fn remember_spot_old(&mut self, b: &Bar) {
-        let spot = Spot { frame: b.frame, yc: b.yc as f64, thickness: b.thickness as f64, left_bracket: b.left_bracket, span: b.span, track_left: b.track_left as f64 };
-        if !self.bar_spots.iter().any(|s| (s.yc - spot.yc).abs() <= 2.0 && (s.track_left - spot.track_left).abs() <= 2.0 && s.frame == spot.frame) {
-            self.bar_spots.insert(0, spot);
-            self.bar_spots.truncate(4);
-            save_spots(&self.env.data.join("bar_spot.json"), &self.bar_spots);
-        }
     }
 
     /// A fight's bar ends are held (seen the same on a few looks, centred): their place is kept, and looked at first
@@ -830,8 +815,9 @@ impl Meter {
         if let Some(mut f) = self.fight.take() {
             self.fight_ended_at = now;
             self.results_at_fight_end = self.ps.results;
-            if f.brk.unknown_covered > 0 {
-                log::info!(target: "meter", "break gauge: unknown under our cover on {} looks this fight", f.brk.unknown_covered);
+            let unknown = f.brk.unknown_summary();
+            if !unknown.is_empty() {
+                log::info!(target: "meter", "break gauge: unknown on {unknown} this fight");
             }
             let left = if f.boss_hp != 0 { (f.max_hp - f.damage) as f64 / f.boss_hp as f64 } else { 1.0 };
             if why.starts_with("caught") && !f.bossrush && f.hit && f.timer.as_ref().is_none_or(|t| t.predict(now).is_none()) {
@@ -1151,14 +1137,12 @@ impl Meter {
             self.stages_look(&im, now, fg, !self.args.replay && frames.screen_copy()); // the run's level, once a second
         }
         // In a fight: its held ends (a new fight or frame size starts them over), this look's sight of them, and a
-        // reading at them when their bracket check failed while the track still shows the fill's colour. Not in a
-        // Holo-Battle Sim room: its bar is read as before 22 Nov (old_rules).
+        // reading at them when their bracket check failed while the track still shows the fill's colour. A
+        // Holo-Battle Sim room's bar is found and held the same way: it sits where the open world's does.
         self.ends_sync(now);
-        let old = self.old_rules();
         let (mut held_read, mut sighted) = (None, false);
-        let mut verified = self.bar.as_ref().is_some_and(|b| if old { bar::verify_bar_old(&im, b) } else { bar::verify_bar(&im, b) });
+        let mut verified = self.bar.as_ref().is_some_and(|b| bar::verify_bar(&im, b));
         if self.fight.is_some()
-            && !old
             && let Some(b) = self.bar.clone()
         {
             (held_read, sighted) = self.ends_look(&im, &b, verified, now);
@@ -1186,11 +1170,7 @@ impl Meter {
                     None => return,
                 }
             }
-            let mut found = if old {
-                bar::bar_at_old(&im, &self.bar_spots).or_else(|| bar::find_bar_old(&im, false, 8))
-            } else {
-                bar::bar_at(&im, &self.bar_spots).or_else(|| bar::find_bar(&im, false, 8))
-            };
+            let mut found = bar::bar_at(&im, &self.bar_spots).or_else(|| bar::find_bar(&im, false, 8));
             if let Some(fd) = found.clone()
                 && self.fight.is_none()
                 && self.is_dud(&im, &fd)
@@ -1207,7 +1187,6 @@ impl Meter {
                 found = None;
             }
             if self.fight.is_some()
-                && !old
                 && let Some(fd) = found.clone()
             {
                 found = self.ends_found(fd, now, sighted);
@@ -1259,7 +1238,7 @@ impl Meter {
                         let slide = true;
                         let at = frames.frame_time();
                         let grades = self.grades.clone();
-                        let moved = !old && self.ends_moved(&b);
+                        let moved = self.ends_moved(&b);
                         let f = self.fight.as_mut().unwrap();
                         f.ends_moved = moved;
                         f.update(&self.env, Some(fill), fill_rgb, edge_rgb, None, None, &grades, self.args.duration, at, slide);
@@ -1371,12 +1350,13 @@ impl Meter {
         }
         if self.fight.is_some() {
             self.snapshot(&im, &b, now);
-            // (only from a look on which the bar itself was read: feed_look)
-            if now - self.brk_at >= CONFIRM_GAP && crate::fights::bar_red(fill_rgb) {
+            // (read only on a look on which the bar itself was read: feed_look counts the others)
+            if now - self.brk_at >= CONFIRM_GAP {
                 self.brk_at = now;
-                let read = bar::measure_break(&im, &b);
+                let read = if crate::fights::bar_red(fill_rgb) { bar::measure_break(&im, &b) } else { bar::BreakRead::default() };
                 let f = self.fight.as_mut().unwrap();
-                // (the open world's and Holo-Battle Sim's bar go by the broken look; an Interlink bar doesn't)
+                // (every bar but an Interlink one goes by the broken look: the open world's, a Holo-Battle Sim
+                // room's, any other fight's)
                 let by_look = !f.bossrush;
                 f.brk.feed_look(&read, fill_rgb, by_look, now);
             }
@@ -1385,7 +1365,7 @@ impl Meter {
             let slide = true;
             let at = frames.frame_time();
             let grades = self.grades.clone();
-            let moved = !old && self.ends_moved(&b);
+            let moved = self.ends_moved(&b);
             let f = self.fight.as_mut().unwrap();
             f.ends_moved = moved;
             let bosses = f.phases.len();
@@ -1600,13 +1580,6 @@ fn live_fill(rgb: [u8; 3]) -> bool {
 }
 
 impl Meter {
-    /// The bar is found and read by the rules from before 22 Nov: in a Holo-Battle Sim room, whose bar nobody has
-    /// checked is centred (no mirror rule, no held ends, the old bracket test, the old remembered place, no wait at
-    /// changed ends).
-    pub fn old_rules(&self) -> bool {
-        self.holosim_space
-    }
-
     /// A bar found, with its track by where it is: in an Interlink fight always the Interlink track (never the open
     /// world's, whatever its right end showed: bar.rs `interlink_track`); out in the world and in a Holo-Battle Sim
     /// room the world track; else as its right end showed.
@@ -1638,10 +1611,6 @@ impl Meter {
                     h.span, e.seen, if e.replaced { " (replaced once)" } else { "" }, e.held_reads, e.not_taken);
             }
             self.ends = bar::EndsHold::new(id, self.frame_size, now);
-        }
-        if self.fight.is_some() && self.old_rules() && !self.ends.old_noted {
-            self.ends.old_noted = true;
-            log::info!(target: "meter", "boss bar ends: a Holo-Battle Sim room, so not held; the bar is found and read as before 22 Nov");
         }
         if self.fight.as_ref().is_some_and(|f| f.bossrush)
             && !self.holosim_space
