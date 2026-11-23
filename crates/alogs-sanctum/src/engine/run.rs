@@ -151,6 +151,7 @@ impl Core {
             && self.settings().forced_layout == 0
             && since_run > 90.0
             && self.last_no_run_check.elapsed() > Duration::from_secs(5)
+            && !self.log_says_in_run()
         {
             // gone for 90 s with the game in front: the run is over
             self.last_no_run_check = now;
@@ -164,6 +165,12 @@ impl Core {
             self.hide_mini();
         }
         self.sh.in_run.store(self.in_run(), std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The game's log (when read) has the player on the island or in a Sanctum: the run goes on though the timer is
+    /// hidden (a fight, a menu, the map open, pictures held up), so its layout isn't forgotten for that.
+    fn log_says_in_run(&self) -> bool {
+        self.settings().use_game_log && self.game_log.available && matches!(self.game_log.place, super::Place::Island | super::Place::Sanctum)
     }
 
     /// A Pathfinder challenge loads like an Egg Heist island and has the same stopwatch: its "Victory Conditions"

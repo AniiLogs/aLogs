@@ -8,6 +8,8 @@ pub mod guess;
 pub mod heading;
 pub mod map;
 pub mod named;
+pub mod places;
+pub mod portal_path;
 pub mod run;
 pub mod track;
 
@@ -263,9 +265,14 @@ pub struct Core {
     pub island_search: Option<JoinHandle<Option<P2>>>,
     pub island_search_run: Option<String>,
     pub portal_icon: Option<Option<Mat>>,
+    /// The blue door the paths last said a portal icon is (portal_path.rs), and when; when they were last compared.
+    pub portal_door: Option<(P2, Instant)>,
+    pub portal_paths_at: Option<Instant>,
     pub last_landmark: P2,
     pub last_landmark_at: Option<Instant>,
     pub odo_prev: Option<MatF>,
+    /// The last minimap_step saw the minimap stand still (nothing to measure, nothing changed): the player stands.
+    pub odo_still: bool,
     pub last_slow_tick: Option<Instant>,
     pub hud_visible: bool,
     pub hud_last_seen: Option<Instant>,
@@ -475,6 +482,11 @@ impl Core {
         self.on_island = false;
         self.island_player = None;
         self.island_pose = None;
+        // the run's boat landing and the door gone in by belong to the run that's over
+        self.island_spawn = None;
+        self.island_door = None;
+        self.island_door_kind = None;
+        places::RunPlaces::forget();
         {
             let mut t = self.island_tracker();
             t.reset();
@@ -888,9 +900,12 @@ impl Engine {
             island_search: None,
             island_search_run: None,
             portal_icon: None,
+            portal_door: None,
+            portal_paths_at: None,
             last_landmark: (0.0, 0.0),
             last_landmark_at: None,
             odo_prev: None,
+            odo_still: false,
             last_slow_tick: None,
             hud_visible: false,
             hud_last_seen: None,
@@ -948,6 +963,7 @@ impl Engine {
                 crate::log::write(&format!("layout restored: {} (saved {a:.0} min ago)", saved.number));
             }
         }
+        core.restore_run_places();
         Engine { sh, status: Arc::new(Mutex::new(Status::default())), commands: Arc::new(Mutex::new(vec![])), core: Some(core), threads: vec![] }
     }
 

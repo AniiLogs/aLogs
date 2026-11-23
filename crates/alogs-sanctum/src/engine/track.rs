@@ -241,7 +241,12 @@ impl Core {
         }
         if *log_now {
             let info = self.island_tracker().last_info.clone();
-            crate::log::write(&format!("{info} -> {}", if ip.is_none() { "rejected" } else { "ok" }));
+            crate::log::write(&format!("{info} -> {}{}", if ip.is_none() { "rejected" } else { "ok" }, if self.odo_still { " (standing still)" } else { "" }));
+            // the island's weak spots (mostly by the Sanctum doors): their minimap pictures, to see what's there
+            let weak = ip.is_none() || self.island_tracker().last_score < 0.55;
+            if weak && self.settings().save_debug_frames {
+                self.save_debug_with(mm, if ip.is_none() { "island_rejected" } else { "island_weak" }, &info);
+            }
         }
         let Some(ip) = ip else {
             if self.island_probation > 0 {
@@ -249,7 +254,11 @@ impl Core {
                 crate::log::write("island candidate dropped (local tracking failed)");
             }
             if let (Some(d0), Some(_)) = (dead, step) {
-                self.move_on_island(d0, now);
+                if self.odo_still {
+                    self.island_time = Some(now); // standing: held, while the tracker keeps looking wider around it
+                } else {
+                    self.move_on_island(d0, now);
+                }
             }
             return;
         };
@@ -282,8 +291,13 @@ impl Core {
             let score = self.island_tracker().last_score;
             let agrees = manhattan(ip, d1) < 80.0;
             if !(score >= 0.75 || (score >= 0.5 && agrees)) {
-                // a weak match that disagrees with how the player moved is a look-alike: follow the movement
-                self.move_on_island(d1, now);
+                // a weak match that disagrees with how the player moved is a look-alike: follow the movement (standing
+                // still: hold, and let the tracker keep looking wider)
+                if self.odo_still {
+                    self.island_time = Some(now);
+                } else {
+                    self.move_on_island(d1, now);
+                }
                 return;
             }
         }
@@ -346,6 +360,7 @@ impl Core {
                 self.island_spawn = Some(at);
                 self.island_door = None;
                 self.island_door_kind = None;
+                self.save_run_places();
             }
             if arrival != "boat" {
                 let same = best_kind.is_some() && expected.is_some_and(|e| manhattan(e, at) < 1.0);
@@ -410,9 +425,23 @@ impl Core {
                 *v = mean;
             }
         }
+        self.odo_still = false;
         let prev = self.odo_prev.replace(cur.clone())?;
         let (x, y, response) = cv2::phase_correlate(&prev, &cur, None::<&MatF>);
         if response < 0.08 || x.abs() + y.abs() > 24.0 {
+            // open ground (a field, one path): nothing to measure a scroll by. A picture that hasn't changed means the
+            // player stands still, not "unknown": the position is held instead of going stale.
+            let (mut changed, mut n) = (0usize, 0usize);
+            for ((a, b), m) in prev.data.iter().zip(&cur.data).zip(&blank.data) {
+                if *m == 0 {
+                    changed += usize::from((a - b).abs() > STILL_LEVELS);
+                    n += 1;
+                }
+            }
+            if n > 0 && (changed as f64) <= STILL_SHARE * n as f64 {
+                self.odo_still = true;
+                return Some((0.0, 0.0));
+            }
             return None;
         }
         // the map scrolls the opposite way to the player; 1.2 minimap px per island map px
@@ -464,11 +493,13 @@ impl Core {
                 self.island_door = None;
                 self.island_door_kind = None;
                 crate::log::write(&format!("island: went into the Sanctum away from any door ({:.0},{:.0})", p.0, p.1));
+                self.save_run_places();
             }
             Some(d) => {
                 self.island_door = Some((d.img[0], d.img[1]));
                 self.island_door_kind = Some(d.kind.clone());
                 crate::log::write(&format!("island: went into the Sanctum by the {} at ({:.0},{:.0})", door_name(Some(&d.kind)), d.img[0], d.img[1]));
+                self.save_run_places();
                 if let Some(l) = self.current_layout.clone().filter(|l| !l.is_island()) {
                     let e = self.sanctum_entry(&l);
                     self.minimap.seed(e);
@@ -492,8 +523,13 @@ impl Core {
 
     /// Where the Sanctum map starts: its orange door; its blue door when the island's blue door was gone in by.
     pub fn sanctum_entry(&self, l: &Layout) -> P2 {
+        self.entry_spot(l).unwrap_or((0.0, 0.0))
+    }
+
+    /// The Sanctum door the player comes in at (sanctum_entry), None when the layout has neither door.
+    pub fn entry_spot(&self, l: &Layout) -> Option<P2> {
         let room = if self.island_door_kind.as_deref() == Some("entrance_side") && l.rooms.iter().any(|r| r.kind == "blue") { l.blue() } else { l.orange() };
-        room.map_or((0.0, 0.0), |r| (r.img[0], r.img[1]))
+        room.map(|r| (r.img[0], r.img[1]))
     }
 
     /// The player's island position from a Sanctum exit-portal icon on the minimap (1.2 minimap px per map px), the
@@ -519,6 +555,21 @@ impl Core {
         let r = (dx * dx + dy * dy).sqrt();
         if !(18.0..=85.0).contains(&r) {
             return None;
+        }
+        // the paths around the icon pick the door (once a second; slow-ish, and the door doesn't change while it's in view)
+        if self.portal_paths_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+            self.portal_paths_at = Some(Instant::now());
+            if let Some((door, _, fit, next)) = self.portal_by_paths(small, (dx, dy), isl) {
+                if self.portal_door.is_none_or(|(d, _)| d != door) {
+                    crate::log::write(&format!("island: the portal icon is the blue door at ({:.0},{:.0}) by its paths ({fit:.2}, next {next:.2})", door.0, door.1));
+                }
+                self.portal_door = Some((door, Instant::now()));
+            }
+        }
+        if let Some((door, at)) = self.portal_door
+            && at.elapsed() < Duration::from_secs(5)
+        {
+            return Some((door.0 - dx / 1.2, door.1 - dy / 1.2));
         }
         let cands: Vec<P2> = isl.markers.iter().filter(|m| m.kind == "entrance_side").map(|m| (m.img[0] - dx / 1.2, m.img[1] - dy / 1.2)).collect();
         if let Some(n) = near {
@@ -549,6 +600,12 @@ impl Core {
         Some(scored[0].0)
     }
 }
+
+/// The minimap's middle stood still between two pictures: at most this share of its pixels (the cone and marker left
+/// out) changed by more than STILL_LEVELS grey levels. A path line scrolling by while walking changes its two edges,
+/// ~1.5% of the middle; a picture of the same spot changes nearly nothing.
+const STILL_LEVELS: f32 = 10.0;
+const STILL_SHARE: f64 = 0.003;
 
 /// The island minimap is almost all map art; the Sanctum's always shows dark void and walls.
 pub fn looks_outside(mm: &Mat) -> bool {
