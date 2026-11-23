@@ -125,3 +125,104 @@ fn a_level_corrected_mid_fight_gives_the_same_damage() {
     assert_eq!(a.damage, b.damage, "the same damage as read right from the start");
     assert!((a.avg - b.avg).abs() < 1.0, "{} {}", a.avg, b.avg);
 }
+
+/// The level read by the game's own digits (`title_font`, set on the look the title's text was cropped from) and by
+/// the text reader: agreeing, one read settles it; disagreeing, it is unread and read again; the digits alone are
+/// voted like the text reader alone.
+#[test]
+fn the_font_digits_and_the_text_reader() {
+    let font = |m: &mut Meter, t: f64, l: Option<i64>| m.title_font = Some((l, t));
+    // agreeing: one read starts the fight, with no history
+    let mut m = meter("level-font-agree");
+    font(&mut m, T, Some(65));
+    read(&mut m, T, "Lv. 65 Alpha Stellarys");
+    assert_eq!(m.fight.as_ref().map(|f| f.level), Some(65));
+    // disagreeing: unread, however often
+    let mut m = meter("level-font-disagree");
+    for k in 0..4 {
+        let t = T + k as f64;
+        font(&mut m, t, Some(65));
+        read(&mut m, t, "Lv. 6 Alpha Stellarys");
+    }
+    assert!(m.fight.is_none(), "the readers disagree: unread");
+    // the digits alone (the text reader read no level): two agreeing looks
+    let mut m = meter("level-font-alone");
+    font(&mut m, T, Some(65));
+    read(&mut m, T, "Lv.6% Alpha Stellarys");
+    assert!(m.fight.is_none());
+    font(&mut m, T + 1.0, Some(65));
+    read(&mut m, T + 1.0, "Lv.6% Alpha Stellarys");
+    assert_eq!(m.fight.as_ref().map(|f| f.level), Some(65));
+    // no font on this PC (no digits read): the text reader's vote, as before
+    let mut m = meter("level-no-font");
+    read(&mut m, T, "Lv. 65 Alpha Stellarys");
+    assert!(m.fight.is_none());
+    read(&mut m, T + 1.0, "Lv. 65 Alpha Stellarys");
+    assert_eq!(m.fight.as_ref().map(|f| f.level), Some(65));
+}
+
+/// An Interlink boss of the shipped catalog: its row.
+fn rush_row(m: &Meter) -> boss::Row {
+    m.catalog.iter().find(|r| r.get("in_boss_rush").is_some_and(|v| v == "yes") && r.get("fixed_hp_rate").is_some_and(|v| !v.is_empty())).unwrap().clone()
+}
+
+/// The fight read at bar counter `xn` and `fill` at `t` (an Interlink fight's xN bars).
+fn rush_fill(m: &mut Meter, t: f64, xn: i64, fill: f64) {
+    let grades = boss::load_grades(&m.env.res, None).unwrap();
+    m.env.fixed_now.set(Some(t));
+    m.fight.as_mut().unwrap().update(&m.env, Some(fill), RED, EDGE, Some(xn), None, &grades, 180.0, Some(t), true);
+}
+
+/// An Interlink fight started on a carried level the title contradicts (60 for a Lv 65 boss): the title read at 65 by
+/// both readers puts it right in its first seconds, and it ends with the same damage as a fight started at 65.
+#[test]
+fn an_interlink_fight_on_a_wrong_carried_level_is_put_right() {
+    let looks: Vec<(i64, f64)> = (0..30).map(|k| (10 - k / 6, 1.0 - (k % 6) as f64 * 0.15)).collect();
+    let mut right = meter("level-rush-right");
+    let row = rush_row(&right);
+    let title = row.get("bossTitle_en").cloned().unwrap();
+    right.start_fight(&mut Quiet, row.clone(), 65, &title, true, "test");
+    let mut wrong = meter("level-rush-wrong");
+    wrong.args.boss_id = row.get("puppetId").cloned();
+    wrong.start_fight(&mut Quiet, row.clone(), 60, &title, true, "test");
+    for (k, (xn, f)) in looks.iter().enumerate() {
+        let t = T + 0.5 * k as f64;
+        rush_fill(&mut right, t, *xn, *f);
+        rush_fill(&mut wrong, t, *xn, *f);
+        if k == 4 {
+            wrong.title_font = Some((Some(65), t));
+            read(&mut wrong, t, &format!("Lv. 65 {title}"));
+        }
+    }
+    let (a, b) = (right.fight.as_ref().unwrap(), wrong.fight.as_ref().unwrap());
+    assert_eq!((b.level, b.max_hp), (65, a.max_hp), "put right");
+    assert!(a.damage > 0);
+    assert_eq!(a.damage, b.damage, "the same damage as started right");
+    assert_eq!(wrong.rush_level, Some(65), "the carried level refreshed");
+}
+
+/// A two-boss fight corrected after its hand-over: the first boss counts its whole HP at the right level, the second's
+/// damage scales with its HP; the same as a fight read right from the start.
+#[test]
+fn a_two_boss_fight_corrected_after_the_hand_over() {
+    let m = meter("level-two-boss");
+    let rows: Vec<boss::Row> = m.catalog.iter().filter(|r| r.get("in_boss_rush").is_some_and(|v| v == "yes") && r.get("fixed_hp_rate").is_some_and(|v| !v.is_empty())).take(2).cloned().collect();
+    let hp = |r: &boss::Row, l: i64| boss::boss_max_hp(r, l, None).unwrap();
+    let grades = boss::load_grades(&m.env.res, None).unwrap();
+    let fight = |level: i64| {
+        let mut f = alogs_meter::fights::Fight::new(&m.env, "Boss One", level, rows[0].clone(), hp(&rows[0], level), true, false, None, Some(1));
+        for k in 0..6 {
+            f.update(&m.env, Some(1.0 - k as f64 * 0.1), RED, EDGE, Some(3), None, &grades, 180.0, Some(T + k as f64 * 0.5), true);
+        }
+        f.next_boss(&m.env, rows[1].clone(), "test");
+        for k in 0..6 {
+            f.update(&m.env, Some(1.0 - k as f64 * 0.12), RED, EDGE, Some(5), None, &grades, 180.0, Some(T + 5.0 + k as f64 * 0.5), true);
+        }
+        f
+    };
+    let right = fight(65);
+    let mut wrong = fight(60);
+    wrong.correct_level(65, &[hp(&rows[0], 65), hp(&rows[1], 65)], None);
+    assert_eq!((wrong.max_hp, wrong.done_hp), (right.max_hp, right.done_hp));
+    assert!((wrong.damage - right.damage).abs() <= 1, "{} {}", wrong.damage, right.damage);
+}

@@ -130,6 +130,11 @@ pub struct Meter {
     pub levels_seen: std::collections::HashMap<(Option<String>, String), (i64, f64)>,
     /// "fight level: unread" said for the bar showing now (once per bar).
     pub level_unread_said: bool,
+    /// The level read from the title against the game's own font on the look the title's text crop was taken from
+    /// (None: not read), and when.
+    pub title_font: Option<(Option<i64>, f64)>,
+    /// A contradiction between the two readers or with the fight said for this fight already.
+    pub level_said: Option<(i64, i64)>,
     pub space: Option<String>,
     pub bossrush_space: bool,
     pub holosim_space: bool,
@@ -306,6 +311,8 @@ impl Meter {
             level_votes: vec![],
             levels_seen: Default::default(),
             level_unread_said: false,
+            title_font: None,
+            level_said: None,
             space: None,
             bossrush_space: false,
             holosim_space: false,
@@ -412,7 +419,7 @@ impl Meter {
     /// Seconds between reads of the name above the bar: 8, and 2 while a two-boss fight's partner can show up.
     pub fn title_gap(&self) -> f64 {
         // (a fight whose level isn't read again yet, or is being read as another: its name about once a second)
-        if self.fight.as_ref().is_some_and(|f| f.level_reads < LEVEL_FIX_READS as u32 && !f.bossrush) || !self.switch_votes.is_empty() {
+        if self.fight.as_ref().is_some_and(|f| f.level_reads < LEVEL_FIX_READS as u32) || !self.switch_votes.is_empty() {
             return 1.0;
         }
         if let Some(f) = &self.fight
@@ -573,10 +580,26 @@ impl Meter {
     /// Match the boss on the bar from its title read.
     pub fn identify(&mut self, out: &mut dyn Out, title_text: Option<&str>, xn: Option<i64>, red_text: Option<&str>) {
         let (lv, title) = parse::parse_title_pair(title_text, red_text);
-        let level = self.args.level.or(lv);
+        let now = self.now();
+        // the level: the game's own digits read from the title (the first opinion) and the text reader's (the second).
+        // Both agreeing settle it at once; they disagreeing leave it unread (read again); one alone is voted
+        let font = self.title_font.take().filter(|f| now - f.1 <= 2.0).and_then(|f| f.0);
+        let (level, read_by, both) = match (self.args.level, font, lv) {
+            (Some(l), ..) => (Some(l), "given on the command line", true),
+            (None, Some(a), Some(b)) if a == b => (Some(a), "font digits and text reader agree", true),
+            (None, Some(a), Some(b)) => {
+                if self.level_said != Some((a, b)) {
+                    self.level_said = Some((a, b));
+                    log::info!(target: "meter", "fight level: font digits read {a}, text reader {b} - read again");
+                }
+                (None, "", false)
+            }
+            (None, Some(a), None) => (Some(a), "font digits", false),
+            (None, None, Some(b)) => (Some(b), "text reader", false),
+            _ => (None, "", false),
+        };
         let in_world = self.space.is_some() && scene_of(self.space.as_deref()).is_some();
         let bossrush = !in_world && (xn.is_some() || self.bossrush_space || self.fight.as_ref().is_some_and(|f| f.bossrush));
-        let now = self.now();
         let row = if !title.is_empty() && level.is_some() {
             boss::pick_boss(&self.catalog, &title, bossrush, self.args.boss_id.as_deref(), &self.env.schedule, now).0
         } else {
@@ -601,11 +624,15 @@ impl Meter {
                 f.level_reads += 1;
                 return;
             }
-            // the same boss read at another level: on LEVEL_FIX_READS agreeing reads its level was wrong (a fight with
-            // one boss and one bar: its HP and damage are put right; anything else is left as it is)
-            if pid == get(&f.row, "puppetId") && !f.bossrush && f.phases.len() == 1 && self.args.level.is_none() {
-                self.switch_votes.push((pid.clone(), level));
-                if self.switch_votes.len() > LEVEL_FIX_READS {
+            // the same boss read at another level: on LEVEL_FIX_READS agreeing reads (one read the two readers agree
+            // on counts for all of them) its level was wrong, also a level carried into an Interlink fight: each
+            // boss's HP and the damage are put right (Fight::correct_level)
+            if pid == get(&f.row, "puppetId") && self.args.level.is_none() {
+                let votes = if both { LEVEL_FIX_READS } else { 1 };
+                for _ in 0..votes {
+                    self.switch_votes.push((pid.clone(), level));
+                }
+                while self.switch_votes.len() > LEVEL_FIX_READS {
                     self.switch_votes.remove(0);
                 }
                 if self.switch_votes.len() < LEVEL_FIX_READS || self.switch_votes.iter().any(|v| *v != self.switch_votes[0]) {
@@ -613,14 +640,19 @@ impl Meter {
                 }
                 self.switch_votes.clear();
                 let cal = boss::load_calibration(&self.env.data);
-                let hp = boss::boss_max_hp(&row, level, Some(&cal)).unwrap_or(0);
-                if hp <= 0 {
+                let hps: Vec<i64> = f.phases.iter().map(|p| boss::boss_max_hp(&p.row, level, Some(&cal)).unwrap_or(0)).collect();
+                if hps.iter().any(|h| *h <= 0) {
+                    log::info!(target: "meter", "fight level: the title reads Lv {level}, the fight stays at Lv {} (no HP known for Lv {level})", f.level);
                     return;
                 }
                 let size = boss::boss_break_points(&self.env.res, &row, level as f64);
-                log::info!(target: "meter", "fight level corrected: Lv {} -> Lv {level}, max HP {} -> {}", f.level, thousands(f.max_hp), thousands(hp));
-                f.correct_level(level, hp, size);
+                log::info!(target: "meter", "fight level corrected: Lv {} -> Lv {level}, max HP {} -> {} ({read_by}{})", f.level, thousands(f.max_hp),
+                    thousands(hps.iter().sum::<i64>()), if f.phases.len() > 1 { ", both bosses" } else { "" });
+                f.correct_level(level, &hps, size);
                 self.levels_seen.insert((self.space.clone(), pid), (level, now));
+                if f.bossrush {
+                    self.rush_level = Some(level);
+                }
                 return;
             }
             if f.partner.as_ref().is_some_and(|p| get(p, "puppetId") == pid) {
@@ -667,13 +699,14 @@ impl Meter {
         }
         self.odd_level = None;
         // the level is voted: a fight starts on agreeing reads, and runs on its bar alone until then (replay_early)
-        let mut source = "given on the command line".to_string();
+        let mut source = read_by.to_string();
         if self.fight.is_none() && self.args.level.is_none() {
-            let need = self.level_needs(&pid, level, bossrush, now);
+            let need = if both { 1 } else { self.level_needs(&pid, level, bossrush, now) };
             source = match need {
-                1 if bossrush => "title read, the Interlink run's level".into(),
-                1 => "title read, as the last fight of this boss here".into(),
-                n => format!("{n} title reads agree"),
+                _ if both => read_by.to_string(),
+                1 if bossrush => format!("{read_by}, the Interlink run's level"),
+                1 => format!("{read_by}, as the last fight of this boss here"),
+                n => format!("{read_by}, {n} reads agree"),
             };
             self.level_votes.retain(|v| now - v.2 <= LEVEL_VOTE_S);
             self.level_votes.push((pid.clone(), level, now));
@@ -726,6 +759,7 @@ impl Meter {
         let now = self.now();
         self.ps.runs += 1; // the Party screen's votes are this lobby's: a fight ends them (Meter::lobby_change)
         self.level_unread_said = false;
+        self.level_said = None;
         let (_, order, partner_id) = if bossrush { self.env.schedule.stage_of(Some(get(&row, "puppetId")), None, now) } else { (None, None, None) };
         let partner = if order == Some(1) {
             self.catalog
@@ -1409,6 +1443,9 @@ impl Meter {
             }
             let tb = bar::box_at(&b, bar::TITLE_BOX);
             if need_title {
+                // the level by the game's own digits, from this same look (None when the font can't be loaded)
+                let fl = self.name_reader().and_then(|r| r.level(&im, tb));
+                self.title_font = Some((fl, now));
                 crops.insert("title".into(), prep::prep_text(&im, tb, scale, 190, 3.0, 24));
                 if prep::has_red(&im, tb, scale) {
                     crops.insert("title_red".into(), prep::prep_red(&im, tb, scale, 190, 3.0, 24));
