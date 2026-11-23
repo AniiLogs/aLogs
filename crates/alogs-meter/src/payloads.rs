@@ -66,6 +66,24 @@ fn game_of(record: &Value) -> Value {
     if matches!(g, Value::Dict(_)) && matches!(g.get("build"), Value::Int(_)) { dict([("game", g.clone())]) } else { Value::Dict(Dict::new()) }
 }
 
+/// A payload built without a run record (interlink_week, interlink_best, eggheist_season) with the game's build
+/// (Meter::game_build_now) added as `extra.game`, the same key the other kinds carry. Unchanged when the build isn't
+/// known; an `extra` is made only when there is a build to put in it.
+pub fn with_game(mut payload: Value, game: Option<Value>) -> Value {
+    let Some(g) = game else { return payload };
+    let rec = dict([("game", g)]);
+    let add = game_of(&rec);
+    if add.as_dict().is_none_or(Dict::is_empty) {
+        return payload;
+    }
+    if let Value::Dict(d) = &mut payload {
+        let mut extra = d.at("extra").as_dict().cloned().unwrap_or_default();
+        extend(&mut extra, add);
+        d.insert("extra".into(), Value::Dict(extra));
+    }
+    payload
+}
+
 fn fold(name: &str) -> String {
     Teammates::fold(name)
 }

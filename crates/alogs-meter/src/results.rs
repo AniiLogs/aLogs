@@ -505,6 +505,7 @@ impl Meter {
         let bid = row.as_ref().map_or(Value::None, |r| Value::Str(get(r, "puppetId").into()));
         let clock = self.env.record_clock();
         let p = crate::payloads::score_payload(screen, &boss, &opt_i(score), &opt_i(stars), &self.uid.clone().map_or(Value::None, Value::Str), &cycle, &bid, &self.env.schedule, &clock);
+        let p = crate::payloads::with_game(p, self.game_build_now());
         let ev = shot.map(|p| rel(&self.env.data, &p));
         sub.enqueue(&p, ev.as_deref(), None, None, None);
     }

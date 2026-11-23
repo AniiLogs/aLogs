@@ -451,6 +451,7 @@ impl Meter {
             let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&profile), &clock);
             // (a menu screen the player opened and leaves when they like: nothing is held for it)
+            let p = payloads::with_game(p, self.game_build_now());
             self.egg_send_rank(&p, shot_rel.as_deref(), false, now);
         }
     }
@@ -596,6 +597,7 @@ impl Meter {
             let profile = self.egg_profile(season.as_deref(), &vals);
             let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&profile), &clock);
+            let p = payloads::with_game(p, self.game_build_now());
             self.egg_send_rank(&p, None, true, now);
         }
         self.egg_queued(now);
@@ -652,6 +654,7 @@ impl Meter {
             }
             let clock = self.env.record_clock();
             let p = payloads::eggheist_payload(&st, &season.map_or(Value::None, Value::Str), &self.uid.clone().map_or(Value::None, Value::Str), Some(&Value::Dict(profile)), &clock);
+            let p = payloads::with_game(p, self.game_build_now());
             self.egg_send_rank(&p, None, true, now);
         }
         self.egg_queued(now);
