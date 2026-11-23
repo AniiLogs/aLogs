@@ -72,7 +72,7 @@ fn the_hp_percent_stands_in_front_of_the_hp_numbers() {
 #[test]
 #[ignore = "needs the game's font and a real picture"]
 fn the_hp_line_on_a_real_bar() {
-    use alogs_meter::overlay::{pct_anchor, with_shadow};
+    use alogs_meter::overlay::{TOTAL_Y, pct_anchor, with_shadow};
     use alogs_pil::{Image, Mode};
     use alogs_reader::gamefont::{FONT_NAME, GameFont};
     let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
@@ -90,12 +90,37 @@ fn the_hp_line_on_a_real_bar() {
         im.alpha_composite(&img, (left - edge as f64) as i64, (top - edge as f64) as i64);
         left
     };
-    // the HP numbers and the break line where they have always been, the % in front of the numbers
-    let total_top = by + 0.022 * span;
+    // the HP numbers and the break line where they go (under the break gauge), the % in front of the numbers
+    let total_top = by + TOTAL_Y * span;
     let total_left = put(&mut im, "HP 281.9K / 397.0K", 0.022, [255, 255, 255], false, Some((2, hp_colour(0.71))), bx + span, total_top);
-    put(&mut im, "BREAK 10.5K / 43.1K \u{b7} 4,916/s", 0.020, [255, 197, 138], false, Some((5, [255, 197, 138])), bx + span, by + 0.049 * span);
+    put(&mut im, "BREAK 10.5K / 43.1K \u{b7} 4,916/s", 0.020, [255, 197, 138], false, Some((5, [255, 197, 138])), bx + span, by + (TOTAL_Y + 0.027) * span);
     let (right, top) = pct_anchor(bar, Some((total_left, total_top)), 0.0);
     put(&mut im, "71.0% \u{b7}", 0.022, [255, 255, 255], true, None, right, top);
     let crop = im.crop_i((1060.0 * k) as i64, (70.0 * k) as i64, (2780.0 * k) as i64, (300.0 * k) as i64);
     crop.save_png(std::path::Path::new(&var("ALOGS_OUT"))).expect("the picture written");
+}
+
+/// The HP labels sit below the break gauge's row (its line ends at BREAK_BELOW.1 of the span under the bar's centre):
+/// none of their windows, shadow margin and all, reaches up into it, for the bars of the open world, Interlink and
+/// Holo-Battle Sim as saved at 3840x2160 and the same scaled to 2560x1440 and 1920x1080.
+#[test]
+fn the_hp_labels_stay_off_the_break_gauge() {
+    use alogs_meter::overlay::hp_label_top;
+    use alogs_reader::bar::{BREAK_BELOW, label_span};
+    // (left bracket, centre row, span) at 3840x2160
+    let bars = [(1227.0, 194.0, 1367.0), (1164.0, 194.0, 1512.0), (880.0, 40.0, 1711.0)];
+    for (w, k) in [(3840.0, 1.0), (2560.0, 2.0 / 3.0), (1920.0, 0.5)] {
+        for (lb, yc, span) in bars {
+            let (lb, yc, span) = (lb * k, (yc * k as f64).round(), span * k);
+            let gauge_bottom = (yc + BREAK_BELOW.1 * span) as i64 + 1;
+            let ls = label_span(lb, span, w);
+            for name in ["pct", "total", "break"] {
+                let top = hp_label_top(name, (lb, yc, ls)).unwrap();
+                assert!(top as i64 > gauge_bottom, "{w}: {name} at {top} on the gauge (to {gauge_bottom}) of {lb} {yc} {span}");
+            }
+        }
+    }
+    // at 4K exactly: the gauge's line is on rows 212 to 219 of the frame of 22 Nov; the HP numbers start below it
+    let top = hp_label_top("total", (1227.0, 194.0, 1367.0)).unwrap();
+    assert!(top >= 222.0, "{top}");
 }

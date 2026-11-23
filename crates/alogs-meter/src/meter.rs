@@ -830,6 +830,9 @@ impl Meter {
         if let Some(mut f) = self.fight.take() {
             self.fight_ended_at = now;
             self.results_at_fight_end = self.ps.results;
+            if f.brk.unknown_covered > 0 {
+                log::info!(target: "meter", "break gauge: unknown under our cover on {} looks this fight", f.brk.unknown_covered);
+            }
             let left = if f.boss_hp != 0 { (f.max_hp - f.damage) as f64 / f.boss_hp as f64 } else { 1.0 };
             if why.starts_with("caught") && !f.bossrush && f.hit && f.timer.as_ref().is_none_or(|t| t.predict(now).is_none()) {
                 // the boss kill sound, when heard, dates the blow itself
@@ -1371,8 +1374,11 @@ impl Meter {
             // (only from a look on which the bar itself was read: feed_look)
             if now - self.brk_at >= CONFIRM_GAP && crate::fights::bar_red(fill_rgb) {
                 self.brk_at = now;
-                let (gauge, kind, _) = bar::measure_break(&im, &b);
-                self.fight.as_mut().unwrap().brk.feed_look(gauge, kind, fill_rgb, now);
+                let read = bar::measure_break(&im, &b);
+                let f = self.fight.as_mut().unwrap();
+                // (the open world's and Holo-Battle Sim's bar go by the broken look; an Interlink bar doesn't)
+                let by_look = !f.bossrush;
+                f.brk.feed_look(&read, fill_rgb, by_look, now);
             }
             // A low first reading that is followed by a much fuller one, before anyone has hit, is dropped: always
             // (it was the Dev switch fight-bar-slide-in; a wrong reading kept is no trade-off to choose).

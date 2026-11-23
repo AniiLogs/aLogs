@@ -3,6 +3,7 @@
 
 use alogs_meter::env::Env;
 use alogs_meter::fights::{BREAK_CONFIRM_S, BreakTracker, Fight, Timer};
+use alogs_reader::bar::BreakRead;
 use alogs_reader::boss::{self, Row, Schedule};
 use serde_json::{Value as J, json};
 use std::path::PathBuf;
@@ -112,21 +113,25 @@ fn timers_and_break_gauges_match_reference() {
             assert!(same(&got, s), "timer: got {got}, want {s}");
         }
     }
-    // (the reference counts a break on its first empty look; here it needs a look BREAK_CONFIRM_S on that is still
-    // empty: that look is fed after the empty one, the empty look's own row isn't compared, and every later row is the
-    // reference's, the break dated from the first empty look)
+    // (the reference counts a break on its first empty look and a refill on the first jump up; here a break needs a
+    // look BREAK_CONFIRM_S on that is still empty, and a jump up a second reading holding it: that look is fed after
+    // the reference's, the break dated from the first empty look, and every row is compared after it)
     for seq in g["breaks"].as_array().unwrap() {
         let mut b = BreakTracker::new(Some(1234.5));
         for s in seq.as_array().unwrap() {
             let t = s[0].as_f64().unwrap();
             let kind = None;
-            let before = b.breaks;
+            let (before, phase) = (b.breaks, b.phase);
             b.feed(s[1].as_f64(), kind, t);
             if s[6].as_i64() == Some(before + 1) {
                 assert_eq!((b.breaks, b.phase), (before, "drain"), "not counted on its first empty look at {t}");
                 b.feed(s[1].as_f64(), kind, t + BREAK_CONFIRM_S);
                 assert_eq!((b.breaks, b.phase), (before + 1, "broken"), "counted on the look that confirms it");
                 continue;
+            }
+            if phase == "drain" && s[3] == "refill" {
+                assert_eq!(b.phase, "drain", "a jump up waits for the next reading at {t}");
+                b.feed(s[1].as_f64(), kind, t);
             }
             let i = b.info(t);
             let got = json!([t, s[1], i.left, i.phase, i.rate, i.rate_now, i.breaks, i.last_after]);
@@ -140,37 +145,50 @@ const RED: [u8; 3] = [240, 110, 100];
 const GREY: [u8; 3] = [120, 120, 120];
 const GOLD: [u8; 3] = [250, 210, 90];
 
-/// A Holo-Battle Sim fight: a skill animation hides the HUD (no bar read), a golden flash where the bar was reads
-/// "broken", the bar comes back half full: no break. Later the real one: a drain to empty that stays, one break dated
-/// at its first empty look and counted half a second on.
+/// One look: the gauge, its line's colour, the broken look, the lock icon.
+fn look(gauge: Option<f64>, kind: Option<&'static str>, broken: bool, locked: bool) -> BreakRead {
+    BreakRead { gauge, kind, broken, locked }
+}
+fn white(g: f64) -> BreakRead {
+    look(Some(g), Some("white"), false, false)
+}
+/// Fed as the open world's or Holo-Battle Sim's bar (`by_look`), the bar read.
+fn see(b: &mut BreakTracker, r: BreakRead, t: f64) {
+    b.feed_look(&r, RED, true, t);
+}
+
+/// A Holo-Battle Sim fight: a skill animation hides the HUD (no bar read), a golden flash where the bar was, the bar
+/// comes back half full: no break. Later the real one: a drain to empty that stays (no broken look seen), one break
+/// dated at its first empty look and counted half a second on.
 #[test]
 fn a_hidden_bar_and_a_flash_are_no_break() {
     let mut b = BreakTracker::new(Some(1000.0));
-    b.feed_look(Some(0.384), None, RED, 16.88);
+    see(&mut b, white(0.384), 16.88);
     for t in [17.16, 17.54, 18.14] {
-        b.feed_look(Some(0.384), None, GREY, t);
+        b.feed_look(&white(0.384), GREY, true, t);
     }
     for t in [18.32, 19.42] {
-        b.feed_look(Some(0.0), None, GOLD, t);
+        b.feed_look(&look(Some(0.0), None, true, false), GOLD, true, t);
     }
     assert_eq!((b.breaks, b.phase), (0, "drain"));
-    b.feed_look(Some(0.353), None, RED, 19.84);
+    see(&mut b, white(0.353), 19.84);
     let mut t = 19.84;
     let mut g: f64 = 0.353;
     while g > 0.05 {
         t += 0.1;
         g -= 0.0072;
-        b.feed_look(Some(g.max(0.046)), None, RED, t);
+        see(&mut b, white(g.max(0.046)), t);
     }
     assert_eq!(b.breaks, 0, "no break while it drains");
     for (t, g) in [(24.49, 0.046), (24.59, 0.009), (24.7, 0.009), (24.9, 0.005)] {
-        b.feed_look(Some(g), None, RED, t);
+        see(&mut b, look(Some(g), Some("orange"), false, false), t);
     }
-    assert_eq!((b.breaks, b.phase), (0, "drain"), "not yet: empty for under half a second");
-    b.feed_look(Some(0.009), None, RED, 25.1);
+    assert_eq!((b.breaks, b.phase), (0, "drain"), "not yet: empty for under half a second, no broken look");
+    see(&mut b, look(Some(0.009), Some("orange"), false, false), 25.1);
     assert_eq!((b.breaks, b.phase), (1, "broken"), "counted by 25.1");
+    assert_eq!(b.last_after, None);
     for i in 0..200 {
-        b.feed_look(Some(if i % 2 == 0 { 0.009 } else { 0.005 }), None, RED, 25.2 + i as f64 * 0.1);
+        see(&mut b, look(Some(if i % 2 == 0 { 0.009 } else { 0.005 }), Some("orange"), false, false), 25.2 + i as f64 * 0.1);
     }
     assert_eq!(b.breaks, 1, "once");
 }
@@ -178,20 +196,21 @@ fn a_hidden_bar_and_a_flash_are_no_break() {
 /// One look that reads empty with the bar on screen, the gauge back 0.13 s later: no break, the drain carries on.
 #[test]
 fn a_one_look_misread_is_no_break() {
-    let mut b = BreakTracker::new(Some(1000.0));
-    let mut t = 0.0;
-    for i in 0..40 {
-        t = i as f64 * 0.1;
-        b.feed_look(Some(0.705 - 0.01 * i as f64), None, RED, t);
+    for by_look in [true, false] {
+        let mut b = BreakTracker::new(Some(1000.0));
+        let mut t = 0.0;
+        for i in 0..40 {
+            t = i as f64 * 0.1;
+            b.feed_look(&white(0.705 - 0.01 * i as f64), RED, by_look, t);
+        }
+        let mut clean = b.clone(); // the same fight without the misread
+        b.feed_look(&look(Some(0.0), None, false, false), RED, by_look, t + 0.1);
+        b.feed_look(&white(0.358), RED, by_look, t + 0.23);
+        clean.feed_look(&white(0.358), RED, by_look, t + 0.23);
+        assert_eq!((b.breaks, b.phase), (0, "drain"));
+        assert_eq!(b.left, Some(0.358));
+        assert_eq!(b.info(t + 0.5), clean.info(t + 0.5), "as if the misread never was");
     }
-    let mut clean = b.clone(); // the same fight without the misread
-    b.feed_look(Some(0.0), None, RED, t + 0.1);
-    b.feed_look(Some(0.358), None, RED, t + 0.23);
-    clean.feed_look(Some(0.358), None, RED, t + 0.23);
-    assert_eq!((b.breaks, b.phase), (0, "drain"));
-    assert_eq!(b.left, Some(0.358));
-    assert!(b.rate(t + 0.23).0.is_some(), "the drain rate carries on");
-    assert_eq!(b.info(t + 0.5), clean.info(t + 0.5), "as if the misread never was");
 }
 
 /// A real break by a burst: 0.40, then empty on every look for 9 s: one break, dated from the first empty look.
@@ -217,4 +236,117 @@ fn an_empty_spell_cut_by_the_fights_end_is_not_counted() {
     }
     assert_eq!((b.breaks, b.phase), (0, "drain"));
     assert_eq!(b.info(0.4).breaks, 0);
+}
+
+/// The lock icon: the boss can't be broken. With it up the gauge is shown as it reads (35%), and an empty gauge for 3 s
+/// is no break; once it is gone, an empty gauge with the broken look is one break, then.
+#[test]
+fn no_break_while_the_lock_icon_is_up() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    see(&mut b, white(0.42), 0.0);
+    see(&mut b, look(Some(0.35), Some("white"), false, true), 1.0);
+    let i = b.info(1.0);
+    assert_eq!((i.left, i.locked, i.breaks), (Some(0.35), true, 0));
+    for k in 0..30 {
+        see(&mut b, look(Some(0.0), None, k % 2 == 0, true), 2.0 + k as f64 * 0.1);
+    }
+    assert_eq!((b.breaks, b.phase), (0, "drain"), "never with the icon up");
+    see(&mut b, look(Some(0.0), None, false, false), 5.1);
+    assert_eq!(b.breaks, 0, "the icon gone, no broken look: not yet");
+    see(&mut b, look(Some(0.0), None, true, false), 5.2);
+    assert_eq!((b.breaks, b.phase, b.locked), (1, "broken", false), "the broken look with the icon gone: one break");
+}
+
+/// The open world's look: an empty gauge with the broken look is a break at once; a white line growing from the left
+/// with the broken look is the refill; the bright flashes before it are neither; a line without the broken look is the
+/// drain again.
+#[test]
+fn the_broken_look_decides_at_once() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    see(&mut b, look(Some(0.04), Some("orange"), false, false), 0.0);
+    see(&mut b, look(Some(0.0), None, true, false), 0.1);
+    assert_eq!((b.breaks, b.phase), (1, "broken"), "at once");
+    // the bright flashes at the end of the broken state: no line, no new break, no refill
+    for (k, r) in [look(Some(0.9), Some("orange"), true, false), look(Some(0.62), Some("white"), true, false), look(None, None, true, false)].into_iter().enumerate() {
+        see(&mut b, r, 1.0 + k as f64 * 0.1);
+        assert_eq!((b.breaks, b.phase), (1, "broken"), "{k}");
+    }
+    see(&mut b, look(Some(0.069), Some("white"), true, false), 8.0);
+    assert_eq!(b.phase, "refill", "the white line growing from the left");
+    see(&mut b, look(Some(0.5), Some("white"), true, false), 10.0);
+    assert_eq!(b.phase, "refill");
+    see(&mut b, look(Some(0.99), Some("white"), true, false), 13.0);
+    assert_eq!(b.phase, "drain", "refilled");
+    assert_eq!(b.breaks, 1);
+}
+
+/// The fight of 22 Nov (open world) as the gauge truly went, each look as it reads now: a one-look low misread in the
+/// drain, the lock icon at 35% and 27% (orange), the drain to 4%, empty at 34.9, the broken look from 36.5 with the
+/// glow (no line), flashes, the refill's white line from 43.6, up under where our label used to be (unknown), the
+/// broken look gone at 50.7: exactly one break and one refill.
+#[test]
+fn the_fight_of_22_november() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    let mut phases = vec![];
+    let mut feed = |b: &mut BreakTracker, r: BreakRead, t: f64| {
+        see(b, r, t);
+        if phases.last() != Some(&b.phase) {
+            phases.push(b.phase);
+        }
+    };
+    let mut t = 0.1;
+    while t < 8.8 {
+        feed(&mut b, white(0.426), t);
+        t += 0.1;
+    }
+    feed(&mut b, white(0.264), 8.84); // (a misread)
+    feed(&mut b, white(0.426), 8.95);
+    let mut g: f64 = 0.426;
+    while t < 26.5 {
+        g -= 0.0004;
+        feed(&mut b, white(g), t);
+        t += 0.1;
+    }
+    for (t, g, kind, locked) in [(26.51, 0.371, "white", true), (27.54, 0.314, "white", true), (28.55, 0.275, "orange", true), (29.58, 0.256, "orange", true),
+                                 (30.09, 0.227, "orange", false), (32.35, 0.155, "orange", false), (33.9, 0.067, "orange", false), (34.4, 0.031, "orange", false)] {
+        feed(&mut b, look(Some(g), Some(kind), false, locked), t);
+    }
+    feed(&mut b, look(Some(0.010), Some("orange"), false, false), 34.92);
+    assert_eq!(b.breaks, 0, "empty, not yet the broken look");
+    let mut t = 36.54;
+    while t < 43.5 {
+        let r = if (t * 10.0) as i64 % 3 == 0 { look(None, None, true, false) } else { look(Some(0.0), None, true, false) };
+        feed(&mut b, r, t);
+        t += 0.25;
+    }
+    feed(&mut b, look(Some(0.9), Some("orange"), true, false), 42.0); // (a flash)
+    let mut g = 0.069;
+    let mut t = 43.62;
+    while g < 0.66 {
+        feed(&mut b, look(Some(g), Some("white"), true, false), t);
+        g += 0.014;
+        t += 0.1;
+    }
+    while t < 50.7 {
+        feed(&mut b, look(None, Some("white"), true, false), t); // (under the old cover)
+        t += 0.1;
+    }
+    feed(&mut b, look(None, Some("white"), false, false), 51.2);
+    feed(&mut b, white(0.98), 51.7);
+    assert_eq!(b.breaks, 1, "one break");
+    assert_eq!(phases, vec!["drain", "broken", "refill", "drain"], "one refill");
+}
+
+/// An Interlink bar (no broken look to go by): a jump up is a refill only when the next reading holds it.
+#[test]
+fn an_interlink_jump_up_needs_a_second_reading() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    for (t, g) in [(0.0, 0.42), (0.1, 0.27), (0.2, 0.42), (0.3, 0.41)] {
+        b.feed_look(&white(g), RED, false, t);
+    }
+    assert_eq!(b.phase, "drain", "a misread low and back");
+    for (t, g) in [(1.0, 0.40), (1.1, 0.70), (1.2, 0.71)] {
+        b.feed_look(&white(g), RED, false, t);
+    }
+    assert_eq!(b.phase, "refill", "held");
 }
