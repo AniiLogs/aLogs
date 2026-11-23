@@ -110,7 +110,7 @@ pub struct Meter {
     pub ocr: Box<dyn Reader>,
     /// Live: the boss bar's text (title, timer, xN) read on a helper of its own, so a look never waits for it;
     /// the meta says whether the xN was missing and whether a title was asked for.
-    pub ocr_bg: Option<crate::ocr_worker::OcrWorker<(bool, bool)>>,
+    pub ocr_bg: Option<crate::ocr_worker::OcrWorker<(bool, bool, Option<f64>)>>,
     /// Live: the screens' text read on a helper of its own, with the frame and time it was read from.
     pub screen_bg: Option<crate::ocr_worker::OcrWorker<(Image, f64)>>,
     pub fight: Option<Fight>,
@@ -1306,7 +1306,10 @@ impl Meter {
         let mut timer = None;
         // Text (timer, title, xN fallback) is read about once a second. Live, a background OCR helper does it so a frame
         // never waits for it; the result is used on the frame after it arrives. Replays read it in place.
-        if let Some((text, (xn_missing, title))) = self.ocr_bg.as_ref().and_then(|w| w.take()) {
+        if let Some((text, (xn_missing, title, level_at))) = self.ocr_bg.as_ref().and_then(|w| w.take()) {
+            if let Some(t) = level_at {
+                self.stages_feed(text.get(crate::sim_stages::BAR_KEY).map(String::as_str), t); // a Sim run's level
+            }
             timer = parse::parse_timer(text.get("timer").map(String::as_str));
             if xn_missing && xnv.is_none() {
                 xnv = parse::parse_xn(text.get("xn").map(String::as_str), top);
@@ -1330,14 +1333,22 @@ impl Meter {
                     crops.insert("title_red".into(), prep::prep_red(&im, tb, scale, 190, 3.0, 24));
                 }
             }
+            // a Holo-Battle Sim run's level counter rides along (once a second at most): a level can be all fight
+            let level_at = self.stages_bar_crop(&im, now, fg, !self.args.replay && frames.screen_copy()).map(|c| {
+                crops.insert(crate::sim_stages::BAR_KEY.into(), c);
+                now
+            });
             self.last_text = now;
             if need_title {
                 self.last_title = now;
             }
             if let Some(w) = &self.ocr_bg {
-                w.submit(crops, (xnv.is_none(), need_title));
+                w.submit(crops, (xnv.is_none(), need_title, level_at));
             } else {
                 let text = self.ocr.read(&crops, &IndexMap::new(), &IndexMap::new());
+                if let Some(t) = level_at {
+                    self.stages_feed(text.get(crate::sim_stages::BAR_KEY).map(String::as_str), t);
+                }
                 timer = parse::parse_timer(text.get("timer").map(String::as_str));
                 if xnv.is_none() {
                     xnv = parse::parse_xn(text.get("xn").map(String::as_str), top);
