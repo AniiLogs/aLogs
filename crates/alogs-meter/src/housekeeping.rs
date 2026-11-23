@@ -18,6 +18,11 @@ pub const TEST_FRAME_BYTES: u64 = 3 << 30;
 pub const FIGHT_LOG_DAYS: f64 = 30.0;
 pub const LEFTOVER_HOURS: f64 = 6.0;
 pub const KEEP_FOLDERS: [&str; 3] = ["submit_queue", "fights", "characters"];
+/// The meter's pictures and diagnostics in logs/ all together (test pictures apart: TEST_FRAME_BYTES). Over it the
+/// oldest go first, whatever Keep screenshots says, except "Keep everything".
+pub const LOG_FOLDER_BYTES: u64 = 1 << 30;
+/// Nothing changed this recently goes for the size bound, nor a folder left empty: the fight going on now.
+pub const LOG_MIN_AGE_HOURS: f64 = 1.0;
 
 fn now() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
@@ -33,41 +38,42 @@ fn norm(p: &Path) -> String {
     p.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
-/// The meter's screenshots older than keep_hours (None or < 0: keep everything; 0: LEFTOVER_HOURS), except proof
-/// a queued record still has to send and the test pictures and character proofs. (files, bytes) removed. A fight's
-/// compressed log in logs/screens (fight evidence) counts as one of its pictures.
-pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64) {
-    let Some(h) = keep_hours.filter(|h| *h >= 0) else { return (0, 0) };
-    let cutoff = now() - if h == 0 { LEFTOVER_HOURS } else { h as f64 } * 3600.0;
-    let root = data.join("logs");
+/// Every file a record in the queue still names (made whole, normalised): its result screen, Battle Data, Party
+/// screen, character or dispute proof, Holo-Battle Sim gizmo screens and Interlink fight evidence. Kept until the
+/// record is sent or set aside (Submitter::enqueue_with_fight, link_character, the app's disputes).
+fn queued_files(data: &Path) -> std::collections::HashSet<String> {
     let mut needed = std::collections::HashSet::new();
-    if let Ok(rd) = std::fs::read_dir(root.join("submit_queue")) {
-        for e in rd.flatten() {
-            if let Some(item) = std::fs::read_to_string(e.path()).ok().and_then(|s| serde_json::from_str::<J>(&s).ok()) {
-                // every picture a queued record names (Submitter::enqueue_with_fight, link_character, the app's
-                // disputes): kept until it is sent or set aside
-                for key in ["evidence", "battle", "party", "proof"] {
-                    if let Some(p) = item.get(key).and_then(J::as_str).filter(|p| !p.is_empty()) {
-                        needed.insert(norm(&data.join(p)));
-                    }
-                }
-                // a Holo-Battle Sim run's gizmo screens
-                for p in item.get("gizmos").and_then(J::as_array).into_iter().flatten().filter_map(J::as_str).filter(|p| !p.is_empty()) {
-                    needed.insert(norm(&data.join(p)));
-                }
-                // an Interlink run's fight evidence: its pictures and its compressed log (fight_shots.rs)
-                let fight = item.get("fight").and_then(J::as_array).into_iter().flatten().filter_map(|e| e.get("file").and_then(J::as_str));
-                for p in fight.chain(item.get("fightlog").and_then(J::as_str)).filter(|p| !p.is_empty()) {
-                    needed.insert(norm(&data.join(p)));
-                }
+    let Ok(rd) = std::fs::read_dir(data.join("logs").join("submit_queue")) else { return needed };
+    for e in rd.flatten() {
+        let Some(item) = std::fs::read_to_string(e.path()).ok().and_then(|s| serde_json::from_str::<J>(&s).ok()) else { continue };
+        for key in ["evidence", "battle", "party", "proof"] {
+            if let Some(p) = item.get(key).and_then(J::as_str).filter(|p| !p.is_empty()) {
+                needed.insert(norm(&data.join(p)));
             }
         }
+        // a Holo-Battle Sim run's gizmo screens
+        for p in item.get("gizmos").and_then(J::as_array).into_iter().flatten().filter_map(J::as_str).filter(|p| !p.is_empty()) {
+            needed.insert(norm(&data.join(p)));
+        }
+        // an Interlink run's fight evidence: its pictures and its compressed log (fight_shots.rs)
+        let fight = item.get("fight").and_then(J::as_array).into_iter().flatten().filter_map(|e| e.get("file").and_then(J::as_str));
+        for p in fight.chain(item.get("fightlog").and_then(J::as_str)).filter(|p| !p.is_empty()) {
+            needed.insert(norm(&data.join(p)));
+        }
     }
+    needed
+}
+
+/// The files of logs/ the clean-up may remove, as (path, modified, bytes): the meter's pictures, its text diagnostics
+/// and a fight's compressed log in logs/screens; never what a queued record names, the character proofs or the test
+/// pictures (clean_test_frames has those).
+fn removable(data: &Path) -> Vec<(PathBuf, f64, u64)> {
+    let root = data.join("logs");
+    let needed = queued_files(data);
     let keep_dirs: Vec<String> = ["characters", "test_frames"].iter().map(|k| norm(&root.join(k))).collect();
-    let (mut files, mut size) = (0, 0);
+    let mut out = vec![];
     walk_bottom_up(&root, &mut |d: &Path, names: &[PathBuf]| {
-        let dn = norm(d);
-        if keep_dirs.iter().any(|k| dn.starts_with(k)) {
+        if keep_dirs.iter().any(|k| norm(d).starts_with(k)) {
             return;
         }
         let base = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -80,18 +86,74 @@ pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64)
             if needed.contains(&norm(p)) {
                 continue;
             }
-            if let Some((t, len)) = mtime(p)
-                && t < cutoff
-                && std::fs::remove_file(p).is_ok()
-            {
-                files += 1;
-                size += len;
+            if let Some((t, len)) = mtime(p) {
+                out.push((p.clone(), t, len));
             }
         }
-        if d != root && !KEEP_FOLDERS.contains(&base.as_str()) {
-            let _ = std::fs::remove_dir(d); // only when it's empty now
-        }
     });
+    out
+}
+
+/// When a folder was made (its last change where that isn't known): removing what's in it doesn't make it new.
+fn made(p: &Path) -> Option<f64> {
+    let m = std::fs::metadata(p).ok()?;
+    m.created().or_else(|_| m.modified()).ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs_f64())
+}
+
+/// The folders of logs/ left empty, except the kept ones and one made within LOG_MIN_AGE_HOURS (a fight that has just
+/// begun, its snapshots folder made at its start and nothing in it yet).
+fn remove_empty_dirs(data: &Path) {
+    let root = data.join("logs");
+    let keep_dirs: Vec<String> = ["characters", "test_frames"].iter().map(|k| norm(&root.join(k))).collect();
+    let young = now() - LOG_MIN_AGE_HOURS * 3600.0;
+    walk_bottom_up(&root, &mut |d: &Path, _| {
+        let base = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if d == root || KEEP_FOLDERS.contains(&base.as_str()) || keep_dirs.iter().any(|k| norm(d).starts_with(k)) || made(d).is_none_or(|t| t >= young) {
+            return;
+        }
+        let _ = std::fs::remove_dir(d); // only when it's empty now
+    });
+}
+
+/// The meter's screenshots older than keep_hours (None or < 0: keep everything; 0: LEFTOVER_HOURS), except proof
+/// a queued record still has to send and the test pictures and character proofs. (files, bytes) removed. A fight's
+/// compressed log in logs/screens (fight evidence) counts as one of its pictures.
+pub fn clean_old_screenshots(data: &Path, keep_hours: Option<i64>) -> (u64, u64) {
+    let Some(h) = keep_hours.filter(|h| *h >= 0) else { return (0, 0) };
+    let cutoff = now() - if h == 0 { LEFTOVER_HOURS } else { h as f64 } * 3600.0;
+    let (mut files, mut size) = (0, 0);
+    for (p, t, len) in removable(data) {
+        if t < cutoff && std::fs::remove_file(&p).is_ok() {
+            files += 1;
+            size += len;
+        }
+    }
+    remove_empty_dirs(data);
+    (files, size)
+}
+
+/// The same files while all of them together are over `limit` bytes: the oldest first, none changed within
+/// `min_age_hours` (the fight going on now, a run still being decided). (files, bytes) removed.
+pub fn clean_logs_over(data: &Path, limit: u64, min_age_hours: f64) -> (u64, u64) {
+    let mut all = removable(data);
+    let mut left: u64 = all.iter().map(|f| f.2).sum();
+    if left <= limit {
+        return (0, 0);
+    }
+    all.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let young = now() - min_age_hours * 3600.0;
+    let (mut files, mut size) = (0, 0);
+    for (p, t, len) in all {
+        if left <= limit || t >= young {
+            break;
+        }
+        if std::fs::remove_file(&p).is_ok() {
+            files += 1;
+            size += len;
+            left -= len;
+        }
+    }
+    remove_empty_dirs(data);
     (files, size)
 }
 
@@ -165,7 +227,8 @@ pub fn clean_test_frames(data: &Path, days: i64, limit: u64) -> (u64, u64) {
     (files, size)
 }
 
-/// At start and every hour: old screenshots, per-frame fight logs and test pictures.
+/// At start and every hour: old screenshots (then the oldest while over LOG_FOLDER_BYTES), per-frame fight logs and
+/// test pictures.
 pub fn start_cleanup(data: PathBuf, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         while !stop.load(Ordering::SeqCst) {
@@ -174,6 +237,12 @@ pub fn start_cleanup(data: PathBuf, stop: Arc<AtomicBool>) {
             let (f, s) = clean_old_screenshots(&data, Some(hours));
             if f > 0 {
                 log::info!(target: "meter", "removed {f} screenshots older than {} hours ({:.0} MB)", if hours == 0 { LEFTOVER_HOURS as i64 } else { hours }, s as f64 / 1048576.0);
+            }
+            if hours >= 0 {
+                let (f, s) = clean_logs_over(&data, LOG_FOLDER_BYTES, LOG_MIN_AGE_HOURS);
+                if f > 0 {
+                    log::info!(target: "meter", "removed {f} screenshots, the oldest, to keep them under {} GB ({:.0} MB)", LOG_FOLDER_BYTES >> 30, s as f64 / 1048576.0);
+                }
             }
             let (f, s) = clean_old_fight_logs(&data, FIGHT_LOG_DAYS);
             if f > 0 {
