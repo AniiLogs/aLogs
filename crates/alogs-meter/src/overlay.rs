@@ -121,10 +121,17 @@ fn rgb(c: &str) -> [u8; 3] {
 }
 
 /// Text with a soft dark shadow (blurred, a little down and right); the image and how far the text sits inside it.
+/// The shadow's margin round a label of `px` text: its window reaches this far past the text on every side.
+pub fn shadow_edge(px: f64) -> i64 {
+    let blur = ((px * 0.14).round_ties_even() as i64).max(1);
+    let drop = ((px * 0.06).round_ties_even() as i64).max(1);
+    2 * blur + drop
+}
+
 pub fn with_shadow(img: &Image, px: f64) -> (Image, i64) {
     let blur = ((px * 0.14).round_ties_even() as i64).max(1);
     let drop = ((px * 0.06).round_ties_even() as i64).max(1);
-    let edge = 2 * blur + drop;
+    let edge = shadow_edge(px);
     let (w, h) = (img.width + 2 * edge as usize, img.height + 2 * edge as usize);
     let mut out = Image::new(Mode::Rgba, w, h, &[0, 0, 0, 0]);
     let mut mask = Image::new(Mode::L, w, h, &[0]);
@@ -325,13 +332,27 @@ fn pos_key(name: &str) -> String {
     if name == "pct" { "hp_pct_line".to_string() } else { format!("hp_{name}") }
 }
 
-const TOTAL_Y: f64 = 0.022;
+/// The HP line's top under the bar, in spans from the bar's centre row: its window (shadow margin and all) starts
+/// below the break gauge's row (which ends at BREAK_BELOW.1 of the span, bar.rs), so nothing of ours lies on the gauge.
+/// (At 0.022 it sat over the gauge's right third, and a gauge above 67% read as ending there.)
+pub const TOTAL_Y: f64 = 0.030;
 const HP_SPOTS: [(&str, f64, f64, &str, f64); 4] = [
     ("pct", PCT_RIGHT, TOTAL_Y, "ne", 0.022),
     ("bar", 1.018, 0.0, "w", 0.024),
     ("total", 1.0, TOTAL_Y, "ne", 0.022),
-    ("break", 1.0, 0.049, "ne", 0.020),
+    ("break", 1.0, TOTAL_Y + 0.027, "ne", 0.020),
 ];
+
+/// The top of an HP label's window under the bar ("pct", "total", "break": the ones placed by their top), shadow
+/// margin and all, at its usual place (`bar`: the left bracket's x, the centre row, the span the labels go by).
+pub fn hp_label_top(name: &str, bar: (f64, f64, f64)) -> Option<f64> {
+    let (_, _, fy, anchor, fs) = *HP_SPOTS.iter().find(|s| s.0 == name)?;
+    if anchor != "ne" {
+        return None;
+    }
+    let px = (bar.2 * fs).round_ties_even().max(11.0);
+    Some(bar.1 + fy * bar.2 - shadow_edge(px) as f64)
+}
 
 impl Overlay {
     pub fn new(data: PathBuf, player_log: Option<PathBuf>, view: Arc<Mutex<View>>, rx: Receiver<(String, Value)>, hide: bool, own: Arc<Mutex<Own>>) -> Option<Overlay> {

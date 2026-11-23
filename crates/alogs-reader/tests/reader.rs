@@ -54,6 +54,23 @@ fn load(name: &str) -> Image {
     if im.mode == Mode::Rgb { im } else { im.convert(Mode::Rgb) }
 }
 
+/// Where the break gauge is read differently from the reference now (22 Nov): a line whose start is under our cover is
+/// read from where it shows right of it (as beside the game's lock icon), one that runs into our cover is unknown, and
+/// the furthest of the gauge's rows counts (a shaded edge row ended a little early).
+fn break_now(file: &str) -> Option<J> {
+    Some(match file {
+        "bar01_1600x900.png" => json!([0.9008849557522124, "white", false]),
+        "bar04_3440x1440.png" => json!([0.9014396456256921, "orange", false]),
+        "bar08_1920x1080.png" => json!([0.9010339734121122, "orange", false]),
+        "bar13_1600x900.png" => json!([0.3008849557522124, "white", false]),
+        "bar06_1280x720.png" => json!([null, "white", false]),
+        "bar05_3840x2160.png" => json!([0.2996309963099631, "orange", false]),
+        "bar16_3440x1440.png" => json!([0.3, "orange", false]),
+        "bar20_1920x1080.png" => json!([0.2998522895125554, "white", false]),
+        _ => return None,
+    })
+}
+
 #[test]
 fn frames_match_reference() {
     let g = goldens();
@@ -88,8 +105,10 @@ fn frames_match_reference() {
         check("fill", json!([num(f), fl, gh]), &c["fill"]);
         let (fa, col, edge) = bar::measure_fill_any(&im, &b, 70);
         check("fill_any", json!([num(fa), col, edge]), &c["fill_any"]);
-        let (bf, kind, broken) = bar::measure_break(&im, &b);
-        check("break", json!([bf.map(num), kind, broken]), &c["break"]);
+        let br = bar::measure_break(&im, &b);
+        let (bf, kind, broken) = (br.gauge, br.kind, br.broken);
+        let now = break_now(name).unwrap_or_else(|| c["break"].clone());
+        check("break", json!([bf.map(num), kind, broken]), &now);
         check("verify", json!(bar::verify_bar(&im, &b)), &c["verify"]);
         check("bossrush_bar", bar_json(&bar::as_bossrush_bar(&b)), &c["bossrush_bar"]);
         check("world_bar", bar_json(&bar::as_world_bar(&b)), &c["world_bar"]);

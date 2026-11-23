@@ -821,43 +821,159 @@ fn dark(p: Px) -> bool {
     *p.iter().max().unwrap() < 135
 }
 
-/// The break gauge: (fraction left or None, "white"/"orange"/None, broken).
-pub fn measure_break(im: &Image, bar: &Bar) -> (Option<f64>, Option<&'static str>, bool) {
+/// How far into the track the gauge's start can be hidden by the lock icon the game draws over the bar's bottom-left
+/// corner (the icon and its glow about 3.5% of the track, its pulsing red ring up to about 8%; the gauge line shows
+/// again right of it).
+pub const LOCK_ZONE: f64 = 0.09;
+/// The widest thing over the gauge line (a map marker) that the line is followed across, of the track.
+pub const LINE_GAP: f64 = 0.02;
+/// The HP row's share of "break yellow" that is the broken look: the recent-damage piece turns yellow while the boss is
+/// broken (2 to 12% of the track in the open world's broken state, none outside it).
+pub const BROKEN_YELLOW: f64 = 0.015;
+
+/// One look at the break gauge.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BreakRead {
+    /// The fraction left: None while it can't be told (no line and the track's start not seen empty, or a line that
+    /// runs into our own cover with its end unseen).
+    pub gauge: Option<f64>,
+    /// The line's colour, "white" or "orange" (the gauge when low, still draining).
+    pub kind: Option<&'static str>,
+    /// The broken look: the HP row's recent-damage piece in break yellow.
+    pub broken: bool,
+    /// The lock icon on the bar's bottom-left corner: the boss can't be broken now, whatever the gauge reads.
+    pub locked: bool,
+}
+
+/// Our COVER, or its edge blended with what is next to it (a picture scaled down).
+fn near_cover(p: Px) -> bool {
+    covered(p) || (p[0] >= 200 && p[2] >= 200 && u16::from(p[1]) + 60 <= u16::from(p[0].min(p[2])))
+}
+
+/// The track's own colour where the gauge line isn't: dark, or the broken state's dim olive glow; never the line, the
+/// lock icon's white and pink, or a flash.
+fn track_empty(p: Px) -> bool {
+    *p.iter().max().unwrap() < 200 && !gauge_white(p) && !gauge_orange(p)
+}
+
+/// The lock icon (the boss can't be broken now): a round badge over the track's start at the gauge's row, its white lock
+/// body just under the gauge line (about 1.2% of the span wide, 0.8% tall) between dark ring edges on both sides.
+pub fn lock_icon(im: &Image, bar: &Bar) -> bool {
+    let s = bar.span;
+    let tl = bar.track_left;
+    let at = |f: f64| (bar.yc as f64 + f * s) as i64;
+    let dx = |f: f64| tl + (f * s) as i64;
+    let (y0, y1) = (at(0.019), at(0.024).max(at(0.019) + 2));
+    let (bx0, bx1) = (dx(0.001), dx(0.011).max(dx(0.001) + 3));
+    let mut n = 0;
+    let mut white = 0;
+    for y in y0..y1 {
+        for x in bx0..bx1 {
+            n += 1;
+            if px(im, x, y).iter().min().copied().unwrap() >= 230 {
+                white += 1;
+            }
+        }
+    }
+    let ring = |xa: i64, xb: i64| (y0..y1).filter(|&y| (xa..xb.max(xa + 1)).any(|x| dark(px(im, x, y)))).count() * 2 >= (y1 - y0) as usize;
+    white * 10 >= n * 6 && ring(dx(-0.006), dx(-0.001)) && ring(dx(0.013), dx(0.018))
+}
+
+/// The break gauge, as one look shows it.
+///
+/// Read where it can be seen: the gauge line from the track's start, or, with its start hidden by the lock icon, from
+/// where it shows again right of the icon (the hidden start counts as line). A short piece at the start is a nearly
+/// empty gauge only when the empty track shows right after it; empty (no line) needs the broken look and the track's
+/// start seen empty (dark, or the broken state's glow), never hidden. A line that runs into our own windows' COVER is
+/// "at least this much": None, unless its end shows past it. Across something small over the line (a map marker) the
+/// line is followed on, and of the gauge's rows the furthest end counts.
+pub fn measure_break(im: &Image, bar: &Bar) -> BreakRead {
     let (w, h) = (im.width as i64, im.height as i64);
     let s = bar.span;
     let yc = bar.yc;
     let (left, right) = (bar.track_left, bar.track_right.min(w - 1));
     if right - left < 50 {
-        return (None, None, false);
+        return BreakRead::default();
     }
-    let yellow = (left..right).step_by(4).filter(|&x| break_yellow(px(im, x, yc))).count() as f64 / ((right - left) as f64 / 4.0);
-    let broken = yellow > 0.05;
+    let len = right - left;
+    let q = (bar.thickness / 4).max(1);
+    let broken = [yc - q, yc, yc + q]
+        .iter()
+        .map(|&y| (left..right).step_by(4).filter(|&x| break_yellow(px(im, x, y))).count() as f64 / (len as f64 / 4.0))
+        .fold(0.0, f64::max)
+        > BROKEN_YELLOW;
+    let locked = lock_icon(im, bar);
     let gap = pyround(0.004 * s).max(2);
     let (y0, y1) = ((yc as f64 + BREAK_BELOW.0 * s) as i64, (h - gap - 1).min((yc as f64 + BREAK_BELOW.1 * s) as i64 + 1));
     let x0 = left + 3;
+    let lock_end = left + (len as f64 * LOCK_ZONE) as i64;
+    let k = ((len as f64 * 0.02) as i64).max(6);
+    // most of k pixels from x on row y are the empty track
+    let empty_from = |x: i64, y: i64| (x..x + k).filter(|&x| track_empty(px(im, x, y))).count() * 10 >= k as usize * 7;
+    let reading = |last: i64| ((last + 1 - left) as f64 / len as f64).clamp(0.0, 1.0);
+    let read = |gauge: Option<f64>, kind: Option<&'static str>| BreakRead { gauge, kind, broken, locked };
+    let cap = ((len as f64 * 0.006) as i64).max(2); // (the line's bright end cap)
     let tests: [(fn(Px) -> bool, &str); 2] = [(gauge_white, "white"), (gauge_orange, "orange")];
+    // each row of the gauge's band, each colour: the line's end where it is found (its rows' edges are shaded, and
+    // something over one row breaks it there): the furthest wins
+    let mut best: Option<(i64, &'static str, bool)> = None;
     for y in y0..y1 {
         for (test, kind) in tests {
-            if !(test(px(im, x0, y)) && test(px(im, x0 + 3, y))) {
-                continue;
-            }
-            if !(1..gap + 2).any(|d| dark(px(im, x0, y - d))) || !(1..gap + 2).any(|d| dark(px(im, x0, y + d))) {
-                continue;
-            }
-            let (mut x, mut miss, mut last) = (x0, 0, x0);
-            while x < right && (test(px(im, x, y)) || covered(px(im, x, y)) || miss < 2) {
-                if test(px(im, x, y)) {
-                    miss = 0;
-                    last = x;
-                } else if !covered(px(im, x, y)) {
-                    miss += 1;
+            let line_at = |x: i64| {
+                test(px(im, x, y))
+                    && test(px(im, x + 3, y))
+                    && (1..gap + 2).any(|d| dark(px(im, x, y - d)))
+                    && (1..gap + 2).any(|d| dark(px(im, x, y + d)))
+            };
+            let mut start = x0;
+            while start < lock_end {
+                if !line_at(start) {
+                    start += 1;
+                    continue;
                 }
-                x += 1;
+                let (mut x, mut miss, mut last) = (start, 0, start);
+                loop {
+                    while x < right && (test(px(im, x, y)) || covered(px(im, x, y)) || miss < 2) {
+                        if test(px(im, x, y)) {
+                            miss = 0;
+                            last = x;
+                        } else if !covered(px(im, x, y)) {
+                            miss += 1;
+                        }
+                        x += 1;
+                    }
+                    // something small over the line (a map marker): the line goes on right after it
+                    match (last + 2..(last + 2 + (len as f64 * LINE_GAP) as i64).min(right)).find(|&x| line_at(x)) {
+                        Some(on) if last >= lock_end => (x, miss) = (on, 0),
+                        _ => break,
+                    }
+                }
+                if last < lock_end {
+                    // a short piece: a nearly empty gauge when it starts the track and the empty track shows after it;
+                    // else something over the start (the lock icon): the line is looked for further right
+                    if !(start <= x0 + 2 && empty_from(last + 3 + cap, y)) {
+                        start = last + 1;
+                        continue;
+                    }
+                }
+                // (one running into our cover with its end unseen is at least this much, not a reading)
+                let under = (last + 1..=last + 6).any(|x| near_cover(px(im, x, y)));
+                if best.is_none_or(|b| last > b.0) {
+                    best = Some((last, kind, under));
+                }
+                break;
             }
-            return (Some(((last + 1 - left) as f64 / (right - left) as f64).clamp(0.0, 1.0)), Some(kind), broken);
         }
     }
-    (if broken { Some(0.0) } else { None }, None, broken)
+    if let Some((last, kind, under)) = best {
+        return read(if under { None } else { Some(reading(last)) }, Some(kind));
+    }
+    // no line: empty when the track's start is seen empty on the gauge's rows and nothing bright lies over it on any
+    // (a flash or the lock icon over it says nothing)
+    let bright_from = |x: i64, y: i64| (x..x + k).filter(|&x| *px(im, x, y).iter().max().unwrap() >= 200).count() * 10 >= k as usize * 3;
+    let start_empty = (y0..y1).any(|y| empty_from(x0, y)) && !(y0..y1).any(|y| bright_from(x0, y));
+    // (and only with the broken look: a bar with no gauge at all shows an empty track too)
+    read(if start_empty && broken { Some(0.0) } else { None }, None)
 }
 
 /// The two brackets of a locked bar as this picture shows them (each within 2 px of its place).

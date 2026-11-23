@@ -21,6 +21,10 @@ pub const BREAK_CONFIRM_S: f64 = 0.5;
 
 /// The fill's colour is the boss bar's red: the bar itself was read on this look (else the fight CSV's fill_pct is
 /// empty: the bar hidden by a skill animation, gone, or covered by a flash).
+fn pct(g: Option<f64>) -> String {
+    g.map_or("unknown".into(), |g| format!("{:.1}%", g * 100.0))
+}
+
 pub fn bar_red(rgb: [u8; 3]) -> bool {
     let [r, g, b] = rgb;
     r >= 225 && (80..=140).contains(&g) && (75..=135).contains(&b)
@@ -103,6 +107,14 @@ impl Timer {
 }
 
 /// The break gauge over a fight: how fast the team drains it, how many breaks.
+///
+/// Live, each look comes with what the bar shows besides the gauge (`feed_look`): the lock icon (the boss can't be
+/// broken: no break counts while it is up, on any bar) and, on the open world's and Holo-Battle Sim's bar (`by_look`),
+/// the broken look (the HP row's recent-damage piece in yellow). There the phase is what is seen: an empty gauge with
+/// the broken look is a break at once; a white line growing from the left with the broken look is the refill; a line
+/// without it is the drain. An empty gauge without the broken look (and every empty gauge on an Interlink bar) counts
+/// once it has stayed empty BREAK_CONFIRM_S. Without the broken look to go by (an Interlink bar), a jump up of more
+/// than 12 points is a refill only when the next reading holds it.
 #[derive(Clone, Debug)]
 pub struct BreakTracker {
     pub size: Option<f64>,
@@ -118,9 +130,15 @@ pub struct BreakTracker {
     pub left: Option<f64>,
     pub kind: Option<&'static str>,
     /// An empty gauge not confirmed yet: (its first empty look, the drain's start then, the reading before it, the
-    /// gauge shown before it). The phase stays "drain" and nothing counts it until a look BREAK_CONFIRM_S on is still
-    /// empty; a spell still pending when the fight ends is never counted.
-    pending: Option<(f64, (f64, f64), Option<f64>, Option<f64>)>,
+    /// gauge shown before it, the lock icon seen meanwhile). The phase stays "drain" and nothing counts it until it is
+    /// confirmed; a spell still pending when the fight ends is never counted.
+    pending: Option<(f64, (f64, f64), Option<f64>, Option<f64>, bool)>,
+    /// A jump up in the drain waiting for the next reading to hold it: (the reading before it, the gauge shown before).
+    rise: Option<(Option<f64>, Option<f64>)>,
+    /// The lock icon is up: the boss can't be broken now.
+    pub locked: bool,
+    /// Looks whose gauge ran into our own cover with its end unseen (unknown), for the fight's end.
+    pub unknown_covered: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,6 +151,8 @@ pub struct BreakInfo {
     pub breaks: i64,
     pub last_after: Option<f64>,
     pub size: Option<f64>,
+    /// The lock icon is up (the boss can't be broken now).
+    pub locked: bool,
 }
 
 impl BreakTracker {
@@ -151,33 +171,64 @@ impl BreakTracker {
             left: None,
             kind: None,
             pending: None,
+            rise: None,
+            locked: false,
+            unknown_covered: 0,
         }
     }
 
-    /// One look's gauge reading, fed only when the fight's bar itself was read on that look (`bar_rgb`: the fill's
-    /// colour): with the bar hidden or gone, a gauge read where it was (a golden flash reads "broken") means nothing.
-    pub fn feed_look(&mut self, g: Option<f64>, kind: Option<&'static str>, bar_rgb: [u8; 3], now: f64) {
-        if bar_red(bar_rgb) {
-            self.feed(g, kind, now);
+    /// One look at the gauge, fed only when the fight's bar itself was read on that look (`bar_rgb`: the fill's
+    /// colour): with the bar hidden or gone, what shows where the gauge was means nothing. `by_look`: the open world's
+    /// or Holo-Battle Sim's bar, whose broken look decides the phase (not an Interlink bar's).
+    pub fn feed_look(&mut self, r: &alogs_reader::bar::BreakRead, bar_rgb: [u8; 3], by_look: bool, now: f64) {
+        if !bar_red(bar_rgb) {
+            return;
         }
+        if r.locked != self.locked {
+            self.locked = r.locked;
+            log::info!(target: "meter", "break gauge: lock icon {} (gauge {})", if r.locked { "up" } else { "gone" }, pct(r.gauge));
+        }
+        if r.gauge.is_none() && r.kind.is_some() {
+            self.unknown_covered += 1;
+        }
+        self.step(r.gauge, r.kind, (by_look && r.broken, r.locked, by_look), now);
     }
 
+    /// A reading with nothing else known of the look (no lock icon, no broken look): the gauge's own rules only.
     pub fn feed(&mut self, g: Option<f64>, kind: Option<&'static str>, now: f64) {
+        self.step(g, kind, (false, false, false), now);
+    }
+
+    fn step(&mut self, g: Option<f64>, kind: Option<&'static str>, look: (bool, bool, bool), now: f64) {
         let Some(g) = g else { return };
+        let (broken, locked, by_look) = look;
+        if self.prev.is_none() {
+            log::info!(target: "meter", "break gauge: first read {:.1}%", g * 100.0);
+        }
         let mut prev = self.prev;
         self.kind = kind;
-        if let Some((first, start, before, shown)) = self.pending {
+        if let Some((mut first, start, before, shown, mut lock_seen)) = self.pending {
             if g > 0.05 {
-                // back before it stayed empty: a misread, the drain carries on as if it never was
+                // back before it was confirmed: a misread, the drain carries on as if it never was
                 self.pending = None;
                 prev = before;
                 self.left = shown;
             } else {
                 self.prev = Some(g);
-                if g <= 0.02 && now - first >= BREAK_CONFIRM_S {
+                lock_seen |= locked;
+                if locked && !by_look {
+                    first = now; // (an Interlink bar: the wait starts again once the icon is gone)
+                }
+                let empty = g <= 0.02 && !locked;
+                // with the broken look at once; else once it stayed empty (on the open world's bar, an empty spell
+                // that saw the lock icon needs the broken look)
+                let waited = now - first >= BREAK_CONFIRM_S && !(by_look && lock_seen);
+                if empty && ((by_look && broken) || waited) {
                     self.pending = None;
                     self.left = Some(g);
                     self.count_break(first, start);
+                } else {
+                    self.pending = Some((first, start, before, shown, lock_seen));
                 }
                 return;
             }
@@ -191,15 +242,31 @@ impl BreakTracker {
                     self.start = Some((now, g));
                     self.recent.clear();
                 }
-                if prev.is_some_and(|p| g > p + 0.12) {
-                    self.phase = "refill";
-                    self.peak = g;
-                    self.start = None;
+                // (back up to where it stood a moment ago is no refill: the low reading between was a misread)
+                let stood = self.recent.iter().filter(|r| now - r.0 <= 2.0).map(|r| r.1).fold(0.0, f64::max);
+                let jump = !by_look && prev.is_some_and(|p| g > p + 0.12) && g > stood + 0.03;
+                if by_look && broken && g >= 0.05 {
+                    // a line with the broken look: the refill (its break not seen)
+                    self.refill(g);
+                } else if jump && self.rise.is_some() {
+                    self.refill(g);
+                } else if jump {
+                    // a jump up: a refill once the next reading holds it
+                    self.rise = Some((prev, shown));
+                    (self.prev, self.left) = (prev, shown);
                 } else if g <= 0.02 && prev.is_some_and(|p| p <= 0.5) {
-                    // empty: a break once it stays so (the gauge shown and the drain's figures wait for that)
-                    self.pending = Some((now, self.start.unwrap(), prev, shown));
-                    self.left = shown;
+                    // empty: a break at once with the broken look, else once it stays so (the gauge shown and the
+                    // drain's figures wait for that); never while the lock icon is up
+                    self.rise = None;
+                    let start = self.start.unwrap();
+                    if by_look && broken && !locked {
+                        self.count_break(now, start);
+                    } else {
+                        self.pending = Some((now, start, prev, shown, locked));
+                        self.left = shown;
+                    }
                 } else {
+                    self.rise = None; // (a jump that didn't hold: a misread)
                     self.recent.push_back((now, g));
                     while self.recent.front().is_some_and(|r| now - r.0 > 5.0) {
                         self.recent.pop_front();
@@ -207,20 +274,46 @@ impl BreakTracker {
                 }
             }
             "broken" => {
-                if g >= 0.05 {
-                    self.phase = "refill";
-                    self.peak = g;
+                if by_look {
+                    // the refill starts with the white line growing from the left; the bright flashes at the end of
+                    // the broken state are no line; a line without the broken look is the drain again
+                    if g >= 0.05 && !broken {
+                        self.drain_from(g, now);
+                    } else if broken && kind == Some("white") && (0.05..=0.3).contains(&g) {
+                        self.refill(g);
+                    }
+                } else if g >= 0.05 {
+                    self.refill(g);
                 }
             }
             _ => {
                 self.peak = self.peak.max(g);
-                if g >= 0.97 || g < self.peak - 0.03 {
-                    self.phase = "drain";
-                    self.start = Some((now, g));
-                    self.recent.clear();
+                if g >= 0.97 {
+                    log::info!(target: "meter", "break gauge: refill complete ({:.1}%)", g * 100.0);
+                    self.drain_from(g, now);
+                } else if by_look {
+                    if !broken {
+                        self.drain_from(g, now);
+                    }
+                } else if g < self.peak - 0.03 {
+                    self.drain_from(g, now);
                 }
             }
         }
+    }
+
+    fn refill(&mut self, g: f64) {
+        log::info!(target: "meter", "break gauge: refill starting ({:.1}%)", g * 100.0);
+        self.phase = "refill";
+        self.peak = g;
+        self.start = None;
+        self.rise = None;
+    }
+
+    fn drain_from(&mut self, g: f64, now: f64) {
+        self.phase = "drain";
+        self.start = Some((now, g));
+        self.recent.clear();
     }
 
     /// A break, dated from its first empty look `at`, the drain having started at `start`.
@@ -257,7 +350,7 @@ impl BreakTracker {
 
     pub fn info(&self, now: f64) -> BreakInfo {
         let (rate, rate_now) = self.rate(now);
-        BreakInfo { left: self.left, phase: self.phase, kind: self.kind, rate, rate_now, breaks: self.breaks, last_after: self.last_after, size: self.size }
+        BreakInfo { left: self.left, phase: self.phase, kind: self.kind, rate, rate_now, breaks: self.breaks, last_after: self.last_after, size: self.size, locked: self.locked }
     }
 }
 
