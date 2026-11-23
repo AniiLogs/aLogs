@@ -1,6 +1,6 @@
 //! The AniiLogs website inside the app: a second webview laid over the content area of the main window (the app's own
 //! page draws the tabs and leaves that area empty). It is the live site in its app view (`?embed=app`), so it always
-//! looks and behaves exactly like aniilogs.github.io with nothing to update here. Discord sign-in happens inside it;
+//! looks and behaves exactly like aniilogs.app (the site moved there from aniilogs.github.io on 23 Nov) with nothing to update here. Discord sign-in happens inside it;
 //! links that leave AniiLogs open in the default browser.
 
 use std::os::windows::process::CommandExt;
@@ -9,7 +9,7 @@ use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 const LABEL: &str = "site";
-const SITE: &str = "https://aniilogs.github.io";
+const SITE: &str = "https://aniilogs.app";
 const NO_WINDOW: u32 = 0x0800_0000;
 /// The page last asked for: showing the same tab again keeps the page as the user left it (scroll, sign-in, filters).
 static LAST_PAGE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());

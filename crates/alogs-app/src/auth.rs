@@ -48,7 +48,8 @@ fn close_signin_windows(app: &AppHandle, keep: Option<&str>) {
 #[tauri::command]
 pub async fn auth_window_open(app: AppHandle, url: String) -> Result<(), String> {
     let url: Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
-    if !crate::site::stays_inside(&url) || url.host_str() == Some("aniilogs.github.io") {
+    // sign-in starts on the API's own address only: Discord returns to it (the site's hosts are not sign-in pages)
+    if !crate::site::stays_inside(&url) || matches!(url.host_str(), Some("aniilogs.github.io" | "aniilogs.app")) {
         return Err("Not AniiLogs' sign-in page.".into());
     }
     let attempt = ATTEMPT.load(Ordering::SeqCst);
