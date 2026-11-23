@@ -556,6 +556,21 @@ impl Core {
         if !(18.0..=85.0).contains(&r) {
             return None;
         }
+        // the paths around the icon pick the door (once a second; slow-ish, and the door doesn't change while it's in view)
+        if self.portal_paths_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+            self.portal_paths_at = Some(Instant::now());
+            if let Some((door, _, fit, next)) = self.portal_by_paths(small, (dx, dy), isl) {
+                if self.portal_door.is_none_or(|(d, _)| d != door) {
+                    crate::log::write(&format!("island: the portal icon is the blue door at ({:.0},{:.0}) by its paths ({fit:.2}, next {next:.2})", door.0, door.1));
+                }
+                self.portal_door = Some((door, Instant::now()));
+            }
+        }
+        if let Some((door, at)) = self.portal_door
+            && at.elapsed() < Duration::from_secs(5)
+        {
+            return Some((door.0 - dx / 1.2, door.1 - dy / 1.2));
+        }
         let cands: Vec<P2> = isl.markers.iter().filter(|m| m.kind == "entrance_side").map(|m| (m.img[0] - dx / 1.2, m.img[1] - dy / 1.2)).collect();
         if let Some(n) = near {
             let mut best = None;

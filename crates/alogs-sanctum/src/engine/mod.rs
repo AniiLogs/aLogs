@@ -9,6 +9,7 @@ pub mod heading;
 pub mod map;
 pub mod named;
 pub mod places;
+pub mod portal_path;
 pub mod run;
 pub mod track;
 
@@ -264,6 +265,9 @@ pub struct Core {
     pub island_search: Option<JoinHandle<Option<P2>>>,
     pub island_search_run: Option<String>,
     pub portal_icon: Option<Option<Mat>>,
+    /// The blue door the paths last said a portal icon is (portal_path.rs), and when; when they were last compared.
+    pub portal_door: Option<(P2, Instant)>,
+    pub portal_paths_at: Option<Instant>,
     pub last_landmark: P2,
     pub last_landmark_at: Option<Instant>,
     pub odo_prev: Option<MatF>,
@@ -896,6 +900,8 @@ impl Engine {
             island_search: None,
             island_search_run: None,
             portal_icon: None,
+            portal_door: None,
+            portal_paths_at: None,
             last_landmark: (0.0, 0.0),
             last_landmark_at: None,
             odo_prev: None,
