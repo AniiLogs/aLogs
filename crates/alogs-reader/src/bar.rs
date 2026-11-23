@@ -4,7 +4,7 @@
 //! fraction of the bracket span, measured once on a 2000x1125 screenshot (span 789 px).
 
 use alogs_pil::ops::{darker, lighter};
-use alogs_pil::{Filter, Image, Mode, Transpose};
+use alogs_pil::{Filter, Image, Mode};
 use regex::bytes::Regex;
 use std::sync::Mutex;
 
@@ -168,73 +168,6 @@ fn is_bracket(im: &Image, x: i64, yc: i64, thick: i64, h: i64) -> bool {
     bracket_side(im, x, yc, thick, h) == Side::Pass
 }
 
-// OLD: the bracket test from before 22 Nov, kept as it was for a Holo-Battle Sim room (`find_bar_old`, `bar_at_old`,
-// `verify_bar_old`): nobody has seen whether a Sim bar is centred, or how its brackets look to the new test.
-
-fn line_px(im: &Image, x: i64, y: i64) -> bool {
-    let p = px(im, x, y);
-    if is_white(p) {
-        return true;
-    }
-    if *p.iter().min().unwrap() < 140 {
-        return false;
-    }
-    for nx in [x - 1, x + 1] {
-        if let Some(q) = px_at(im, nx, y)
-            && *q.iter().min().unwrap() >= 140
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn white_run(im: &Image, x: i64, yc: i64, reach: i64, h: i64) -> i64 {
-    ((yc - reach).max(0)..(yc + reach).min(h)).filter(|&y| line_px(im, x, y)).count() as i64
-}
-
-fn is_bracket_old(im: &Image, x: i64, yc: i64, thick: i64, w: i64, h: i64) -> bool {
-    if (white_run(im, x, yc, 2 * thick, h) as f64) < 1.3 * thick as f64 - 1.5 {
-        return false;
-    }
-    let off = (thick / 3).max(3);
-    let mut n = 0;
-    for s in [-off, off] {
-        for yy in [yc - thick / 3, yc + thick / 3] {
-            if is_white(px(im, (x + s).max(0).min(w - 1), yy)) {
-                n += 1;
-            }
-        }
-    }
-    n <= 2
-}
-
-/// `_bright_columns`: per column, how many pixels in the rows around `yc` have their darkest channel at 140 or more.
-fn bright_columns(im: &Image, yc: i64, reach: i64, h: i64) -> Option<Vec<u32>> {
-    let (y0, y1) = ((yc - reach).max(0), (yc + reach).min(h));
-    if y1 <= y0 {
-        return None;
-    }
-    let (r, g, b) = rgb3(&im.crop_i(0, y0, im.width as i64, y1));
-    let rows = darker(&darker(&r, &g), &b).point(|v| if v >= 140 { 1.0 } else { 0.0 });
-    let t = rows.transpose(Transpose::Transpose);
-    let hh = (y1 - y0) as usize;
-    Some((0..im.width).map(|x| t.data[x * hh..(x + 1) * hh].iter().filter(|&&v| v == 1).count() as u32).collect())
-}
-
-/// `verify_bar` by the rules from before 22 Nov (a Holo-Battle Sim room): both brackets within 2 px, the old test.
-pub fn verify_bar_old(im: &Image, bar: &Bar) -> bool {
-    if bar.track_right >= im.width as i64 || bar.yc >= im.height as i64 {
-        return false;
-    }
-    let (w, h) = (im.width as i64, im.height as i64);
-    let t = bar.thickness;
-    let lb = pyround(bar.left_bracket);
-    let rb = pyround(bar.left_bracket + bar.span);
-    let near = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).any(|x| is_bracket_old(im, x, bar.yc, t, w, h));
-    near(lb) && near(rb)
-}
-
 /// How the bracket near x0 (within 2 px) looks: Pass if any column passes, else Unknown if any is covered, else Fail.
 fn side_near(im: &Image, x0: i64, yc: i64, thick: i64) -> Side {
     let (w, h) = (im.width as i64, im.height as i64);
@@ -345,16 +278,6 @@ fn band_runs(bandim: &Image, gap: i64) -> Vec<(i64, i64, i64)> {
 
 /// Locate the boss bar: the best few red/orange rows, each checked for the bar's two white brackets.
 pub fn find_bar(im: &Image, cropped: bool, tries: usize) -> Option<Bar> {
-    find_bar_by(im, cropped, tries, false)
-}
-
-/// `find_bar` by the rules from before 22 Nov (`OLD` below): for a Holo-Battle Sim room, whose bar nobody has checked
-/// is centred.
-pub fn find_bar_old(im: &Image, cropped: bool, tries: usize) -> Option<Bar> {
-    find_bar_by(im, cropped, tries, true)
-}
-
-fn find_bar_by(im: &Image, cropped: bool, tries: usize, old: bool) -> Option<Bar> {
     let (w, h) = (im.width as i64, im.height as i64);
     let (y0, y1) = if cropped { (0, h) } else { (0, (h as f64 * 0.22) as i64) };
     let (x0, x1) = if cropped { (0, w) } else { ((w as f64 * 0.08) as i64, (w as f64 * 0.92) as i64) };
@@ -378,7 +301,7 @@ fn find_bar_by(im: &Image, cropped: bool, tries: usize, old: bool) -> Option<Bar
             continue;
         }
         tried.push(by);
-        match check_candidate(im, x0 + pyround(bs as f64 * f), y0 + pyround(by as f64 * f), d, cropped, None, true, true, old) {
+        match check_candidate(im, x0 + pyround(bs as f64 * f), y0 + pyround(by as f64 * f), d, cropped, None, true, true) {
             Ok(bar) => {
                 LAST_FAIL.lock().unwrap().clear();
                 return Some(bar);
@@ -409,33 +332,24 @@ pub struct Spot {
 
 /// The boss bar where it was last seen: the same checks as `find_bar` on that one spot.
 pub fn bar_at(im: &Image, spots: &[Spot]) -> Option<Bar> {
-    bar_at_by(im, spots, false)
-}
-
-/// `bar_at` by the rules from before 22 Nov (a Holo-Battle Sim room).
-pub fn bar_at_old(im: &Image, spots: &[Spot]) -> Option<Bar> {
-    bar_at_by(im, spots, true)
-}
-
-fn bar_at_by(im: &Image, spots: &[Spot], old: bool) -> Option<Bar> {
     let (w, h) = (im.width as i64, im.height as i64);
     let d = pyround(w as f64 / 960.0).max(1);
     for spot in spots {
-        if spot.frame != im.size() || (!old && !spot_centred(spot)) {
+        if spot.frame != im.size() || !spot_centred(spot) {
             // (a place that isn't centred is a wrong find: the bar always is)
             continue;
         }
         let (yc, t) = (spot.yc as i64, spot.thickness as i64);
         let lb = pyround(spot.left_bracket);
         let rb = pyround(spot.left_bracket + spot.span);
-        let at = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).find(|&x| if old { is_bracket_old(im, x, yc, t, w, h) } else { is_bracket(im, x, yc, t, h) });
+        let at = |x0: i64| ((x0 - 2).max(0)..(x0 + 3).min(w)).find(|&x| is_bracket(im, x, yc, t, h));
         if !(0 <= yc && yc < h && rb < w) {
             continue;
         }
         let Some(lbx) = at(lb) else { continue };
         let Some(rbx) = at(rb) else { continue };
         for dx in [2, 8, 20] {
-            if let Ok(bar) = check_candidate(im, spot.track_left as i64 + dx, spot.yc as i64, d, false, Some((lbx, rbx)), false, true, old) {
+            if let Ok(bar) = check_candidate(im, spot.track_left as i64 + dx, spot.yc as i64, d, false, Some((lbx, rbx)), false, true) {
                 return Some(bar);
             }
         }
@@ -467,10 +381,9 @@ fn bar_rows(im: &Image, col: i64, yg: i64, h: i64) -> (i64, i64) {
 }
 
 /// Refine one candidate run at full resolution and check it is the boss bar. `thick_check`: its thickness is checked
-/// against the picture's height (not in a picture of the top part only). `old`: by the rules from before 22 Nov (the
-/// thickness from one column, the old bracket test, the right bracket nearest the mirror within 6% of the width).
+/// against the picture's height (not in a picture of the top part only).
 #[allow(clippy::too_many_arguments)]
-fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets: Option<(i64, i64)>, fast: bool, thick_check: bool, old: bool) -> Result<Bar, String> {
+fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets: Option<(i64, i64)>, fast: bool, thick_check: bool) -> Result<Bar, String> {
     let (w, h) = (im.width as i64, im.height as i64);
     let col = (w - 1).min(xg + 4 * d);
     let mut yg = yg;
@@ -485,7 +398,7 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
     // The thickness is the most of a few columns along the fill: the break state's lock icon covers the lower half
     // of the bar's left end, and from one column there the bar read 13 to 16 px thick at 4K instead of 25 to 28
     // and its row 4 to 6 px high (92 of 526 finds in fights, 17-22 Nov).
-    for k in 1..=if old { 0 } else { 6 } {
+    for k in 1..=6 {
         let c = col + k * 6 * d;
         if c >= w || !colored(px(im, c, yg)) {
             break;
@@ -511,14 +424,7 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
     } else {
         let (_, s) = if fast { colored_run(im, yc, (xg - 4 * d).max(0), w) } else { longest_run(im, yc, (xg - 4 * d).max(0), w, colored) };
         start = s;
-        let bright = if old && fast { bright_columns(im, yc, 2 * thick, h) } else { None };
-        let need = 1.3 * thick as f64 - 1.5;
-        let bracket = |x: i64| {
-            if !old {
-                return is_bracket(im, x, yc, thick, h);
-            }
-            bright.as_ref().is_none_or(|b| f64::from(b[x as usize]) >= need) && is_bracket_old(im, x, yc, thick, w, h)
-        };
+        let bracket = |x: i64| is_bracket(im, x, yc, thick, h);
         let mut x = start - 1;
         while x > (start - 4 * thick).max(0) - 1 {
             if bracket(x) {
@@ -528,9 +434,8 @@ fn check_candidate(im: &Image, xg: i64, yg: i64, d: i64, cropped: bool, brackets
             x -= 1;
         }
         if let Some(l) = lb {
-            if cropped || old {
-                // (a crop isn't centred on the screen, and the old rules don't take the bar for centred: the right
-                // bracket nearest the mirror, from further off)
+            if cropped {
+                // (a crop isn't centred on the screen: the right bracket nearest the mirror, from further off)
                 let u = (w as f64).min(h as f64 * 16.0 / 9.0);
                 let hi = (w - 1).min((w as f64 - l + 0.06 * u) as i64);
                 let lo = ((l + 0.3 * u) as i64).max((w as f64 - l - 0.06 * u) as i64);
@@ -639,7 +544,7 @@ pub fn find_at(im: &Image, near: &Bar) -> Option<Bar> {
         return None;
     }
     let d = pyround(near.frame.0 as f64 / 960.0).max(1);
-    let b = check_candidate(im, near.track_left + 2, near.yc, d, false, None, true, false, false).ok()?;
+    let b = check_candidate(im, near.track_left + 2, near.yc, d, false, None, true, false).ok()?;
     Some(Bar { frame: near.frame, ..b })
 }
 
@@ -834,15 +739,20 @@ pub const BROKEN_YELLOW: f64 = 0.015;
 /// One look at the break gauge.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BreakRead {
-    /// The fraction left: None while it can't be told (no line and the track's start not seen empty, or a line that
-    /// runs into our own cover with its end unseen).
+    /// The fraction left: None while it can't be told (`unknown` says why).
     pub gauge: Option<f64>,
     /// The line's colour, "white" or "orange" (the gauge when low, still draining).
     pub kind: Option<&'static str>,
-    /// The broken look: the HP row's recent-damage piece in break yellow.
+    /// The broken look: the game's "250%" badge over the bar's right end (`badge`), or the HP row's recent-damage
+    /// piece in break yellow.
     pub broken: bool,
-    /// The lock icon on the bar's bottom-left corner: the boss can't be broken now, whatever the gauge reads.
-    pub locked: bool,
+    /// The "250%" badge is up (the boss is broken, or the gauge refilling after a break).
+    pub badge: bool,
+    /// The lock icon on the bar's bottom-left corner (the boss can't be broken now, whatever the gauge reads): Some(true)
+    /// up, Some(false) the track's start seen without it, None when this look can't tell.
+    pub locked: Option<bool>,
+    /// Why the gauge is unknown: "under our cover", "lock icon" (no line beside it) or "no line found".
+    pub unknown: Option<&'static str>,
 }
 
 /// Our COVER, or its edge blended with what is next to it (a picture scaled down).
@@ -856,12 +766,47 @@ fn track_empty(p: Px) -> bool {
     *p.iter().max().unwrap() < 200 && !gauge_white(p) && !gauge_orange(p)
 }
 
+/// The HP fill's colours, red to orange (and its yellow recent-damage piece): what the bar's own row shows.
+fn hp_fill(p: Px) -> bool {
+    p[0] >= 200 && p[1] <= 235 && p[2] <= 150 && p[0] >= p[2] + 70
+}
+
+/// The bar's centre row as this picture shows it: the middle of the HP fill's run at the track's left part, near
+/// `bar.yc` (a bar found a few pixels off, as the Holo-Battle Sim's bar sometimes is, still has its gauge read on the
+/// right rows). None when the fill can't be seen there (a flash, HP nearly gone).
+pub fn bar_row(im: &Image, bar: &Bar) -> Option<i64> {
+    let s = bar.span;
+    let len = (bar.track_right - bar.track_left) as f64;
+    let reach = (0.012 * s) as i64 + 2;
+    let need = ((bar.thickness as f64) * 0.6) as i64;
+    let mut rows = vec![];
+    for f in [0.10, 0.06, 0.03] {
+        let x = bar.track_left + (len * f) as i64;
+        // the run of fill rows through the row nearest the bar's own centre
+        let fill = |y: i64| hp_fill(px(im, x, y)) && hp_fill(px(im, x + 2, y));
+        let Some(mid) = (0..=reach).flat_map(|d| [bar.yc + d, bar.yc - d]).find(|&y| fill(y)) else { continue };
+        let (mut top, mut bot) = (mid, mid);
+        while top > bar.yc - 2 * reach && fill(top - 1) {
+            top -= 1;
+        }
+        while bot < bar.yc + 2 * reach && fill(bot + 1) {
+            bot += 1;
+        }
+        if bot - top + 1 >= need {
+            rows.push((top + bot) / 2);
+        }
+    }
+    rows.sort();
+    rows.get(rows.len() / 2).copied()
+}
+
 /// The lock icon (the boss can't be broken now): a round badge over the track's start at the gauge's row, its white lock
-/// body just under the gauge line (about 1.2% of the span wide, 0.8% tall) between dark ring edges on both sides.
-pub fn lock_icon(im: &Image, bar: &Bar) -> bool {
+/// body just under the gauge line (about 1.2% of the span wide, 0.8% tall) between dark ring edges on both sides. `yc`:
+/// the bar's centre row as the picture shows it.
+pub fn lock_icon(im: &Image, bar: &Bar, yc: i64) -> bool {
     let s = bar.span;
     let tl = bar.track_left;
-    let at = |f: f64| (bar.yc as f64 + f * s) as i64;
+    let at = |f: f64| (yc as f64 + f * s) as i64;
     let dx = |f: f64| tl + (f * s) as i64;
     let (y0, y1) = (at(0.019), at(0.024).max(at(0.019) + 2));
     let (bx0, bx1) = (dx(0.001), dx(0.011).max(dx(0.001) + 3));
@@ -879,44 +824,85 @@ pub fn lock_icon(im: &Image, bar: &Bar) -> bool {
     white * 10 >= n * 6 && ring(dx(-0.006), dx(-0.001)) && ring(dx(0.013), dx(0.018))
 }
 
+/// The game's "250%" badge over the bar's right end while the boss is broken (the open world's bar): the digits in pale
+/// yellow, four to six glyphs side by side, with the orange arrow right after them. `yc`: the bar's centre row as the
+/// picture shows it. (glyph columns, pale-yellow share of the text box, orange share of the arrow box), for
+/// `badge_up` and for checking it on pictures.
+pub fn badge_look(im: &Image, bar: &Bar, yc: i64) -> (usize, f64, f64) {
+    let s = bar.span;
+    let lb = bar.left_bracket;
+    let xs = |f: f64| (lb + f * s) as i64;
+    let ys = |f: f64| yc + (f * s) as i64;
+    let pale = |p: Px| p[0] >= 235 && p[1] >= 215 && (90..=210).contains(&p[2]);
+    let orange = |p: Px| p[0] >= 230 && (110..=200).contains(&p[1]) && p[2] <= 110;
+    let (tx0, tx1, y0, y1) = (xs(0.885), xs(0.975), ys(-0.028), ys(0.010));
+    let mut runs = 0;
+    let mut inrun = false;
+    let mut n = 0;
+    for x in tx0..tx1 {
+        let k = (y0..y1).filter(|&y| pale(px(im, x, y))).count();
+        n += k;
+        let on = k >= 3;
+        if on && !inrun {
+            runs += 1;
+        }
+        inrun = on;
+    }
+    let text = n as f64 / ((tx1 - tx0).max(1) * (y1 - y0).max(1)) as f64;
+    let (ax0, ax1) = (xs(0.972), xs(1.006));
+    let o = (ax0..ax1).flat_map(|x| (y0..y1).map(move |y| (x, y))).filter(|&(x, y)| orange(px(im, x, y))).count();
+    (runs, text, o as f64 / ((ax1 - ax0).max(1) * (y1 - y0).max(1)) as f64)
+}
+
+/// The "250%" badge is up (see `badge_look`).
+pub fn badge_up(im: &Image, bar: &Bar, yc: i64) -> bool {
+    let (runs, text, arrow) = badge_look(im, bar, yc);
+    (4..=7).contains(&runs) && (0.15..=0.60).contains(&text) && arrow >= 0.10
+}
+
 /// The break gauge, as one look shows it.
 ///
-/// Read where it can be seen: the gauge line from the track's start, or, with its start hidden by the lock icon, from
-/// where it shows again right of the icon (the hidden start counts as line). A short piece at the start is a nearly
-/// empty gauge only when the empty track shows right after it; empty (no line) needs the broken look and the track's
-/// start seen empty (dark, or the broken state's glow), never hidden. A line that runs into our own windows' COVER is
-/// "at least this much": None, unless its end shows past it. Across something small over the line (a map marker) the
-/// line is followed on, and of the gauge's rows the furthest end counts.
+/// The gauge's rows are found from the bar's own row as the picture shows it (`bar_row`), not only from where the bar
+/// was found. Read where it can be seen: the gauge line from the track's start, or, with its start hidden by the lock
+/// icon, from where it shows again right of the icon (the hidden start counts as line). A short piece at the start is a
+/// nearly empty gauge only when the empty track shows right after it; empty (no line) needs the broken look and the
+/// track's start seen empty (dark, or the broken state's glow), never hidden. A line that runs into our own windows'
+/// COVER is "at least this much": None, unless its end shows past it. Across something small over the line (a map
+/// marker) the line is followed on, and of the gauge's rows the furthest end counts.
 pub fn measure_break(im: &Image, bar: &Bar) -> BreakRead {
     let (w, h) = (im.width as i64, im.height as i64);
     let s = bar.span;
-    let yc = bar.yc;
     let (left, right) = (bar.track_left, bar.track_right.min(w - 1));
     if right - left < 50 {
-        return BreakRead::default();
+        return BreakRead { unknown: Some("no line found"), ..BreakRead::default() };
     }
+    let row = bar_row(im, bar);
+    let yc = row.unwrap_or(bar.yc);
     let len = right - left;
     let q = (bar.thickness / 4).max(1);
-    let broken = [yc - q, yc, yc + q]
+    let yellow = [yc - q, yc, yc + q]
         .iter()
         .map(|&y| (left..right).step_by(4).filter(|&x| break_yellow(px(im, x, y))).count() as f64 / (len as f64 / 4.0))
         .fold(0.0, f64::max)
         > BROKEN_YELLOW;
-    let locked = lock_icon(im, bar);
+    let badge = badge_up(im, bar, yc);
+    let broken = badge || yellow;
+    let icon = lock_icon(im, bar, yc);
     let gap = pyround(0.004 * s).max(2);
-    let (y0, y1) = ((yc as f64 + BREAK_BELOW.0 * s) as i64, (h - gap - 1).min((yc as f64 + BREAK_BELOW.1 * s) as i64 + 1));
+    let (y0, y1) = ((yc as f64 + BREAK_BELOW.0 * s) as i64 - 1, (h - gap - 1).min((yc as f64 + BREAK_BELOW.1 * s) as i64 + 2));
     let x0 = left + 3;
     let lock_end = left + (len as f64 * LOCK_ZONE) as i64;
     let k = ((len as f64 * 0.02) as i64).max(6);
     // most of k pixels from x on row y are the empty track
     let empty_from = |x: i64, y: i64| (x..x + k).filter(|&x| track_empty(px(im, x, y))).count() * 10 >= k as usize * 7;
+    let bright_from = |x: i64, y: i64| (x..x + k).filter(|&x| *px(im, x, y).iter().max().unwrap() >= 200).count() * 10 >= k as usize * 3;
     let reading = |last: i64| ((last + 1 - left) as f64 / len as f64).clamp(0.0, 1.0);
-    let read = |gauge: Option<f64>, kind: Option<&'static str>| BreakRead { gauge, kind, broken, locked };
     let cap = ((len as f64 * 0.006) as i64).max(2); // (the line's bright end cap)
     let tests: [(fn(Px) -> bool, &str); 2] = [(gauge_white, "white"), (gauge_orange, "orange")];
     // each row of the gauge's band, each colour: the line's end where it is found (its rows' edges are shaded, and
     // something over one row breaks it there): the furthest wins
     let mut best: Option<(i64, &'static str, bool)> = None;
+    let mut start_seen = false; // (the line found starting at the track's start: no icon over it)
     for y in y0..y1 {
         for (test, kind) in tests {
             let line_at = |x: i64| {
@@ -956,6 +942,7 @@ pub fn measure_break(im: &Image, bar: &Bar) -> BreakRead {
                         continue;
                     }
                 }
+                start_seen |= start <= x0 + 2;
                 // (one running into our cover with its end unseen is at least this much, not a reading)
                 let under = (last + 1..=last + 6).any(|x| near_cover(px(im, x, y)));
                 if best.is_none_or(|b| last > b.0) {
@@ -965,15 +952,29 @@ pub fn measure_break(im: &Image, bar: &Bar) -> BreakRead {
             }
         }
     }
-    if let Some((last, kind, under)) = best {
-        return read(if under { None } else { Some(reading(last)) }, Some(kind));
-    }
     // no line: empty when the track's start is seen empty on the gauge's rows and nothing bright lies over it on any
     // (a flash or the lock icon over it says nothing)
-    let bright_from = |x: i64, y: i64| (x..x + k).filter(|&x| *px(im, x, y).iter().max().unwrap() >= 200).count() * 10 >= k as usize * 3;
-    let start_empty = (y0..y1).any(|y| empty_from(x0, y)) && !(y0..y1).any(|y| bright_from(x0, y));
+    // (on the line's own rows: the band's edges can take in the HP fill's bottom row)
+    let (c0, c1) = ((yc as f64 + 0.0125 * s) as i64, (yc as f64 + 0.0185 * s) as i64 + 1);
+    let start_empty = (c0..c1).any(|y| empty_from(x0, y)) && !(c0..c1).any(|y| bright_from(x0, y));
+    // the icon: seen, or its place seen without it (the line from the track's start, or the empty track there); else
+    // this look can't tell
+    let locked = if icon {
+        Some(true)
+    } else if row.is_some() && (start_seen || start_empty) {
+        Some(false)
+    } else {
+        None
+    };
+    let read = |gauge: Option<f64>, kind: Option<&'static str>, unknown: Option<&'static str>| BreakRead { gauge, kind, broken, badge, locked, unknown };
+    if let Some((last, kind, under)) = best {
+        return if under { read(None, Some(kind), Some("under our cover")) } else { read(Some(reading(last)), Some(kind), None) };
+    }
     // (and only with the broken look: a bar with no gauge at all shows an empty track too)
-    read(if start_empty && broken { Some(0.0) } else { None }, None)
+    if start_empty && broken {
+        return read(Some(0.0), None, None);
+    }
+    read(None, None, Some(if icon { "lock icon" } else { "no line found" }))
 }
 
 /// The two brackets of a locked bar as this picture shows them (each within 2 px of its place).
@@ -1043,8 +1044,6 @@ pub struct EndsHold {
     /// Looks read at the held ends although their bracket check failed; search results not taken.
     pub held_reads: u32,
     pub not_taken: u32,
-    /// The meter said this fight's ends aren't held (a Holo-Battle Sim room).
-    pub old_noted: bool,
 }
 
 impl EndsHold {

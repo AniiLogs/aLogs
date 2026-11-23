@@ -71,7 +71,7 @@ fn near(got: Option<f64>, want: f64) -> bool {
 fn a_gauge_is_read_as_it_shows() {
     for left in [0.92, 0.42, 0.10] {
         let r = read(&drawn(left, WHITE, TRACK));
-        assert!(near(r.gauge, left) && r.kind == Some("white") && !r.broken && !r.locked, "{left}: {r:?}");
+        assert!(near(r.gauge, left) && r.kind == Some("white") && !r.broken && r.locked != Some(true), "{left}: {r:?}");
     }
     // low, still draining: the line turns orange
     for left in [0.27, 0.04] {
@@ -87,15 +87,15 @@ fn the_gauge_is_read_beside_the_lock_icon() {
         let mut im = drawn(left, line, TRACK);
         lock(&mut im);
         let r = read(&im);
-        assert!(near(r.gauge, left) && r.locked, "{left}: {r:?}");
+        assert!(near(r.gauge, left) && r.locked == Some(true), "{left}: {r:?}");
     }
     // with the gauge really empty under the icon: the start is hidden, so it isn't "empty"; the icon still shows
     let mut im = drawn(0.0, WHITE, TRACK);
     lock(&mut im);
     let r = read(&im);
-    assert!(r.gauge.is_none() && r.locked, "{r:?}");
+    assert!(r.gauge.is_none() && r.locked == Some(true) && r.unknown == Some("lock icon"), "{r:?}");
     // no icon: none told
-    assert!(!read(&drawn(0.35, WHITE, TRACK)).locked);
+    assert_eq!(read(&drawn(0.35, WHITE, TRACK)).locked, Some(false));
 }
 
 /// Our own cover over the gauge's right third: a gauge reaching under it is unknown; one ending before it reads true.
@@ -125,7 +125,7 @@ fn empty_needs_the_start_seen_empty() {
     let mut im = drawn(0.0, WHITE, GLOW);
     broken_look(&mut im);
     let r = read(&im);
-    assert_eq!((r.gauge, r.broken, r.locked), (Some(0.0), true, false), "{r:?}");
+    assert_eq!((r.gauge, r.broken, r.locked), (Some(0.0), true, Some(false)), "{r:?}");
     // a bright yellow flash where the gauge is: no reading
     let mut im = drawn(0.0, WHITE, [250, 235, 160]);
     broken_look(&mut im);

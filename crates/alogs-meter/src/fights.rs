@@ -108,13 +108,30 @@ impl Timer {
 
 /// The break gauge over a fight: how fast the team drains it, how many breaks.
 ///
-/// Live, each look comes with what the bar shows besides the gauge (`feed_look`): the lock icon (the boss can't be
-/// broken: no break counts while it is up, on any bar) and, on the open world's and Holo-Battle Sim's bar (`by_look`),
-/// the broken look (the HP row's recent-damage piece in yellow). There the phase is what is seen: an empty gauge with
-/// the broken look is a break at once; a white line growing from the left with the broken look is the refill; a line
-/// without it is the drain. An empty gauge without the broken look (and every empty gauge on an Interlink bar) counts
-/// once it has stayed empty BREAK_CONFIRM_S. Without the broken look to go by (an Interlink bar), a jump up of more
-/// than 12 points is a refill only when the next reading holds it.
+/// Live, each look comes with what the bar shows besides the gauge (`feed_look`, from `bar::measure_break`): the
+/// gauge (or unknown), the lock icon, and the broken look (the game's "250%" badge over the bar's right end, or the HP
+/// row's recent-damage piece in break yellow). Only looks on which the bar itself was read count; a look that can't
+/// tell the lock icon keeps its last state.
+///
+/// Every bar but an Interlink one (`by_look`: the open world's, a Holo-Battle Sim room's, any other) is a state machine
+/// on what is seen:
+/// - `drain`: a gauge line, no broken look. An empty gauge (no line, the track's start seen empty) with the broken
+///   look is a break: counted once, at once, dated from the first empty look, and the state is `broken`. An empty
+///   gauge without the broken look waits: a break once it has stayed empty BREAK_CONFIRM_S. A line with the broken
+///   look is `refill` (a break not seen).
+/// - `broken`: the broken look, no line (or only the bright flashes at its end). The white line growing from the left
+///   (3 to 30%) with the broken look still up is `refill`.
+/// - `refill`: the white line growing while the broken look is still up (the badge stays up until the gauge is full
+///   again: 22 Nov, the badge went with the line at 98.5 to 99.6%).
+/// - Back to `drain` (unbroken) only on a positive sighting: the bar read, a gauge line there, and the broken look gone.
+///   Time passing, the bar away (a cutscene hides the whole HUD), the gauge unknown or a flash change nothing: after a
+///   gap the state is what it was before it. So one broken spell is one break, however often the HUD goes and comes back.
+/// - The lock icon (the boss can't be broken): while it is up nothing counts a break; an empty spell that saw it needs
+///   the broken look.
+///
+/// An Interlink bar keeps its own rules (its broken state looks different): a break once the gauge has stayed empty
+/// BREAK_CONFIRM_S, the refill on a jump up of more than 12 points that the next reading holds, back to the drain at
+/// 97% or once it falls 3 points from its peak.
 #[derive(Clone, Debug)]
 pub struct BreakTracker {
     pub size: Option<f64>,
@@ -135,10 +152,13 @@ pub struct BreakTracker {
     pending: Option<(f64, (f64, f64), Option<f64>, Option<f64>, bool)>,
     /// A jump up in the drain waiting for the next reading to hold it: (the reading before it, the gauge shown before).
     rise: Option<(Option<f64>, Option<f64>)>,
-    /// The lock icon is up: the boss can't be broken now.
+    /// The lock icon is up: the boss can't be broken now (as last seen: a look that can't tell keeps it).
     pub locked: bool,
-    /// Looks whose gauge ran into our own cover with its end unseen (unknown), for the fight's end.
-    pub unknown_covered: u32,
+    /// The first of the empty readings in a row (for dating a break seen late).
+    first_empty: Option<f64>,
+    /// Looks whose gauge was unknown, by why ("under our cover", "no line found", "lock icon", "bar not read"), for
+    /// the fight's end.
+    pub unknown: Vec<(&'static str, u32)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -173,25 +193,45 @@ impl BreakTracker {
             pending: None,
             rise: None,
             locked: false,
-            unknown_covered: 0,
+            first_empty: None,
+            unknown: vec![],
         }
     }
 
+    fn note_unknown(&mut self, why: &'static str) {
+        match self.unknown.iter_mut().find(|u| u.0 == why) {
+            Some(u) => u.1 += 1,
+            None => self.unknown.push((why, 1)),
+        }
+    }
+
+    /// The looks whose gauge was unknown this fight, by why ("" when none).
+    pub fn unknown_summary(&self) -> String {
+        let n: u32 = self.unknown.iter().map(|u| u.1).sum();
+        if n == 0 {
+            return String::new();
+        }
+        format!("{n} looks ({})", self.unknown.iter().map(|(w, k)| format!("{w} {k}")).collect::<Vec<_>>().join(", "))
+    }
+
     /// One look at the gauge, fed only when the fight's bar itself was read on that look (`bar_rgb`: the fill's
-    /// colour): with the bar hidden or gone, what shows where the gauge was means nothing. `by_look`: the open world's
-    /// or Holo-Battle Sim's bar, whose broken look decides the phase (not an Interlink bar's).
+    /// colour): with the bar hidden or gone, what shows where the gauge was means nothing. `by_look`: any bar but an
+    /// Interlink one (the open world's, a Holo-Battle Sim room's), whose broken look decides the phase.
     pub fn feed_look(&mut self, r: &alogs_reader::bar::BreakRead, bar_rgb: [u8; 3], by_look: bool, now: f64) {
         if !bar_red(bar_rgb) {
+            self.note_unknown("bar not read");
             return;
         }
-        if r.locked != self.locked {
-            self.locked = r.locked;
-            log::info!(target: "meter", "break gauge: lock icon {} (gauge {})", if r.locked { "up" } else { "gone" }, pct(r.gauge));
+        if let Some(l) = r.locked
+            && l != self.locked
+        {
+            self.locked = l;
+            log::info!(target: "meter", "break gauge: lock icon {} (gauge {})", if l { "up" } else { "gone" }, pct(r.gauge));
         }
-        if r.gauge.is_none() && r.kind.is_some() {
-            self.unknown_covered += 1;
+        if r.gauge.is_none() {
+            self.note_unknown(r.unknown.unwrap_or("no line found"));
         }
-        self.step(r.gauge, r.kind, (by_look && r.broken, r.locked, by_look), now);
+        self.step(r.gauge, r.kind, (by_look && r.broken, self.locked, by_look), now);
     }
 
     /// A reading with nothing else known of the look (no lock icon, no broken look): the gauge's own rules only.
@@ -202,6 +242,11 @@ impl BreakTracker {
     fn step(&mut self, g: Option<f64>, kind: Option<&'static str>, look: (bool, bool, bool), now: f64) {
         let Some(g) = g else { return };
         let (broken, locked, by_look) = look;
+        if g <= 0.02 {
+            self.first_empty.get_or_insert(now);
+        } else if g > 0.05 {
+            self.first_empty = None;
+        }
         if self.prev.is_none() {
             log::info!(target: "meter", "break gauge: first read {:.1}%", g * 100.0);
         }
@@ -254,13 +299,14 @@ impl BreakTracker {
                     // a jump up: a refill once the next reading holds it
                     self.rise = Some((prev, shown));
                     (self.prev, self.left) = (prev, shown);
-                } else if g <= 0.02 && prev.is_some_and(|p| p <= 0.5) {
-                    // empty: a break at once with the broken look, else once it stays so (the gauge shown and the
-                    // drain's figures wait for that); never while the lock icon is up
+                } else if g <= 0.02 && (prev.is_some_and(|p| p <= 0.5) || (by_look && broken)) {
+                    // empty: a break at once with the broken look (also when the drain to it wasn't seen: the gauge
+                    // unread for a while), dated from the first empty look; else once it stays so (the gauge shown
+                    // and the drain's figures wait for that); never while the lock icon is up
                     self.rise = None;
                     let start = self.start.unwrap();
                     if by_look && broken && !locked {
-                        self.count_break(now, start);
+                        self.count_break(self.first_empty.unwrap_or(now), start);
                     } else {
                         self.pending = Some((now, start, prev, shown, locked));
                         self.left = shown;
@@ -278,8 +324,9 @@ impl BreakTracker {
                     // the refill starts with the white line growing from the left; the bright flashes at the end of
                     // the broken state are no line; a line without the broken look is the drain again
                     if g >= 0.05 && !broken {
+                        log::info!(target: "meter", "break gauge: unbroken again ({:.1}%)", g * 100.0);
                         self.drain_from(g, now);
-                    } else if broken && kind == Some("white") && (0.05..=0.3).contains(&g) {
+                    } else if broken && kind == Some("white") && (0.03..=0.3).contains(&g) {
                         self.refill(g);
                     }
                 } else if g >= 0.05 {
@@ -287,15 +334,17 @@ impl BreakTracker {
                 }
             }
             _ => {
-                self.peak = self.peak.max(g);
-                if g >= 0.97 {
+                if g >= 0.97 && self.peak < 0.97 {
                     log::info!(target: "meter", "break gauge: refill complete ({:.1}%)", g * 100.0);
-                    self.drain_from(g, now);
-                } else if by_look {
+                }
+                self.peak = self.peak.max(g);
+                if by_look {
+                    // unbroken again: a line with the broken look gone
                     if !broken {
+                        log::info!(target: "meter", "break gauge: unbroken again ({:.1}%)", g * 100.0);
                         self.drain_from(g, now);
                     }
-                } else if g < self.peak - 0.03 {
+                } else if g >= 0.97 || g < self.peak - 0.03 {
                     self.drain_from(g, now);
                 }
             }
