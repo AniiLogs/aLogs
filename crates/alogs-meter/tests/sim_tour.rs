@@ -21,6 +21,53 @@ fn tour_helpers_match_python() {
     }
 }
 
+/// A view with one name not read (a row cut at the list's edge read as something else, or one the OCR missed) lines up
+/// with the list so far instead of being added whole (22 Nov: 38 picks of 32, rows taken twice or three times).
+#[test]
+fn a_view_missing_one_name_still_lines_up() {
+    let v = |s: &str| -> Vec<String> { s.split(',').filter(|x| !x.is_empty()).map(String::from).collect() };
+    let list = v("Energizing Bracer α,Reflective Barrier α,Flamewreath Armor,Lossless Power Supply,Blessing of Protection,Flawless Defense,Resolute Defense,Charging Shield");
+    let cases = [
+        // a name the view missed inside the overlap: kept once
+        ("Energizing Bracer α,Reflective Barrier α,Flamewreath Armor,Lossless Power Supply,Blessing of Protection",
+         "Reflective Barrier α,Lossless Power Supply,Blessing of Protection,Flawless Defense"),
+        // a name the views before missed: it goes in its place
+        ("Energizing Bracer α,Reflective Barrier α,Flamewreath Armor,Blessing of Protection",
+         "Reflective Barrier α,Flamewreath Armor,Lossless Power Supply,Blessing of Protection,Flawless Defense"),
+        // the cut first row read as another name
+        ("Energizing Bracer α,Reflective Barrier α,Flamewreath Armor,Lossless Power Supply,Blessing of Protection",
+         "Charging Shield,Flamewreath Armor,Lossless Power Supply,Blessing of Protection,Flawless Defense"),
+        // the list's last name read so far not in the view (cut at its bottom before, at its top now)
+        ("Energizing Bracer α,Reflective Barrier α,Flamewreath Armor,Lossless Power Supply,Blessing of Protection,Flawless Defense",
+         "Flamewreath Armor,Lossless Power Supply,Blessing of Protection,Resolute Defense,Charging Shield"),
+    ];
+    for (rows, view) in cases {
+        let got = sim_stitch(&v(rows), &v(view));
+        assert_eq!(got, list[..got.len()].to_vec(), "{rows} + {view}");
+        assert!(got.len() >= 6, "{got:?}");
+    }
+    // the plain cases as before: an exact overlap, a view that adds nothing, nothing in common
+    assert_eq!(sim_stitch(&list[..5], &list[3..8]), list);
+    assert_eq!(sim_stitch(&list, &list[4..8]), list);
+    assert_eq!(sim_stitch(&v("A,B"), &v("C,D")), v("A,B,C,D"));
+    assert_eq!(sim_stitch(&v("A,B"), &v("B,C")), v("A,B,C"));
+    // a real repeat (two of the same gizmo) at the seam is kept
+    assert_eq!(sim_stitch(&v("A,B,C"), &v("B,C,C,D")), v("A,B,C,C,D"));
+}
+
+/// More picks read for a series than its badge says is a misread: the series is left unread. Equal or fewer is a read.
+#[test]
+fn a_series_read_over_its_badge_is_unread() {
+    use alogs_meter::sim_tour::series_overread;
+    let r = |s: &str| -> Vec<String> { s.split(',').map(String::from).collect() };
+    let defense = r("Reflective Barrier α,Reflective Barrier α,Flawless Defense,Flawless Defense,Resolute Defense,Charging Shield,Refined Steel");
+    assert_eq!(sim_count(&defense), 9);
+    assert!(series_overread(&defense, Some(6), false));
+    assert!(!series_overread(&r("Reflective Barrier α,Flawless Defense,Resolute Defense,Charging Shield"), Some(6), false));
+    assert!(!series_overread(&r("Reflective Barrier α,Flawless Defense"), Some(6), true), "short of its badge: read, whatever All says");
+    assert!(series_overread(&defense, None, true) && !series_overread(&defense, None, false));
+}
+
 /// The Victory screen's prompt in either mode lets the tour click at once; anything else is waited for a moment.
 #[test]
 fn the_victory_screens_prompt_in_either_mode() {
