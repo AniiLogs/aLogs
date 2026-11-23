@@ -41,7 +41,7 @@ stages: {
   visits: [{                    // one per entry into a Sim space, oldest first; at most 12 (the newest)
     enteredAt, leftAt?,         // unix seconds, one decimal; leftAt missing while still inside (or aLogs closed)
     fromStart,                  // false: the meter started in the middle of this visit
-    levels: [{n, of, t}],       // every change of the "n/N" counter, read on two looks in a row; at most 40
+    levels: [{n, of, t}],       // every change of the "n/N" counter, read on two looks in a row (or one, see below); at most 40
     areas:  [{t}],              // every area start in the Sim's space (the game's log); at most 80
     fights: [{t, s, damage, id, defeated, breaks}],  // fights followed to their end: t = end, s = length, id = puppet id; at most 80
     reads:  {made, counter}     // level reads made, and how many read a plausible counter
@@ -50,8 +50,10 @@ stages: {
 }
 ```
 
-- The counter is read about once a second in a Sim room while no boss bar or fight is on (the exit gate watch's own
-  reads count in its place), whether or not the `sim_gate` automation is on.
+- The counter is read about once a second in a Sim room (the exit gate watch's own reads count in its place), whether
+  or not the `sim_gate` automation is on. In a fight or with a boss bar up it rides along with the bar's text read, on
+  the bar's background OCR helper. After an area start the next read is made at once, and one read of the level after
+  the last one within 10 s of the area start is that level (the area start is its second look).
 - A run can be paused, left and continued: the record is kept per UID in `logs/sim_stages.json` in the meter's data
   folder (whole file, written at each visit, level, area start and fight, read counts at most every 30 s). A visit
   continues it when its first level has the same N and n not lower than the last one kept; 1/N or another N starts a

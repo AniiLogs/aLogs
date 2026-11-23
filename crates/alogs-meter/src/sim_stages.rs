@@ -23,8 +23,14 @@ pub const MAX_AREAS: usize = 80;
 pub const MAX_FIGHTS: usize = 80;
 /// A record whose last visit is older than this is dropped when it is loaded.
 pub const KEEP_S: f64 = 14.0 * 86400.0;
-/// The level counter is read at most this often (the exit gate watch's own faster reads are used in its place).
+/// The level counter is read at most this often (the exit gate watch's own faster reads are used in its place), in
+/// and out of fights; the first read after an area start doesn't wait for it.
 pub const READ_EVERY_S: f64 = 1.0;
+/// One read of the level after the last one is that level when it comes this soon after an area start (the area
+/// start is its second witness): a level that is a fight almost from its first second gets few reads.
+pub const AREA_WITNESS_S: f64 = 10.0;
+/// The key of the counter's crop when it rides along with the boss bar's text read (in a fight, or a bar up).
+pub const BAR_KEY: &str = "sim_level";
 /// Read counts alone are written this often at most (levels, areas, fights and visits are written at once).
 pub const SAVE_READS_S: f64 = 30.0;
 pub const FILE: &str = "sim_stages.json";
@@ -209,6 +215,10 @@ pub struct Stages {
     /// A plausible new counter read once, waiting for the next look to agree: (n, N, when).
     cand: Option<(i64, i64, f64)>,
     pub last_read: f64,
+    /// An area start came since the last read: the next read is made as soon as a picture allows.
+    pub force: bool,
+    /// The last area start in the open visit, until a read after it confirmed a level from one look.
+    area_at: Option<f64>,
     /// The last area start seen in the log: (space, when, from the look back at the meter's start).
     last_enter: Option<(String, f64, bool)>,
     enters: u64,
@@ -242,6 +252,7 @@ impl Stages {
         self.open = true;
         self.decided = false;
         self.cand = None;
+        self.area_at = None;
         self.dirty = true;
         format!("Holo-Battle Sim: visit {n} starts{}; {kept}", if from_start { "" } else { " (the meter started in the middle of it)" })
     }
@@ -253,9 +264,21 @@ impl Stages {
         }
         self.open = false;
         self.cand = None;
+        self.force = false;
+        self.area_at = None;
+    }
+
+    /// Whether a level read is due: a second after the last one, or at once after an area start.
+    pub fn due(&self, now: f64) -> bool {
+        self.force || now - self.last_read >= READ_EVERY_S
     }
 
     pub fn area(&mut self, t: f64) {
+        if !self.open {
+            return;
+        }
+        self.force = true;
+        self.area_at = Some(t);
         let Some(v) = self.visit() else { return };
         if v.areas.len() < MAX_AREAS {
             v.areas.push(t);
@@ -278,6 +301,7 @@ impl Stages {
     /// One level read (the OCR's text, None when nothing came back). Returns the log line of a level change.
     pub fn read(&mut self, text: Option<&str>, now: f64) -> Option<String> {
         self.last_read = now;
+        self.force = false;
         let decided = self.decided;
         let of_now = self.rec.as_ref().and_then(Record::of);
         let v = self.visit()?;
@@ -293,6 +317,13 @@ impl Stages {
         if v.levels.last().is_some_and(|l| l.n == n && l.of == of) {
             self.cand = None;
             return None;
+        }
+        // the level after the last one, read once soon after an area start: the area start is the second look
+        let next = self.rec.as_ref().and_then(Record::last_level).is_some_and(|l| l.of == of && n == l.n + 1);
+        if next && self.area_at.is_some_and(|a| now >= a && now - a <= AREA_WITNESS_S) {
+            self.cand = None;
+            self.area_at = None;
+            return Some(format!("{} (one read, after an area start)", self.level(n, of, now)));
         }
         match self.cand {
             Some((cn, cof, t)) if cn == n && cof == of => {
@@ -357,6 +388,8 @@ impl Stages {
         self.open = false;
         self.decided = false;
         self.cand = None;
+        self.force = false;
+        self.area_at = None;
         self.dirty = true;
         let rec = rec.filter(|r| r.visits.iter().any(Visit::saw_something))?;
         let line = format!(
@@ -532,8 +565,9 @@ impl Meter {
         self.stages_save(false);
     }
 
-    /// About once a second, in a Sim room with no boss bar or fight on and aLogs not holding the screen: reads the
-    /// level counter, unless the exit gate watch read it in the last second.
+    /// About once a second (at once after an area start), in a Sim room with no boss bar or fight on and aLogs not
+    /// holding the screen: reads the level counter, unless the exit gate watch read it in the last second. In a fight
+    /// or with a bar up it is read along with the bar's text instead (`stages_bar_crop`).
     pub fn stages_look(&mut self, im: &Image, now: f64, foreground: bool, screen_copy: bool) {
         if !self.holosim_space || self.args.replay || !self.stages.open || self.fight.is_some() || self.bar.is_some() || self.sim.tour.is_some() || self.sim.ctl.is_some() {
             return;
@@ -542,21 +576,50 @@ impl Meter {
         if screen_copy && !foreground {
             return;
         }
-        if now - self.stages.last_read < READ_EVERY_S {
+        if !self.stages.due(now) {
             return;
         }
-        let text = self.stage_counter_text(im);
+        let Some(crop) = self.stage_counter_crop(im) else { return };
+        let mut c = IndexMap::new();
+        c.insert("l".to_string(), crop);
+        let text = self.ocr.read(&c, &IndexMap::new(), &IndexMap::new()).get("l").cloned().unwrap_or_default();
         self.stages_feed(Some(&text), now);
     }
 
-    /// The OCR of the level counter's box at the top left ("4/16"), as the exit gate watch reads it.
-    pub fn stage_counter_text(&self, im: &Image) -> String {
-        let (w, h) = (im.width as f64, im.height as f64);
+    /// In a fight or with a boss bar up, on a look whose boss bar text is read: the counter's crop to read along with
+    /// it (on the bar's background OCR helper live, so no look waits for it), when a level read is due and this look's
+    /// picture holds the counter's box. The read is counted as made now; its text comes back to `stages_feed` with
+    /// this time.
+    pub fn stages_bar_crop(&mut self, im: &Image, now: f64, foreground: bool, screen_copy: bool) -> Option<Image> {
+        if !self.holosim_space || self.args.replay || !self.stages.open || self.sim.tour.is_some() || self.sim.ctl.is_some() {
+            return None;
+        }
+        if (screen_copy && !foreground) || !self.stages.due(now) {
+            return None;
+        }
+        let crop = self.stage_counter_crop(im)?;
+        self.stages.last_read = now; // (the pace holds while the read is on its way)
+        self.stages.force = false;
+        Some(crop)
+    }
+
+    /// The frame's measures: the frame's size (a fight's top-part picture is only the frame's top), or the picture's.
+    fn stage_frame(&self, im: &Image) -> (f64, f64) {
+        if self.frame_size.0 > 0 && self.frame_size.1 > 0 { (self.frame_size.0 as f64, self.frame_size.1 as f64) } else { (im.width as f64, im.height as f64) }
+    }
+
+    /// The level counter's box prepared for the OCR ("4/16" at the top left, as the exit gate watch reads it), or None
+    /// when this look's picture doesn't hold the box (a fight's top-part picture, the frame's top 0.42, holds it; a
+    /// band under a boss bar high up may not).
+    pub fn stage_counter_crop(&self, im: &Image) -> Option<Image> {
+        let (w, h) = self.stage_frame(im);
         let u = w.min(h * 16.0 / 9.0);
         let ux = (w - u) / 2.0;
-        let mut c = IndexMap::new();
-        c.insert("l".to_string(), prep::prep_bright(im, (ux + u * 0.02, h * 0.015, ux + u * 0.20, h * 0.08), u / 2000.0, 2.0));
-        self.ocr.read(&c, &IndexMap::new(), &IndexMap::new()).get("l").cloned().unwrap_or_default()
+        let b = (ux + u * 0.02, h * 0.015, ux + u * 0.20, h * 0.08);
+        if (im.width as f64) < b.2.ceil() || (im.height as f64) < b.3.ceil() {
+            return None;
+        }
+        Some(prep::prep_bright(im, b, u / 2000.0, 2.0))
     }
 
     /// The record for the win being sent (`extra.stages`), cleared. None when nothing was seen.

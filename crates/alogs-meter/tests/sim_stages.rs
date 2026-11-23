@@ -325,3 +325,121 @@ fn the_counter_is_read_once_a_second_and_only_in_a_visit() {
     }
     eprintln!("level read at 4K without the OCR: {:.2} ms", t.elapsed().as_secs_f64() * 1000.0 / 20.0);
 }
+
+/// A fight look's picture: the frame's top part (TOP_PART of a 4K frame), as the meter copies it in a fight.
+fn top_part() -> Image {
+    Image::new(alogs_pil::Mode::Rgb, 3840, (2160.0 * alogs_meter::meter::TOP_PART) as usize, &[40, 40, 40])
+}
+
+/// One look in a fight (or with a boss bar up) whose bar text is read: the counter rides along when it is due.
+fn fight_look(m: &mut Meter, im: &Image, t: f64, text: &str) -> bool {
+    at(m, t);
+    let crop = m.stages_bar_crop(im, T0 + t, true, false);
+    if crop.is_some() {
+        m.stages_feed(Some(text), T0 + t);
+    }
+    crop.is_some()
+}
+
+#[test]
+fn a_level_that_is_all_fight_is_read_in_the_fight_once_a_second() {
+    let data = dir("stages-fight");
+    let mut m = meter(&data, 0.0, Some("1"));
+    m.frame_size = (3840, 2160);
+    enter(&mut m, SIM, Some(0.0));
+    level(&mut m, 10.0, 5, 16);
+    // the next level is a fight from its first second (no area start seen: the two-look rule)
+    let im = top_part();
+    let mut read = 0;
+    for i in 0..=16 {
+        read += usize::from(fight_look(&mut m, &im, 200.0 + i as f64 * 0.25, "6/16"));
+    }
+    assert_eq!(read, 5, "at 200, 201, 202, 203 and 204 s: once a second in a fight too");
+    assert_eq!(levels(&m), vec![(5, 16), (6, 16)]);
+    assert_eq!(m.stages.rec.as_ref().unwrap().last_level().unwrap().t, T0 + 200.0, "the first of the two looks");
+    // a band under a bar high up doesn't hold the counter's box: no read
+    let band = Image::new(alogs_pil::Mode::Rgb, 3840, 150, &[40, 40, 40]);
+    at(&m, 300.0);
+    assert!(m.stages_bar_crop(&band, T0 + 300.0, true, false).is_none());
+    // a whole frame does; a copy of the screen with the game behind another window doesn't count
+    let whole = Image::new(alogs_pil::Mode::Rgb, 3840, 2160, &[40, 40, 40]);
+    assert!(m.stages_bar_crop(&whole, T0 + 300.0, false, true).is_none());
+    assert!(m.stages_bar_crop(&whole, T0 + 300.0, true, false).is_some());
+    // outside a visit: never
+    enter(&mut m, "9-9-9", Some(0.0));
+    assert!(m.stages_bar_crop(&whole, T0 + 400.0, true, false).is_none());
+    // what the ride-along costs the look (the box's crop and its prep at 4K; the OCR is on the bar's helper)
+    let t = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(m.stage_counter_crop(&im));
+    }
+    eprintln!("level crop + prep at 4K: {:.2} ms", t.elapsed().as_secs_f64() * 1000.0 / 20.0);
+}
+
+#[test]
+fn a_short_level_right_after_an_area_start_is_one_read() {
+    let data = dir("stages-area-one");
+    let mut m = meter(&data, 0.0, Some("1"));
+    m.frame_size = (3840, 2160);
+    enter(&mut m, SIM, Some(0.0));
+    level(&mut m, 10.0, 5, 16);
+    let im = top_part();
+    // a read half a second ago: an area start makes the next read due at once
+    assert!(fight_look(&mut m, &im, 99.8, "5/16"));
+    at(&m, 100.0);
+    enter(&mut m, SIM, Some(0.0));
+    assert!(m.stages.due(T0 + 100.1));
+    assert!(fight_look(&mut m, &im, 100.1, "6/16"), "not held back by the second");
+    assert_eq!(levels(&m), vec![(5, 16), (6, 16)], "one read after an area start");
+    assert_eq!(m.stages.rec.as_ref().unwrap().last_level().unwrap().t, T0 + 100.1);
+    // the level lasted 6 s; the next area start, out of a fight this time
+    at(&m, 106.0);
+    enter(&mut m, SIM, Some(0.0));
+    let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    m.ocr = Box::new(Counted(n.clone(), "7/16"));
+    let whole = Image::new(alogs_pil::Mode::Rgb, 3840, 2160, &[40, 40, 40]);
+    m.stages_look(&whole, T0 + 106.2, true, false);
+    assert_eq!(levels(&m).last(), Some(&(7, 16)));
+    assert_eq!(levels(&m).len(), 3);
+}
+
+#[test]
+fn a_stray_read_still_needs_its_second_look() {
+    let data = dir("stages-area-stray");
+    let mut m = meter(&data, 0.0, Some("1"));
+    enter(&mut m, SIM, Some(0.0));
+    level(&mut m, 10.0, 5, 16);
+    // not the level after the last one, though right after an area start
+    at(&m, 100.0);
+    enter(&mut m, SIM, Some(0.0));
+    read(&mut m, 101.0, "8/16");
+    assert_eq!(levels(&m), vec![(5, 16)]);
+    read(&mut m, 102.0, "8/16");
+    assert_eq!(levels(&m), vec![(5, 16), (8, 16)], "two looks in a row");
+    // the level after the last one, but no area start near it
+    read(&mut m, 200.0, "9/16");
+    assert_eq!(levels(&m).len(), 2);
+    read(&mut m, 201.0, "9/16");
+    assert_eq!(levels(&m).len(), 3);
+    // an area start more than 10 s before the read
+    at(&m, 300.0);
+    enter(&mut m, SIM, Some(0.0));
+    read(&mut m, 310.5, "10/16");
+    assert_eq!(levels(&m).len(), 3);
+    read(&mut m, 311.5, "10/16");
+    assert_eq!(levels(&m).len(), 4);
+    // a read of a picture from before the area start (a background read handed over after it)
+    at(&m, 400.0);
+    enter(&mut m, SIM, Some(0.0));
+    read(&mut m, 399.6, "11/16");
+    assert_eq!(levels(&m).len(), 4);
+    // and the area start counts for one read only: after it confirmed 11, 12 needs two
+    read(&mut m, 400.5, "11/16");
+    assert_eq!(levels(&m).len(), 5, "its second look (and the area start)");
+    at(&m, 500.0);
+    enter(&mut m, SIM, Some(0.0));
+    read(&mut m, 501.0, "12/16");
+    assert_eq!(levels(&m).len(), 6);
+    read(&mut m, 503.0, "13/16");
+    assert_eq!(levels(&m).len(), 6, "the area start's witness is spent");
+}
