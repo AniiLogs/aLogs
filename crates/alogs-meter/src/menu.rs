@@ -142,7 +142,15 @@ impl Meter {
         grey.insert("me".to_string(), prep::grey_crop(im, b, 48));
         let mut sizes = IndexMap::new();
         sizes.insert("me".to_string(), 24usize);
-        let name = self.ocr.read(&crops, &sizes, &grey).get("me").cloned().unwrap_or_default();
+        let mut name = self.ocr.read(&crops, &sizes, &grey).get("me").cloned().unwrap_or_default().trim_matches(|c| " /|.".contains(c)).to_string();
+        // the name's look-alikes (0 / O / o, 1 / l / I) settled by their own ink against the game's font
+        if let Some(r) = self.name_reader() {
+            let (settled, _) = r.settle_look_alikes_in_line(im, b, &name);
+            if settled != name {
+                log::info!(target: "meter", "game menu: a look-alike in the name (0 / O / o, 1 / l / I) settled by its ink against the game's font");
+                name = settled;
+            }
+        }
         self.game_menu(&name, &uid_text, Some(im), u, ux, h, "menu", true);
     }
 
@@ -272,6 +280,17 @@ impl Meter {
         {
             name = matched;
             sure = true;
+        }
+        // the name's look-alikes (0 / O / o, 1 / l / I) settled by their own ink against the game's font (the
+        // card's lettering found by its colour; a name the font reader matched has none left to settle)
+        if let Some(m) = &mask
+            && let Some(r) = self.name_reader()
+        {
+            let (settled, _) = r.settle_mask_in_line(m, &name);
+            if settled != name {
+                log::info!(target: "meter", "profile: a look-alike in the name (0 / O / o, 1 / l / I) settled by its ink against the game's font");
+                name = settled;
+            }
         }
         if name.is_empty()
             && let Some(m) = &mask

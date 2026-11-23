@@ -258,7 +258,7 @@ fn level_red(p: Rgb) -> bool {
 /// The ink boxes (left, top, right, bottom) of a name's letters in its mask, left to right: its 8-connected pieces,
 /// those on the name's line only (the line: where most of the tall pieces sit), small ones (an i's dot, specks) left
 /// out.
-fn letter_pieces(mask: &Image) -> Vec<(usize, usize, usize, usize)> {
+pub fn letter_pieces(mask: &Image) -> Vec<(usize, usize, usize, usize)> {
     let (w, h) = (mask.width, mask.height);
     let mut seen = vec![false; w * h];
     let mut pieces: Vec<(usize, usize, usize, usize, usize)> = vec![];
@@ -308,6 +308,14 @@ fn letter_pieces(mask: &Image) -> Vec<(usize, usize, usize, usize)> {
     let mut out: Vec<(usize, usize, usize, usize)> = big.iter().map(|p| (p.0, p.1, p.2, p.3)).collect();
     out.sort();
     out
+}
+
+/// The characters the text reader mixes up in names: 0 / O / o and 1 / l / I.
+pub const LOOK_ALIKES: &str = "0Oo1lI";
+
+/// The positions (0-based, among the text's characters) of its look-alikes.
+pub fn look_alike_positions(text: &str) -> Vec<usize> {
+    text.chars().enumerate().filter(|(_, c)| LOOK_ALIKES.contains(*c)).map(|(i, _)| i).collect()
 }
 
 fn desc(mut v: Vec<(f64, char)>) -> Vec<(f64, char)> {
@@ -495,24 +503,90 @@ impl NameReader {
         None
     }
 
-    /// A name's 0, O and o told apart by their own ink (the Windows reader mixes them up: a zero in a name was sent as a
-    /// capital O). `text` is the name as read; `b` its box on the screen (white lettering). The ink is cut into
-    /// characters, one per letter of the name (else nothing is settled); for each 0, O or o, its height against the
-    /// name's capitals and small letters says o or not, and its width for its height says 0 (narrow) or O (round), each
-    /// against the game font's own proportions for the three; the glyph fit must not disagree. Returns the name with
-    /// the settled characters and the positions (0-based, among the name's characters) left as read.
-    pub fn settle_round(&self, img: &Image, b: BoxF, text: &str) -> (String, Vec<usize>) {
+    /// A name's look-alikes told apart by their own ink: 0 / O / o and 1 / l / I (the Windows reader mixes them up: a
+    /// zero in a name was sent as a capital O). `text` is the name as read; `b` its box on the screen (white lettering,
+    /// the box holding the name alone). See `settle_mask`.
+    pub fn settle_look_alikes(&self, img: &Image, b: BoxF, text: &str) -> (String, Vec<usize>) {
+        let at = look_alike_positions(text);
+        if at.is_empty() {
+            return (text.to_string(), at);
+        }
+        match text_mask(img, b, 190, 50) {
+            Some(mask) => self.settle_mask(&mask, text),
+            None => (text.to_string(), at),
+        }
+    }
+
+    /// As `settle_look_alikes`, for a box where the name shares its line with other white marks (the Party screen's
+    /// pills: a badge before the name, icons around it). The line's ink is cut into groups at wide gaps (wider than
+    /// half the letters' height); the name is the one group with as many letters as the name has, else nothing is
+    /// settled.
+    pub fn settle_look_alikes_in_line(&self, img: &Image, b: BoxF, text: &str) -> (String, Vec<usize>) {
+        let at = look_alike_positions(text);
+        if at.is_empty() {
+            return (text.to_string(), at);
+        }
+        match text_mask(img, b, 190, 50) {
+            Some(mask) => self.settle_mask_in_line(&mask, text),
+            None => (text.to_string(), at),
+        }
+    }
+
+    /// `settle_look_alikes_in_line` on a mask already made (the Profile's name card: dark lettering on a light card,
+    /// its ink found by colour).
+    pub fn settle_mask_in_line(&self, mask: &Image, text: &str) -> (String, Vec<usize>) {
+        let at = look_alike_positions(text);
+        if at.is_empty() {
+            return (text.to_string(), at);
+        }
+        let letters = text.chars().filter(|c| !c.is_whitespace()).count();
+        let pieces = letter_pieces(mask);
+        if pieces.is_empty() {
+            return (text.to_string(), at);
+        }
+        let mut hs: Vec<usize> = pieces.iter().map(|p| p.3 - p.1).collect();
+        hs.sort();
+        let gap = (hs[hs.len() / 2] / 2).max(2);
+        let mut groups: Vec<(usize, usize, usize)> = vec![]; // (left, right, pieces)
+        for p in &pieces {
+            match groups.last_mut() {
+                Some(g) if p.0 <= g.1 + gap => {
+                    g.1 = g.1.max(p.2);
+                    g.2 += 1;
+                }
+                _ => groups.push((p.0, p.2, 1)),
+            }
+        }
+        let fit: Vec<&(usize, usize, usize)> = groups.iter().filter(|g| g.2 == letters).collect();
+        if fit.len() != 1 {
+            return (text.to_string(), at);
+        }
+        let g = fit[0];
+        let part = mask.crop_i(g.0 as i64, 0, g.1 as i64, mask.height as i64);
+        self.settle_mask(&part, text)
+    }
+
+    /// The look-alikes of `text` settled by the ink of `mask` (the name's lettering, white on black, the name alone on
+    /// its line). The ink is cut into letters (connected pieces on the name's line, an i's dot and specks left out),
+    /// one per letter of the name, else nothing is settled. Each is measured against the name's own letters that
+    /// aren't look-alikes, and against the game font's proportions:
+    /// - 0 / O / o: its height against the capitals' and small letters' says o or not; its width for its height says
+    ///   0 (narrow) or O (round); the glyph fit must not disagree.
+    /// - 1 / l / I: its width for its height and the flag at its top left say 1 (a flag, twice a bar's width) or a
+    ///   plain bar; a bar is l when it stands as tall as the name's tall small letters (b d h k), above the capitals,
+    ///   and I at the capitals' height, each only with that letter's own measure in the name and a clear lead (the
+    ///   game font has no serifs and its l is barely taller than its I: without both measures it stays as read).
+    ///
+    /// Each decision needs a clear lead, else the character stays as read. Returns the name with the settled
+    /// characters and the positions (0-based, among the name's characters) left as read.
+    pub fn settle_mask(&self, mask: &Image, text: &str) -> (String, Vec<usize>) {
         let chars: Vec<char> = text.chars().collect();
-        let round = |c: char| matches!(c, '0' | 'O' | 'o');
-        let at: Vec<usize> = chars.iter().enumerate().filter(|(_, c)| round(**c)).map(|(i, _)| i).collect();
+        let at = look_alike_positions(text);
         if at.is_empty() {
             return (text.to_string(), vec![]);
         }
-        let Some(mask) = text_mask(img, b, 190, 50) else { return (text.to_string(), at) };
         let letters: Vec<usize> = (0..chars.len()).filter(|&i| !chars[i].is_whitespace()).collect();
-        // the letters: the mask's connected pieces on the name's line, left to right (an i's dot, specks and bits of
-        // the picture above the name left out); one per letter, else nothing is settled
-        let boxes = letter_pieces(&mask);
+        let boxes = letter_pieces(mask);
         if boxes.len() != letters.len() {
             return (text.to_string(), at);
         }
@@ -523,57 +597,110 @@ impl NameReader {
             v.sort_by(f64::total_cmp);
             Some(v[v.len() / 2])
         };
+        // the heights of the name's letters in a set, the look-alikes left out (they are what is being decided)
         let height_of = |set: &dyn Fn(char) -> bool| {
-            median(letters.iter().enumerate().filter(|(_, i)| set(chars[**i])).map(|(k, _)| (boxes[k].3 - boxes[k].1) as f64).collect())
+            median(letters.iter().enumerate().filter(|(_, i)| !at.contains(i) && set(chars[**i])).map(|(k, _)| (boxes[k].3 - boxes[k].1) as f64).collect())
         };
-        // the name's capitals (and digits, and the tall small letters) and its small letters, the round ones left out
-        let cap = height_of(&|c: char| (c.is_ascii_uppercase() && c != 'O' && c != 'Q' && c != 'J') || ('1'..='9').contains(&c) || "bdhkl".contains(c));
+        let capital = |c: char| c.is_ascii_uppercase() && !"OQJI".contains(c);
+        // the name's capitals (and digits, and the tall small letters), its capitals alone, its tall small letters
+        // alone, and its small letters
+        let cap = height_of(&|c: char| capital(c) || ('2'..='9').contains(&c) || "bdhk".contains(c));
+        let caps_only = height_of(&capital);
+        let tall_small = height_of(&|c: char| "bdhk".contains(c));
         let small = height_of(&|c: char| "acemnrsuvwxz".contains(c));
-        let Some(cap) = cap else { return (text.to_string(), at) };
-        // the game font's proportions: o's height for the capitals', and width for height of 0, O, o
         let g = |ch: char| self.glyph(ch, 64).map(|g| (g.width as f64, g.height as f64));
-        let (Some(h), Some(z), Some(big), Some(o)) = (g('H'), g('0'), g('O'), g('o')) else { return (text.to_string(), at) };
-        let o_rel = o.1 / h.1; // the o's height for a capital's
-        let small = small.unwrap_or(cap * o_rel);
-        let (rz, rbig) = (z.0 / z.1, big.0 / big.1);
         let mut out = chars.clone();
         let mut left = vec![];
         for &i in &at {
             let k = letters.iter().position(|&j| j == i).unwrap();
             let (x0, y0, x1, y1) = boxes[k];
-            let (w, hh) = ((x1 - x0) as f64, (y1 - y0) as f64);
-            // o: a small letter's height; 0 and O: a capital's (a clear lead either way, else left as read)
-            let tall = (hh - small).abs() > 2.0 * (hh - cap).abs() && hh > (small + cap) / 2.0;
-            let low = (hh - cap).abs() > 2.0 * (hh - small).abs() && hh < (small + cap) / 2.0;
-            let pick = if low {
-                Some('o')
-            } else if tall {
-                // 0 or O: its width for its height, nearer the font's 0 or O by a clear lead
-                let r = w / hh.max(1.0);
-                let (dz, db) = ((r - rz).abs(), (r - rbig).abs());
-                if dz * 2.0 < db {
-                    Some('0')
-                } else if db * 2.0 < dz {
-                    Some('O')
-                } else {
-                    None
-                }
+            let part = to_one(&mask.crop_i(x0 as i64, y0 as i64, x1 as i64, y1 as i64));
+            let pick = if matches!(chars[i], '0' | 'O' | 'o') {
+                cap.and_then(|cap| self.settle_round_one(&part, cap, small, &g))
             } else {
-                None
+                self.settle_bar_one(&part, caps_only, tall_small, &g)
             };
-            // the glyph fit as the second witness, where shapes differ (the fit is taken at the ink's own size, so O
-            // and o are one shape to it): a 0 must fit its narrow shape, an O or o the round one, no worse than the other
-            let pick = pick.filter(|&p| {
-                let part = to_one(&mask.crop_i(x0 as i64, y0 as i64, x1 as i64, y1 as i64));
-                let fit = |c: char| self.shape_fit(&part, c, 64);
-                if p == '0' { fit('0') + 0.02 >= fit('O') } else { fit(p) + 0.02 >= fit('0') }
-            });
             match pick {
                 Some(p) => out[i] = p,
                 None => left.push(i),
             }
         }
         (out.into_iter().collect(), left)
+    }
+
+    /// One 0, O or o: see `settle_mask`.
+    fn settle_round_one(&self, part: &Image, cap: f64, small: Option<f64>, g: &dyn Fn(char) -> Option<(f64, f64)>) -> Option<char> {
+        // the game font's proportions: o's height for the capitals', and width for height of 0, O, o
+        let (h, z, big, o) = (g('H')?, g('0')?, g('O')?, g('o')?);
+        let small = small.unwrap_or(cap * o.1 / h.1);
+        let (rz, rbig) = (z.0 / z.1, big.0 / big.1);
+        let (w, hh) = (part.width as f64, part.height as f64);
+        // o: a small letter's height; 0 and O: a capital's (a clear lead either way, else left as read)
+        let tall = (hh - small).abs() > 2.0 * (hh - cap).abs() && hh > (small + cap) / 2.0;
+        let low = (hh - cap).abs() > 2.0 * (hh - small).abs() && hh < (small + cap) / 2.0;
+        let pick = if low {
+            'o'
+        } else if tall {
+            // 0 or O: its width for its height, nearer the font's 0 or O by a clear lead
+            let r = w / hh.max(1.0);
+            let (dz, db) = ((r - rz).abs(), (r - rbig).abs());
+            if dz * 2.0 < db {
+                '0'
+            } else if db * 2.0 < dz {
+                'O'
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
+        // the glyph fit as the second witness, where shapes differ (the fit is taken at the ink's own size, so O and
+        // o are one shape to it): a 0 must fit its narrow shape, an O or o the round one, no worse than the other
+        let fit = |c: char| self.shape_fit(part, c, 64);
+        let ok = if pick == '0' { fit('0') + 0.02 >= fit('O') } else { fit(pick) + 0.02 >= fit('0') };
+        ok.then_some(pick)
+    }
+
+    /// One 1, l or I: see `settle_mask`.
+    fn settle_bar_one(&self, part: &Image, caps: Option<f64>, tall_small: Option<f64>, g: &dyn Fn(char) -> Option<(f64, f64)>) -> Option<char> {
+        let (one, bar) = (g('1')?, g('I')?);
+        let (w, hh) = (part.width as f64, part.height as f64);
+        if hh < 8.0 {
+            return None;
+        }
+        // its width for its height: the 1's (flag and stem) or a bar's, by a clear lead
+        let r = w / hh;
+        let (d1, db) = ((r - one.0 / one.1).abs(), (r - bar.0 / bar.1).abs());
+        // the flag: in its top fifth, ink further left than anywhere in its bottom half (by a quarter of its width
+        // for a 1; a bar's sides are straight)
+        let left_of = |y0: usize, y1: usize| (y0..y1).filter_map(|y| (0..part.width).find(|&x| part.data[y * part.width + x] != 0)).min();
+        let hu = part.height;
+        let (top, low) = (left_of(0, (hu / 5).max(1)), left_of(hu / 2, hu));
+        let flag = match (top, low) {
+            (Some(t), Some(l)) => l.saturating_sub(t) as f64 / w.max(1.0),
+            _ => return None,
+        };
+        let fit = |c: char| self.shape_fit(part, c, 64);
+        if d1 * 2.0 < db && flag >= 0.25 {
+            return (fit('1') + 0.02 >= fit('I')).then_some('1');
+        }
+        if !(db * 2.0 < d1 && flag < 0.15 && fit('I') + 0.02 >= fit('1')) {
+            return None;
+        }
+        // a bar: l as tall as the tall small letters, I as the capitals, both measured in this name, apart by at least
+        // two pixels, and the bar nearer one by a clear lead
+        let (cap, asc) = (caps?, tall_small?);
+        if asc - cap < 2.0 {
+            return None;
+        }
+        let (dl, di) = ((hh - asc).abs(), (hh - cap).abs());
+        if dl * 2.0 < di && dl <= 1.0 {
+            Some('l')
+        } else if di * 2.0 < dl && di <= 1.0 {
+            Some('I')
+        } else {
+            None
+        }
     }
 
     /// The number in `box` read digit by digit against the game's own digits, or None unless every digit is clear.
