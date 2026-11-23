@@ -158,8 +158,8 @@ fn see(b: &mut BreakTracker, r: BreakRead, t: f64) {
 }
 
 /// A Holo-Battle Sim fight: a skill animation hides the HUD (no bar read), a golden flash where the bar was, the bar
-/// comes back half full: no break. Later the real one: a drain to empty that stays (no broken look seen), one break
-/// dated at its first empty look and counted half a second on.
+/// comes back half full: no break. Later the real one: the drain to a sliver (no broken look: just a low reading),
+/// then the broken look: one break, at that look.
 #[test]
 fn a_hidden_bar_and_a_flash_are_no_break() {
     let mut b = BreakTracker::new(Some(1000.0));
@@ -183,14 +183,55 @@ fn a_hidden_bar_and_a_flash_are_no_break() {
     for (t, g) in [(24.49, 0.046), (24.59, 0.009), (24.7, 0.009), (24.9, 0.005)] {
         see(&mut b, look(Some(g), Some("orange"), false, false), t);
     }
-    assert_eq!((b.breaks, b.phase), (0, "drain"), "not yet: empty for under half a second, no broken look");
-    see(&mut b, look(Some(0.009), Some("orange"), false, false), 25.1);
-    assert_eq!((b.breaks, b.phase), (1, "broken"), "counted by 25.1");
+    assert_eq!((b.breaks, b.phase), (0, "drain"), "no broken look: not broken");
+    see(&mut b, look(Some(0.0), None, true, false), 25.1);
+    assert_eq!((b.breaks, b.phase), (1, "broken"), "the broken look at 25.1");
     assert_eq!(b.last_after, None);
     for i in 0..200 {
-        see(&mut b, look(Some(if i % 2 == 0 { 0.009 } else { 0.005 }), Some("orange"), false, false), 25.2 + i as f64 * 0.1);
+        see(&mut b, look(Some(0.0), None, true, false), 25.2 + i as f64 * 0.1);
     }
     assert_eq!(b.breaks, 1, "once");
+}
+
+/// The fight of 22 Nov, 21:07: the gauge a sliver of 0.5 to 0.8% for 3 s with no broken look (the boss not broken
+/// yet): a low reading, no break. Then the broken look: one break, dated at that look. A sliver that never gets the
+/// broken look is never a break.
+#[test]
+fn a_sliver_without_the_broken_look_is_no_break() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    see(&mut b, look(Some(0.03), Some("orange"), false, false), 43.5);
+    let mut t = 43.92;
+    for g in [0.008, 0.007, 0.006, 0.005].iter().cycle().take(32) {
+        see(&mut b, look(Some(*g), Some("orange"), false, false), t);
+        assert_eq!((b.breaks, b.phase), (0, "drain"), "at {t}");
+        t += 0.1;
+    }
+    assert_eq!(b.left, Some(0.005), "shown as it is");
+    see(&mut b, look(Some(0.0), None, true, false), 47.3);
+    assert_eq!((b.breaks, b.phase), (1, "broken"));
+    assert!(b.last_after.is_none_or(|a| a > 47.0 - 43.5), "dated at the broken look");
+    let mut c = BreakTracker::new(Some(1000.0));
+    see(&mut c, look(Some(0.03), Some("orange"), false, false), 0.0);
+    for k in 0..200 {
+        see(&mut c, look(Some(0.006), Some("orange"), false, false), 0.1 + k as f64 * 0.1);
+    }
+    assert_eq!((c.breaks, c.phase), (0, "drain"));
+}
+
+/// After the refill, "unbroken again" at 99.6%; one look then reads 93.7% with the broken look: no second refill
+/// (the refill comes only from a break), and each line is logged once.
+#[test]
+fn no_refill_straight_after_the_reset() {
+    let mut b = BreakTracker::new(Some(1000.0));
+    see(&mut b, look(Some(0.1), Some("white"), false, false), 0.0);
+    see(&mut b, look(Some(0.0), None, true, false), 1.0);
+    see(&mut b, look(Some(0.034), Some("white"), true, false), 5.0);
+    see(&mut b, look(Some(0.971), Some("white"), true, false), 9.0);
+    see(&mut b, look(Some(0.996), Some("white"), false, false), 62.46);
+    assert_eq!(b.phase, "drain");
+    see(&mut b, look(Some(0.937), Some("white"), true, false), 62.67);
+    see(&mut b, look(Some(0.996), Some("white"), false, false), 62.79);
+    assert_eq!((b.phase, b.breaks), ("drain", 1), "no second refill");
 }
 
 /// One look that reads empty with the bar on screen, the gauge back 0.13 s later: no break, the drain carries on.
