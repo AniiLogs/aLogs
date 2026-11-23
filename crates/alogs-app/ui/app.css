@@ -95,6 +95,19 @@ details .field { margin-top: 8px; }
 .toast-close { flex: none; margin: -4px -6px 0 0; padding: 0 8px; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1.4; cursor: pointer; }
 .toast-close:hover { color: var(--text); }
 
+/* About: fills a wide window. Side by side from 1280 px: what aLogs is on the left, updates and source on the right,
+   the patch notes across both underneath. A narrower window keeps one column. */
+.page.page-about { max-width: 1800px; }
+.about-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.about-grid .group, .about-side { margin-bottom: 0; }
+.about-side { display: grid; gap: 16px; align-content: start; }
+.about-notes .note ul { columns: 2 440px; column-gap: 32px; }   /* a wide window reads the notes in two columns */
+.about-notes .note li { break-inside: avoid-column; }
+@media (min-width: 1280px) {
+  .about-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+  .about-notes { grid-column: 1 / -1; }
+}
+
 .modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5, 10, 12, 0.72); }
 .modal[hidden], .toast[hidden] { display: none; }
 .modal-card { display: grid; gap: 14px; width: min(560px, 92vw); padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); }
