@@ -634,18 +634,38 @@ impl Fight {
         }
     }
 
-    /// The fight's level was read wrong: its HP is the right level's, and the damage so far (from the bar's fill, which
-    /// the fight keeps) scales with it. Only for a fight with one boss and one bar, where damage = the fill lost x HP.
-    pub fn correct_level(&mut self, level: i64, max_hp: i64, break_size: Option<f64>) {
-        let k = max_hp as f64 / self.max_hp.max(1) as f64;
-        let scale = |v: i64| (v as f64 * k).round() as i64;
+    /// The fight's level was read wrong: each boss's HP is the right level's (`hps`, one per boss so far, in order), and
+    /// the damage so far follows.
+    ///
+    /// The arithmetic: the damage on the boss being fought is its HP times a fraction the bar alone gives (one bar: the
+    /// fill lost; Interlink's xN bars: the grade table's share for the bar counter and the fill, `boss::damage_dealt`),
+    /// so it scales with that boss's HP exactly: new = old x new HP / old HP. A boss already beaten (the first of a
+    /// two-boss fight) counts its whole HP, so it is its new HP. The fight's total is the beaten bosses' HP plus the
+    /// current boss's damage; its HP the beaten bosses' plus the current boss's. The 5 s DPS samples, the first-hit mark
+    /// and the averages scale with the total. Exact at any point, as the fraction doesn't depend on the HP.
+    pub fn correct_level(&mut self, level: i64, hps: &[i64], break_size: Option<f64>) {
+        let old_total = self.damage.max(1) as f64;
+        let old_boss = self.boss_hp.max(1) as f64;
+        let current = (self.damage - self.done_hp) as f64;
+        let n = self.phases.len();
+        let mut done = 0;
+        for (i, p) in self.phases.iter_mut().enumerate() {
+            p.max_hp = hps[i];
+            if i + 1 < n {
+                p.damage = hps[i];
+                done += hps[i];
+            }
+        }
+        let hp = hps[n - 1];
+        let now_damage = (current * hp as f64 / old_boss).round() as i64;
+        self.phases[n - 1].damage = now_damage;
         self.level = level;
-        self.max_hp = max_hp;
-        self.boss_hp = max_hp;
-        self.damage = scale(self.damage);
-        let p = self.phases.last_mut().unwrap();
-        p.max_hp = max_hp;
-        p.damage = scale(p.damage);
+        self.done_hp = done;
+        self.boss_hp = hp;
+        self.max_hp = done + hp;
+        self.damage = done + now_damage;
+        let k = self.damage as f64 / old_total;
+        let scale = |v: i64| (v as f64 * k).round() as i64;
         for s in self.samples.iter_mut() {
             s.1 = scale(s.1);
         }

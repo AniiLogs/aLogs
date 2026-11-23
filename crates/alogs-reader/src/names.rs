@@ -16,6 +16,10 @@ pub const EDGE: u8 = 120;
 pub const MIN_SCORE: f64 = 0.6;
 pub const MIN_MARGIN: f64 = 0.05;
 pub const FITS_KEPT: usize = 1000;
+/// A level digit's fit to the game's digit, and its lead over the next best digit (`NameReader::level`): stricter than
+/// a name's characters, as the level fixes the boss's HP.
+pub const LEVEL_SCORE: f64 = 0.6;
+pub const LEVEL_MARGIN: f64 = 0.12;
 
 type BoxF = (f64, f64, f64, f64);
 type Rgb = [u8; 3];
@@ -236,6 +240,21 @@ pub fn overlap(a: &Image, b: &Image, slack: i64) -> f64 {
     best
 }
 
+/// The colours a boss's level is drawn in, by how strong the boss is (green, orange, white, red), with some room for
+/// the light behind it.
+fn level_green(p: Rgb) -> bool {
+    p[1] >= 200 && p[0] <= 215 && p[2] <= 185 && p[1] >= p[0] + 15
+}
+fn level_orange(p: Rgb) -> bool {
+    p[0] >= 215 && (120..=200).contains(&p[1]) && p[2] <= 130
+}
+fn level_white(p: Rgb) -> bool {
+    p.iter().min().copied().unwrap_or(0) >= 200 && p.iter().max().copied().unwrap_or(0) - p.iter().min().copied().unwrap_or(0) < 40
+}
+fn level_red(p: Rgb) -> bool {
+    p[0] >= 200 && p[1] <= 110 && p[2] <= 110
+}
+
 fn desc(mut v: Vec<(f64, char)>) -> Vec<(f64, char)> {
     // sorted(reverse=True) on (score, character)
     v.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.cmp(&a.1)));
@@ -263,6 +282,13 @@ impl NameReader {
         let g = cut_one(&field.point(|v| if v > EDGE { 255.0 } else { 0.0 }));
         self.cache.borrow_mut().insert((ch, px), g.clone());
         g
+    }
+
+    /// Use `g` (its ink, cut to it) as the shape of `ch` at `px`: a glyph drawn by hand, for a font that lacks one, and
+    /// for tests (the game's font can't be in the repository).
+    pub fn set_glyph(&self, ch: char, px: i64, g: &Image) {
+        self.cache.borrow_mut().insert((ch, px), cut_one(g));
+        self.fits.borrow_mut().clear();
     }
 
     /// `[(score, character)]` best first, for one character's shape.
@@ -315,6 +341,103 @@ impl NameReader {
         let Some(g) = self.glyph(ch, px) else { return 0.0 };
         let (a, b) = (part.width as f64 / part.height as f64, g.width as f64 / g.height as f64);
         overlap(part, &g.resize(part.width, part.height, Some(Filter::Nearest)), 1) * a.min(b) / a.max(b)
+    }
+
+    /// The boss's level in the bar's title box ("Lv. 65 Alpha Stellarys"), read against the game's own font. The level
+    /// is drawn in one colour (green, orange, white or red, by how strong the boss is): for each, the box's pixels of
+    /// that colour are cut into characters, "L" and "v" are looked for by their shapes, and the characters after them
+    /// (the dot passed over, or cut off where it touches the first digit) are matched one by one against the game's
+    /// digits. Some(level) only when every digit is clear and there are one or two of them, not starting with 0; else
+    /// None (unread).
+    pub fn level(&self, img: &Image, b: BoxF) -> Option<i64> {
+        let c = crop_int(img, b).convert(Mode::Rgb);
+        let (w, h) = c.size();
+        if w < 20 || h < 8 {
+            return None;
+        }
+        let colours: [fn(Rgb) -> bool; 4] = [level_green, level_orange, level_white, level_red];
+        for colour in colours {
+            let mut mask = Image::new(Mode::L, w, h, &[0]);
+            for y in 0..h {
+                for x in 0..w {
+                    let p = c.px(x, y);
+                    if colour([p[0], p[1], p[2]]) {
+                        mask.data[y * w + x] = 255;
+                    }
+                }
+            }
+            if let Some(found) = self.level_in(&mask) {
+                return found;
+            }
+        }
+        None
+    }
+
+    /// The level in one colour's mask: None when no "Lv" is there, Some(None) when it is but its digits aren't clear.
+    fn level_in(&self, mask: &Image) -> Option<Option<i64>> {
+        let (w, h) = mask.size();
+        let spans = characters_at(mask);
+        // a span's ink box: (left, top, right, bottom) in the mask
+        let ink = |s: (usize, usize, usize), skip: usize| -> Option<(Image, (usize, usize, usize, usize))> {
+            let piece = mask.crop_i((s.0 + skip) as i64, 0, s.1 as i64, h as i64);
+            let bb = piece.getbbox()?;
+            Some((to_one(&piece.crop_i(bb.0 as i64, bb.1 as i64, bb.2 as i64, bb.3 as i64)), (s.0 + skip + bb.0, bb.1, s.0 + skip + bb.2, bb.3)))
+        };
+        let best = |im: &Image, set: &str| desc(set.chars().map(|ch| (self.shape_fit(im, ch, 64), ch)).collect());
+        let is = |f: &[(f64, char)], ch: char| f.len() > 1 && f[0].1 == ch && f[0].0 >= MIN_SCORE && f[0].0 - f[1].0 >= MIN_MARGIN;
+        const SHAPES: &str = "Lv0123456789AEFHIJKT";
+        for i in 0..spans.len().saturating_sub(2) {
+            let (Some((l, lb)), Some((v, vb))) = (ink(spans[i], 0), ink(spans[i + 1], 0)) else { continue };
+            let tall = lb.3 - lb.1;
+            // the L: a capital's height; the v: lower, its foot on the L's baseline, close after it
+            // (the title's capitals are about 0.47 of its box's height: anything else is other lettering)
+            if tall < 6 || tall * 100 < h * 38 || tall * 100 > h * 58 || vb.3.abs_diff(lb.3) > tall / 6 + 1 || (vb.3 - vb.1) * 10 > tall * 9 || vb.0 > lb.2 + tall {
+                continue;
+            }
+            if !(is(&best(&l, SHAPES), 'L') && is(&best(&v, "Lv0123456789xyuwnr"), 'v')) {
+                continue;
+            }
+            let mut digits = String::new();
+            let mut prev_end = vb.2;
+            for &s in &spans[i + 2..] {
+                let Some((_, sb)) = ink(s, 0) else { continue };
+                if sb.0 > prev_end + tall {
+                    break; // (the gap before the separator and the name)
+                }
+                // the dot: small, on the baseline, before the digits
+                if digits.is_empty() && (sb.3 - sb.1) * 3 < tall && (sb.2 - sb.0) * 2 < tall {
+                    prev_end = sb.2;
+                    continue;
+                }
+                if (sb.3 - sb.1) * 100 < tall * 85 || sb.3.abs_diff(lb.3) > tall / 6 + 1 {
+                    // not a digit's height on the L's baseline: the separator after a space ends the level; anything
+                    // close after a digit (a symbol, a digit cut by something over it) leaves it unread
+                    if sb.0 * 2 < prev_end * 2 + tall {
+                        return Some(None);
+                    }
+                    break;
+                }
+                // the dot touching the first digit: its own columns hold ink only near the baseline
+                let low = |x: usize| (0..h).all(|y| mask.data[y * w + x] == 0 || y * 4 >= sb.3 * 4 - tall);
+                let skip = if digits.is_empty() { (s.0..s.1).take_while(|&x| low(x)).count() } else { 0 };
+                let Some((d, db)) = ink(s, skip) else { return Some(None) };
+                // one digit's width at most (two touching digits are no clear read)
+                if (db.2 - db.0) * 10 > tall * 9 {
+                    return Some(None);
+                }
+                let f = best(&d, "0123456789");
+                if !(f.len() > 1 && f[0].0 >= LEVEL_SCORE && f[0].0 - f[1].0 >= LEVEL_MARGIN) {
+                    return Some(None);
+                }
+                digits.push(f[0].1);
+                prev_end = sb.2;
+            }
+            if digits.is_empty() || digits.len() > 2 || digits.starts_with('0') {
+                return Some(None);
+            }
+            return Some(digits.parse().ok());
+        }
+        None
     }
 
     /// The number in `box` read digit by digit against the game's own digits, or None unless every digit is clear.
