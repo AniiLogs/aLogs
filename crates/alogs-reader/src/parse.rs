@@ -36,7 +36,10 @@ pub fn parse_title(t: Option<&str>) -> (Option<i64>, String) {
         let s = digits.trim_start_matches('0');
         digits = if s.is_empty() { "0".into() } else { s.into() };
     }
-    let mut level = if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+    // (a symbol glued right after the digits, "Lv.6% Alpha", is no clean read: the "5" of 65 came
+    // out as "%" and the fight ran on Lv 6's HP; a space, the end or a letter may follow)
+    let glued = m.as_ref().is_some_and(|c| t[c.get(0).unwrap().end()..].chars().next().is_some_and(|n| !(n.is_whitespace() || n.is_alphanumeric())));
+    let mut level = if !glued && !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
         digits.chars().take(2).collect::<String>().parse::<i64>().ok()
     } else {
         None
