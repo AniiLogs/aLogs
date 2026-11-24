@@ -17,6 +17,7 @@ window.PATCH_NOTES = [
    {
     "heading": "Improved",
     "items": [
+     "**The AniiLogs tab opens the site at its new home, aniilogs.app:** run and placement links you click there stay in the tab instead of opening your browser.",
      "**The DPS meter reads the boss bar more truly and sooner:** a small mark the game draws on the bar is no longer taken for the end of the boss's HP, a fight counts from the moment its bar is first seen (not from when the boss's name is read), a reading far below the last must hold for a moment before it counts, and between fights the meter looks for a bar twice as often. The HP % shows the moment the bar does, without waiting for the boss's name to be read, and it now stands under the bar in front of the HP numbers instead of on the bar.",
      "**The yellow border is gone from menus on Windows 10:** result, Party, menu and Battle Data screens are still read from the game window alone, but aLogs now copies it a way that makes Windows draw no border. The border only shows for the few seconds aLogs takes control to record a leaderboard run, with Capture only the game window switched on, while a window covers the game when you are tabbed out, or on a PC where the new copy comes out black.",
      "**The meter and Sanctum Helper are rebuilt, with less to install:** they work as before, and the download is about 46 MB instead of 80.",
