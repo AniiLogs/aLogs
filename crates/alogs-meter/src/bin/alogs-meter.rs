@@ -389,8 +389,8 @@ fn plugin_status(m: &Meter, meter_on: bool) -> Value {
             ("failed", "stopped after repeated errors: turn it off and on to try again")
         } else if !on {
             ("off", "")
-        } else if m.homeland_rest {
-            ("resting", "in a homeland: nothing is read there")
+        } else if m.homeland_rest && pid != "leaderboards" {
+            ("resting", "in a homeland: no boss fights there")
         } else if m.hwnd.is_none() {
             ("waiting", "waiting for the game")
         } else if pid == "leaderboards" && !cfg.get("leaderboard").get("token").py_str().starts_with("alb_") {
@@ -691,7 +691,8 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
         if m.capture_off {
             iv = iv.max(AWAY_INTERVAL);
         }
-        if m.homeland_rest {
+        // a homeland: a look a second for its screens, at full pace while an Egg Heist rank screen may come
+        if m.homeland_rest && !m.egg_rank_due(now()) {
             iv = iv.max(1.0);
         }
         let nap = (iv - (now() - t)).max(0.0);
