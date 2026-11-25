@@ -221,3 +221,18 @@ fn challenge_stats_go_to_scores() {
     let csv = std::fs::read_to_string(m.env.data.join("logs/scores.csv")).unwrap();
     assert!(csv.contains("challenge_stats,all (weekly best),1234507,27"), "{csv}");
 }
+
+#[test]
+fn a_rank_screen_is_due_after_a_match_so_the_homeland_does_not_rest() {
+    // a match queued from a homeland comes back there, and its rank screen shows there: the meter must read on
+    let mut m = meter("egg-rank-due", &[]);
+    let t = 1_800_000_000.0;
+    assert!(!m.egg_rank_due(t), "no match yet: nothing due");
+    m.egg.sent_at = t;
+    assert!(m.egg_rank_due(t + 15.0), "the match was just sent: its rank screen may still come");
+    assert!(!m.egg_rank_due(t + 91.0), "past the rank screen's wait");
+    m.egg.rank_read_at = t + 20.0;
+    assert!(!m.egg_rank_due(t + 21.0), "its rank screen is read: the homeland may rest");
+    m.egg.hold = Some(alogs_meter::egg::EggHold { until: t + 200.0, screen: "end screen", on_to_rank: true, held: true });
+    assert!(m.egg_rank_due(t + 150.0), "a hold that is on always reads on");
+}
