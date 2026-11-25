@@ -165,10 +165,32 @@ fn proof_boxes(kind: &str) -> IndexMap<&'static str, (f64, f64, f64, f64)> {
     m
 }
 
+/// How a proof picture is made from its file (Proofs::prepare).
+#[derive(Clone, Copy)]
+pub enum Make {
+    Evidence,
+    Crop((f64, f64, f64, f64)),
+    Full,
+    Party,
+}
+
+impl Make {
+    fn bytes(self, path: &Path) -> Option<Vec<u8>> {
+        match self {
+            Make::Evidence => evidence_bytes(path),
+            Make::Crop(b) => crop_bytes(path, b),
+            Make::Full => full_bytes(path),
+            Make::Party => party_bytes(path),
+        }
+    }
+}
+
 /// Proof pictures' bytes kept in memory between tries of a record that didn't go through.
 #[derive(Default)]
 pub struct Proofs {
     kept: IndexMap<(String, PathBuf, u128, u64), Vec<u8>>,
+    /// Encoded by prepare and not taken by get yet (counted as encoded, not as sent again).
+    fresh: std::collections::HashSet<(String, PathBuf, u128, u64)>,
     size: usize,
     encoded: u64,
     reused: u64,
@@ -190,7 +212,9 @@ impl Proofs {
         let Some(key) = Self::key(how, path) else { return make() };
         let data = match self.kept.shift_remove(&key) {
             Some(d) => {
-                self.reused += 1;
+                if !self.fresh.remove(&key) {
+                    self.reused += 1;
+                }
                 d
             }
             None => {
@@ -211,6 +235,47 @@ impl Proofs {
             self.size -= v.len();
         }
         Some(data)
+    }
+
+    /// Encodes the pictures not kept yet side by side (up to 4 at once), so the get calls that follow find them. A
+    /// Sim run's 17-21 Gizmo views took 3.3-4.0 s one after another on a 4K screen (25 Nov), with the player's inputs
+    /// held until the run was sent.
+    pub fn prepare(&mut self, jobs: Vec<(String, PathBuf, Make)>) {
+        let todo: Vec<_> = jobs.into_iter().filter_map(|(how, path, make)| Self::key(&how, &path).filter(|k| !self.kept.contains_key(k)).map(|k| (k, path, make))).collect();
+        if todo.len() < 2 {
+            return;
+        }
+        let t = std::time::Instant::now();
+        let threads = std::thread::available_parallelism().map_or(2, |n| n.get()).clamp(2, 4);
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let done: Mutex<Vec<(usize, Vec<u8>)>> = Mutex::new(Vec::new());
+        std::thread::scope(|sc| {
+            for _ in 0..threads.min(todo.len()) {
+                sc.spawn(|| loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some((_, path, make)) = todo.get(i) else { break };
+                    if let Some(d) = make.bytes(path) {
+                        done.lock().unwrap().push((i, d));
+                    }
+                });
+            }
+        });
+        self.ms += t.elapsed().as_secs_f64() * 1000.0;
+        for (i, d) in done.into_inner().unwrap() {
+            let (key, path, _) = &todo[i];
+            self.encoded += 1;
+            if Self::key(&key.0, path).as_ref() == Some(key) {
+                self.size += d.len();
+                self.fresh.insert(key.clone());
+                self.kept.insert(key.clone(), d);
+            }
+        }
+        while !self.kept.is_empty() && (self.kept.len() > Self::MAX_N || self.size > Self::MAX_BYTES) {
+            let (_, v) = self.kept.shift_remove_index(0).unwrap();
+            self.size -= v.len();
+        }
+        let kept = &self.kept;
+        self.fresh.retain(|k| kept.contains_key(k));
     }
 
     pub fn forget(&mut self, data_dir: &Path, item: &Value) {
@@ -364,6 +429,9 @@ pub struct Submitter {
     wake_tx: Sender<()>,
     wake_rx: Mutex<Option<Receiver<()>>>,
     pub stop: AtomicBool,
+    /// The last try to reach the leaderboards failed (the site down or unreachable: 5xx, 429, no connection); cleared
+    /// by the next record that goes through. What waits stays queued and goes then.
+    pub unreachable: AtomicBool,
     dev: Mutex<DevFlags>,
 }
 
@@ -390,6 +458,7 @@ impl Submitter {
             wake_tx: tx,
             wake_rx: Mutex::new(Some(rx)),
             stop: AtomicBool::new(false),
+            unreachable: AtomicBool::new(false),
             dev: Mutex::new(DevFlags::from_env()),
             queue,
             data,
@@ -644,6 +713,26 @@ impl Submitter {
         let boxes = proof_boxes(&kind);
         let mut files: IndexMap<String, Vec<u8>> = IndexMap::new();
         let mut proofs = self.proofs.lock().unwrap();
+        if item.get("evidence").truthy() {
+            let at = |k: &str| self.data.join(item.get(k).py_str());
+            let mut jobs: Vec<(String, PathBuf, Make)> = vec![];
+            for key in ["evidence", "battle"] {
+                if item.get(key).truthy() {
+                    jobs.push(match boxes.get(key) {
+                        Some(b) => (format!("crop{b:?}"), at(key), Make::Crop(*b)),
+                        None => ("evidence".into(), at(key), Make::Evidence),
+                    });
+                    jobs.push(("full".into(), at(key), Make::Full));
+                }
+            }
+            if item.get("party").truthy() {
+                jobs.push(("party".into(), at("party"), Make::Party));
+            }
+            for rel in item.get("gizmos").as_list().cloned().unwrap_or_default().iter().take(20) {
+                jobs.push(("full".into(), self.data.join(rel.py_str()), Make::Full));
+            }
+            proofs.prepare(jobs);
+        }
         for key in ["evidence", "battle"] {
             if !item.get(key).truthy() || (key == "battle" && !files.contains_key("evidence")) {
                 continue;
@@ -888,6 +977,7 @@ impl Submitter {
                 }
                 match self.send(&acct, &item) {
                     Sent::Ok(status, reply) => {
+                        self.unreachable.store(false, Ordering::SeqCst);
                         let id = [reply.get("submissionId"), reply.get("gameUid"), reply.get("disputeId")].into_iter().find(|v| v.truthy()).map_or("None".into(), Value::py_str);
                         log::info!(target: "meter", "leaderboard: sent {name} -> {status} {id}{}", if reply.get("updated").truthy() { " (updated)" } else { "" });
                         if ep == "disputes" || (ep == "characters" && item.get("proof").truthy()) {
@@ -929,12 +1019,16 @@ impl Submitter {
                             let _ = std::fs::rename(&path, path.with_extension("json.rejected"));
                             self.drop_proof(&item);
                         } else {
+                            if code >= 500 || code == 429 {
+                                self.unreachable.store(true, Ordering::SeqCst);
+                            }
                             log::warn!(target: "meter", "leaderboard: {name} not sent yet: {code} {msg}");
                             *self.last_result.lock().unwrap() = Some((now(), format!("waiting: server said {code}")));
                             break;
                         }
                     }
                     Sent::Io(e) => {
+                        self.unreachable.store(true, Ordering::SeqCst);
                         log::warn!(target: "meter", "leaderboard: {name} not sent yet: {e}");
                         break;
                     }

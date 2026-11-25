@@ -226,6 +226,8 @@ pub struct Meter {
     /// Queued records (their payload as queued, as json) whose arrival shows no notice: the notice of the run they
     /// belong to went up already (an Egg Heist rank after its match: one notice per run). At most NOTICED_RUNS.
     pub quiet_sends: std::collections::VecDeque<String>,
+    /// While the leaderboards can't be reached: how many records went since they came back (one notice for all).
+    pub offline_sent: Option<usize>,
     /// The overlay's windows, to cover in a picture of the screen.
     pub own: Option<std::sync::Arc<std::sync::Mutex<crate::overlay::Own>>>,
     /// The app's newest audio cue (Frames::audio_cue), as of the last look.
@@ -381,6 +383,7 @@ impl Meter {
             presence_sent: None,
             hit_at: 0.0,
             quiet_sends: Default::default(),
+            offline_sent: None,
             own: None,
             audio_cue: None,
             hp_ocr: None,

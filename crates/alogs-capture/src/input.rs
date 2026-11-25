@@ -20,6 +20,11 @@ static MOVES_UNTIL: AtomicU64 = AtomicU64::new(0);
 static SWALLOWED: AtomicU64 = AtomicU64::new(0);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// Is aLogs holding the player's keyboard and mouse now (any InputBlock's hold)?
+pub fn holding() -> bool {
+    RUNNING.load(Ordering::SeqCst)
+}
+
 /// Is this key held now (GetAsyncKeyState)?
 pub fn key_down(vk: i32) -> bool {
     imp::key_down(vk)
