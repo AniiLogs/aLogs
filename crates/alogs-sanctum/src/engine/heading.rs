@@ -140,7 +140,13 @@ pub struct HeadingState {
     egg_votes: i32,
     egg_form: bool,
     last_egg_seen: Option<Instant>,
+    arrow_since: Option<Instant>,
 }
+
+/// Egg form ends once the arrow has been read this long without a miss...
+const EGG_ARROW_BACK_S: f64 = 0.3;
+/// ...or no egg marker was seen this long.
+const EGG_GONE_S: f64 = 2.0;
 
 fn since(t: Option<Instant>, now: Instant) -> f64 {
     t.map_or(f64::MAX, |t| now.saturating_duration_since(t).as_secs_f64())
@@ -162,7 +168,27 @@ impl HeadingState {
             egg_votes: 0,
             egg_form: false,
             last_egg_seen: None,
+            arrow_since: None,
         }
+    }
+
+    /// Egg form from this reading's egg score (None: the arrow was read). On once two readings agree (0.6 and up);
+    /// once on, a reading of 0.52 and up still counts (the marker dims and is crossed by the map's own marks), and it
+    /// goes off only when the arrow has been read steadily for EGG_ARROW_BACK_S or no egg was seen for EGG_GONE_S.
+    /// With 0.6 s and one score for both, the marker flipped between egg and arrow up to once a second while twined
+    /// (25 Nov: 32 flips in two matches, two of them 17 ms apart).
+    fn egg_step(&mut self, score: Option<f64>, now: Instant) -> bool {
+        let keep = if self.egg_form { 0.52 } else { 0.6 };
+        self.egg_votes = match score {
+            Some(e) if e >= keep => (self.egg_votes + 1).min(3),
+            Some(_) => (self.egg_votes - 1).max(0),
+            None => 0,
+        };
+        if self.egg_votes >= 2 || (self.egg_form && score.is_some_and(|e| e >= keep)) {
+            self.last_egg_seen = Some(now);
+        }
+        let arrow_back = since(self.arrow_since, now) >= EGG_ARROW_BACK_S && self.arrow_since.is_some();
+        self.egg_votes >= 2 || (self.egg_form && !arrow_back && since(self.last_egg_seen, now) < EGG_GONE_S)
     }
 
     /// Facing: the yellow arrow when it shows; otherwise (twined with an egg, the egg marker replaces it) the white
@@ -203,17 +229,17 @@ impl HeadingState {
         }
         // Twined with an egg: no arrow and the egg marker where the arrow would be (twined 0.75-0.85, nearby egg
         // <= 0.44, normal minimaps <= 0.50).
-        if h.is_none() || !self.heading_from_arrow {
-            let e = if since(self.last_arrow_seen, now) > 0.4 { self.detector.egg_score(mm, ui) } else { 0.0 };
-            self.egg_votes = if e >= 0.6 { (self.egg_votes + 1).min(3) } else { (self.egg_votes - 1).max(0) };
+        if self.heading_from_arrow {
+            self.arrow_since.get_or_insert(now);
         } else {
-            self.egg_votes = 0;
+            self.arrow_since = None;
         }
-        if self.egg_votes >= 2 {
-            self.last_egg_seen = Some(now);
-        }
-        // on as soon as two readings agree; off only after the egg has been gone for 0.6 s
-        let egg = self.egg_votes >= 2 || (self.egg_form && since(self.last_egg_seen, now) < 0.6);
+        let score = if h.is_none() || !self.heading_from_arrow {
+            Some(if since(self.last_arrow_seen, now) > 0.4 { self.detector.egg_score(mm, ui) } else { 0.0 })
+        } else {
+            None
+        };
+        let egg = self.egg_step(score, now);
         if egg != self.egg_form {
             crate::log::write(if egg { "egg form: twined with an egg" } else { "egg form: back to normal" });
         }
@@ -304,6 +330,37 @@ pub fn run(sh: Arc<Shared>, icons: std::path::PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One reading every 16 ms: Some(score) with no arrow, None when the arrow was read.
+    fn feed(st: &mut HeadingState, t0: Instant, from_ms: u64, reads: &[Option<f64>]) -> Vec<bool> {
+        reads.iter().enumerate().map(|(i, r)| {
+            let now = t0 + Duration::from_millis(from_ms + 16 * i as u64);
+            if r.is_none() { st.arrow_since.get_or_insert(now); } else { st.arrow_since = None; }
+            let egg = st.egg_step(*r, now);
+            st.egg_form = egg;
+            egg
+        }).collect()
+    }
+
+    #[test]
+    fn egg_form_holds_through_weak_reads_and_a_stray_arrow() {
+        let t0 = Instant::now();
+        let mut st = HeadingState::new(Path::new("no-icons"));
+        // twined: two clear readings turn it on
+        assert_eq!(feed(&mut st, t0, 0, &[Some(0.8), Some(0.8)]), [false, true]);
+        // the marker dims and is crossed for a second (0.53-0.58, under the 0.6 that turns it on), then one stray
+        // arrow reading and a 1.5 s stretch with no egg read at all: still an egg throughout
+        let mut reads = [Some(0.55), Some(0.58), Some(0.53)].repeat(20);
+        reads.push(None);
+        reads.extend(vec![Some(0.3); 90]);
+        assert!(feed(&mut st, t0, 32, &reads).iter().all(|e| *e));
+        // the arrow back for good: off within EGG_ARROW_BACK_S and a reading
+        let back = feed(&mut st, t0, 32 + 16 * reads.len() as u64, &[None; 30]);
+        assert!(back[..18].iter().all(|e| *e) && !back[20], "{back:?}");
+        // a normal minimap never turns it on (normal <= 0.50)
+        let mut st = HeadingState::new(Path::new("no-icons"));
+        assert!(feed(&mut st, t0, 0, &vec![Some(0.5); 200]).iter().all(|e| !*e));
+    }
 
     #[test]
     fn filters_follow_turns_and_snap_on_flicks() {
