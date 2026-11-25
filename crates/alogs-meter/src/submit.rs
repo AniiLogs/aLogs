@@ -847,7 +847,9 @@ impl Submitter {
             let _ = std::fs::create_dir_all(&self.queue);
             let mut names: Vec<String> =
                 std::fs::read_dir(&self.queue).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
-            names.sort();
+            // an Egg Heist rank goes ahead of the rest: the player's controls wait for it, and the match update read
+            // from the same screen carries pictures (seconds to upload)
+            names.sort_by(|a, b| (!a.starts_with("eggheist_season__"), a).cmp(&(!b.starts_with("eggheist_season__"), b)));
             for name in names {
                 if !name.ends_with(".json") {
                     continue;

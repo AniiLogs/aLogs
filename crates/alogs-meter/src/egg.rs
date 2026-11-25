@@ -300,13 +300,15 @@ impl Meter {
         }
     }
 
-    /// The match's record again, now with the rank screen's picture; without one, only the copies go.
+    /// The match's record again, now with the rank screen's picture; without one, only the copies go. Not held for:
+    /// the rank record read from the same screen is (it goes first, having no pictures), and this update with three
+    /// pictures took 2.5 s more of the player's controls (25 Nov); the queue sends it right after.
     fn egg_update(&mut self, rank_shot: Option<String>) {
         let Some(p) = self.egg.pending.take() else { return };
         if let Some(r) = rank_shot
             && self.submitter.is_some()
         {
-            self.send_result(&p.payload, p.shot.as_deref(), Some(&r), p.party.as_deref(), None);
+            self.send_result_held(&p.payload, p.shot.as_deref(), Some(&r), p.party.as_deref(), None, false, &[], None);
             return;
         }
         for r in [p.shot, p.party].into_iter().flatten() {
@@ -587,9 +589,10 @@ impl Meter {
         log::info!(target: "meter", "Egg Heist rank after a match: OCR {}, {} -> {}, +{}, bar to {}, season {}", str_map_repr(&t), alogs_pyval::str_repr(&points_text),
             st.as_ref().map_or("None".into(), Value::repr), gain.map_or("None".into(), |g| g.to_string()), bar_end.map_or("None".into(), |n| n.to_string()), season.as_deref().unwrap_or("None"));
         let (Some(st), Some(points)) = (st, points) else { return };
-        self.egg_rank_seen(frames, im, now);
+        let update = self.egg_rank_seen(frames, im, now);
         let key = format!("{season:?}|{points}|{gain:?}");
         if self.egg.last.get("egg_gain") == Some(&key) {
+            self.egg_update_after(update);
             self.egg_queued(now);
             return;
         }
@@ -608,18 +611,26 @@ impl Meter {
             let p = payloads::with_game(p, self.game_build_now());
             self.egg_send_rank(&p, None, true, now);
         }
+        self.egg_update_after(update);
         self.egg_queued(now);
     }
 
-    /// The rank screen after a match is read: its picture goes with the match waiting for it (held until sent, as
-    /// the rank record after it).
-    fn egg_rank_seen(&mut self, frames: &mut dyn Frames, im: &Image, now: f64) {
+    /// The rank screen after a match is read: its picture goes with the match waiting for it (the rank record after it
+    /// is what the hold waits for).
+    /// Its picture is taken now; the match's update is queued by egg_update_after, after the rank record: queued
+    /// first, the sender could start uploading it before the rank was queued.
+    fn egg_rank_seen(&mut self, frames: &mut dyn Frames, im: &Image, now: f64) -> Option<Option<String>> {
         self.egg.rank_read_at = now;
         self.egg.click = None;
         self.egg.rank_frame = None;
-        if self.egg.pending.is_some() {
-            let shot = self.picture(frames, im, "screens", &format!("egg_rank_{}", local(now, "%Y%m%d_%H%M%S")), true, true);
-            let r = shot.map(|p| rel(&self.env.data, &p));
+        self.egg.pending.as_ref()?;
+        let shot = self.picture(frames, im, "screens", &format!("egg_rank_{}", local(now, "%Y%m%d_%H%M%S")), true, true);
+        Some(shot.map(|p| rel(&self.env.data, &p)))
+    }
+
+    /// The match update egg_rank_seen left for after the rank record (Some: a match was waiting for its rank screen).
+    fn egg_update_after(&mut self, update: Option<Option<String>>) {
+        if let Some(r) = update {
             self.egg_update(r);
         }
     }
@@ -631,7 +642,7 @@ impl Meter {
             return;
         }
         self.egg.gain_seen = now;
-        self.egg_rank_seen(frames, im, now);
+        let update = self.egg_rank_seen(frames, im, now);
         let k = u / 2000.0;
         let b = |a: f64, bb: f64, c: f64, d: f64| (ux + u * a, h * bb, ux + u * c, h * d);
         let mut crops = IndexMap::new();
@@ -645,9 +656,13 @@ impl Meter {
         let season = self.season_now();
         log::info!(target: "meter", "Egg Heist rank after a match (Egg Emperor): OCR {}, {} -> {}, season {}", str_map_repr(&t), alogs_pyval::str_repr(count_text),
             st.as_ref().map_or("None".into(), Value::repr), season.as_deref().unwrap_or("None"));
-        let (Some(st), Some(eggs)) = (st, eggs) else { return };
+        let (Some(st), Some(eggs)) = (st, eggs) else {
+            self.egg_update_after(update);
+            return;
+        };
         let key = format!("{season:?}|emperor|{eggs}");
         if self.egg.last.get("egg_gain") == Some(&key) {
+            self.egg_update_after(update);
             self.egg_queued(now);
             return;
         }
@@ -665,6 +680,7 @@ impl Meter {
             let p = payloads::with_game(p, self.game_build_now());
             self.egg_send_rank(&p, None, true, now);
         }
+        self.egg_update_after(update);
         self.egg_queued(now);
     }
 
