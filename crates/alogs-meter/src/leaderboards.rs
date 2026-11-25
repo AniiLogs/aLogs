@@ -172,6 +172,8 @@ impl Meter {
         if egg {
             log::info!(target: "meter", "Egg Heist: inputs stay held until this is sent");
         } else {
+            let kind = payload.get("kind").py_str();
+            crate::overlay::control_mode(if kind.starts_with("interlink") { "interlink" } else if kind.starts_with("sim") { "sim" } else if kind.starts_with("eggheist") { "egg" } else { "" });
             self.hold.start(SEND_HOLD_S);
             log::info!(target: "meter", "holding inputs until this is sent (at most {SEND_HOLD_S} s)");
         }
@@ -590,10 +592,43 @@ impl Meter {
 
     /// The records the sender got to the leaderboards since the last look (Submitter::on_sent), each one's notice.
     /// The Python's sender called sent_notice itself, from its own thread; here they come in on the meter's loop.
+    ///
+    /// The site down: a result waiting to be sent lets the player's inputs go at once (it is captured and stays
+    /// queued), one notice says so, and once the queue has gone through, one notice says how many records went
+    /// instead of one each.
     pub fn take_sent(&mut self, out: &mut dyn Out, sent: &std::sync::mpsc::Receiver<(Value, Value)>) {
+        let down = self.submitter.as_ref().is_some_and(|s| s.unreachable.load(std::sync::atomic::Ordering::SeqCst));
+        if down && self.offline_sent.is_none() {
+            self.offline_sent = Some(0);
+            let waiting = self.submitter.as_ref().map_or(0, |s| s.pending());
+            log::info!(target: "meter", "leaderboard: the site can't be reached: {waiting} records wait to be sent");
+            out.out("toast", Value::List(vec![Value::Str("The leaderboards can't be reached".into()),
+                Value::Str("Your runs are saved and go once the site is back".into()), Value::Str("#e0b050".into())]));
+        }
+        if down && self.send_waiting.is_some() {
+            log::info!(target: "meter", "leaderboard: the site can't be reached: inputs come back, the record stays queued");
+            self.send_waiting = None;
+            self.send_waiting_copy = None;
+            self.stop_send_hold();
+        }
         while let Ok((payload, reply)) = sent.try_recv() {
-            self.sent_notice(out, &payload, &reply);
+            match &mut self.offline_sent {
+                Some(n) => *n += 1,
+                None => self.sent_notice(out, &payload, &reply),
+            }
             self.result_sent(&payload);
+        }
+        if !down
+            && let Some(n) = self.offline_sent
+            && self.submitter.as_ref().is_none_or(|s| s.pending() == 0)
+        {
+            self.offline_sent = None;
+            log::info!(target: "meter", "leaderboard: the site is back: {n} records sent");
+            if n > 0 {
+                let head = if n == 1 { "1 leaderboard submission sent".to_string() } else { format!("{n} leaderboard submissions sent") };
+                out.out("toast", Value::List(vec![Value::Str(head), Value::Str("The leaderboards are back: what was saved while they were down is in".into()),
+                    Value::Str("#7fb2ff".into())]));
+            }
         }
     }
 
@@ -631,6 +666,7 @@ impl Meter {
     }
 
     pub fn start_auto(&mut self, now: f64) {
+        crate::overlay::control_mode("interlink");
         let r = alogs_protocol::settings::load(&self.env.data);
         let secs = alogs_pyval::py_int(r.get("results").get("hold_seconds")).filter(|v| *v != 0).unwrap_or(60);
         let a = &mut self.auto;

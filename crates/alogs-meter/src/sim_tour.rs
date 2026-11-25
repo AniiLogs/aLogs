@@ -301,6 +301,7 @@ impl Meter {
         if self.sim.ctl.is_some() {
             return;
         }
+        crate::overlay::control_mode("sim");
         let r = self.args.cfg.get("results").clone();
         let seconds = crate::leaderboards::hold_limit(&self.args.cfg);
         let held = r.get("hold_inputs").truthy();
@@ -482,8 +483,8 @@ impl Meter {
         let gizmos = self.sim.pending.as_ref().map(|p| p.0.get("setup").get("gizmos").as_list().cloned().unwrap_or_default()).unwrap_or_default();
         self.sim_control(now, "the Victory screen");
         let test = self.sim.test;
-        out.out("toast", dict([("head", Value::Str(format!("Scanning the Holo-Battle Sim results{}", if test { " (test)" } else { "" }))),
-            ("detail", Value::Str("aLogs has control for a moment: reading your gizmos".into())), ("accent", Value::Str("#9be27a".into())),
+        out.out("toast", dict([("head", Value::Str(format!("Capturing your Holo-Battle Sim results{}", if test { " (test)" } else { "" }))),
+            ("detail", Value::Str("Reading your gizmos. Please wait; your controls will return in a moment.".into())), ("accent", Value::Str("#9be27a".into())),
             ("screen", Value::None), ("kind", Value::Str("notice".into()))]));
         let want = (!gizmos.is_empty() && gizmos.iter().all(|g| !g.get("count").is_none())).then(|| gizmos.iter().map(|g| g.get("count").as_i64().unwrap_or(0)).sum());
         log::info!(target: "meter", "Holo-Battle Sim: opening the Gizmo screen for {} gizmos", want.map_or("all its".to_string(), |w: i64| w.to_string()));

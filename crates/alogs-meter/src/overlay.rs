@@ -36,6 +36,26 @@ const ALERT_EVERY: f64 = 5.0;
 const HIT_CURVE: [(f64, f64); 4] = [(0.0, 0.0), (0.1, 0.5), (0.233, 0.9), (0.733, 0.0)];
 const TOAST_SHOW: f64 = 4.0;
 const TOAST_IN: f64 = 0.25;
+
+/// The mode whose results aLogs is capturing while it holds the player's controls (set as each hold starts): names
+/// the notice that stays up meanwhile.
+static CONTROL_MODE: std::sync::Mutex<&'static str> = std::sync::Mutex::new("");
+
+/// The mode taking the player's controls now ("interlink", "egg", "sim"; "" for none known).
+pub fn control_mode(mode: &'static str) {
+    *CONTROL_MODE.lock().unwrap() = mode;
+}
+
+/// The notice shown while aLogs holds the controls: (head, detail).
+pub fn control_notice(mode: &str) -> (&'static str, &'static str) {
+    let detail = "Please wait. Your controls will return in a moment.";
+    match mode {
+        "interlink" => ("Capturing your Interlink results", detail),
+        "egg" => ("Capturing your Egg Heist results", detail),
+        "sim" => ("Capturing your Holo-Battle Sim results", detail),
+        _ => ("Capturing your results", detail),
+    }
+}
 const TOAST_OUT: f64 = 0.35;
 const TOAST_W: f64 = 360.0;
 const TOAST_H: f64 = 64.0;
@@ -251,6 +271,8 @@ struct Toast {
     looked: f64,
     sample: Option<(i32, i32)>,
     drag: Option<(i32, i32)>,
+    /// Since when aLogs has held the player's controls (None: not holding), and whether a toast showed since.
+    control: Option<(f64, bool)>,
 }
 
 pub struct Overlay {
@@ -372,7 +394,7 @@ impl Overlay {
             dps_locked: None, dps_end: false, dps_quiet: false, hp_up: false, bar_only: None, pct_at: None, pct_inset: 0.0, bar_left: None, example: false, example_at: 0.0, dragging: None,
             pending: None, drawn_at: 0.0, alert_screen: None, alert_shown: false, alert_since: None, alert_alpha: -1,
             toast: Toast { queue: vec![], since: None, img: None, at: (0.0, 0.0), edge: "right", motion: "fade".into(), screen: (0, 0, 1920, 1080),
-                alpha: -1, shown: None, looked: 0.0, sample: None, drag: None },
+                alpha: -1, shown: None, looked: 0.0, sample: None, drag: None , control: None },
             in_capture: None,
             own,
             cur: HashMap::new(),
@@ -1247,6 +1269,19 @@ impl Overlay {
         if self.toast.sample.is_some() || self.toast.drag.is_some() {
             return;
         }
+        // aLogs holding the controls: a notice stays up for as long, and one shows if none came (0.4 s: the one the
+        // mode sends as it takes control, Holo-Battle Sim's, comes first)
+        let held = alogs_capture::input::holding();
+        self.toast.control = if held { Some(self.toast.control.unwrap_or((t, false))) } else { None };
+        if let Some((from, shown)) = self.toast.control {
+            if self.toast.since.is_some() || !self.toast.queue.is_empty() {
+                self.toast.control = Some((from, true));
+            } else if !shown && t - from >= 0.4 {
+                let (head, detail) = control_notice(&CONTROL_MODE.lock().unwrap());
+                self.toast.queue.push((head.into(), detail.into(), "#9be27a".into(), None, "control".into()));
+                self.toast.control = Some((from, true));
+            }
+        }
         if self.toast.since.is_none() {
             if self.toast.queue.is_empty() || self.away || self.hide {
                 return;
@@ -1276,7 +1311,12 @@ impl Overlay {
             self.toast.shown = None;
             log::info!(target: "meter", "notice: {head}{}", if detail.is_empty() { String::new() } else { format!(" - {detail}") });
         }
-        let el = t - self.toast.since.unwrap();
+        let mut el = t - self.toast.since.unwrap();
+        if held && self.toast.queue.is_empty() && el > TOAST_SHOW - TOAST_OUT {
+            // kept whole until the controls come back, then it fades as usual
+            el = TOAST_SHOW - TOAST_OUT;
+            self.toast.since = Some(t - el);
+        }
         if el >= TOAST_SHOW {
             self.park("toast");
             self.toast.since = None;

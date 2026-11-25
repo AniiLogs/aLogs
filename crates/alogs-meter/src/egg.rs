@@ -743,6 +743,7 @@ impl Meter {
         let r = self.args.cfg.get("results").clone();
         let held = !matches!(r.get("hold_inputs"), Value::Bool(false));
         if held {
+            crate::overlay::control_mode("egg");
             self.hold.start(seconds);
             if let Some(h) = self.hwnd
                 && !self.args.replay

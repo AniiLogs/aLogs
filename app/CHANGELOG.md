@@ -33,6 +33,9 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **The About page fills a wide window:** from 1280 px wide, what aLogs is sits beside Updates and Source code, and the patch notes run in two columns underneath.
 - **A size limit for the meter's pictures (Captures & logs › Size limit, 1 GB unless you change it):** when its pictures and diagnostics together go over it, the oldest go first; a record waiting to be sent, your character's proofs, the fight logs and anything from the last hour are never touched. Keep screenshots' last choice is now No time limit: with it and No size limit, nothing is deleted.
 - **Every leaderboard record says which version of the game it was played in,** Interlink weekly and best scores and Egg Heist ranks too.
+- **A notice stays up whenever aLogs has your controls:** while aLogs holds your keyboard, mouse and controller to capture a result, its notice stays on screen until you have them back, and if nothing else is showing, one says which results it is capturing ("Capturing your Interlink results", Egg Heist or Holo-Battle Sim).
+- **Holo-Battle Sim runs give your controls back sooner:** the proof pictures sent with a run are now prepared several at a time, about 3 s sooner for a Sim run with its Gizmo views and a little sooner for every other run.
+- **When the leaderboards can't be reached, you get your controls back at once:** your run is captured and saved, a notice says the site can't be reached, and everything saved goes once it's back, with one notice saying how many leaderboard submissions were sent.
 
 ### Fixed
 - **Your controls come back sooner after an Egg Heist rank screen:** aLogs held your keyboard, mouse and controller until the match's update with its pictures had been sent as well as your rank, about 3.5 s. Now your rank goes first and you get your controls back as soon as it is sent; the match's pictures follow on their own.

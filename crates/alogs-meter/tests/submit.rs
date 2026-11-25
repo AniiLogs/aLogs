@@ -154,5 +154,52 @@ fn sends_and_sets_aside() {
     wait_for(|| seen.lock().unwrap().len() >= 3);
     std::thread::sleep(Duration::from_millis(200));
     assert!(d.join("logs/submit_queue/sim_run__later.json").exists(), "kept after a 500");
+    assert!(s.unreachable.load(std::sync::atomic::Ordering::SeqCst), "a 500: the site counts as unreachable");
+    s.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A rejection (400) is the site answering: it doesn't count as the site being down; the next record through clears
+/// a 503's mark.
+#[test]
+fn site_down_mark_comes_and_goes() {
+    let (api, seen) = server(vec![400, 503, 200]);
+    let d = setup(&api, "down");
+    let s = Submitter::new(d.clone());
+    let runner = s.clone();
+    std::thread::spawn(move || runner.run());
+    let p = |id: &str| dict([("kind", Value::Str("sim_run".into())), ("clientRunId", Value::Str(id.into())), ("server", Value::Str("x".into()))]);
+    s.enqueue(&p("a"), None, None, None, None);
+    wait_for(|| seen.lock().unwrap().len() >= 1);
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!s.unreachable.load(std::sync::atomic::Ordering::SeqCst), "a 400 is an answer");
+    s.enqueue(&p("b"), None, None, None, None);
+    wait_for(|| s.unreachable.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(s.unreachable.load(std::sync::atomic::Ordering::SeqCst), "a 503: down");
+    s.enqueue(&p("c"), None, None, None, None);
+    wait_for(|| !s.unreachable.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!s.unreachable.load(std::sync::atomic::Ordering::SeqCst), "a record went through: back");
+    s.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A Sim run's pictures, made side by side before the send: every one of them still goes up.
+#[test]
+fn pictures_made_side_by_side_all_go() {
+    let (api, seen) = server(vec![200]);
+    let d = setup(&api, "side");
+    for i in 1..=5 {
+        std::fs::copy(d.join("shot.png"), d.join(format!("g{i}.png"))).unwrap();
+    }
+    let s = Submitter::new(d.clone());
+    let runner = s.clone();
+    std::thread::spawn(move || runner.run());
+    let p = dict([("kind", Value::Str("sim_run".into())), ("clientRunId", Value::Str("pics".into())), ("server", Value::Str("x".into()))]);
+    let g: Vec<String> = (1..=5).map(|i| format!("g{i}.png")).collect();
+    s.enqueue(&p, Some("shot.png"), None, Some("shot.png"), Some(&g));
+    wait_for(|| s.pending() == 0);
+    let got = seen.lock().unwrap();
+    let body = String::from_utf8_lossy(&got[0].1);
+    for name in ["evidence", "evidence_full", "party", "gizmo1", "gizmo5"] {
+        assert!(body.contains(&format!("name=\"{name}\"")), "{name} goes");
+    }
     s.stop.store(true, std::sync::atomic::Ordering::Relaxed);
 }
