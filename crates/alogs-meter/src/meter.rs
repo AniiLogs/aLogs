@@ -1119,16 +1119,15 @@ impl Meter {
             return;
         }
         self.game_events(out);
-        // back from an Egg Heist match queued at home, its rank screen shows in the homeland: read on until it's read
-        let home = !self.args.replay && scene_of(self.space.as_deref()) == Some(HOMELAND_SCENE) && !self.egg_rank_due(self.env.now());
+        // A homeland has no boss fights: no bar is looked for there, and the loop looks once a second (the PC lagged
+        // there, B4). Its screens are still read: the Egg Heist rank screen after a match queued from home, Rank Info.
+        let home = !self.args.replay && scene_of(self.space.as_deref()) == Some(HOMELAND_SCENE);
         if home != self.homeland_rest {
             self.homeland_rest = home;
-            log::info!(target: "meter", "{}", if home { "in a homeland: not capturing until you leave" } else { "left the homeland: capturing again" });
+            log::info!(target: "meter", "{}", if home { "in a homeland: no boss bars looked for, screens still read" } else { "left the homeland: looking for boss bars again" });
         }
         if home {
             self.bar = None;
-            self.status(out, "In a homeland: the meter is resting".into());
-            return;
         }
         if !self.args.replay {
             self.load_icons(); // every reader of them comes after this
@@ -1284,7 +1283,7 @@ impl Meter {
                     None => return,
                 }
             }
-            let mut found = bar::bar_at(&im, &self.bar_spots).or_else(|| bar::find_bar(&im, false, 8));
+            let mut found = if self.homeland_rest { None } else { bar::bar_at(&im, &self.bar_spots).or_else(|| bar::find_bar(&im, false, 8)) };
             if let Some(fd) = found.clone()
                 && self.fight.is_none()
                 && self.is_dud(&im, &fd)
