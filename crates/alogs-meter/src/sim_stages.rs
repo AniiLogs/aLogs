@@ -318,6 +318,12 @@ impl Stages {
             self.cand = None;
             return None;
         }
+        // the counter never goes down inside a run: a lower level (but 1/N, a new run) is a misread, mostly the leading
+        // "1" dropped (14/16 read as 4/16, 16/16 as 6/16 on two looks in a row), so it isn't a level
+        if decided && n != 1 && v.levels.last().is_some_and(|l| l.of == of && n < l.n) {
+            self.cand = None;
+            return None;
+        }
         // the level after the last one, read once soon after an area start: the area start is the second look
         let next = self.rec.as_ref().and_then(Record::last_level).is_some_and(|l| l.of == of && n == l.n + 1);
         if next && self.area_at.is_some_and(|a| now >= a && now - a <= AREA_WITNESS_S) {
