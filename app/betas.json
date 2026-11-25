@@ -2,8 +2,8 @@
   "_": "The last public beta published of each version, and under \"rc\" its RC number (share.mjs --beta updates both): the next build is beta n+1, with an RC above the recorded one (rc-number.mjs). 0.1.28 Beta 1 was RC53.",
   "0.1.28": 8,
   "0.1.36": 32,
-  "0.1.37": 39,
+  "0.1.37": 40,
   "rc": {
-    "0.1.37": 51
+    "0.1.37": 52
   }
 }
