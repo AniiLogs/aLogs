@@ -1119,7 +1119,8 @@ impl Meter {
             return;
         }
         self.game_events(out);
-        let home = !self.args.replay && scene_of(self.space.as_deref()) == Some(HOMELAND_SCENE);
+        // back from an Egg Heist match queued at home, its rank screen shows in the homeland: read on until it's read
+        let home = !self.args.replay && scene_of(self.space.as_deref()) == Some(HOMELAND_SCENE) && !self.egg_rank_due(self.env.now());
         if home != self.homeland_rest {
             self.homeland_rest = home;
             log::info!(target: "meter", "{}", if home { "in a homeland: not capturing until you leave" } else { "left the homeland: capturing again" });

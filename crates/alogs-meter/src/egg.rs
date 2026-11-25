@@ -137,6 +137,14 @@ impl Meter {
         self.egg.season.clone().or_else(|| e::current_season(&today()))
     }
 
+    /// A match's rank screen may still come: its hold is on, or the end screen was seen or sent less than
+    /// EGG_RANK_WAIT_S ago and no rank screen has been read since. A match queued from a homeland comes back to it,
+    /// and the rank screen shows there, so the homeland rest waits for this.
+    pub fn egg_rank_due(&self, now: f64) -> bool {
+        let after = self.egg.end_seen.max(self.egg.sent_at);
+        self.egg.hold.is_some() || (after > 0.0 && now - after < EGG_RANK_WAIT_S && self.egg.rank_read_at < after)
+    }
+
     /// The rank screen's line and numbers only count just after a match's end screen.
     pub fn rank_only_after_match(&self, heads: &Heads, now: f64) -> Heads {
         if now - self.egg.end_seen.max(self.egg.sent_at) < EGG_RANK_WAIT_S {
