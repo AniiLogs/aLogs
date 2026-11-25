@@ -691,10 +691,6 @@ fn run_meter(mut m: Meter, title: String, game_data: std::sync::mpsc::Receiver<a
         if m.capture_off {
             iv = iv.max(AWAY_INTERVAL);
         }
-        // a homeland: a look a second for its screens, at full pace while an Egg Heist rank screen may come
-        if m.homeland_rest && !m.egg_rank_due(now()) {
-            iv = iv.max(1.0);
-        }
         let nap = (iv - (now() - t)).max(0.0);
         std::thread::sleep(std::time::Duration::from_secs_f64(nap));
     }
