@@ -164,6 +164,23 @@ fn an_ocr_slip_is_not_a_level() {
     assert!(!v.from_start, "the meter's look back at its start: in the middle of a visit");
 }
 
+#[test]
+fn a_lower_level_read_twice_is_a_misread_but_1_starts_a_new_run() {
+    // as seen in a real run: 14/16 read as 4/16, and 16/16 as 6/16, each on two looks in a row
+    let data = dir("stages-lower");
+    let mut m = meter(&data, 0.0, Some("1"));
+    enter(&mut m, SIM, None);
+    level(&mut m, 10.0, 14, 16);
+    level(&mut m, 20.0, 4, 16);
+    level(&mut m, 30.0, 14, 16);
+    level(&mut m, 40.0, 15, 16);
+    level(&mut m, 50.0, 16, 16);
+    level(&mut m, 60.0, 6, 16);
+    assert_eq!(levels(&m), vec![(14, 16), (15, 16), (16, 16)]);
+    level(&mut m, 70.0, 1, 16); // the counter starting over is still a new run
+    assert_eq!(levels(&m), vec![(1, 16)]);
+}
+
 fn left_at_4(name: &str) -> PathBuf {
     let data = dir(name);
     let mut m = meter(&data, 0.0, Some("1"));
