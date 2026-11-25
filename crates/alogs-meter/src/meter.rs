@@ -1119,8 +1119,8 @@ impl Meter {
             return;
         }
         self.game_events(out);
-        // A homeland has no boss fights: no bar is looked for there, and the loop looks once a second (the PC lagged
-        // there, B4). Its screens are still read: the Egg Heist rank screen after a match queued from home, Rank Info.
+        // A homeland has no boss fights: no bar is looked for there. Everything else is read as anywhere else, at the
+        // usual pace (the once-a-second limit came from a lag report on the old Python build, B4).
         let home = !self.args.replay && scene_of(self.space.as_deref()) == Some(HOMELAND_SCENE);
         if home != self.homeland_rest {
             self.homeland_rest = home;

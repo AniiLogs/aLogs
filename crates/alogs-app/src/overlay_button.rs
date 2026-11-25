@@ -1083,7 +1083,6 @@ unsafe fn run() {
     let mut drawn: Option<(Layout, bool, Option<String>, Option<PathBuf>)> = None;
     let mut hotkey: Option<(u32, u32)> = None; // (key, modifiers), registered while the game is in front
     let mut reader = crate::capture::AppReader::new();
-    let mut homeland = (0u64, false); // (checked at, the meter says you're in a homeland: nothing is captured there)
     let mut logged_game: isize = 0; // the game window last noted in app.log
     let mut row_seen = 0u64; // when the game's icon row was last seen (hidden 1.5 s without a picture to tell)
     // when the row went missing in fresh pictures (0: it hasn't): hidden once it's been gone ROW_GONE_MS, so the button
@@ -1139,20 +1138,7 @@ unsafe fn run() {
             // in the icon row: only while the game shows it (capture off: we can't see it, so while in front)
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
             // the row is checked dragged or not: it also tells keyboard from controller (the label under the button)
-            // in a homeland the meter captures nothing for now (heavy on the game already), and neither does this
-            // 14 Nov: read only when it's used below (s.show && in_front); back in front it's read again before use
-            // whenever the last read is 1 s old or more, as before (the log line further down may show an old value)
-            if s.show && in_front && now.saturating_sub(homeland.0) >= 1000 {
-                let status = std::fs::read_to_string(crate::data_dir().join("status.json")).unwrap_or_default();
-                // only while the meter is writing it (about once a second): a meter stopped in a homeland left it
-                // saying "homeland" for good
-                let secs = (now / 1000) as f64;
-                let at_home = serde_json::from_str::<serde_json::Value>(&status).ok()
-                    .filter(|v| v.get("time").and_then(|t| t.as_f64()).is_some_and(|t| (secs - t).abs() < 10.0))
-                    .and_then(|v| v.get("homeland").and_then(|h| h.as_bool())).unwrap_or(false);
-                homeland = (now, at_home);
-            }
-            if s.show && in_front && !homeland.1 {
+            if s.show && in_front {
                 if let Some(r) = reader.as_mut() {
                     // Dev switch button-row-steady (RowPace). Off: a look on every pass, 125 ms apart, as always
                     let steady = crate::dev::on("button-row-steady");
@@ -1183,9 +1169,8 @@ unsafe fn run() {
             // screen, in menus and on the map); without the app's capture it can't tell, so it stays
             let row = if !(s.show && in_front) {
                 false // no need to look (and no capture asked for) while it can't show anyway
-            } else if s.always || homeland.1 {
-                // the player wants it whenever the game is in front (the row is still read for the label); in a
-                // homeland the row isn't looked at, so it shows whenever the game is (B5 hid it there altogether)
+            } else if s.always {
+                // the player wants it whenever the game is in front (the row is still read for the label)
                 true
             } else if reader.is_none() {
                 s.x.is_some()
@@ -1219,7 +1204,7 @@ unsafe fn run() {
                 r.publish_overlays(crate::capture::OWNER_APP, spot.as_slice());
             }
             if wanted != shown {
-                crate::app_log(&format!("button: {} (game in front {in_front}, row {row}, homeland {})", if wanted { "shown" } else { "hidden" }, homeland.1));
+                crate::app_log(&format!("button: {} (game in front {in_front}, row {row})", if wanted { "shown" } else { "hidden" }));
                 shown = wanted;
                 let _ = ShowWindow(hwnd, if wanted { SW_SHOWNOACTIVATE } else { SW_HIDE });
                 if wanted {
