@@ -87,6 +87,7 @@ changed for them, not how it was done. Group under the headings that apply: **Ne
 - **Settings text:** "Block from the fade to black" no longer says it's off by default.
 - **Notices are the right size before your first fight:** a notice that showed before any fight since aLogs started (a best read from the battle prep screen, for example) was drawn as if for a 1080p screen: half size on a 4K screen, and in the wrong spot. It now goes by the game window from the start.
 - **A result screen can't be skipped before aLogs has read it:** at the end of an Interlink fight your keys, mouse and controller are now held from the fade to black, not from when the result screen is first read, so a quick press no longer skips the result and loses the run. aLogs only looks for that fade in the fight's last few seconds (its countdown, or the boss on its last bar), lets go at once if the fight goes on, and never longer than 6 seconds without a result screen.
+- **Up to date with the game's 26 November update:** Sanctum Helper's maps follow the update: Sanctum 31 is no longer one of the Nightmare and Chaos layouts (its golden-key room is gone, its end rooms are hallways now), and the chests and nests the game moved show where it now puts them. The DPS meter's boss list and Interlink HP-bar table are the new game data's; readings are the same.
 
 ## 0.1.36
 
