@@ -177,6 +177,13 @@ impl Core {
             let f = self.frame(false, None, "");
             return self.emit(f);
         }
+        // a Sanctum the log names that no layout here has: no layout is matched to it, and the map says so
+        if let Some(scene) = self.unmapped_scene() {
+            let visible = self.in_run() && since(self.held_since) > 0.7;
+            let status = lang::f("Sanctum {0} has no map in Sanctum Helper yet", &[&(scene - 20000)]);
+            let f = self.frame(visible, None, &status);
+            return self.emit(f);
+        }
         let cands: Vec<Layout> = self.candidates();
         // every layout is checked (a difficulty read stale); in a tie the difficulty's own layouts win
         let all: Vec<Layout> = if forced == 0 { self.db.candidates(None).into_iter().cloned().collect() } else { self.all_candidates() };

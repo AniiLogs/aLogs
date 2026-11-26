@@ -1,6 +1,7 @@
 //! The layout from the game's own log. The game names the Sanctum's scene as it loads it (200NN is Layout NN), so the
 //! layout is known at once: nothing to work out from the minimap, and no wrong guess. With no name (it's a warning
-//! the game logs, a patch could take it away) or a scene no layout here has, the minimap decides as before.
+//! the game logs, a patch could take it away) the minimap decides as before. A scene no layout here has (one new in
+//! the game, or a layouts.json older than the game) is none of ours: nothing is matched to it, and the map says so.
 //! Engine.cs's log-layout and log-candidates, as normal behaviour.
 
 use super::{Core, GAME_LOG_SOURCE, Place};
@@ -24,6 +25,7 @@ impl Core {
             return;
         }
         let Some((scene, age)) = self.game_log.named_sanctum() else {
+            self.unknown_scene = None;
             // a line names a Sanctum scene in a wording this doesn't read: said once, to learn the game's new wording
             if let Some(m) = self.game_log.sanctum_mention.clone().filter(|m| self.unread_mention.as_ref() != Some(m)) {
                 crate::log::write(&format!("game log: a Sanctum scene named in a wording not read as the layout: {m}"));
@@ -34,7 +36,22 @@ impl Core {
         let Some(told) = self.db.by_scene(scene).cloned() else {
             if self.unknown_scene != Some(scene) {
                 self.unknown_scene = Some(scene);
-                crate::log::write(&format!("game log: the Sanctum is scene {scene}, which no layout here has: the minimap decides"));
+                crate::log::write(&format!("game log: the Sanctum is scene {scene}, which no layout here has: no map for it, and no other layout is matched"));
+                self.end_preload(None);
+                self.clear_guesses();
+                if let Some(c) = self.current_layout.take() {
+                    crate::log::write(&format!("game log: so it isn't {} (via {})", c.title(), self.layout_source));
+                    self.layout_source.clear();
+                    self.last_pose = None;
+                    self.player = None;
+                    self.minimap.reset();
+                    {
+                        let mut s = self.settings_mut();
+                        s.run_layout = 0;
+                        s.save();
+                    }
+                    self.sh.emit_status();
+                }
             }
             return;
         };
@@ -59,6 +76,16 @@ impl Core {
         }
     }
 
+    /// The Sanctum scene the log names when no layout here has it: the player is in a layout none of ours is, so the
+    /// minimap and the full map aren't matched to any (a near one would be shown as if it were right).
+    pub fn unmapped_scene(&self) -> Option<i64> {
+        if self.settings().forced_layout != 0 {
+            return None;
+        }
+        let (scene, _) = self.game_log.named_sanctum()?;
+        self.db.by_scene(scene).is_none().then_some(scene)
+    }
+
     /// Into a Sanctum with its layout unknown: the candidates' map art is loaded in the background, once the log has
     /// had its moment to name the one layout that's needed.
     pub fn preload_when_due(&mut self) {
@@ -66,7 +93,7 @@ impl Core {
             return;
         }
         self.preload_due = None;
-        if self.current_layout.is_some() || self.settings().forced_layout != 0 || self.game_log_place() != Place::Sanctum {
+        if self.current_layout.is_some() || self.settings().forced_layout != 0 || self.game_log_place() != Place::Sanctum || self.unmapped_scene().is_some() {
             return;
         }
         let cands: Vec<Layout> = self.db.candidates(self.effective_difficulty().as_deref()).into_iter().cloned().collect();

@@ -52,6 +52,11 @@ impl Core {
     }
 
     pub fn guess_layout(&mut self, mm: &Mat, ui: f64, log_now: bool) {
+        // the log names a Sanctum no layout here has: none of them is right, so none is tried (named.rs)
+        if self.unmapped_scene().is_some() {
+            self.clear_guesses();
+            return;
+        }
         if let Some(task) = &self.guesses.task {
             if !task.is_finished() {
                 return;

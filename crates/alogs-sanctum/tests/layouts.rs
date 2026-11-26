@@ -64,3 +64,61 @@ fn settings_keep_what_alogs_changed_meanwhile() {
     assert_eq!(back["WindowTitle"], "Aniimo2");
     assert_eq!(back["MapOpacity"], 0.3);
 }
+
+/// Boss rooms (Level_Room_30_BOSS, tagged "boss" by Sanctum Helper's builder) are framed like key rooms: their square
+/// comes from the side the prefab names, as a key room's imgRect does, and their Legendary chest is certain. Layout 38's
+/// own numbers (game build 4047363).
+#[test]
+fn boss_rooms_are_framed_and_their_legendary_is_sure() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("boss-layouts");
+    std::fs::create_dir_all(&dir).unwrap();
+    let json = r#"{"layouts": [{"scene": 20038, "layout": 38, "difficulties": ["Nightmare", "Chaos"],
+        "worldToImage": {"ox": -1222.779848101266, "oy": -834.2470092226613, "sx": 6.572151898734178, "sz": 6.566534914361},
+        "rooms": [
+            {"id": 47, "type": 3, "kind": "boss", "prefab": "Level_Room_30_BOSS", "world": [429, -387], "img": [1596.7, 1707.0]},
+            {"id": 62, "type": 5, "kind": "key", "prefab": "Level_Room_40_004_Key", "world": [400, -174], "img": [1406.1, 308.3],
+             "size": 40, "imgRect": [1274.6, 177.0, 1537.5, 439.7]},
+            {"id": 5, "type": 1, "kind": "room", "prefab": "Level_Room_30_007", "world": [0, 0], "img": [0, 0]}
+        ],
+        "markers": [{"kind": "legendary", "room": 47, "group": "BOSS", "world": [429.03, -387.28], "img": [1596.9, 1707.0]}]}]}"#;
+    std::fs::write(dir.join("layouts.json"), json).unwrap();
+    let db = LayoutDb::load(&dir).unwrap();
+    let l = db.by_number(38).unwrap();
+    let boss: Vec<_> = l.boss_rooms().collect();
+    assert_eq!(boss.len(), 1);
+    let r = l.room_rect(boss[0]).expect("a boss room's square from its prefab's 30 m");
+    for (got, want) in r.iter().zip([1498.09, 1608.50, 1695.26, 1805.50]) {
+        assert!((got - want).abs() < 0.05, "{r:?}");
+    }
+    // the side from the prefab gives what the builder wrote for a key room's imgRect
+    let mut key = l.rooms[1].clone();
+    key.img_rect = None;
+    key.size = None;
+    for (got, want) in l.room_rect(&key).unwrap().iter().zip([1274.6, 177.0, 1537.5, 439.7]) {
+        assert!((got - want).abs() < 0.05);
+    }
+    assert!(l.sure_room(47) && l.sure_room(62), "the boss room's and the key room's Legendary are always there");
+    assert!(!l.sure_room(5), "elsewhere only a chance");
+    assert_eq!(grade("BOSS"), 0, "the boss room's chests are in no graded set: never ruled out");
+}
+
+/// Every boss room in Sanctum Helper's shipped layouts.json gets a frame (with its assets, from reference/ or a
+/// SanctumHelper/ checkout; skipped without them).
+#[test]
+fn every_shipped_boss_room_has_a_frame() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let Some(assets) = ["reference/SanctumHelper/app/SanctumHelper/Assets", "SanctumHelper/app/SanctumHelper/Assets"].iter().map(|p| root.join(p)).find(|p| p.join("layouts.json").exists()) else {
+        eprintln!("skipped: no Sanctum Helper assets");
+        return;
+    };
+    let db = LayoutDb::load(&assets).unwrap();
+    let mut n = 0;
+    for l in &db.layouts {
+        for r in l.boss_rooms() {
+            let q = l.room_rect(r).unwrap_or_else(|| panic!("{} room {}", l.title(), r.id));
+            assert!(q[0] < r.img[0] && r.img[0] < q[2] && q[1] < r.img[1] && r.img[1] < q[3], "{} room {}: {q:?} around {:?}", l.title(), r.id, r.img);
+            n += 1;
+        }
+    }
+    eprintln!("{n} boss rooms");
+}

@@ -86,3 +86,42 @@ fn every_style_draws() {
         }
     }
 }
+
+/// A boss room gets its dashed frame in the boss colour (with Sanctum Helper's assets, from reference/ or a
+/// SanctumHelper/ checkout; skipped without them). Set OVERLAY_SHOTS=<folder> to keep the picture.
+#[test]
+fn the_boss_room_is_framed() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let Some(assets) = ["reference/SanctumHelper/app/SanctumHelper/Assets", "SanctumHelper/app/SanctumHelper/Assets"].iter().map(|p| root.join(p)).find(|p| p.join("layouts.json").exists()) else {
+        eprintln!("skipped: no Sanctum Helper assets");
+        return;
+    };
+    let db = Arc::new(LayoutDb::load(&assets).unwrap());
+    let Some(l) = db.layouts.iter().find(|l| l.boss_rooms().next().is_some()).cloned() else { return };
+    let r = l.room_rect(l.boss_rooms().next().unwrap()).unwrap();
+    let pose = MapPose { layout: l.number, scale: 0.5, tx: 100.0, ty: 20.0, inliers: 100, rotation: 0.0 };
+    let at = |x: f64, y: f64| ((x * pose.scale + pose.tx).round() as u32, (y * pose.scale + pose.ty).round() as u32);
+    let mut view = OverlayView::new(db.clone());
+    let boss_pixels = |s: &Settings, view: &mut OverlayView| {
+        let f = OverlayFrame { client: (0, 0, 1920, 1080), visible: true, layout: Some(l.number), pose: Some(pose.clone()), ..Default::default() };
+        let mut cv = Canvas::new(1920, 1080).unwrap();
+        view.render(&mut cv, s, &f, None, None, None);
+        let pix = cv.finish();
+        // along the frame's top edge: the boss colour (FF7A6B, premultiplied, so only its hue is compared)
+        let ((x0, y0), (x1, _)) = (at(r[0], r[1]), at(r[2], r[3]));
+        let n = (x0 + 8..x1 - 8)
+            .filter(|&x| (y0.saturating_sub(2)..=y0 + 2).any(|y| pix.pixel(x, y).is_some_and(|p| p.red() > 150 && p.red() > p.green() + 60 && p.green() > p.blue())))
+            .count();
+        (n, pix)
+    };
+    let mut s = Settings::default();
+    s.show_labels = true;
+    let (on, pix) = boss_pixels(&s, &mut view);
+    s.layers.insert("challenge".into(), false);
+    let (off, _) = boss_pixels(&s, &mut view);
+    if let Some(dir) = std::env::var_os("OVERLAY_SHOTS").map(PathBuf::from) {
+        std::fs::create_dir_all(&dir).unwrap();
+        pix.save_png(dir.join(format!("Boss-{}.png", l.number))).unwrap();
+    }
+    assert!(on > off + 20, "{}: boss frame {on} px on its top edge, {off} with the Challenge layer off", l.title());
+}
