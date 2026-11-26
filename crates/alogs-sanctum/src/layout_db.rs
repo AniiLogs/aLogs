@@ -111,6 +111,32 @@ impl Layout {
         self.rooms.iter().filter(|r| r.kind == "key")
     }
 
+    /// The boss rooms (Level_Room_30_BOSS: the builder tags them "boss"; they reuse the start door's roomType 3).
+    pub fn boss_rooms(&self) -> impl Iterator<Item = &Room> {
+        self.rooms.iter().filter(|r| r.kind == "boss")
+    }
+
+    /// Is this a room whose Legendary chest is always there (a key room, or a boss room: its one spawner of it has no
+    /// alternative), not only a chance?
+    pub fn sure_room(&self, room: i64) -> bool {
+        self.rooms.iter().any(|r| r.id == room && (r.kind == "key" || r.kind == "boss"))
+    }
+
+    /// A room's square on the map art (x0, y0, x1, y1): its `imgRect`, or from the side its prefab names
+    /// (Level_Room_30_BOSS is 30 m) around its centre. None when neither is known.
+    pub fn room_rect(&self, r: &Room) -> Option<[f64; 4]> {
+        if let Some(q) = r.img_rect.as_ref().filter(|q| q.len() == 4) {
+            return Some([q[0], q[1], q[2], q[3]]);
+        }
+        let side = r.size.or_else(|| r.prefab.trim_start_matches('$').strip_prefix("Level_Room_")?.split('_').next()?.parse().ok())?;
+        let (w, h) = (&self.world_to_image, side as f64 / 2.0);
+        if r.world.len() < 2 || w.sx == 0.0 || side <= 0 {
+            return None;
+        }
+        let (x, z) = (r.world[0], r.world[1]);
+        Some([w.ox + (x - h) * w.sx, w.oy - (z + h) * w.sz, w.ox + (x + h) * w.sx, w.oy - (z - h) * w.sz])
+    }
+
     pub fn nest_count(&self) -> usize {
         self.markers.iter().filter(|m| m.kind == "nest").count()
     }

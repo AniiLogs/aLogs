@@ -1,7 +1,8 @@
 //! The layout the game's log names. On a made-up layout list: a scene finds its Sanctum layout, never the island and
 //! nothing for a scene no layout has. With Sanctum Helper's own assets (from reference/ or a SanctumHelper/ checkout,
 //! skipped without them): the engine, with no game window and so no picture at all, takes the layout the log names
-//! as the Sanctum loads, and never starts working it out from the minimap.
+//! as the Sanctum loads, and never starts working it out from the minimap; a Sanctum it names that no layout has gets
+//! no layout at all.
 
 use alogs_sanctum::engine::Engine;
 use alogs_sanctum::game_log::Place;
@@ -96,6 +97,19 @@ fn the_engine_takes_the_layout_the_log_names() {
     add("createVoxelScene new>>>id:sanctumD");
     let unnamed = wait_until(5.0, || read().contains("no name for this Sanctum"));
     let st2 = e.status();
+    // the run after: the log names a Sanctum no layout here has (one new in the game). None of ours is it, so none is
+    // matched to it: no candidates' maps are loaded and no layout is taken.
+    assert!(db.by_scene(20099).is_none());
+    add("connect to worldx-eu-prod-line-01");
+    add("createVoxelScene new>>>id:lobby2");
+    add("connect to worldx-eu-prod-dungeon-03");
+    add("createVoxelScene new>>>id:islandE");
+    let third_run = wait_until(8.0, || e.status().game_log_place == Some(Place::Island));
+    add("createVoxelScene new>>>id:sanctumF");
+    add("[warn] scene='Level_FB_Random_Map_20099' light probes missing");
+    let unmapped = wait_until(5.0, || read().contains("scene 20099, which no layout here has"));
+    std::thread::sleep(Duration::from_millis(1800));
+    let st3 = e.status();
     drop(e);
     let written = read();
     std::fs::remove_dir_all(&dir).ok();
@@ -109,5 +123,9 @@ fn the_engine_takes_the_layout_the_log_names() {
     assert!(new_run, "the next run forgets the layout: {:?} {:?}\n{written}", st2.game_log_place, st2.layout);
     assert!(unnamed, "{written}");
     assert_eq!(st2.layout, None, "no name, no layout from the log");
+    assert!(third_run && unmapped, "{written}");
+    let after = &written[written.rfind("scene 20099").unwrap()..];
+    assert!(!after.contains("candidates' maps") && !after.contains("layout locked"), "nothing matched to a Sanctum no layout has: {after}");
+    assert_eq!(st3.layout, None);
     eprintln!("the layout was known {took:.2} s after the log named the Sanctum");
 }

@@ -41,6 +41,8 @@ const DISC: Rgba = Rgba(24, 27, 40, 225);
 const DISC_RING: Rgba = Rgba(255, 255, 255, 150);
 const BOAT: Rgba = Rgba::rgb(0xB8, 0xF5, 0x6E);
 const PALE: Rgba = Rgba::rgb(0xE9, 0xEA, 0xF2);
+/// Boss rooms (their frame, label and mark), as Sanctum Helper's OverlayWindow.cs draws them.
+const BOSS: Rgba = Rgba::rgb(0xFF, 0x7A, 0x6B);
 
 /// The on-screen map styles, in the order the settings list them: (value, name, description).
 pub const MINI_MAP_STYLES: [(&str, &str, &str); 6] = [
@@ -577,6 +579,9 @@ impl OverlayView {
             for r in l.rooms.iter().filter(|r| r.kind == "challenge") {
                 t.push(("challenge", r.img.clone(), PALE, 1.0));
             }
+            for r in l.boss_rooms() {
+                t.push(("chest_gold", r.img.clone(), BOSS, 1.0));
+            }
         }
         if s.layer("nest") {
             for m in l.markers.iter().filter(|m| m.kind == "nest") {
@@ -824,10 +829,9 @@ impl OverlayView {
         }
     }
 
-    /// Doors, key rooms, the challenge room, nests and loot with the game's own map icons.
+    /// Doors, key rooms, the challenge room, boss rooms, nests and loot with the game's own map icons.
     fn draw_markers(&mut self, cv: &mut Canvas, s: &Settings, l: &Layout, p: &dyn Fn(&[f64]) -> P2, ms: f64, labels: bool) {
         let icon = 36.0 * ms;
-        let key_rooms: Vec<i64> = l.key_rooms().map(|r| r.id).collect();
         if s.layer("key") {
             for r in l.key_rooms() {
                 let kc = key_color(r);
@@ -866,6 +870,18 @@ impl OverlayView {
                 }
             }
         }
+        // a boss room (Level_Room_30_BOSS: 30 m square), framed as key rooms are, under the Challenge layer
+        if s.layer("challenge") {
+            for r in l.boss_rooms() {
+                let Some(q) = l.room_rect(r) else { continue };
+                let (a, b) = (p(&[q[0], q[1]]), p(&[q[2], q[3]]));
+                let rr = (a.0.min(b.0), a.1.min(b.1), (b.0 - a.0).abs(), (b.1 - a.1).abs());
+                cv.draw(rounded_rect(rr.0, rr.1, rr.2, rr.3, 6.0), Some(&Fill::Solid(BOSS.with_alpha(28))), Some(Pen::new(BOSS.with_alpha(220), (2.5 * ms).max(2.0)).dashed()));
+                if labels {
+                    self.label(cv, &lang::t("Boss room"), ((a.0 + b.0) / 2.0, a.1.min(b.1) - 2.0 * ms), BOSS, 13.0 * ms, true);
+                }
+            }
+        }
         // loot, small first so the important ones draw on top
         for kind in ["pile", "pot", "mound", "simple", "exquisite", "luxurious", "legendary", "nest"] {
             if !s.layer(kind) {
@@ -881,8 +897,9 @@ impl OverlayView {
                         }
                     }
                     "legendary" => {
-                        // always there in a key room; elsewhere only a chance
-                        let sure = key_rooms.contains(&m.room);
+                        // always there in a key room or the boss room (its one spawner of it has no alternative);
+                        // elsewhere only a chance
+                        let sure = l.sure_room(m.room);
                         self.icon(cv, "chest_gold", q, if sure { icon } else { icon * 0.72 }, if sure { 1.0 } else { 0.8 });
                         if sure && labels {
                             self.label(cv, &lang::t("Legendary"), (q.0, q.1 + icon * 0.5), color("legendary"), 11.0 * ms, false);
